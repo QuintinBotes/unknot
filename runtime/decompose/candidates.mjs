@@ -169,8 +169,12 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   for (const id of members) tests += graph.in(id, 'TESTS').length;
   m['tests.present'] = tests;
   m['boundary.internal_imports'] = internalImports;
-  const cyc = (sccs ?? stronglyConnected(graph, { edgeTypes: ['IMPORTS'] })).filter((c) => c.some((x) => members.has(x)));
-  m['cycle.size'] = cyc.length ? Math.max(...cyc.map((c) => c.length)) : 0;
+  // A cycle that crosses the boundary blocks extraction; one wholly inside it does not
+  // (it is the candidate's own problem, reported separately).
+  const touching = (sccs ?? stronglyConnected(graph, { edgeTypes: ['IMPORTS'] })).filter((c) => c.some((x) => members.has(x)));
+  const crossingCycles = touching.filter((c) => c.some((x) => !members.has(x)));
+  m['cycle.size'] = crossingCycles.length ? Math.max(...crossingCycles.map((c) => c.length)) : 0;
+  m['boundary.internal_cycle_size'] = touching.length ? Math.max(...touching.filter((c) => c.every((x) => members.has(x))).map((c) => c.length), 0) : 0;
   if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
   return { ...m, gaps };
 }

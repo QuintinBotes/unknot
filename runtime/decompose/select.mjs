@@ -8,6 +8,7 @@ import { card, evaluate, index } from '../patterns/engine.mjs';
 // Lower is less invasive (spec §15A.6 step 4).
 export const INVASIVENESS = Object.freeze({ T0: 0, T1: 1, T2: 2, T4: 2, T5: 2, T6: 3, T8: 4, T9: 4, T7: 5, T3: 6 });
 export const DRIVER_FREE = new Set(['T0', 'T1', 'T2', 'T8']);
+const BEHAVIOUR_PRESERVING = new Set(['T1', 'T2', 'T4', 'T5', 'T8']);
 
 // Which drivers a treatment can actually satisfy. T6 satisfies none on its own; it is the
 // data prerequisite of T3 and is sequenced before it.
@@ -43,8 +44,23 @@ function treatmentCards(target) {
  */
 export function selectTreatment({ target, signals, drivers }) {
   const cards = treatmentCards(target);
+  // Missing tests do not rule out a behaviour-preserving treatment; they put a
+  // characterization slice in front of it (spec §32 Scenario A). Evaluate as if tests
+  // existed, and remember which treatments needed that.
+  const withTests = { ...signals, 'tests.present': Math.max(1, signals['tests.present'] ?? 0), 'tests.characterization': 1 };
+  const testsMissing = (signals['tests.present'] ?? 0) === 0 || signals['tests.characterization'] === 0;
   const evaluations = [];
-  for (const [t, c] of cards) evaluations.push({ treatment: t, card: c.id, ...evaluate(c, signals) });
+  for (const [t, c] of cards) {
+    const actual = evaluate(c, signals);
+    if (testsMissing && actual.fit === 'contraindicated' && BEHAVIOUR_PRESERVING.has(t)) {
+      const assumed = evaluate(c, withTests);
+      if (assumed.fit !== 'contraindicated') {
+        evaluations.push({ treatment: t, card: c.id, ...assumed, needs_characterization: true, reasons: [...assumed.reasons, 'requires characterization tests first (none cover this scope)'] });
+        continue;
+      }
+    }
+    evaluations.push({ treatment: t, card: c.id, ...actual });
+  }
   const rejected = [];
   const viable = [];
   for (const e of evaluations) {
@@ -76,6 +92,7 @@ export function selectTreatment({ target, signals, drivers }) {
   let chosen = pool[0] ?? null;
   // T3 with shared data goes through T6 first: data ownership before the network seam.
   let sequence = chosen ? [chosen.treatment] : ['T0'];
+  if (chosen?.needs_characterization) sequence = ['characterization', ...sequence];
   if (chosen?.treatment === 'T3' && ((signals['boundary.shared_table_writers'] ?? 0) > 0 || (signals['boundary.cross_joins'] ?? 0) > 0)) {
     const t6 = evaluations.find((e) => e.treatment === 'T6');
     if (t6 && t6.fit !== 'contraindicated') sequence = ['T6', 'T3'];
@@ -83,10 +100,11 @@ export function selectTreatment({ target, signals, drivers }) {
       rejected.push({ treatment: 'T3', reason: 'shared tables must be decomposed first and T6 is contraindicated' });
       chosen = pool.find((p) => p.treatment !== 'T3') ?? null;
       sequence = chosen ? [chosen.treatment] : ['T0'];
+      if (chosen?.needs_characterization) sequence = ['characterization', ...sequence];
     }
   }
   const retain = evaluations.find((e) => e.treatment === 'T0');
-  const treatment = chosen ? sequence[0] : 'T0';
+  const treatment = chosen ? chosen.treatment === 'T3' && sequence[0] === 'T6' ? 'T6' : chosen.treatment : 'T0';
   const gaps = [...new Set(evaluations.flatMap((e) => e.gaps))];
   const favouring = chosen ? chosen.checked.filter((c) => c.kind === 'applicability' && c.result === 'true') : [];
   const confidence = !chosen ? 'medium' : favouring.length >= 2 && gaps.length <= 2 ? 'high' : favouring.length >= 1 ? 'medium' : 'low';
