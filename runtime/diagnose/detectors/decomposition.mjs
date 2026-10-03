@@ -130,9 +130,11 @@ const misplacedModule = {
     for (const m of graph.nodes('module')) {
       if (m.attrs.is_test || m.attrs.placeholder) continue;
       const own = groupOf(graph, m.id);
+      // Who imports a module says where it belongs; what it imports does not (an app
+      // module importing a library package is the normal dependency direction).
       const counts = new Map();
-      for (const e of [...graph.out(m.id, 'IMPORTS'), ...graph.in(m.id, 'IMPORTS')]) {
-        const other = e.from === m.id ? e.to : e.from;
+      for (const e of graph.in(m.id, 'IMPORTS')) {
+        const other = e.from;
         if (graph.node(other)?.type !== 'module') continue;
         const g = groupOf(graph, other);
         counts.set(g, (counts.get(g) ?? 0) + 1);
@@ -144,16 +146,16 @@ const misplacedModule = {
       const shares = terms(m.path ?? m.id).some((t) => vocab.has(t));
       out.push(base({
         kind: 'decomposition.misplaced-module',
-        title: `${m.path ?? m.id.slice(7)} talks to ${label(best)} ${n}× but to its own package ${home}×`,
+        title: `${m.path ?? m.id.slice(7)} is imported ${n}× from ${label(best)} but ${home}× from its own package`,
         scope: [m.path ?? m.id.slice(7)],
         key: m.id,
-        evidence: [{ ref: m.id, label: 'observed', summary: `import edges: ${label(best)} ${n}, ${label(own)} ${home}`, source_ref: m.path }],
+        evidence: [{ ref: m.id, label: 'observed', summary: `importers: ${label(best)} ${n}, ${label(own)} ${home}`, source_ref: m.path }],
         measurements: { 'module.fan_in': graph.in(m.id, 'IMPORTS').length, 'module.fan_out': graph.out(m.id, 'IMPORTS').length },
         thresholds: { min_ratio: minRatio, min_edges: minEdges, note: 'heuristic' },
         blast_radius: 'bounded',
-        why_accidental: 'A module whose dependencies are mostly in another package is living in the wrong place; its package boundary costs every change a cross-package edit.',
+        why_accidental: 'A module used mostly by another package is living in the wrong place: its package exposes it only so that someone else can depend on it, and changes to it are changes for the other package.',
         essential_considerations: ['It may be a deliberate adapter or anti-corruption layer that belongs at the edge of its package', shares ? 'Its name shares vocabulary with the other package, which supports moving it' : 'Its name does not share vocabulary with the other package; check the domain fit before moving it'],
-        smallest_simplification: `Move ${m.path ?? m.id.slice(7)} into ${label(best)} behind a re-export so existing importers keep working.`,
+        smallest_simplification: `Move ${m.path ?? m.id.slice(7)} into ${label(best)}, leaving a re-export so its few remaining importers keep working.`,
         invariants: ['Public exports unchanged (re-exported from the old path for one release)'],
         risks: ['Import paths change for consumers once the re-export is removed'],
         factors: { benefit: 2, evidence: 0.7, reversibility: 0.9, blast: 1, cost: 1, uncertainty: shares ? 2 : 3 },

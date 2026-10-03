@@ -112,13 +112,13 @@ test('deep-nesting and long-parameter-list fire strictly above their thresholds'
     mod('src/n.js'),
     fn('src/n.js', 'deep', { max_nesting: 5 }),
     fn('src/n.js', 'ok', { max_nesting: 4 }),
-    fn('src/n.js', 'many', { params: 6, exported: false }),
-    fn('src/n.js', 'five', { params: 5 }),
+    fn('src/n.js', 'many', { params: 7, exported: false }),
+    fn('src/n.js', 'six', { params: 6 }),
   ];
   assert.deepEqual(keys(run('local.deep-nesting', facts)), ['function:src/n.js#deep']);
   const [p] = run('local.long-parameter-list', facts);
   assert.equal(p.key, 'function:src/n.js#many');
-  assert.equal(p.measurements['function.params'], 6);
+  assert.equal(p.measurements['function.params'], 7);
   assert.match(p.invariants.join(' '), /private/); // not exported: no public signature to keep
   const [q] = run('local.long-parameter-list', [mod('src/n.js'), fn('src/n.js', 'api', { params: 7 })]);
   assert.match(q.invariants.join(' '), /public signature/);
@@ -172,7 +172,11 @@ test('dead-code: unreferenced private symbols and modules, with the documented e
     imp('src/index.js', 'src/d.js'),
   ];
   const out = run('local.dead-code', facts);
-  assert.deepEqual(keys(out), ['function:src/d.js#selfOnly', 'function:src/d.js#unused', 'module:src/orphan.js']);
+  // Private symbols are grouped into one finding per module (dogfood round 1: per-symbol
+  // findings were 2,318 on one repository); orphan modules stay individual.
+  assert.deepEqual(keys(out), ['dead:module:src/d.js', 'module:src/orphan.js']);
+  const group = out.find((d) => d.key === 'dead:module:src/d.js');
+  assert.deepEqual(group.evidence.filter((e) => e.ref.startsWith('function:')).map((e) => e.ref).sort(), ['function:src/d.js#selfOnly', 'function:src/d.js#unused']);
   const mDraft = out.find((d) => d.key === 'module:src/orphan.js');
   assert.equal(mDraft.measurements['symbol.references'], 0);
   assert.ok(mDraft.uncertainties.some((u) => /medium/.test(u) && /dynamic/.test(u)));
@@ -207,10 +211,10 @@ test('one-implementation-interface: exactly one implementer, no more, no less', 
   assert.ok(out[0].alternatives.some((a) => a.id === 'retain'));
 });
 
-test('duplicated-code: one finding per pair from the clones attr; small or dissimilar clones are ignored', () => {
+test('duplicated-code: one finding per clone group; small, dissimilar, test and barrel clones are ignored', () => {
   const clone = (other, lines, similarity) => ({ other, similarity, lines, ranges: [[5, 5 + lines - 1, 7, 7 + lines - 1]] });
   const facts = [
-    mod('src/a.js', { clones: [clone('src/b.js', 24, 0.8), clone('src/tiny.js', 7, 0.9), clone('src/loose.js', 30, 0.1), clone('tests/t.test.js', 30, 0.9)] }),
+    mod('src/a.js', { clones: [clone('src/b.js', 24, 0.8), clone('src/tiny.js', 12, 0.9), clone('src/loose.js', 30, 0.1), clone('tests/t.test.js', 30, 0.9)] }),
     mod('src/b.js', { clones: [{ other: 'src/a.js', similarity: 0.8, lines: 24, ranges: [[7, 30, 5, 28]] }] }),
     mod('src/tiny.js'),
     mod('src/loose.js'),
@@ -223,11 +227,13 @@ test('duplicated-code: one finding per pair from the clones attr; small or dissi
   assert.deepEqual(d.scope, ['src/a.js', 'src/b.js']);
   assert.equal(d.measurements['duplication.similarity'], 0.8);
   assert.equal(d.measurements['duplication.instances'], 2);
-  assert.equal(d.evidence.length, 2);
   assert.equal(d.evidence[0].source_ref, 'src/a.js:5');
-  assert.equal(d.evidence[1].source_ref, 'src/b.js:7');
   assert.ok(d.patterns.includes('anti-pattern.copy-paste-programming'));
-  assert.deepEqual(run('local.duplicated-code', facts, { min_lines: 5 }).map((x) => x.key), ['clone:src/a.js|src/b.js', 'clone:src/a.js|src/tiny.js']);
+  // With a lower threshold the tiny clone joins: modules cloned together form one group.
+  const grouped = run('local.duplicated-code', facts, { min_lines: 5 });
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0].scope, ['src/a.js', 'src/b.js', 'src/tiny.js']);
+  assert.equal(grouped[0].measurements['duplication.instances'], 3);
 });
 
 test('speculative-generality: wrapper-named class or module with one implementation and few consumers', () => {

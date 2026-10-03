@@ -34,7 +34,15 @@ const secretExposure = {
   category: 'security',
   kinds: ['security.secret-exposure'],
   detect({ graph: g }) {
-    return g.nodes('file').filter((f) => Array.isArray(f.attrs.secrets) && f.attrs.secrets.length).sort(byId).map((f) => {
+    // In tests, fixtures, examples and docs, placeholder credentials are the norm; only
+    // token formats that are specific enough to be real are reported there.
+    const SAMPLE = /(^|\/)(tests?|__tests__|spec|fixtures?|examples?|samples?|mocks?|docs?|e2e|testdata|seed)(\/|$)|\.(example|sample|template|dist)(\.|$)|\.md$|(^|\/)\.github\/workflows\//i;
+    const STRONG = new Set(['private-key', 'aws-access-key-id', 'aws-secret-access-key', 'github-token', 'gitlab-token', 'slack-token', 'slack-webhook', 'stripe-key', 'google-api-key', 'anthropic-key', 'openai-key', 'npm-token', 'azure-storage-key']);
+    return g.nodes('file').filter((f) => Array.isArray(f.attrs.secrets) && f.attrs.secrets.length).sort(byId).flatMap((f) => {
+      const sample = SAMPLE.test(f.path ?? f.name ?? '');
+      const secrets = sample ? f.attrs.secrets.filter((s) => STRONG.has(s.kind)) : f.attrs.secrets;
+      if (!secrets.length) return [];
+      f = { ...f, attrs: { ...f.attrs, secrets } };
       const kinds = sortedUniq(f.attrs.secrets.map((s) => s.kind));
       const lines = f.attrs.secrets.map((s) => s.line).filter((l) => Number.isInteger(l)).sort((a, b) => a - b);
       return draft({

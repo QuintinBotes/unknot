@@ -21,7 +21,7 @@ function fixture({ coupled = true } = {}) {
   }
   for (let i = 0; i < 5; i++) {
     facts.push(mod(`app/billing/x${i}.ts`));
-    if (coupled) facts.push(edgeFact('IMPORTS', 'module:app/orders/c.ts', `module:app/billing/x${i}.ts`, {}, p));
+    if (coupled) facts.push(edgeFact('IMPORTS', `module:app/billing/x${i}.ts`, 'module:app/orders/c.ts', {}, p));
   }
   facts.push(mod('src/features/cart/ui.tsx', { language: 'typescript' }));
   for (let i = 0; i < 3; i++) {

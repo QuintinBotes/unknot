@@ -236,12 +236,15 @@ const deepNesting = define({
 const longParameterList = define({
   name: 'long-parameter-list',
   kinds: ['code.long-parameter-list'],
-  defaults: { params: 5 },
+  // 6, not 5: idiomatic framework handlers (FastAPI dependencies, Express (req, res, next))
+  // routinely take several injected parameters. Endpoint handlers are skipped below.
+  defaults: { params: 6 },
   run(graph, o) {
     const out = [];
     for (const n of codeSymbols(graph)) {
       const p = n.attrs.params;
       if (typeof p !== 'number' || p <= o.params) continue;
+      if (graph.out(n.id, 'EXPOSES').length || (n.attrs.decorators ?? []).some((d) => /route|get|post|put|patch|delete|api|endpoint|task|command/i.test(d))) continue; // framework entry point: parameters are injected
       const d = base(graph, n, {
         kind: 'code.long-parameter-list',
         title: `${nameOf(n)} takes ${p} parameters (threshold ${o.params})`,
@@ -416,45 +419,76 @@ function calledNames(graph) {
   return byModule;
 }
 
+// Languages read by the generic lexical adapter resolve calls only within a file, so "no
+// callers" there is not evidence.
+const LEXICAL_LANGUAGES = new Set(['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'swift', 'scala', 'c', 'cpp']);
+const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || LEXICAL_LANGUAGES.has(m?.attrs?.language);
+
+// Names that reach a function by convention rather than by a call the graph records:
+// React components (used as JSX), hooks, event handlers and lifecycle callbacks.
+const CONVENTION_NAME = /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z]?|get(Static|Server)Props$|generate(Metadata|StaticParams)$|loader$|action$|default$)/;
+
 const deadCode = define({
   name: 'dead-code',
   kinds: ['code.dead-code'],
   run(graph) {
     const out = [];
     const called = calledNames(graph);
+    // Any call by this name anywhere counts: cross-file resolution is incomplete, and a
+    // false "dead" claim costs more than a missed one.
+    const anywhere = new Set();
+    for (const set of called.values()) for (const n of set) anywhere.add(n);
     const hasImports = graph.edges('IMPORTS').length > 0;
+    const perModule = new Map();
 
     for (const n of codeSymbols(graph)) {
       if (n.attrs.exported !== false) continue;
+      const mod = moduleOf(graph, n);
+      if (!mod || isTestModule(mod)) continue;
+      // Lexically parsed languages resolve calls within a file only; absence of callers
+      // there says nothing.
+      if (lexicalOnly(mod)) continue;
+      const parent = graph.parent(n.id);
+      if (parent && (parent.type === 'function' || parent.type === 'method')) continue; // closures are returned or passed, not called by name
       const short = nameOf(n).split('.').pop();
       if (/^__\w+__$/.test(short) || /^(main|init|setup|teardown)$/i.test(short) || /^test/i.test(short)) continue;
+      if (CONVENTION_NAME.test(short)) continue;
+      if (/\.(jsx|tsx)$/.test(n.path ?? '') && /^[A-Z]/.test(short)) continue; // JSX components
       if ((n.attrs.decorators ?? []).length) continue; // registered by a decorator: reachable by convention
       if (graph.in(n.id, 'CALLS').length) continue;
       if (graph.in(n.id, ['INSTANTIATES', 'REFERENCES']).length) continue;
-      if (called.get(n.path)?.has(short) || called.get(n.path)?.has(nameOf(n))) continue;
-      const d = base(graph, n, {
+      if (called.get(n.path)?.has(short) || called.get(n.path)?.has(nameOf(n)) || anywhere.has(short)) continue;
+      if (!perModule.has(mod.id)) perModule.set(mod.id, { mod, symbols: [] });
+      perModule.get(mod.id).symbols.push(n);
+    }
+    for (const { mod, symbols } of perModule.values()) {
+      const lines = symbols.reduce((a, n) => a + (n.attrs.lines ?? 0), 0);
+      const names = symbols.map((n) => nameOf(n));
+      const d = base(graph, mod, {
         kind: 'code.dead-code',
-        title: `Private ${symbolKind(n)} ${nameOf(n)} has no callers`,
-        summary: 'no inbound CALLS edge and no same-module call by name',
-        measurements: { 'symbol.references': 0, ...(n.attrs.lines != null && { 'function.lines': n.attrs.lines }) },
+        title: symbols.length === 1 ? `Private ${symbolKind(symbols[0])} ${names[0]} in ${mod.path} has no callers` : `${symbols.length} private functions in ${mod.path} have no callers (${names.slice(0, 4).join(', ')}${names.length > 4 ? ', …' : ''})`,
+        summary: 'no inbound CALLS edge and no call by name anywhere in the repository',
+        measurements: { 'symbol.references': 0, 'function.lines': lines },
         thresholds: { callers: 0, note: 'heuristic: absence of static references is not proof of unreachability' },
-        benefit: 1 + Math.min(2, (n.attrs.lines ?? 0) / 40),
+        benefit: 1 + Math.min(2, lines / 60),
         cost: 1,
-        evidence: Math.min(0.6, evidenceFor(moduleOf(graph, n)?.attrs)),
+        evidence: Math.min(0.6, evidenceFor(mod.attrs)),
         uncertain: 2,
       });
       out.push({
         ...d,
+        key: `dead:${mod.id}`,
+        evidence: [...d.evidence, ...symbols.slice(0, 8).map((n) => ({ ref: n.id, label: 'inferred', summary: `${nameOf(n)}: ${n.attrs.lines ?? '?'} lines, no callers`, source_ref: n.attrs.start_line ? `${n.path}:${n.attrs.start_line}` : n.path }))],
         confidence: 'medium',
         why_accidental: 'Code nobody calls still has to be read, maintained and kept compiling.',
         essential_considerations: ['It may be reached dynamically (reflection, getattr, string dispatch, a framework convention) in ways static analysis cannot see.'],
-        smallest_simplification: `Delete ${nameOf(n)} (${n.attrs.lines ?? '?'} lines) after confirming nothing references its name outside the graph.`,
-        risks: ['Dynamic dispatch or reflection may reach it.', 'Serialization or plugin hooks may look it up by name.'],
-        verification: verificationFor(d.measurements['tests.present'], [`Search the repository for the string "${short}" to rule out dynamic references.`]),
+        smallest_simplification: `Delete ${names.slice(0, 3).join(', ')}${names.length > 3 ? ' and the rest listed' : ''} (${lines} lines) after confirming nothing references them dynamically.`,
+        risks: ['Dynamic dispatch or reflection may reach them.', 'Serialization or plugin hooks may look them up by name.'],
+        verification: verificationFor(d.measurements['tests.present'], names.slice(0, 3).map((x) => `Search the repository for the string "${x.split('.').pop()}" to rule out dynamic references.`)),
         uncertainties: [...d.uncertainties, 'Confidence is medium: dynamic imports, reflection and framework conventions are invisible to the static graph.'],
         alternatives: [
-          { id: 'retain', summary: 'Keep it if it is reached dynamically or is scaffolding for work already committed to.' },
-          { id: 'remove', summary: 'Delete the symbol; version control keeps the history.' },
+          { id: 'retain', summary: 'Keep them if they are reached dynamically or are scaffolding for work already committed to.' },
+          { id: 'remove', summary: 'Delete them; version control keeps the history.' },
         ],
         patterns: ['code.remove-dead-code', 'anti-pattern.lava-flow'],
       });
@@ -464,6 +498,7 @@ const deadCode = define({
     if (hasImports) {
       for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) {
         if (isTestModule(m)) continue;
+        if (lexicalOnly(m)) continue;
         if (graph.in(m.id, 'IMPORTS').length) continue;
         const reason = moduleEntryReason(graph, m, entries);
         if (reason) continue;
@@ -558,60 +593,79 @@ const oneImplementationInterface = define({
   },
 });
 
+// Barrel and package-init files are mostly import/export lists; their "clones" are
+// boilerplate, not copied logic.
+const BARREL = /(^|\/)(__init__\.py|index\.(js|mjs|cjs|ts|tsx|jsx)|mod\.rs|lib\.rs)$/;
+
 const duplicatedCode = define({
   name: 'duplicated-code',
   kinds: ['code.duplicated-code'],
-  defaults: { min_lines: 10, min_similarity: 0.2 },
+  defaults: { min_lines: 20, min_similarity: 0.4 },
   run(graph, o) {
-    const out = [];
+    // Pairs that pass the thresholds, then one finding per group of mutually cloned
+    // modules: twelve copies of one block are one problem, not sixty-six.
+    const pairs = [];
     const seen = new Set();
     for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-      if (isTestModule(m)) continue;
+      if (isTestModule(m) || BARREL.test(m.path ?? '')) continue;
       for (const c of m.attrs.clones ?? []) {
         const other = graph.node(`module:${c.other}`);
-        if (other && isTestModule(other)) continue;
+        if (!other || isTestModule(other) || BARREL.test(c.other)) continue;
         const [a, b] = m.path < c.other ? [m.path, c.other] : [c.other, m.path];
-        const key = `clone:${a}|${b}`;
+        const key = `${a}|${b}`;
         if (seen.has(key)) continue;
-        const lines = c.lines ?? 0;
-        if (lines < o.min_lines || (c.similarity ?? 0) < o.min_similarity) continue;
+        if ((c.lines ?? 0) < o.min_lines || (c.similarity ?? 0) < o.min_similarity) continue;
         seen.add(key);
-        const ranges = c.ranges ?? [];
-        const here = m.path === a;
-        const r0 = ranges[0] ?? [1, 1, 1, 1];
-        const lineA = here ? r0[0] : r0[2];
-        const lineB = here ? r0[2] : r0[0];
-        const pct = Math.round((c.similarity ?? 0) * 100);
-        const tests = graph.in(`module:${a}`, 'TESTS').length + graph.in(`module:${b}`, 'TESTS').length;
-        out.push({
-          kind: 'code.duplicated-code',
-          title: `${lines} duplicated lines (${pct}% similarity) between ${a} and ${b}`,
-          scope: [a, b],
-          key,
-          evidence: [
-            { ref: `module:${a}`, label: 'observed', summary: `${ranges.length} cloned range(s); first at line ${lineA}`, source_ref: `${a}:${lineA}` },
-            { ref: `module:${b}`, label: 'observed', summary: `${ranges.length} cloned range(s); first at line ${lineB}`, source_ref: `${b}:${lineB}` },
-          ],
-          measurements: { 'duplication.similarity': c.similarity ?? 0, 'duplication.instances': 2, 'tests.present': tests },
-          thresholds: { min_lines: o.min_lines, min_similarity: o.min_similarity, note: 'heuristic: token-fingerprint clones ignore identifier names and literals, so near-misses are included' },
-          why_accidental: 'The same logic exists twice, so a fix applied to one copy silently misses the other.',
-          essential_considerations: ['The copies may be intentionally independent (different services, different release cadence) or may diverge soon.'],
-          smallest_simplification: `Extract the shared ${lines}-line block into one function used by both ${a} and ${b}.`,
-          invariants: ['Observable behaviour of both call sites is unchanged.', 'Public signatures of both modules are unchanged.'],
-          risks: ['The copies may differ in a subtle way the fingerprint ignores (names, literals).', 'A shared helper creates a new dependency between the two modules.'],
-          verification: verificationFor(tests, ['Diff the two ranges by hand to confirm they are equivalent before merging them.']),
-          recovery: { type: 'revert', notes: 'A single reviewable commit.' },
-          quality_impacts: { changeability: 'medium', reliability: 'medium', security: 'low' },
-          blast_radius: 'bounded',
-          factors: { benefit: clamp(Math.round(1 + lines / 25 + (c.similarity ?? 0) * 2), 1, 5), evidence: 0.6, reversibility: 0.9, blast: 2, cost: 2, uncertainty: 2 },
-          uncertainties: ['Clones are found by token fingerprints (medium confidence), not by semantic equivalence.'],
-          alternatives: [
-            { id: 'retain', summary: 'Keep both copies when they are expected to diverge or live in independently released components.' },
-            { id: 'extract-shared-function', summary: 'Extract the common block into one shared function.' },
-          ],
-          patterns: ['code.extract-function', 'anti-pattern.copy-paste-programming'],
-        });
+        const r0 = (c.ranges ?? [])[0] ?? [1, 1, 1, 1];
+        pairs.push({ a, b, lines: c.lines, similarity: c.similarity ?? 0, lineA: m.path === a ? r0[0] : r0[2], lineB: m.path === a ? r0[2] : r0[0] });
       }
+    }
+    const parent = new Map();
+    const find = (x) => (parent.get(x) === x || !parent.has(x) ? (parent.set(x, parent.get(x) ?? x), parent.get(x)) : parent.set(x, find(parent.get(x))).get(x));
+    for (const p of pairs) {
+      const ra = find(p.a);
+      const rb = find(p.b);
+      if (ra !== rb) parent.set(rb, ra);
+    }
+    const groups = new Map();
+    for (const p of pairs) {
+      const r = find(p.a);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(p);
+    }
+    const out = [];
+    for (const list of groups.values()) {
+      const members = [...new Set(list.flatMap((p) => [p.a, p.b]))].sort();
+      const lines = Math.max(...list.map((p) => p.lines));
+      const sim = Math.max(...list.map((p) => p.similarity));
+      const pct = Math.round(sim * 100);
+      const tests = members.reduce((n, x) => n + graph.in(`module:${x}`, 'TESTS').length, 0);
+      const title = members.length === 2 ? `${lines} duplicated lines (${pct}% similarity) between ${members[0]} and ${members[1]}` : `A ${lines}-line block is duplicated across ${members.length} modules (up to ${pct}% similarity)`;
+      out.push({
+        kind: 'code.duplicated-code',
+        title,
+        scope: members,
+        key: `clone:${members.join('|')}`,
+        evidence: list.slice(0, 8).map((p) => ({ ref: `module:${p.a}`, label: 'observed', summary: `${p.lines} lines shared with ${p.b} (${Math.round(p.similarity * 100)}%)`, source_ref: `${p.a}:${p.lineA}` })),
+        measurements: { 'duplication.similarity': sim, 'duplication.instances': members.length, 'tests.present': tests },
+        thresholds: { min_lines: o.min_lines, min_similarity: o.min_similarity, note: 'heuristic: token-fingerprint clones ignore identifier names and literals, so near-misses are included' },
+        why_accidental: 'The same logic exists more than once, so a fix applied to one copy silently misses the others.',
+        essential_considerations: ['The copies may be intentionally independent (different services, different release cadence) or may diverge soon.'],
+        smallest_simplification: members.length === 2 ? `Extract the shared ${lines}-line block into one function used by both modules.` : `Extract the shared block into one function and replace the ${members.length} copies one at a time.`,
+        invariants: ['Observable behaviour of every call site is unchanged.', 'Public signatures of the modules are unchanged.'],
+        risks: ['The copies may differ in a subtle way the fingerprint ignores (names, literals).', 'A shared helper creates a new dependency between the modules.'],
+        verification: verificationFor(tests, ['Diff the cloned ranges by hand to confirm they are equivalent before merging them.']),
+        recovery: { type: 'revert', notes: 'A single reviewable commit per copy replaced.' },
+        quality_impacts: { changeability: 'medium', reliability: 'medium', security: 'low' },
+        blast_radius: members.length > 3 ? 'moderate' : 'bounded',
+        factors: { benefit: clamp(Math.round(1 + lines / 25 + sim * 2 + (members.length - 2) * 0.5), 1, 5), evidence: 0.6, reversibility: 0.9, blast: members.length > 3 ? 3 : 2, cost: clamp(members.length - 1, 1, 5), uncertainty: 2 },
+        uncertainties: ['Clones are found by token fingerprints (medium confidence), not by semantic equivalence.'],
+        alternatives: [
+          { id: 'retain', summary: 'Keep the copies when they are expected to diverge or live in independently released components.' },
+          { id: 'extract-shared-function', summary: 'Extract the common block into one shared function.' },
+        ],
+        patterns: ['code.extract-function', 'anti-pattern.copy-paste-programming'],
+      });
     }
     return out;
   },

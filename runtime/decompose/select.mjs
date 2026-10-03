@@ -113,7 +113,7 @@ export function selectTreatment({ target, signals, drivers }) {
     sequence,
     card: chosen?.card ?? retain?.card ?? 'decomposition.retain',
     serves: chosen?.serves ?? [],
-    favoring_signals: favouring.map((c) => ({ signal: c.predicate.metric, value: c.value, source: 'measured', condition: c.id })),
+    favoring_signals: favouring.map((c) => ({ signal: c.predicate.metric, value: c.value, source: `measured (${c.id})` })),
     contraindications_checked: (chosen ?? retain)?.checked.filter((c) => c.kind === 'contraindication').map((c) => ({ id: c.id, result: c.result === 'true' ? 'fail' : c.result === 'false' ? 'pass' : 'unknown', value: c.value })) ?? [],
     rejected_treatments: rejected,
     evidence_gaps: gaps,

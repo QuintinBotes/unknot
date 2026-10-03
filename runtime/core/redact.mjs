@@ -18,7 +18,7 @@ const RULES = [
   ['npm-token', /\bnpm_[A-Za-z0-9]{36}\b/g],
   ['azure-storage-key', /(?<=AccountKey=)[A-Za-z0-9+/=]{40,}/g],
   ['jwt', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g],
-  ['url-credentials', /(?<=\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]{1,128}:)[^\s@'"]{3,256}(?=@)/gi],
+  ['url-credentials', /(?<=\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]{1,128}:)(?!(?:password|postgres|secret|changeme|example|test|testing|dev|admin|root|guest|pass|user|mysql|redis|rabbit|local|\$\{?[A-Za-z_]+\}?|<[^>]+>)@)[^\s@'"]{3,256}(?=@)/gi],
 ];
 
 const ASSIGNMENT =
@@ -53,6 +53,9 @@ export function findSecrets(text, { extraPatterns = [] } = {}) {
   for (const m of text.matchAll(ASSIGNMENT)) {
     const value = m[2];
     if (PLACEHOLDER.test(value) || entropy(value) < 3.2) continue;
+    // `token = secrets.token_urlsafe(32)` or `password: req.body.password` is code, not a
+    // secret: a credential value has no call parentheses, member access chains or templates.
+    if (/[()[\]{}$]|^[A-Za-z_][\w]*(\.[A-Za-z_]\w*)+$|^[A-Za-z_]+$/.test(value)) continue;
     const start = m.index + m[0].length - value.length;
     hits.push({ kind: `assigned-${m[1].toLowerCase().replace(/[_-]/g, '')}`, start, end: start + value.length });
   }
