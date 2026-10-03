@@ -42,7 +42,7 @@ test('discover parses gitleaks output into scanner findings and records what ran
   const out = JSON.stringify([{ RuleID: 'aws-access-token', File: '/repo/src/a.js', StartLine: 7, Secret: 'REDACTED', Match: `key=${AWS}` }]);
   const ctx = {
     root: '/repo',
-    options: {},
+    options: { gitleaks: true },
     exec: async (argv, opts) => { calls.push({ argv, opts }); return { exitCode: 1, stdout: out, stderr: '' }; },
   };
   const facts = await adapter.discover(ctx);
@@ -64,7 +64,7 @@ test('discover runs semgrep and osv-scanner only when locally configured', async
   const seen = [];
   const ctx = {
     root: '/repo',
-    options: { semgrep_config: 'rules/local.yml', osv_offline_db: '/db' },
+    options: { gitleaks: true, semgrep_config: 'rules/local.yml', osv_offline_db: '/db' },
     exec: async (argv) => {
       seen.push(argv[0]);
       if (argv[0] === 'semgrep') return { stdout: JSON.stringify({ results: [{ check_id: 'r.eval', path: 'src/b.py', start: { line: 3 }, extra: { severity: 'ERROR', message: `use of eval ${AWS}` } }] }) };
@@ -83,7 +83,7 @@ test('discover runs semgrep and osv-scanner only when locally configured', async
 test('discover tolerates missing or forbidden tools', async () => {
   const ctx = {
     root: '/repo',
-    options: { semgrep_config: 'rules.yml' },
+    options: { gitleaks: true, semgrep_config: 'rules.yml' },
     exec: async (argv) => {
       throw Object.assign(new Error(`${argv[0]} is not installed`), { code: 'UK_ADAPTER_UNSUPPORTED' });
     },
@@ -96,6 +96,6 @@ test('discover tolerates missing or forbidden tools', async () => {
 });
 
 test('discover records an unexpected failure without throwing', async () => {
-  const facts = await adapter.discover({ root: '/r', options: {}, exec: async () => { throw new Error('boom'); } });
+  const facts = await adapter.discover({ root: '/r', options: { gitleaks: true }, exec: async () => { throw new Error('boom'); } });
   assert.deepEqual(facts[0].attrs.failed, ['gitleaks']);
 });
