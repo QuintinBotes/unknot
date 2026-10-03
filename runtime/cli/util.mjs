@@ -96,18 +96,25 @@ export function table(rows, columns) {
  * Use the active run when there is one for this command family; otherwise start one and
  * end it when `fn` finishes, so a human-terminal invocation never leaves a run open.
  */
-export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id = null, campaign_id = null }, fn) {
-  const { activeRun, startRun, endRun } = await import('../state/runs.mjs');
+export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id = null, campaign_id = null, persist = false }, fn) {
+  const { activeRun, startRun, endRun, setRunSlice } = await import('../state/runs.mjs');
   const existing = activeRun(ctx.store);
-  if (existing) return fn(existing);
+  if (existing) {
+    if (slice_id && !existing.slice_id) setRunSlice(ctx, existing.id, slice_id);
+    return fn(activeRun(ctx.store));
+  }
   const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, config: cfg.config, configDigest: cfg.digest });
   let outcome = 'completed';
+  let keep = persist && !isHuman(actor);
   try {
     return await fn(run);
   } catch (err) {
     outcome = err?.code === 'UK_BUDGET_EXCEEDED' ? 'budget_exceeded' : 'failed';
+    keep = false;
     throw err;
   } finally {
-    endRun(ctx, run.id, { outcome, actor });
+    // An agent's apply keeps its run (and so the hooks' enforcement) until the Stop hook
+    // ends it; a human's terminal command never leaves a run behind.
+    if (!keep) endRun(ctx, run.id, { outcome, actor });
   }
 }

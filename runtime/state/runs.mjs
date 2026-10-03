@@ -111,3 +111,13 @@ export function setRunState(ctx, runId, state, reason, actor = 'runtime:unknot')
   ctx.store.update('runs', runId, run.version, { state });
   appendEvent(ctx, { type: 'state.transition', run_id: runId, actor, payload: { entity: 'run', from: run.state, to: state, reason } });
 }
+
+/** Bind a slice to an active run (hooks read the slice through the run). */
+export function setRunSlice(ctx, runId, sliceId, actor = 'runtime:unknot') {
+  const run = getRun(ctx.store, runId);
+  if (run.slice_id === sliceId) return run;
+  if (run.slice_id) throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}`);
+  ctx.store.update('runs', runId, run.version, { slice_id: sliceId });
+  appendEvent(ctx, { type: 'run.bound', run_id: runId, slice_id: sliceId, actor, payload: { slice: sliceId } });
+  return getRun(ctx.store, runId);
+}
