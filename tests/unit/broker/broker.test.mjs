@@ -283,7 +283,9 @@ describe('brokered environment', () => {
       assert.equal(env.TERM, 'dumb');
       assert.equal(env.NO_COLOR, '1');
       assert.ok(env.PATH);
-      assert.ok(env.TMPDIR.startsWith(p.ctx.paths.runs), 'TMPDIR is under the run directory');
+      // A private temp dir outside the project (dogfood round 3: scratch git repos must not
+      // nest inside the analysed repository).
+      assert.ok(!env.TMPDIR.startsWith(p.dir) && /unknot-run-/.test(env.TMPDIR), 'TMPDIR is a private dir outside the project');
     } finally {
       for (const [k, v] of Object.entries(saved)) {
         if (v === undefined) delete process.env[k];
@@ -375,10 +377,10 @@ describe('OS sandbox enforcement (macOS)', { skip: process.platform !== 'darwin'
     }
   });
 
-  test('writing under the project run directory and tmp is allowed', async () => {
+  test('writing under the project run directory and the private TMPDIR is allowed', async () => {
     const { run } = K.startTestRun(p);
-    const target = join(p.ctx.paths.runs, run.id, 'tmp', 'ok.txt');
-    const r = await exec(node(`require('fs').writeFileSync(${JSON.stringify(target)}, 'x'); console.log('ok')`, { run }));
+    const target = join(p.ctx.paths.runs, run.id, 'ok.txt');
+    const r = await exec(node(`require('fs').writeFileSync(${JSON.stringify(target)}, 'x'); require('fs').writeFileSync(require('path').join(process.env.TMPDIR, 't.txt'), 'y'); console.log('ok')`, { run }));
     assert.equal(r.stdout.toString().trim(), 'ok');
     K.runs.endRun(p.ctx, run.id);
   });

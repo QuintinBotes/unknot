@@ -5,8 +5,8 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, appendFileSync, constants, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { accessSync, appendFileSync, constants, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, join, resolve as resolvePath } from 'node:path';
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
@@ -159,10 +159,13 @@ export async function brokerExec(ctx, req) {
     throw new UnknotError('UK_POLICY_DENIED', `${argv[0]} resolves inside the repository (${resolved}); the runtime does not execute repository-supplied tools`);
   }
   const runDir = join(ctx.paths.runs, run?.id ?? 'adhoc');
-  const tmp = join(runDir, 'tmp');
-  mkdirSync(tmp, { recursive: true, mode: 0o700 });
+  // A private temp dir outside the project: tests that create scratch git repositories
+  // under TMPDIR behave differently when it sits inside another repository (dogfood
+  // round 3: circuit-breaker's suite failed only under Unknot for this reason).
+  mkdirSync(runDir, { recursive: true, mode: 0o700 });
+  const tmp = mkdtempSync(join(tmpdir(), `unknot-${(run?.id ?? 'adhoc').replace(/[^a-z0-9-]/gi, '')}-`));
   const sandboxKind = detectSandbox();
-  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir], network, requireSandbox: config?.security?.require_os_sandbox ?? false });
+  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], network, requireSandbox: config?.security?.require_os_sandbox ?? false });
   const env = minimalEnv({ tmp });
   const execId = `ex-${randomId(6)}`;
   const startedAt = nowISO();
@@ -205,6 +208,11 @@ export async function brokerExec(ctx, req) {
     else child.stdin.end();
   });
 
+  try {
+    rmSync(tmp, { recursive: true, force: true });
+  } catch {
+    // best effort: the OS cleans its temp directory eventually
+  }
   const stdout = Buffer.concat(result.streams.stdout.chunks);
   const stderr = Buffer.concat(result.streams.stderr.chunks);
   const stdoutRef = casPut(ctx, stdout, { mediaType: 'text/plain', runId: run?.id, label: `${execId}.stdout` });
