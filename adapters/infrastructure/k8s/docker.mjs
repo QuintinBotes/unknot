@@ -13,12 +13,26 @@ import { posix } from 'node:path';
 const CURL_PIPE_SHELL = /\b(curl|wget)\b[^|;&\n]*\|\s*(sudo\s+(-\w+\s+)?)?(ba|z|da)?sh\b/;
 
 /** Join continuation lines and drop comments; returns [{line, text}] logical instructions. */
+const INSTRUCTIONS = new Set(['FROM', 'RUN', 'CMD', 'LABEL', 'MAINTAINER', 'EXPOSE', 'ENV', 'ADD', 'COPY', 'ENTRYPOINT', 'VOLUME', 'USER', 'WORKDIR', 'ARG', 'ONBUILD', 'STOPSIGNAL', 'HEALTHCHECK', 'SHELL']);
+
 function logicalLines(text) {
   const raw = text.split(/\r?\n/);
   const out = [];
   let buf = null;
   let startLine = 0;
+  // BuildKit heredocs (`RUN <<EOF ... EOF`, `COPY <<EOF /path`): the body is part of the
+  // instruction, never instructions of its own (a script line `from x import y` is not FROM).
+  let heredoc = null;
   raw.forEach((l, i) => {
+    if (heredoc) {
+      buf += `\n${l}`;
+      if ((heredoc.strip ? l.replace(/^\t+/, '') : l).trim() === heredoc.word) heredoc = null;
+      if (!heredoc && buf !== null) {
+        out.push({ line: startLine, text: buf.trim() });
+        buf = null;
+      }
+      return;
+    }
     if (buf === null && /^\s*#/.test(l)) return;
     if (buf !== null && /^\s*#/.test(l)) return; // comment lines inside a continuation
     if (buf === null && l.trim() === '') return;
@@ -29,6 +43,11 @@ function logicalLines(text) {
       startLine = i + 1;
     } else {
       buf += ` ${piece.trim()}`;
+    }
+    const hd = /<<(-?)\s*["']?([A-Za-z_][\w]*)["']?/.exec(piece);
+    if (hd && !cont) {
+      heredoc = { word: hd[2], strip: hd[1] === '-' };
+      return;
     }
     if (!cont) {
       out.push({ line: startLine, text: buf.trim() });
@@ -70,9 +89,10 @@ export function extractDockerfile(path, text) {
   let firstLine = 1;
 
   for (const { line, text: t } of logicalLines(text)) {
-    const m = /^([A-Za-z]+)\s*(.*)$/.exec(t);
+    const m = /^([A-Za-z]+)\s*([\s\S]*)$/.exec(t);
     if (!m) continue;
     const ins = m[1].toUpperCase();
+    if (!INSTRUCTIONS.has(ins)) continue;
     const args = m[2];
     if (ins === 'FROM') {
       const parts = args.split(/\s+/).filter((p) => !p.startsWith('--'));

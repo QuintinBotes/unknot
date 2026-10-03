@@ -121,18 +121,22 @@ const symbolKind = (node) => (node.type === 'method' ? 'method' : 'function');
 const longFunction = define({
   name: 'long-function',
   kinds: ['code.long-function'],
-  defaults: { lines: 80 },
+  // UI components are measured against their own threshold: JSX markup is lines without
+  // branching (dogfood round 2: 269 of 545 findings on one TSX app were components).
+  defaults: { lines: 80, component_lines: 150 },
   run(graph, o) {
     const out = [];
     for (const n of codeSymbols(graph)) {
       const lines = n.attrs.lines ?? 0;
-      if (lines <= o.lines) continue;
+      const component = /\.(jsx|tsx|vue|svelte)$/.test(n.path ?? '') && /^[A-Z]/.test(nameOf(n).split('.').pop());
+      const limit = component ? o.component_lines : o.lines;
+      if (lines <= limit) continue;
       const d = base(graph, n, {
         kind: 'code.long-function',
-        title: `${nameOf(n)} is ${lines} lines long (threshold ${o.lines})`,
+        title: `${component ? 'Component ' : ''}${nameOf(n)} is ${lines} lines long (threshold ${limit})`,
         summary: `${lines} lines, cyclomatic ${n.attrs.cyclomatic ?? '?'}, max nesting ${n.attrs.max_nesting ?? '?'}`,
         measurements: { 'function.lines': lines, ...(n.attrs.cyclomatic != null && { 'function.cyclomatic': n.attrs.cyclomatic }) },
-        thresholds: { lines: o.lines, 'lines.note': 'heuristic: a readability guideline, not a defect limit' },
+        thresholds: { lines: limit, 'lines.note': 'heuristic: a readability guideline, not a defect limit' },
         benefit: 1 + lines / 80,
         cost: lines > 300 ? 4 : lines > 150 ? 3 : 2,
       });
