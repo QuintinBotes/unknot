@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+// Extensionless entry for Claude Code hooks. CommonJS can dynamic-import ESM, and the
+// catch below makes sure a broken install never exits without an answer.
+'use strict';
+
+const eventName = process.argv[2];
+
+import('../runtime/hooks/main.mjs')
+  .then(({ main }) => main(eventName))
+  .catch((err) => {
+    process.stderr.write(`unknot-hook: failed to start: ${err && err.message}\n`);
+    if (eventName === 'PreToolUse') {
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: 'Unknot hook failed to start; reinstall the plugin or run `unknot doctor`.',
+          },
+        }) + '\n',
+      );
+    }
+    process.exitCode = 0;
+  });
