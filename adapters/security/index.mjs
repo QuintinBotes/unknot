@@ -128,7 +128,11 @@ export default {
       }
     };
 
-    await run('gitleaks', ['gitleaks', 'detect', '--no-git', '--redact', '--report-format', 'json', '--report-path', '/dev/stdout', '--source', root], parseGitleaks);
+    // External scanners are opt-in during mapping (they rescan the whole tree on every
+    // map); the built-in secret scan in extract() always runs, and verification runs
+    // configured scanners as obligations.
+    if (options.gitleaks) await run('gitleaks', ['gitleaks', 'detect', '--no-git', '--redact', '--report-format', 'json', '--report-path', '/dev/stdout', '--source', root], parseGitleaks);
+    else skipped.push({ tool: 'gitleaks', reason: 'opt-in during mapping: set adapters.security.gitleaks: true' });
 
     const rules = options.semgrep_config;
     if (typeof rules === 'string' && rules && !rules.startsWith('-')) {

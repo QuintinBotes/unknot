@@ -138,8 +138,34 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     }
   }
   const readText = evidenceReader(ctx, config);
+  // Discovery is cached like extraction: keyed by everything its result can depend on
+  // (adapter version and options, the blobs of the files it reads, the evidence files'
+  // size and mtime). Rendering charts or importing traces is not repeated on a re-map.
+  const evidenceStamp = Object.values(config.evidence ?? {}).flat().map((p) => {
+    try {
+      const st = statSync(resolveInside(ctx.root, p).abs);
+      return `${p}:${st.size}:${st.mtimeMs}`;
+    } catch {
+      return `${p}:missing`;
+    }
+  });
   for (const adapter of loaded) {
     if (!adapter.discover) continue;
+    const relevant = cen.files.filter((f) => matchAny(f.path, adapter.capabilities?.files ?? [])).map((f) => `${f.path}@${f.blob ?? f.size}`);
+    const cacheKey = digest({ adapter: adapter.id, version: adapter.version, options: config.adapters?.[adapter.id] ?? {}, relevant, evidence: evidenceStamp });
+    const cached = ctx.store.meta(`discover:${adapter.id}`);
+    if (cached) {
+      const { key, ref } = JSON.parse(cached);
+      if (key === cacheKey) {
+        try {
+          global.push(...JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')));
+          stats.discover_cached = (stats.discover_cached ?? 0) + 1;
+          continue;
+        } catch {
+          // Cache blob missing or unreadable: rediscover.
+        }
+      }
+    }
     try {
       const out = await adapter.discover({
         root: ctx.root,
@@ -151,8 +177,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         now: observedAt,
         factsByFile: perFile,
       });
-      global.push(...(out ?? []).map((f) => redactDeep(assertFact(f))));
-      for (const f of out?.failures ?? []) failures.push({ path: f.path ?? f.file ?? '<evidence>', adapter: adapter.id, error: String(f.error ?? f.reason ?? f.message ?? 'failed') });
+      const discovered = (out ?? []).map((f) => redactDeep(assertFact(f)));
+      global.push(...discovered);
+      const discFailures = out?.failures ?? [];
+      for (const f of discFailures) failures.push({ path: f.path ?? f.file ?? '<evidence>', adapter: adapter.id, error: String(f.error ?? f.reason ?? f.message ?? 'failed') });
+      if (!discFailures.length) {
+        const { casPut } = await import('../state/cas.mjs');
+        ctx.store.meta(`discover:${adapter.id}`, JSON.stringify({ key: cacheKey, ref: casPut(ctx, JSON.stringify(discovered), { mediaType: 'application/json', label: `discover.${adapter.id}` }) }));
+      }
     } catch (err) {
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -160,7 +192,25 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   let historyStats = null;
   if (history && cen.repo) {
     try {
-      const h = historyFacts(ctx.root, config, new Set(cen.files.filter((f) => f.kind === 'source' || f.kind === 'test').map((f) => f.path)));
+      const sources = new Set(cen.files.filter((f) => f.kind === 'source' || f.kind === 'test').map((f) => f.path));
+      const hkey = digest({ commit, days: config.decomposition.history_days, max: config.decomposition.max_changeset, min: config.decomposition.min_shared_commits, sources: [...sources].sort() });
+      const hc = ctx.store.meta('history:cache');
+      let h = null;
+      if (hc) {
+        const { key, ref, stats: st } = JSON.parse(hc);
+        if (key === hkey) {
+          try {
+            h = { facts: JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')), stats: { ...st, cached: true } };
+          } catch {
+            h = null;
+          }
+        }
+      }
+      if (!h) {
+        h = historyFacts(ctx.root, config, sources);
+        const { casPut } = await import('../state/cas.mjs');
+        ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref: casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' }), stats: h.stats }));
+      }
       global.push(...h.facts);
       historyStats = h.stats;
     } catch (err) {
