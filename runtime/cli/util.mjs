@@ -28,10 +28,14 @@ export function parseArgs(argv) {
   return { positional, flags };
 }
 
-/** Who is running this command. Claude Code sets CLAUDECODE=1 in its tool shells. */
+/**
+ * Who is running this command. A human is someone at an interactive terminal; an agent's
+ * shell has no TTY, and environment variables are not evidence (a model can unset
+ * CLAUDECODE), so only the TTY test can make an actor human.
+ */
 export function currentActor() {
-  if (process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) return 'model:main';
-  if (process.env.CI) return 'ci:pipeline';
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (!tty || process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) return process.env.CI && !tty ? 'ci:pipeline' : 'model:main';
   let name = 'user';
   try {
     name = userInfo().username.replace(/[^A-Za-z0-9._-]/g, '_') || 'user';
