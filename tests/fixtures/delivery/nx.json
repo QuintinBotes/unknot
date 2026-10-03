@@ -1,0 +1,4 @@
+{
+  "targetDefaults": { "build": { "dependsOn": ["^build"] }, "test": {} },
+  "namedInputs": { "default": ["{projectRoot}/**/*"] }
+}

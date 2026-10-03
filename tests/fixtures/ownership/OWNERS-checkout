@@ -1,0 +1,4 @@
+# Checkout owners
+alice@example.org
+file://services/shared/OWNERS
+per-file *.md=bob@example.org

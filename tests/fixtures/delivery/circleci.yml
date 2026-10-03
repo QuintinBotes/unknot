@@ -1,0 +1,28 @@
+version: 2.1
+orbs:
+  node: circleci/node@5.1.0
+  aws: circleci/aws-cli@volatile
+jobs:
+  build:
+    docker:
+      - image: cimg/node:22.0
+    steps:
+      - checkout
+      - run: npm ci
+  deploy:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - run:
+          name: Ship
+          command: serverless deploy --service billing
+workflows:
+  main:
+    jobs:
+      - build
+      - deploy:
+          requires: [build]
+          filters:
+            branches:
+              only: main

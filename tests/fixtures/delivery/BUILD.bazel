@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "orders",
+    srcs = ["orders.go"],
+    deps = [
+        ":models",
+        "//libs/log:log",
+        "@com_github_pkg_errors//:errors",
+    ],
+)
+
+go_library(
+    name = "models",
+    srcs = ["models.go"],
+)

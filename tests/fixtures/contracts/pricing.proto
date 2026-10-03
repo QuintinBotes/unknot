@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package shop.pricing.v1;
+
+// A price request.
+message PriceRequest {
+  string sku = 1;
+  reserved 2, 3;
+}
+
+message PriceReply {
+  int64 cents = 1;
+}
+
+service Pricing {
+  rpc GetPrice (PriceRequest) returns (PriceReply);
+  rpc WatchPrices (stream PriceRequest) returns (stream PriceReply) {
+    option deprecated = true;
+  }
+}

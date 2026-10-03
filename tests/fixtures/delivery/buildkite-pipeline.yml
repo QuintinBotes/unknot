@@ -1,0 +1,15 @@
+steps:
+  - label: ":hammer: Test"
+    key: test
+    command: make test
+    plugins:
+      - docker-compose#v4.14.0:
+          run: app
+  - wait
+  - label: "Deploy"
+    key: ship
+    depends_on: test
+    command: ./deploy.sh
+    branches: main
+    plugins:
+      - ecr#main: {}

@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.shop",
+  "doc": "An order",
+  "fields": [
+    { "name": "id", "type": "string" },
+    { "name": "status", "type": { "type": "enum", "name": "Status", "symbols": ["NEW", "PAID"] } },
+    { "name": "customer", "type": ["null", "Customer"] }
+  ]
+}

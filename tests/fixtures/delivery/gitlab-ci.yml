@@ -1,0 +1,46 @@
+stages: [build, test, deploy]
+
+include:
+  - local: ci/common.yml
+  - project: platform/ci-templates
+    ref: main
+    file: deploy.yml
+
+.base: &base
+  image: node:22
+  before_script:
+    - npm ci
+
+build:
+  <<: *base
+  stage: build
+  script:
+    - npm run build
+
+unit:
+  <<: *base
+  stage: test
+  needs: [build]
+  script:
+    - npm test
+  rules:
+    - changes:
+        - services/checkout/**/*
+
+deploy_staging:
+  stage: deploy
+  image: registry.example.com/deployer@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  needs: [unit]
+  environment:
+    name: staging
+  script:
+    - helm upgrade --install checkout ./charts/checkout
+
+deploy_prod:
+  stage: deploy
+  image: registry.example.com/deployer:latest
+  needs: [deploy_staging]
+  environment: production
+  when: manual
+  script:
+    - helm upgrade --install checkout ./charts/checkout

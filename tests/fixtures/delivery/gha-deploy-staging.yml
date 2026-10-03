@@ -1,0 +1,34 @@
+name: Deploy staging
+on:
+  push:
+    branches: [develop]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@v3
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:unit
+      - run: docker build -t registry.example.com/shop/checkout:${{ github.sha }} services/checkout
+      - run: docker build -t registry.example.com/shop/pricing:${{ github.sha }} services/pricing
+      - run: echo "notify"
+  deploy-checkout:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+      - run: helm upgrade --install checkout ./charts/checkout --namespace shop
+      - run: kubectl rollout status deployment/checkout
+  deploy-pricing:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+      - run: helm upgrade --install pricing ./charts/pricing --namespace shop
+      - run: kubectl rollout status deployment/pricing

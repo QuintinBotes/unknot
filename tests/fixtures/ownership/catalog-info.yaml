@@ -1,0 +1,54 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: checkout
+  description: Checkout service
+  tags: [payments, java]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/payments
+  system: shop
+  providesApis: [checkout-api]
+  consumesApis: [pricing-api]
+  dependsOn:
+    - component:default/pricing
+    - resource:default/orders-db
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: checkout-api
+spec:
+  type: openapi
+  lifecycle: production
+  owner: payments
+  definition:
+    $text: ./openapi.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: orders-db
+spec:
+  type: database
+  owner: user:default/carol
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: shop
+spec:
+  owner: payments
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: payments
+spec:
+  type: team
+  profile:
+    displayName: Payments
+    email: payments-team@example.com
+  parent: engineering
+  members: [carol]

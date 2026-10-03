@@ -1,0 +1,17 @@
+{
+  "consumer": { "name": "web-frontend" },
+  "provider": { "name": "orders-service" },
+  "interactions": [
+    {
+      "description": "get an order",
+      "request": { "method": "get", "path": "/orders/42" },
+      "response": { "status": 200 }
+    },
+    {
+      "description": "order is missing",
+      "request": { "method": "get", "path": "/orders/42" },
+      "response": { "status": 404 }
+    }
+  ],
+  "metadata": { "pactSpecification": { "version": "2.0.0" } }
+}

@@ -1,0 +1,11 @@
+# Default owners
+* @acme/platform
+
+# Overlapping rules: the last matching rule wins
+*.js @acme/frontend
+docs/ Dana.Smith@example.com   # trailing comment
+/services/checkout/ @acme/checkout @alice
+/services/checkout/docs/ @acme/docs
+
+# Explicitly unowned
+apps/*/legacy/

@@ -1,0 +1,37 @@
+"""
+The catalog schema.
+"""
+type Query {
+  # a comment
+  product(id: ID!): Product
+  products(
+    first: Int
+    after: String
+  ): [Product!]! @deprecated(reason: "use search")
+}
+
+type Mutation {
+  addProduct(input: NewProduct!): Product
+}
+
+type Subscription {
+  priceChanged(sku: String!): Product
+}
+
+interface Node {
+  id: ID!
+}
+
+type Product implements Node {
+  id: ID!
+  name: String
+}
+
+input NewProduct {
+  name: String!
+}
+
+enum Currency {
+  EUR
+  USD
+}

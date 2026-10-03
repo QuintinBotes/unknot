@@ -1,0 +1,9 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  // comments are legal in turbo.json
+  "tasks": {
+    "build": { "dependsOn": ["^build", "codegen"], "outputs": ["dist/**"] },
+    "codegen": {},
+    "dev": { "cache": false, "persistent": true }
+  }
+}

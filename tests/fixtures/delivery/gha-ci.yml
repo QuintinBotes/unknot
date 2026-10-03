@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/checkout/**'
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  NODE_ENV: test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        with:
+          node-version: 22
+      - uses: ./.github/actions/setup-cache
+      - run: npm ci
+      - run: npm test
+        env:
+          API_KEY: ${{ secrets.CI_API_KEY }}
+  lint:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run lint

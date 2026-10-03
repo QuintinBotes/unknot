@@ -1,0 +1,19 @@
+name: Deploy search
+on:
+  push:
+    paths:
+      - 'services/search/**'
+permissions:
+  contents: read
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform apply -auto-approve
+  matrix-deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [billing, ledger]
+    steps:
+      - run: echo deploy ${{ matrix.service }}

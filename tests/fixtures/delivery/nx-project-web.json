@@ -1,0 +1,7 @@
+{
+  "name": "web",
+  "projectType": "application",
+  "tags": ["scope:shop", "type:app"],
+  "implicitDependencies": ["ui", "!legacy"],
+  "targets": { "build": {}, "serve": {}, "test": {} }
+}

@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "key": "new-checkout", "archived": false, "tags": ["checkout"], "_lastModified": 1700000000000, "environments": { "production": { "on": true } } },
+    { "key": "old-banner", "archived": true, "temporary": true }
+  ]
+}

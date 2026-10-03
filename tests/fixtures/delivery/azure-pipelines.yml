@@ -1,0 +1,20 @@
+trigger:
+  paths:
+    include: [services/ledger/*]
+stages:
+  - stage: Build
+    jobs:
+      - job: compile
+        steps:
+          - script: dotnet build
+  - stage: Release
+    jobs:
+      - deployment: DeployLedger
+        environment: prod.ledger
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: Kubernetes@1
+                  inputs:
+                    command: apply

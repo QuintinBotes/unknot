@@ -1,0 +1,21 @@
+@Library('shared-pipeline@v1.2.0') _
+pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      steps {
+        sh 'make build'
+      }
+    }
+    stage('Deploy Pricing') {
+      when { branch 'main' }
+      steps {
+        dir('services/pricing') {
+          sh """
+            kubectl apply -f k8s/pricing/
+          """
+        }
+      }
+    }
+  }
+}

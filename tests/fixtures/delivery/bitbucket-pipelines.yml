@@ -1,0 +1,16 @@
+image: node:22
+pipelines:
+  default:
+    - step:
+        name: Test
+        script:
+          - npm test
+  branches:
+    main:
+      - step:
+          name: Deploy to production
+          deployment: production
+          script:
+            - pipe: atlassian/aws-s3-deploy:1.1.0
+              variables:
+                BUCKET: site
