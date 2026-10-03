@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+# Unknot's own local state when dogfooding on this repository
+.unknot/state/
+.unknot/cas/
+.unknot/runs/
+.unknot/worktrees/
+.unknot/telemetry/
+/dist/

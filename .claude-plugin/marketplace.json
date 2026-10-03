@@ -1,0 +1,15 @@
+{
+  "name": "unknot",
+  "owner": {
+    "name": "Quintin Botes",
+    "url": "https://github.com/QuintinBotes"
+  },
+  "description": "The Unknot plugin: governed, evidence-backed simplification of existing systems",
+  "plugins": [
+    {
+      "name": "unknot",
+      "source": "./",
+      "description": "Architecture-aware incremental codebase simplification with verification and recovery."
+    }
+  ]
+}

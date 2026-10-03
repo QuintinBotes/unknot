@@ -1,0 +1,21 @@
+{
+  "name": "unknot",
+  "displayName": "Unknot",
+  "version": "0.1.0",
+  "description": "Architecture-aware incremental codebase simplification with verification and recovery.",
+  "author": {
+    "name": "Quintin Botes",
+    "url": "https://github.com/QuintinBotes"
+  },
+  "homepage": "https://github.com/QuintinBotes/unknot",
+  "repository": "https://github.com/QuintinBotes/unknot",
+  "license": "Apache-2.0",
+  "keywords": [
+    "simplification",
+    "refactoring",
+    "architecture",
+    "modernization",
+    "database",
+    "infrastructure"
+  ]
+}
