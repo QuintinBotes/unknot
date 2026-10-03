@@ -1,0 +1,232 @@
+// The policy decision point (spec §6.1: "agents may propose operations; only the
+// deterministic runtime authorizes them"). Pure decisions over an operation, the active
+// run, the actor's capability and the effective config. Recording and budget charging
+// happen in the caller, so this module is easy to test exhaustively.
+
+import { isAbsolute, relative, resolve } from 'node:path';
+import { matchAny } from '../core/glob.mjs';
+import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.mjs';
+import { unknotHome } from '../core/project.mjs';
+import { profileFor } from './capability.mjs';
+import { judgeShell } from './commands.mjs';
+import { modeRank } from './defaults.mjs';
+
+export const DOC_PATHS = Object.freeze(['docs/architecture/**', 'docs/adr/**', 'docs/decisions/**', 'docs/runbooks/**', '.unknot/docs/**']);
+
+// Tools that neither read project content nor change anything outside the conversation.
+const INERT_TOOLS = new Set([
+  'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop', 'AskUserQuestion',
+  'ToolSearch', 'Skill', 'EnterPlanMode', 'ExitPlanMode', 'ListMcpResourcesTool', 'ScheduleWakeup', 'Monitor',
+]);
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead']);
+const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const NET_TOOLS = new Set(['WebFetch', 'WebSearch']);
+const AGENT_TOOLS = new Set(['Task', 'Agent']);
+
+const allow = (policy, extra = {}) => ({ decision: 'allow', reasons: [], policy_ids: [policy], ...extra });
+const deny = (policy, reason, extra = {}) => ({ decision: 'deny', reasons: [reason], policy_ids: [policy], ...extra });
+
+/** Translate a Claude Code tool call into an Unknot operation. */
+export function toOperation(toolName, input = {}, cwd) {
+  const at = (p) => (p ? (isAbsolute(p) ? p : resolve(cwd ?? process.cwd(), p)) : null);
+  if (READ_TOOLS.has(toolName)) return { op: 'fs.read', tool: toolName, paths: [at(input.file_path ?? input.path ?? input.notebook_path ?? '.')] };
+  if (WRITE_TOOLS.has(toolName)) return { op: 'fs.write', tool: toolName, paths: [at(input.file_path ?? input.notebook_path)] };
+  if (toolName === 'Bash') return { op: 'exec', tool: toolName, command: String(input.command ?? '') };
+  if (NET_TOOLS.has(toolName)) {
+    let domain = 'web-search';
+    if (toolName === 'WebFetch') {
+      try {
+        domain = new URL(input.url).hostname;
+      } catch {
+        domain = '<invalid>';
+      }
+    }
+    return { op: 'net', tool: toolName, domain };
+  }
+  if (AGENT_TOOLS.has(toolName)) return { op: 'agent.spawn', tool: toolName, agent_type: input.subagent_type ?? null };
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  if (mcp) return { op: 'mcp', tool: toolName, server: mcp[1], name: mcp[2] };
+  if (INERT_TOOLS.has(toolName)) return { op: 'inert', tool: toolName };
+  return { op: 'unknown', tool: toolName };
+}
+
+/**
+ * Protections that apply whenever the project is initialised, run or no run: the
+ * runtime's own state, configuration, decisions and keys are never model-writable.
+ */
+export function alwaysOn(ctx, op, { pluginRoot } = {}) {
+  const home = realpathLenient(unknotHome());
+  if (op.op === 'fs.read' || op.op === 'fs.write') {
+    for (const p of op.paths) {
+      if (!p) continue;
+      const real = realpathLenient(p);
+      if (isInside(home, real)) return deny('keys.protected', 'Unknot key material is not readable or writable by agents');
+      if (op.op === 'fs.write') {
+        const rel = relFrom(ctx.root, real);
+        if (rel !== null && isStatePath(rel)) {
+          return deny('state.protected', `${rel} is Unknot state; it changes only through the unknot CLI (config changes need a human: unknot config accept)`);
+        }
+      }
+    }
+  }
+  if (op.op === 'exec') {
+    const cmd = op.command;
+    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock)\b/.test(cmd)) {
+      return deny('approval.human_only', 'approvals, keys, config acceptance and ending runs are done by a human in their own terminal');
+    }
+    if (/(^|[\s;|&])(sqlite3?|python3?|node|perl|ruby)\b[^\n]*\.unknot\/state/.test(cmd) || /\.config\/unknot|UNKNOT_HOME=/.test(cmd)) {
+      return deny('state.protected', 'direct access to Unknot state or key material is not allowed');
+    }
+    const shell = judgeShell(cmd, { pluginRoot });
+    const touched = [...shell.writes];
+    for (const c of shell.commands) {
+      const name = c.argv[0]?.value?.split('/').pop();
+      if (['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'touch', 'dd', 'install', 'rsync'].includes(name)) {
+        touched.push(...c.argv.slice(1).filter((w) => !w.dynamic).map((w) => w.value));
+      }
+    }
+    for (const t of touched) {
+      const rel = relFrom(ctx.root, realpathLenient(resolve(op.cwd ?? ctx.root, t)));
+      if (rel !== null && isStatePath(rel)) return deny('state.protected', `${rel} is Unknot state; use the unknot CLI`);
+    }
+  }
+  return null;
+}
+
+function isStatePath(rel) {
+  return (
+    rel === '.unknot/config.yaml' ||
+    rel === '.unknot/decisions.jsonl' ||
+    rel === '.unknot/.gitignore' ||
+    matchAny(rel, ['.unknot/state/**', '.unknot/cas/**', '.unknot/runs/**', '.unknot/campaigns/**', '.unknot/slices/**', '.unknot/telemetry/**'])
+  );
+}
+
+function relFrom(root, abs) {
+  const r = realpathLenient(root);
+  if (!isInside(r, abs)) return null;
+  return toPosix(relative(r, abs));
+}
+
+/**
+ * Decide an operation inside an active run.
+ * @param {object} p
+ * @param {object} p.ctx project context
+ * @param {object} p.config effective config
+ * @param {object} p.run active run row
+ * @param {object|null} p.slice the run's slice row (body parsed) when the run is apply
+ * @param {{agent_id?: string, agent_type?: string}} p.actor
+ * @param {object|null} p.capability the subagent's grant, if any
+ * @param {object} p.op from toOperation
+ */
+export function decide({ ctx, config, run, slice = null, actor = {}, capability = null, op, pluginRoot }) {
+  const profile = actor.agent_id ? profileFor(actor.agent_type) : mainProfile(run.command);
+  const base = { risk: 'low', profile: profile.name };
+  const permits = (name) => (capability ? capability.ops.includes(name) : profile.ops.includes(name));
+
+  switch (op.op) {
+    case 'inert':
+      return allow('tool.inert', base);
+    case 'unknown':
+      return deny('tool.unknown', `${op.tool} is not permitted during an Unknot run (deny by default)`, base);
+    case 'fs.read': {
+      if (!permits('fs.read')) return deny('capability.read', `${profile.name} may not read files`, base);
+      for (const p of op.paths) {
+        const real = realpathLenient(p);
+        const inRoot = isInside(realpathLenient(ctx.root), real);
+        const inPlugin = pluginRoot && isInside(realpathLenient(pluginRoot), real);
+        if (!inRoot && !inPlugin) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${p}`, base);
+        if (inRoot) {
+          const rel = relFrom(ctx.root, real);
+          if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file; Unknot does not read secrets into model context`, base);
+        }
+      }
+      return allow('fs.read', base);
+    }
+    case 'fs.write':
+      return decideWrite({ ctx, config, run, slice, profile, capability, op, base });
+    case 'exec': {
+      const verdict = judgeShell(op.command, { pluginRoot });
+      if (!verdict.allow) return deny('exec.shell', verdict.reasons.join('; '), base);
+      for (const r of verdict.reads) {
+        const rel = relFrom(ctx.root, realpathLenient(resolve(op.cwd ?? ctx.root, r)));
+        if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file`, base);
+      }
+      return allow('exec.read_only', { ...base, commands: verdict.commands.length });
+    }
+    case 'net': {
+      const allowed = config.network.allowed_domains ?? [];
+      if (config.limits.max_network_requests === 0) return deny('network.disabled', 'network access is disabled for this project (limits.max_network_requests: 0)', base);
+      if (!allowed.some((d) => d === op.domain || (d.startsWith('*.') && op.domain.endsWith(d.slice(1))))) {
+        return deny('network.domain', `${op.domain} is not in network.allowed_domains`, base);
+      }
+      return allow('network.allowlisted', { ...base, charge: { network_requests: 1 } });
+    }
+    case 'mcp': {
+      if (/^plugin_unknot_/.test(op.server)) return allow('mcp.self', base);
+      if (!(config.mcp.allowed_servers ?? []).includes(op.server)) {
+        return deny('mcp.server', `MCP server ${op.server} is not in mcp.allowed_servers; its responses are untrusted`, base);
+      }
+      return allow('mcp.allowlisted', base);
+    }
+    case 'agent.spawn': {
+      const depth = actor.agent_id ? 2 : 1;
+      const max = config.limits.max_delegation_depth ?? 2;
+      if (depth > max) return deny('budget.delegation_depth', `delegation depth ${depth} exceeds max_delegation_depth ${max}`, base);
+      return allow('agent.spawn', base);
+    }
+    default:
+      return deny('tool.unknown', `unrecognised operation ${op.op}`, base);
+  }
+}
+
+function mainProfile(command) {
+  if (command === 'apply') return { name: 'main:apply', ops: ['fs.read', 'fs.write', 'unknot.cli'] };
+  if (command === 'plan' || command === 'architecture') return { name: `main:${command}`, ops: ['fs.read', 'fs.write.docs', 'unknot.cli'] };
+  return { name: `main:${command}`, ops: ['fs.read', 'unknot.cli'] };
+}
+
+function decideWrite({ ctx, config, run, slice, profile, capability, op, base }) {
+  const canDocs = profile.ops.includes('fs.write.docs') || (capability?.write ?? []).includes('<docs>') || profile.name === 'documentation-curator';
+  const canCode = profile.ops.includes('fs.write') && profile.name !== 'documentation-curator';
+  for (const p of op.paths) {
+    if (!p) return deny('write.no_path', 'write without a path', base);
+    const real = realpathLenient(p);
+    const rel = relFrom(ctx.root, real);
+    if (rel === null) return deny('scope.write_outside', `writes outside the project are never allowed: ${p}`, base);
+    if (rel === '.git' || rel.startsWith('.git/') || /(^|\/)\.git(\/|$)/.test(rel)) return deny('write.git', 'git internals are not writable', base);
+    if (isSecretPath(rel)) return deny('secrets.write', `${rel} is a credential path`, base);
+
+    if (canDocs && modeRank(config.mode) >= modeRank('plan') && matchAny(rel, DOC_PATHS)) continue;
+
+    if (!canCode) return deny('capability.write', `${profile.name} may not modify source (${run.command} is a ${modeRank(config.mode) >= 1 ? 'planning' : 'read-only'} command)`, base);
+    if (modeRank(config.mode) < modeRank('assist')) return deny('mode.write', `mode ${config.mode} does not permit source changes; a human must set mode: assist (or higher) in .unknot/config.yaml`, base);
+    if (!slice || slice.state !== 'PATCHING' || !slice.worktree) {
+      return deny('slice.not_patching', 'source changes happen only for one approved slice in PATCHING, inside its worktree (run /unknot:apply <slice>)', base);
+    }
+    const wt = realpathLenient(slice.worktree);
+    if (!isInside(wt, real)) return deny('scope.worktree', `writes must be inside the slice worktree ${toPosix(relative(ctx.root, wt))}/, not ${rel}`, base);
+    const inner = toPosix(relative(wt, real));
+    if (inner === '.git' || inner.startsWith('.git/')) return deny('write.git', 'git internals are not writable', base);
+    const body = slice.body ?? {};
+    const include = body.scope?.include ?? [];
+    const exclude = body.scope?.exclude ?? [];
+    if (matchAny(inner, exclude) || (include.length && !matchAny(inner, include))) {
+      return deny('scope.slice', `${inner} is outside slice ${slice.id} scope (include: ${include.join(', ') || '—'}; exclude: ${exclude.join(', ') || '—'})`, base);
+    }
+    if (matchAny(inner, config.generated_paths) || matchAny(inner, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) {
+      return deny('scope.generated', `${inner} is generated or vendored; it is not edited as source`, base);
+    }
+    if (matchAny(inner, config.protected_paths, { nocase: true })) {
+      const named = include.some((g) => matchAny(inner, [g]) && !g.includes('**'));
+      if (!named || !['high', 'critical'].includes(slice.risk)) {
+        return deny('scope.protected', `${inner} is a protected path; it can change only when the slice names it explicitly and is approved as high risk`, { ...base, risk: 'high' });
+      }
+    }
+    if (capability && !(capability.write ?? []).some((g) => g === '<worktree-scope>' || matchAny(inner, [g]))) {
+      return deny('capability.write', `capability ${capability.id} does not cover ${inner}`, base);
+    }
+  }
+  return allow('fs.write.scoped', base);
+}
+

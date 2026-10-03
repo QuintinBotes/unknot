@@ -7,3 +7,4 @@ node_modules/
 .unknot/worktrees/
 .unknot/telemetry/
 /dist/
+.claude/worktrees/
