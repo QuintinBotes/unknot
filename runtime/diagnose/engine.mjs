@@ -195,8 +195,13 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
     return out;
   });
   const cats = objectiveCategories(objective);
-  const rank = (f) => f.priority.score * (cats && cats.has(f.category) ? 1.5 : 1);
-  const ranked = persisted.filter((f) => f.status === 'open').sort((a, b) => rank(b) - rank(a) || a.id.localeCompare(b.id));
+  // Human decisions recalibrate ranking per detector (the learning loop); the §12
+  // priority itself is unchanged and stays comparable across runs.
+  const { calibrate, detectorFeedback } = await import('../learn/calibration.mjs');
+  const feedback = detectorFeedback(ctx);
+  const open = calibrate(persisted.filter((f) => f.status === 'open'), feedback);
+  const rank = (f) => f.priority.score * (cats && cats.has(f.category) ? 1.5 : 1) * (f.calibration?.multiplier ?? 1);
+  const ranked = open.sort((a, b) => rank(b) - rank(a) || a.id.localeCompare(b.id));
   const stats = {
     detectors: detectors.length,
     drafts: drafts.length,

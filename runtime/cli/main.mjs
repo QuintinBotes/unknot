@@ -38,6 +38,7 @@ export const COMMANDS = {
   daemon: 'Start the local API daemon',
   workspace: 'Multi-repository workspace (list|map|graph)',
   gc: 'Apply retention to runs and cache',
+  learn: 'Feedback loop: metrics and detector calibration (report), threshold proposals (propose)',
 };
 
 export async function main(argv) {
