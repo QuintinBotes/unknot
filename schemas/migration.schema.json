@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/migration.schema.json",
+  "title": "Migration artifact",
+  "description": "Expand/contract database migration plan (spec 14.8).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "slice": {
+      "type": "string",
+      "pattern": "^UK-DB-\\d{4,}$"
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engine_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "classification": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_of_truth": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "oldest_app_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newest_app_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "oldest_app_version",
+        "newest_app_version"
+      ],
+      "additionalProperties": false
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "expand",
+          "backfill",
+          "validate",
+          "switch_reads",
+          "switch_writes",
+          "contract"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "locking": {
+      "type": "object",
+      "properties": {
+        "predicted_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "predicted_mode",
+        "timeout_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "backfill": {
+      "type": "object",
+      "properties": {
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "checkpoint_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "throttle": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "batch_size",
+        "checkpoint_key"
+      ],
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "abort_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "slice.schema.json#/$defs/recovery_type"
+        },
+        "procedure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "mode",
+        "procedure"
+      ],
+      "additionalProperties": false
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "slice",
+    "engine",
+    "engine_version",
+    "objects",
+    "classification",
+    "source_of_truth",
+    "compatibility",
+    "phases",
+    "locking",
+    "validation",
+    "abort_conditions",
+    "rollback",
+    "approvals"
+  ],
+  "additionalProperties": false
+}

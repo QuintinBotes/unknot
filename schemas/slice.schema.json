@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/slice.schema.json",
+  "title": "Slice",
+  "description": "The smallest independently verifiable, reversible change (spec 17.3).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+    },
+    "campaign": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CMP-\\d+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "enum": [
+        "code",
+        "database",
+        "infrastructure",
+        "documentation",
+        "decomposition"
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "include",
+        "exclude"
+      ],
+      "additionalProperties": false
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operation": {
+            "enum": [
+              "modify",
+              "create",
+              "delete",
+              "move"
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "operation",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "proof_obligations": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^PO-\\d+$"
+          },
+          {
+            "$ref": "proof-obligation.schema.json#/$defs/obligation"
+          }
+        ]
+      }
+    },
+    "risk": {
+      "$ref": "#/$defs/risk"
+    },
+    "blast_radius": {
+      "$ref": "#/$defs/blast_radius"
+    },
+    "recovery": {
+      "$ref": "#/$defs/recovery"
+    },
+    "irreversible": {
+      "type": "boolean"
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "max_changed_files": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_diff_lines": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "max_changed_files",
+        "max_diff_lines"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "#/$defs/state"
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "treatment": {
+      "$ref": "decomposition-recommendation.schema.json#/$defs/treatment"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "campaign",
+    "version",
+    "kind",
+    "objective",
+    "scope",
+    "preconditions",
+    "changes",
+    "invariants",
+    "proof_obligations",
+    "risk",
+    "blast_radius",
+    "recovery",
+    "irreversible",
+    "budgets",
+    "status",
+    "owners",
+    "approvals"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "state": {
+      "enum": [
+        "UNINITIALIZED",
+        "BASELINING",
+        "MAPPED",
+        "DIAGNOSED",
+        "PLANNED",
+        "AWAITING_APPROVAL",
+        "PATCHING",
+        "VERIFYING",
+        "REVIEW_READY",
+        "ACCEPTED",
+        "BLOCKED_BASELINE",
+        "BLOCKED_POLICY",
+        "BLOCKED_UNCERTAINTY",
+        "NEEDS_REPLAN",
+        "VERIFICATION_FAILED",
+        "ROLLED_BACK",
+        "ABANDONED"
+      ]
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "blast_radius": {
+      "enum": [
+        "local",
+        "bounded",
+        "moderate",
+        "high"
+      ]
+    },
+    "recovery_type": {
+      "enum": [
+        "revert",
+        "roll_forward",
+        "restore",
+        "fail_over",
+        "recreate",
+        "compensate"
+      ]
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/recovery_type"
+        },
+        "procedure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

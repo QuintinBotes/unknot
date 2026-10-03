@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/provenance.schema.json",
+  "title": "Provenance",
+  "description": "Where a graph fact came from and how much to trust it (spec 9.3).",
+  "type": "object",
+  "properties": {
+    "source_type": {
+      "enum": [
+        "ast",
+        "lsp",
+        "trace",
+        "config",
+        "catalog",
+        "human",
+        "inference",
+        "vcs"
+      ]
+    },
+    "source_ref": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "extractor": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+@\\d+\\.\\d+\\.\\d+$"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "commit": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contradicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "source_type",
+    "source_ref",
+    "extractor",
+    "observed_at",
+    "commit",
+    "confidence",
+    "scope",
+    "contradicts"
+  ],
+  "additionalProperties": false
+}

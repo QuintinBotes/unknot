@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/campaign.schema.json",
+  "title": "Campaign",
+  "description": "A goal-directed group of slices with alternatives considered (spec 17.1).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^CMP-\\d+$"
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "baseline": {
+      "type": "string",
+      "minLength": 1
+    },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "selected": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "slices": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+      },
+      "uniqueItems": true
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "active",
+        "completed",
+        "abandoned"
+      ]
+    },
+    "drivers": {
+      "type": "array",
+      "items": {
+        "$ref": "decomposition-recommendation.schema.json#/$defs/driver"
+      },
+      "uniqueItems": true
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "objective",
+    "scope",
+    "constraints",
+    "baseline",
+    "alternatives",
+    "selected",
+    "rationale",
+    "risks",
+    "slices",
+    "approvals",
+    "status",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

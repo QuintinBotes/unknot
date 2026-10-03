@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/proof-obligation.schema.json",
+  "title": "Proof obligation",
+  "description": "A claim a slice must demonstrate with executed evidence or human review (spec 19.1).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^PO-\\d+$"
+    },
+    "slice_id": {
+      "type": "string",
+      "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+    },
+    "kind": {
+      "$ref": "#/$defs/kind"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requires_human": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "pass",
+        "fail",
+        "inconclusive",
+        "waived"
+      ]
+    },
+    "evidence_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "slice_id",
+    "kind",
+    "description",
+    "command",
+    "requires_human",
+    "status",
+    "evidence_id"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "kind": {
+      "enum": [
+        "characterization",
+        "parse",
+        "lint",
+        "typecheck",
+        "unit",
+        "integration",
+        "contract",
+        "architecture-fitness",
+        "security-scan",
+        "secrets-scan",
+        "migration-rehearsal",
+        "reconciliation",
+        "infra-plan",
+        "performance",
+        "smoke",
+        "rollback-rehearsal",
+        "human-review",
+        "api-compatibility",
+        "no-new-cycles",
+        "diff-budget",
+        "scope-check"
+      ]
+    },
+    "obligation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^PO-\\d+$"
+        },
+        "slice_id": {
+          "type": "string",
+          "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+        },
+        "kind": {
+          "$ref": "#/$defs/kind"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requires_human": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "pass",
+            "fail",
+            "inconclusive",
+            "waived"
+          ]
+        },
+        "evidence_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "slice_id",
+        "kind",
+        "description",
+        "command",
+        "requires_human",
+        "status",
+        "evidence_id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

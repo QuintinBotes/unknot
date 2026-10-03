@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/decision.schema.json",
+  "title": "Decision",
+  "description": "A human accept/reject of a finding, remembered by fingerprint.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$"
+    },
+    "finding_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^F-\\d{4,}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "decision": {
+      "enum": [
+        "accept",
+        "reject"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 10
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suppress_until": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "finding_id",
+    "fingerprint",
+    "decision",
+    "rationale",
+    "actor",
+    "suppress_until",
+    "at"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/pattern-card.schema.json",
+  "title": "Pattern card",
+  "description": "A versioned, machine-evaluable pattern knowledge card (spec 13).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "category": {
+      "enum": [
+        "architecture",
+        "domain",
+        "distributed",
+        "migration",
+        "resilience",
+        "messaging",
+        "code",
+        "anti-pattern",
+        "database",
+        "infrastructure",
+        "decomposition",
+        "frontend"
+      ]
+    },
+    "treatment": {
+      "$ref": "decomposition-recommendation.schema.json#/$defs/treatment"
+    },
+    "problem": {
+      "type": "string",
+      "minLength": 1
+    },
+    "forces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "applicability_signals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/signal"
+      }
+    },
+    "required_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/signal"
+      }
+    },
+    "contraindications": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/signal"
+      }
+    },
+    "benefits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "liabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "introduced_complexity": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "architecture_invariants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "transformations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "proof_obligations": {
+      "type": "array",
+      "items": {
+        "$ref": "proof-obligation.schema.json#/$defs/kind"
+      }
+    },
+    "rollback_strategies": {
+      "type": "array",
+      "items": {
+        "$ref": "slice.schema.json#/$defs/recovery_type"
+      }
+    },
+    "composes_with": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conflicts_with": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "introduction_recipe": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "removal_recipe": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "category",
+    "problem",
+    "forces",
+    "applicability_signals",
+    "required_evidence",
+    "preconditions",
+    "contraindications",
+    "benefits",
+    "liabilities",
+    "introduced_complexity",
+    "architecture_invariants",
+    "transformations",
+    "proof_obligations",
+    "rollback_strategies",
+    "composes_with",
+    "conflicts_with",
+    "version"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "category": {
+        "const": "code"
+      }
+    },
+    "required": [
+      "category"
+    ]
+  },
+  "then": {
+    "required": [
+      "introduction_recipe",
+      "removal_recipe"
+    ],
+    "properties": {
+      "introduction_recipe": {
+        "minItems": 1
+      },
+      "removal_recipe": {
+        "minItems": 1
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "signal": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "predicate": {
+          "type": "object",
+          "properties": {
+            "metric": {
+              "type": "string",
+              "minLength": 1
+            },
+            "op": {
+              "enum": [
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "==",
+                "!="
+              ]
+            },
+            "value": {
+              "type": [
+                "number",
+                "string",
+                "boolean"
+              ]
+            }
+          },
+          "required": [
+            "metric",
+            "op",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "hard": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

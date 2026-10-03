@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/handoff.schema.json",
+  "title": "Agent handoff",
+  "description": "The only way a subagent reports back (spec 7.1). Unknown fields are rejected; prose cannot authorize execution.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^run-[a-z0-9-]+$"
+    },
+    "slice_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "agent": {
+      "enum": [
+        "orchestrator",
+        "cartographer",
+        "runtime-observer",
+        "domain-analyst",
+        "database-analyst",
+        "infrastructure-analyst",
+        "simplification-planner",
+        "refactorer",
+        "verifier",
+        "security-reviewer",
+        "documentation-curator",
+        "decomposition-strategist"
+      ]
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "partial",
+        "blocked",
+        "failed"
+      ]
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "$ref": "finding.schema.json#/$defs/evidence_label"
+          }
+        },
+        "required": [
+          "statement",
+          "evidence_ref",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "operation",
+              "finding",
+              "slice",
+              "change",
+              "documentation"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "summary",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "impact": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement",
+          "impact"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "statement",
+          "refs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "digest",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "recommended_next_state": {
+      "$ref": "slice.schema.json#/$defs/state"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "slice_id",
+    "agent",
+    "status",
+    "facts",
+    "proposals",
+    "uncertainties",
+    "conflicts",
+    "artifacts",
+    "recommended_next_state"
+  ],
+  "additionalProperties": false
+}

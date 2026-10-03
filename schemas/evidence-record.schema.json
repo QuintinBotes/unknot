@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/evidence-record.schema.json",
+  "title": "Evidence record",
+  "description": "One executed verification command and its outcome (spec 19.3).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$"
+    },
+    "slice_id": {
+      "type": "string",
+      "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^run-[a-z0-9-]+$"
+    },
+    "obligation": {
+      "type": "string",
+      "pattern": "^PO-\\d+$"
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "working_directory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "diff_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "sandbox": {
+      "enum": [
+        "none",
+        "macos-sandbox-exec",
+        "linux-bwrap"
+      ]
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "timed_out": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "stdout_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "stderr_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "fail",
+        "inconclusive"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "slice_id",
+    "run_id",
+    "obligation",
+    "command",
+    "working_directory",
+    "environment_digest",
+    "diff_hash",
+    "sandbox",
+    "started_at",
+    "duration_ms",
+    "exit_code",
+    "timed_out",
+    "truncated",
+    "stdout_digest",
+    "stderr_digest",
+    "artifact_refs",
+    "verdict"
+  ],
+  "additionalProperties": false
+}

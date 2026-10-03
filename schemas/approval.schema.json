@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/approval.schema.json",
+  "title": "Approval",
+  "description": "A signed human approval bound to exact commit, slice, diff and policy (spec 20).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$"
+    },
+    "slice_id": {
+      "type": "string",
+      "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+    },
+    "stage": {
+      "enum": [
+        "plan",
+        "change",
+        "rollback"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approver": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{32,64}$"
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "slice_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slice_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "diff_hash": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_hash": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state_serial": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "commit",
+        "slice_version",
+        "slice_digest",
+        "diff_hash",
+        "plan_hash",
+        "state_serial",
+        "policy_digest",
+        "environment",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "slice_id",
+    "stage",
+    "role",
+    "approver",
+    "key_fingerprint",
+    "binding",
+    "signature",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

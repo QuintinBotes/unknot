@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/event.schema.json",
+  "title": "Ledger event",
+  "description": "One hash-chained, signed entry of the append-only ledger (spec 6.1).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^ev-[0-9a-f]+$"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z]+(?:\\.[a-z_]+)+$"
+    },
+    "run_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "campaign_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "slice_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actor": {
+      "type": "string",
+      "pattern": "^(human|model|runtime|hook|daemon|ci):[A-Za-z0-9@._:/-]{1,128}$"
+    },
+    "capability_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": [
+            "object",
+            "array"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "budget": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policy_decision": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "prev_hash": {
+      "type": "string",
+      "pattern": "^sha256:([0-9a-f]{64}|genesis)$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "signature": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "type",
+    "run_id",
+    "campaign_id",
+    "slice_id",
+    "actor",
+    "capability_id",
+    "scope",
+    "budget",
+    "policy_decision",
+    "payload",
+    "at",
+    "prev_hash",
+    "hash",
+    "signature"
+  ],
+  "additionalProperties": false
+}

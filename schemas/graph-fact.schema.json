@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/graph-fact.schema.json",
+  "title": "Graph fact",
+  "description": "A node or edge of the Codebase Knowledge Graph with provenance (spec 9).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/node"
+    },
+    {
+      "$ref": "#/$defs/edge"
+    }
+  ],
+  "$defs": {
+    "node": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "node"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "provenance": {
+          "$ref": "provenance.schema.json"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "type",
+        "name",
+        "path",
+        "attrs",
+        "provenance"
+      ],
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "edge"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Z_]+$"
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "provenance": {
+          "$ref": "provenance.schema.json"
+        }
+      },
+      "required": [
+        "kind",
+        "type",
+        "from",
+        "to",
+        "attrs",
+        "provenance"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

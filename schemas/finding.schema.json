@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/finding.schema.json",
+  "title": "Finding",
+  "description": "A diagnosed simplification opportunity answering the ten questions of spec 1.1 (spec 12).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^F-\\d{4,}$"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "kind": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-z0-9-]+)+$"
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": [
+        "local",
+        "module",
+        "service",
+        "delivery",
+        "security",
+        "database",
+        "infrastructure",
+        "decomposition",
+        "frontend"
+      ]
+    },
+    "status": {
+      "enum": [
+        "open",
+        "accepted",
+        "rejected",
+        "suppressed",
+        "resolved",
+        "stale"
+      ]
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "measurements": {
+      "type": "object"
+    },
+    "thresholds": {
+      "type": "object"
+    },
+    "why_accidental": {
+      "type": "string"
+    },
+    "essential_considerations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "smallest_simplification": {
+      "type": "string"
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recovery": {
+      "$ref": "slice.schema.json#/$defs/recovery"
+    },
+    "quality_impacts": {
+      "type": "object",
+      "properties": {
+        "changeability": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "reliability": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "security": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "required": [
+        "changeability",
+        "reliability",
+        "security"
+      ],
+      "additionalProperties": {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "blast_radius": {
+      "$ref": "slice.schema.json#/$defs/blast_radius"
+    },
+    "priority": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "type": "number"
+        },
+        "factors": {
+          "type": "object",
+          "properties": {
+            "benefit": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "evidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "reversibility": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "blast": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "cost": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "uncertainty": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "benefit",
+            "evidence",
+            "reversibility",
+            "blast",
+            "cost",
+            "uncertainty"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "score",
+        "factors"
+      ],
+      "additionalProperties": false
+    },
+    "detector": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z]+\\.[a-z0-9-]+$"
+        },
+        "version": {
+          "$ref": "pattern-card.schema.json#/$defs/semver"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/alternative"
+      },
+      "contains": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "const": "retain"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    "patterns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pattern_fit"
+      }
+    },
+    "approvers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "first_seen_commit": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_seen_commit": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "fingerprint",
+    "kind",
+    "title",
+    "category",
+    "status",
+    "scope",
+    "evidence",
+    "quality_impacts",
+    "blast_radius",
+    "uncertainties",
+    "alternatives",
+    "priority",
+    "detector"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "evidence_label": {
+      "enum": [
+        "observed",
+        "corroborated",
+        "inferred",
+        "unknown",
+        "contradicted"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "$ref": "#/$defs/evidence_label"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "source_ref": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "label",
+        "summary",
+        "source_ref"
+      ],
+      "additionalProperties": false
+    },
+    "alternative": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "pattern_fit": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fit": {
+          "enum": [
+            "fits",
+            "contraindicated",
+            "insufficient_evidence",
+            "not_evaluated"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "fit",
+        "reasons"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

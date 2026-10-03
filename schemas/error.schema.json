@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/error.schema.json",
+  "title": "Error",
+  "description": "The one failure shape that crosses process and model boundaries (spec 25).",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^UK_[A-Z_]+$"
+    },
+    "class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "type": "string"
+    },
+    "run_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^run-[a-z0-9-]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "slice_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^UK-(DB-|INFRA-)?\\d{4,}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "details": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "code",
+    "class",
+    "message",
+    "run_id",
+    "slice_id",
+    "retryable",
+    "details"
+  ],
+  "additionalProperties": false
+}

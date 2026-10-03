@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unknot.dev/schemas/decomposition-recommendation.schema.json",
+  "title": "Decomposition recommendation",
+  "description": "Selected treatment for a boundary candidate, with the evidence for and against (spec 15A.8).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^DEC-\\d{4,}$"
+    },
+    "target": {
+      "enum": [
+        "backend",
+        "frontend"
+      ]
+    },
+    "driver": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/driver"
+      },
+      "uniqueItems": true
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "robust": {
+          "type": "boolean"
+        },
+        "metrics": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "modules",
+        "robust",
+        "metrics"
+      ],
+      "additionalProperties": false
+    },
+    "treatment": {
+      "$ref": "#/$defs/treatment"
+    },
+    "favoring_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "signal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "source": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "signal",
+          "value",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "contraindications_checked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "enum": [
+              "pass",
+              "fail",
+              "unknown"
+            ]
+          },
+          "value": {}
+        },
+        "required": [
+          "id",
+          "result",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "rejected_treatments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "treatment": {
+            "$ref": "#/$defs/treatment"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "treatment",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "first_slice": {
+      "type": "object"
+    },
+    "proof_obligations": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^PO-\\d+$"
+          },
+          {
+            "$ref": "proof-obligation.schema.json#/$defs/obligation"
+          },
+          {
+            "$ref": "proof-obligation.schema.json#/$defs/kind"
+          }
+        ]
+      }
+    },
+    "recovery": {
+      "$ref": "slice.schema.json#/$defs/recovery"
+    },
+    "irreversible": {
+      "type": "boolean"
+    },
+    "retain_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "heuristics_used": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "target",
+    "driver",
+    "candidate",
+    "treatment",
+    "favoring_signals",
+    "contraindications_checked",
+    "rejected_treatments",
+    "evidence_gaps",
+    "confidence",
+    "first_slice",
+    "proof_obligations",
+    "recovery",
+    "irreversible",
+    "retain_score",
+    "heuristics_used"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "treatment": {
+      "enum": [
+        "T0",
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ]
+    },
+    "driver": {
+      "enum": [
+        "independent_deploy",
+        "independent_scale",
+        "availability_isolation",
+        "security_isolation",
+        "team_autonomy",
+        "technology_divergence",
+        "build_time"
+      ]
+    }
+  }
+}
