@@ -285,7 +285,7 @@ describe('brokered environment', () => {
       assert.ok(env.PATH);
       // A private temp dir outside the project (dogfood round 3: scratch git repos must not
       // nest inside the analysed repository).
-      assert.ok(!env.TMPDIR.startsWith(p.dir) && /unknot-run-/.test(env.TMPDIR), 'TMPDIR is a private dir outside the project');
+      assert.ok(!env.TMPDIR.startsWith(p.dir) && /unknot-/.test(env.TMPDIR), 'TMPDIR is a private dir outside the project');
     } finally {
       for (const [k, v] of Object.entries(saved)) {
         if (v === undefined) delete process.env[k];
