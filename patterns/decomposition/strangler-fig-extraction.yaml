@@ -25,6 +25,7 @@ required_evidence:
 preconditions:
   - id: recorded-driver
     description: "At least one driver is recorded: independent_deploy, independent_scale, availability_isolation, security_isolation, team_autonomy, technology_divergence or build_time (checklist across driver.* metrics)."
+    predicate: { metric: driver.any, op: '==', value: 1 }
   - id: requests-interceptable
     description: Requests for the capability pass a routable seam (HTTP or queue entry).
     predicate: { metric: requests.interceptable, op: '==', value: 1 }

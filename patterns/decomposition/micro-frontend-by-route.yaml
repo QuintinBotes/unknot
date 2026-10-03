@@ -25,6 +25,7 @@ required_evidence:
 preconditions:
   - id: recorded-driver
     description: "At least one driver is recorded; micro-frontends are not offered without one (checklist across driver.* metrics)."
+    predicate: { metric: driver.any, op: '==', value: 1 }
   - id: per-app-ci
     description: Each app has its own pipeline.
     predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }

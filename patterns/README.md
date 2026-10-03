@@ -50,7 +50,8 @@ Only these metric names may appear in predicates. Values are numbers; booleans a
 | `ci.per_unit_pipeline`, `ci.present` | Independent pipeline per deployable; any CI (0/1) |
 | `team.count` | Teams owning code in scope |
 | `driver.independent_deploy`, `driver.independent_scale`, `driver.availability_isolation`, `driver.security_isolation`, `driver.team_autonomy`, `driver.technology_divergence`, `driver.build_time` | Recorded decomposition drivers (0/1) |
-| `frontend.routes`, `frontend.cross_route_navigation`, `frontend.shared_state_stores`, `frontend.cross_feature_imports`, `frontend.teams` | Frontend route graph and coupling |
+| `driver.any` | 1 when at least one decomposition driver is recorded for the scope |
+| `frontend.routes`, `frontend.cross_route_navigation`, `frontend.shared_state_stores`, `frontend.cross_feature_imports`, `frontend.teams` | Frontend route graph and coupling; `cross_route_navigation` is the 0–1 share of navigations that would cross a proposed split |
 | `clients.count`, `clients.response_shape_variance` | Distinct API clients; how differently they consume responses (0–1) |
 | `data.reconciliation_tooling`, `data.idempotency`, `backup.restore_tested`, `table.writers`, `table.rows`, `index.scans`, `index.duplicates` | Data safety and usage |
 | `migration.irreversible`, `migration.locks_exclusive` | Migration hazards (0/1) |
