@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 10
+      author: cy
+      changes:
+        - createTable:
+            tableName: gadgets
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+        - dropColumn:
+            tableName: gadgets
+            columnName: legacy

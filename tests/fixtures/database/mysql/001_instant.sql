@@ -1,0 +1,10 @@
+-- MySQL 8.0 online DDL examples.
+ALTER TABLE `orders` ADD COLUMN `note` VARCHAR(100) NULL, ALGORITHM=INSTANT;
+ALTER TABLE `orders` MODIFY COLUMN `total` BIGINT NOT NULL;
+CREATE INDEX idx_orders_customer ON `orders` (`customer_id`) ALGORITHM=INPLACE LOCK=NONE;
+DELIMITER //
+CREATE TRIGGER orders_bi BEFORE INSERT ON `orders` FOR EACH ROW
+BEGIN
+  SET NEW.created = NOW();
+END//
+DELIMITER ;

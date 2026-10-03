@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+  <changeSet id="1" author="ann">
+    <createTable tableName="widgets">
+      <column name="id" type="bigint"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="label" type="varchar(100)"/>
+    </createTable>
+  </changeSet>
+  <changeSet id="2" author="ann">
+    <addColumn tableName="widgets"><column name="color" type="varchar(20)"/></addColumn>
+    <createIndex indexName="idx_widgets_label" tableName="widgets"><column name="label"/></createIndex>
+  </changeSet>
+  <changeSet id="3" author="bob">
+    <sql>UPDATE widgets SET color = 'red'</sql>
+    <rollback><sql>UPDATE widgets SET color = NULL</sql></rollback>
+  </changeSet>
+</databaseChangeLog>

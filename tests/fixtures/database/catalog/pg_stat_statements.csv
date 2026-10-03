@@ -1,0 +1,5 @@
+queryid,query,calls,total_exec_time,mean_exec_time,rows
+1001,"SELECT * FROM public.orders WHERE customer_id = $1",120000,48000.5,0.4,120000
+1002,"UPDATE orders SET total = $1 WHERE id = $2",900,1800.0,2.0,900
+1003,"SELECT o.id, c.email FROM orders o
+  JOIN customers c ON c.id = o.customer_id",50,25000.0,500.0,50000

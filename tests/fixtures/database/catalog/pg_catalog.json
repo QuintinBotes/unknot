@@ -1,0 +1,163 @@
+{
+  "engine": "postgresql",
+  "version": "16.2",
+  "tables": [
+    {
+      "schema": "public",
+      "name": "orders",
+      "estimated_rows": 52000000,
+      "size_bytes": 41000000000,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('orders_id_seq'::regclass)"
+        },
+        {
+          "name": "customer_id",
+          "type": "bigint",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "total",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "orders_pkey",
+          "definition": "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)",
+          "idx_scan": 90000,
+          "size_bytes": 1100000000,
+          "unique": true,
+          "primary": true,
+          "valid": true
+        },
+        {
+          "name": "idx_orders_customer",
+          "definition": "CREATE INDEX idx_orders_customer ON public.orders USING btree (customer_id)",
+          "idx_scan": 5000,
+          "size_bytes": 900000000,
+          "unique": false,
+          "valid": true
+        },
+        {
+          "name": "idx_orders_customer_dup",
+          "definition": "CREATE INDEX idx_orders_customer_dup ON public.orders USING btree (customer_id)",
+          "idx_scan": 0,
+          "size_bytes": 900000000,
+          "unique": false,
+          "valid": true
+        },
+        {
+          "name": "idx_orders_customer_total",
+          "definition": "CREATE INDEX idx_orders_customer_total ON public.orders USING btree (customer_id, total)",
+          "idx_scan": 40,
+          "size_bytes": 1200000000,
+          "unique": false,
+          "valid": true
+        },
+        {
+          "name": "idx_orders_total",
+          "definition": "CREATE INDEX idx_orders_total ON public.orders USING btree (total)",
+          "idx_scan": 0,
+          "size_bytes": 700000000,
+          "unique": false,
+          "valid": true
+        },
+        {
+          "name": "idx_orders_broken",
+          "definition": "CREATE INDEX idx_orders_broken ON public.orders USING btree (total) WHERE total > 5",
+          "idx_scan": 0,
+          "size_bytes": 8192,
+          "unique": false,
+          "valid": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "orders_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "orders_customer_fk",
+          "type": "f",
+          "definition": "FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "customers",
+      "estimated_rows": 1000000,
+      "size_bytes": 120000000,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "customers_pkey",
+          "definition": "CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (id)",
+          "idx_scan": 70000,
+          "size_bytes": 22000000,
+          "unique": true,
+          "primary": true,
+          "valid": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "customers_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "name": "app_rw",
+      "superuser": false,
+      "login": true
+    },
+    {
+      "name": "app_ro",
+      "superuser": false,
+      "login": true
+    }
+  ],
+  "grants": [
+    {
+      "grantee": "app_rw",
+      "privilege": "SELECT",
+      "schema": "public",
+      "table": "orders"
+    },
+    {
+      "grantee": "app_rw",
+      "privilege": "UPDATE",
+      "schema": "public",
+      "table": "orders"
+    },
+    {
+      "grantee": "app_ro",
+      "privilege": "SELECT",
+      "schema": "public",
+      "table": "customers"
+    }
+  ]
+}

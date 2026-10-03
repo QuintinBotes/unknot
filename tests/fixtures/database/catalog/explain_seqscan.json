@@ -1,0 +1,38 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Hash Join",
+      "Join Type": "Inner",
+      "Startup Cost": 1200.5,
+      "Total Cost": 98765.4,
+      "Plan Rows": 52000000,
+      "Plans": [
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "orders",
+          "Schema": "public",
+          "Alias": "o",
+          "Startup Cost": 0,
+          "Total Cost": 90000.1,
+          "Plan Rows": 52000000,
+          "Filter": "(total > 5)"
+        },
+        {
+          "Node Type": "Hash",
+          "Total Cost": 1000,
+          "Plan Rows": 1000000,
+          "Plans": [
+            {
+              "Node Type": "Index Scan",
+              "Relation Name": "customers",
+              "Schema": "public",
+              "Index Name": "customers_pkey",
+              "Total Cost": 900,
+              "Plan Rows": 1000000
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
