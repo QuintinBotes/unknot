@@ -1,0 +1,9 @@
+{
+  // Shared compiler options for every package.
+  "compilerOptions": {
+    "target": "ES2022", /* modern output */
+    "module": "NodeNext",
+    "strict": true,
+    "rootDir": ".",
+  },
+}

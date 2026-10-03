@@ -1,0 +1,5 @@
+{
+  "name": "spa",
+  "version": "0.0.1",
+  "dependencies": { "react": "^18.3.0", "react-router-dom": "^6.23.0", "@reduxjs/toolkit": "^2.2.0" }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@acme/pricing",
+  "version": "1.2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./tax": "./dist/tax.js"
+  },
+  "scripts": { "build": "tsc" }
+}

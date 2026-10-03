@@ -1,0 +1,7 @@
+{
+  "name": "acme-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "build": "tsc -b", "test": "node --test" },
+  "devDependencies": { "typescript": "^5.4.0" }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@acme/checkout",
+  "version": "0.4.0",
+  "dependencies": { "@acme/pricing": "workspace:*", "left-pad": "^1.3.0" },
+  "devDependencies": { "@types/node": "^22.0.0" }
+}
