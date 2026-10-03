@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "unknot": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/unknot-mcp"]
+    }
+  }
+}

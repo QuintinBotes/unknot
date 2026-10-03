@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+// Extensionless launcher for the stdio MCP server. Mirrors bin/unknot: CommonJS shell,
+// dynamic import of the ESM code. Startup failures go to stderr, never stdout, which is
+// reserved for protocol messages.
+'use strict';
+
+import('../runtime/mcp/server.mjs')
+  .then(({ main }) => main())
+  .catch((err) => {
+    process.stderr.write(`unknot-mcp: failed to start: ${err && err.message}\n`);
+    process.exitCode = 1;
+  });
