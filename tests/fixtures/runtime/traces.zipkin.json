@@ -1,0 +1,371 @@
+[
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000001",
+    "kind": "SERVER",
+    "name": "GET /orders/{id}",
+    "timestamp": 1788220800000000,
+    "duration": 100000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/orders/{id}",
+      "http.target": "/orders/42?token=SECRETTOKEN",
+      "http.status_code": "200",
+      "user.email": "alice@example.com",
+      "http.request.header.authorization": "Bearer TOPSECRETBEARER"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000002",
+    "parentId": "0000000000000001",
+    "kind": "CLIENT",
+    "name": "GET price",
+    "timestamp": 1788220800005000,
+    "duration": 60000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "remoteEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.url": "http://pricing:8080/price?apikey=LEAKYKEY"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000003",
+    "parentId": "0000000000000002",
+    "kind": "SERVER",
+    "name": "GET /price",
+    "timestamp": 1788220800008000,
+    "duration": 50000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/price",
+      "http.status_code": "200"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000004",
+    "parentId": "0000000000000003",
+    "kind": "CLIENT",
+    "name": "GET stock",
+    "timestamp": 1788220800010000,
+    "duration": 30000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "remoteEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "http.method": "GET"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000005",
+    "parentId": "0000000000000004",
+    "kind": "SERVER",
+    "name": "GET /stock/{sku}",
+    "timestamp": 1788220800012000,
+    "duration": 25000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/stock/{sku}",
+      "http.status_code": "200"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000006",
+    "parentId": "0000000000000005",
+    "kind": "CLIENT",
+    "name": "SELECT stock",
+    "timestamp": 1788220800014000,
+    "duration": 5000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "db.system": "postgresql",
+      "db.name": "inv",
+      "db.statement": "SELECT sku, qty FROM stock WHERE sku = 'ABC-SECRET-123' AND qty > 5"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000007",
+    "parentId": "0000000000000001",
+    "kind": "PRODUCER",
+    "name": "orders.created send",
+    "timestamp": 1788220800070000,
+    "duration": 3000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "messaging.system": "kafka",
+      "messaging.destination.name": "orders.created"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000008",
+    "parentId": "0000000000000007",
+    "kind": "CONSUMER",
+    "name": "orders.created process",
+    "timestamp": 1788220800075000,
+    "duration": 10000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "messaging.system": "kafka",
+      "messaging.destination.name": "orders.created"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "id": "0000000000000009",
+    "parentId": "0000000000000001",
+    "kind": "CLIENT",
+    "name": "POST pay",
+    "timestamp": 1788220800080000,
+    "duration": 20000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "remoteEndpoint": {
+      "serviceName": "payments-gateway"
+    },
+    "tags": {
+      "http.method": "POST"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000011",
+    "kind": "SERVER",
+    "name": "GET /orders/{id}",
+    "timestamp": 1788220801000000,
+    "duration": 200000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/orders/{id}",
+      "http.status_code": "500",
+      "error": "boom"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000012",
+    "parentId": "0000000000000011",
+    "kind": "CLIENT",
+    "name": "GET price",
+    "timestamp": 1788220801005000,
+    "duration": 150000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "remoteEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET",
+      "error": "boom"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000013",
+    "parentId": "0000000000000012",
+    "kind": "SERVER",
+    "name": "GET /price",
+    "timestamp": 1788220801008000,
+    "duration": 140000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/price",
+      "http.status_code": "500",
+      "error": "boom"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000014",
+    "parentId": "0000000000000013",
+    "kind": "CLIENT",
+    "name": "GET stock",
+    "timestamp": 1788220801010000,
+    "duration": 120000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "remoteEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "http.method": "GET",
+      "error": "boom"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000015",
+    "parentId": "0000000000000014",
+    "kind": "SERVER",
+    "name": "GET /stock/{sku}",
+    "timestamp": 1788220801012000,
+    "duration": 110000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/stock/{sku}",
+      "http.status_code": "500",
+      "error": "boom"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000016",
+    "parentId": "0000000000000015",
+    "kind": "CLIENT",
+    "name": "UPDATE stock",
+    "timestamp": 1788220801014000,
+    "duration": 8000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "db.system": "postgresql",
+      "db.name": "inv",
+      "db.sql.table": "stock",
+      "db.statement": "UPDATE stock SET qty = qty - 3 WHERE sku = 'ZZ-TOP-SECRET'"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "id": "0000000000000017",
+    "parentId": "0000000000000015",
+    "kind": "CLIENT",
+    "name": "INSERT audit_log",
+    "timestamp": 1788220801030000,
+    "duration": 4000,
+    "localEndpoint": {
+      "serviceName": "inventory"
+    },
+    "tags": {
+      "db.system": "postgresql",
+      "db.name": "inv",
+      "db.statement": "INSERT INTO audit_log (actor, note) VALUES ('hunter2', 12345)"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "id": "0000000000000021",
+    "kind": "SERVER",
+    "name": "POST /checkout",
+    "timestamp": 1788220802000000,
+    "duration": 80000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "http.method": "POST",
+      "http.route": "/checkout",
+      "http.status_code": "200"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "id": "0000000000000022",
+    "parentId": "0000000000000021",
+    "kind": "CLIENT",
+    "name": "GET price",
+    "timestamp": 1788220802002000,
+    "duration": 60000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "remoteEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "id": "0000000000000023",
+    "parentId": "0000000000000022",
+    "kind": "SERVER",
+    "name": "GET /price",
+    "timestamp": 1788220802004000,
+    "duration": 55000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/price",
+      "http.status_code": "200"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "id": "0000000000000024",
+    "parentId": "0000000000000023",
+    "kind": "CLIENT",
+    "name": "GET config",
+    "timestamp": 1788220802006000,
+    "duration": 30000,
+    "localEndpoint": {
+      "serviceName": "pricing"
+    },
+    "remoteEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "http.method": "GET"
+    }
+  },
+  {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "id": "0000000000000025",
+    "parentId": "0000000000000024",
+    "kind": "SERVER",
+    "name": "GET /config",
+    "timestamp": 1788220802008000,
+    "duration": 25000,
+    "localEndpoint": {
+      "serviceName": "checkout"
+    },
+    "tags": {
+      "http.method": "GET",
+      "http.route": "/config",
+      "http.status_code": "200"
+    }
+  }
+]

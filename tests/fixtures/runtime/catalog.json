@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-09-01T00:00:00Z",
+  "services": [
+    {
+      "name": "checkout",
+      "owner": "team-orders",
+      "system": "shop",
+      "lifecycle": "production",
+      "tier": "tier-1",
+      "slo": {
+        "availability": 99.95,
+        "latency_p95_ms": 250
+      },
+      "depends_on": [
+        "pricing",
+        "inventory"
+      ],
+      "repo_path": "services/checkout"
+    },
+    {
+      "name": "pricing",
+      "owner": "team-pricing",
+      "system": "shop",
+      "lifecycle": "production",
+      "tier": "tier-2",
+      "slo": {
+        "availability": 99.9
+      },
+      "depends_on": [
+        "inventory"
+      ],
+      "repo_path": "../escape"
+    },
+    {
+      "name": "inventory",
+      "owner": "team-orders",
+      "system": "shop",
+      "lifecycle": "production",
+      "tier": "tier-2",
+      "depends_on": []
+    }
+  ]
+}

@@ -1,0 +1,825 @@
+{
+  "data": [
+    {
+      "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+      "processes": {
+        "p1": {
+          "serviceName": "checkout",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "pricing",
+          "tags": []
+        },
+        "p3": {
+          "serviceName": "inventory",
+          "tags": []
+        }
+      },
+      "spans": [
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000001",
+          "operationName": "GET /orders/{id}",
+          "references": [],
+          "startTime": 1788220800000000,
+          "duration": 100000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/orders/{id}"
+            },
+            {
+              "key": "http.target",
+              "type": "string",
+              "value": "/orders/42?token=SECRETTOKEN"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            },
+            {
+              "key": "user.email",
+              "type": "string",
+              "value": "alice@example.com"
+            },
+            {
+              "key": "http.request.header.authorization",
+              "type": "string",
+              "value": "Bearer TOPSECRETBEARER"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000002",
+          "operationName": "GET price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1788220800005000,
+          "duration": 60000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.url",
+              "type": "string",
+              "value": "http://pricing:8080/price?apikey=LEAKYKEY"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "pricing"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000003",
+          "operationName": "GET /price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000002"
+            }
+          ],
+          "startTime": 1788220800008000,
+          "duration": 50000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/price"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000004",
+          "operationName": "GET stock",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000003"
+            }
+          ],
+          "startTime": 1788220800010000,
+          "duration": 30000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "inventory"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000005",
+          "operationName": "GET /stock/{sku}",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000004"
+            }
+          ],
+          "startTime": 1788220800012000,
+          "duration": 25000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/stock/{sku}"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000006",
+          "operationName": "SELECT stock",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000005"
+            }
+          ],
+          "startTime": 1788220800014000,
+          "duration": 5000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "db.system",
+              "type": "string",
+              "value": "postgresql"
+            },
+            {
+              "key": "db.name",
+              "type": "string",
+              "value": "inv"
+            },
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "SELECT sku, qty FROM stock WHERE sku = 'ABC-SECRET-123' AND qty > 5"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000007",
+          "operationName": "orders.created send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1788220800070000,
+          "duration": 3000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "producer"
+            },
+            {
+              "key": "messaging.system",
+              "type": "string",
+              "value": "kafka"
+            },
+            {
+              "key": "messaging.destination.name",
+              "type": "string",
+              "value": "orders.created"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000008",
+          "operationName": "orders.created process",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000007"
+            }
+          ],
+          "startTime": 1788220800075000,
+          "duration": 10000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "consumer"
+            },
+            {
+              "key": "messaging.system",
+              "type": "string",
+              "value": "kafka"
+            },
+            {
+              "key": "messaging.destination.name",
+              "type": "string",
+              "value": "orders.created"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+          "spanID": "0000000000000009",
+          "operationName": "POST pay",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1788220800080000,
+          "duration": 20000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "POST"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "payments-gateway"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+      "processes": {
+        "p1": {
+          "serviceName": "checkout",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "pricing",
+          "tags": []
+        },
+        "p3": {
+          "serviceName": "inventory",
+          "tags": []
+        }
+      },
+      "spans": [
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000011",
+          "operationName": "GET /orders/{id}",
+          "references": [],
+          "startTime": 1788220801000000,
+          "duration": 200000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/orders/{id}"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 500
+            },
+            {
+              "key": "error",
+              "type": "string",
+              "value": true
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000012",
+          "operationName": "GET price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000011"
+            }
+          ],
+          "startTime": 1788220801005000,
+          "duration": 150000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "pricing"
+            },
+            {
+              "key": "error",
+              "type": "string",
+              "value": true
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000013",
+          "operationName": "GET /price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000012"
+            }
+          ],
+          "startTime": 1788220801008000,
+          "duration": 140000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/price"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 500
+            },
+            {
+              "key": "error",
+              "type": "string",
+              "value": true
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000014",
+          "operationName": "GET stock",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000013"
+            }
+          ],
+          "startTime": 1788220801010000,
+          "duration": 120000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "inventory"
+            },
+            {
+              "key": "error",
+              "type": "string",
+              "value": true
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000015",
+          "operationName": "GET /stock/{sku}",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000014"
+            }
+          ],
+          "startTime": 1788220801012000,
+          "duration": 110000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/stock/{sku}"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 500
+            },
+            {
+              "key": "error",
+              "type": "string",
+              "value": true
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000016",
+          "operationName": "UPDATE stock",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000015"
+            }
+          ],
+          "startTime": 1788220801014000,
+          "duration": 8000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "db.system",
+              "type": "string",
+              "value": "postgresql"
+            },
+            {
+              "key": "db.name",
+              "type": "string",
+              "value": "inv"
+            },
+            {
+              "key": "db.sql.table",
+              "type": "string",
+              "value": "stock"
+            },
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "UPDATE stock SET qty = qty - 3 WHERE sku = 'ZZ-TOP-SECRET'"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+          "spanID": "0000000000000017",
+          "operationName": "INSERT audit_log",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+              "spanID": "0000000000000015"
+            }
+          ],
+          "startTime": 1788220801030000,
+          "duration": 4000,
+          "processID": "p3",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "db.system",
+              "type": "string",
+              "value": "postgresql"
+            },
+            {
+              "key": "db.name",
+              "type": "string",
+              "value": "inv"
+            },
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "INSERT INTO audit_log (actor, note) VALUES ('hunter2', 12345)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+      "processes": {
+        "p1": {
+          "serviceName": "checkout",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "pricing",
+          "tags": []
+        },
+        "p3": {
+          "serviceName": "inventory",
+          "tags": []
+        }
+      },
+      "spans": [
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+          "spanID": "0000000000000021",
+          "operationName": "POST /checkout",
+          "references": [],
+          "startTime": 1788220802000000,
+          "duration": 80000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "POST"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/checkout"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+          "spanID": "0000000000000022",
+          "operationName": "GET price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+              "spanID": "0000000000000021"
+            }
+          ],
+          "startTime": 1788220802002000,
+          "duration": 60000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "pricing"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+          "spanID": "0000000000000023",
+          "operationName": "GET /price",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+              "spanID": "0000000000000022"
+            }
+          ],
+          "startTime": 1788220802004000,
+          "duration": 55000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/price"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+          "spanID": "0000000000000024",
+          "operationName": "GET config",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+              "spanID": "0000000000000023"
+            }
+          ],
+          "startTime": 1788220802006000,
+          "duration": 30000,
+          "processID": "p2",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "peer.service",
+              "type": "string",
+              "value": "checkout"
+            }
+          ]
+        },
+        {
+          "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+          "spanID": "0000000000000025",
+          "operationName": "GET /config",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+              "spanID": "0000000000000024"
+            }
+          ],
+          "startTime": 1788220802008000,
+          "duration": 25000,
+          "processID": "p1",
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.method",
+              "type": "string",
+              "value": "GET"
+            },
+            {
+              "key": "http.route",
+              "type": "string",
+              "value": "/config"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

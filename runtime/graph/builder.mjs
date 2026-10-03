@@ -152,6 +152,7 @@ export async function mapRepository(ctx, { config, configDigest, run = null, sco
         factsByFile: perFile,
       });
       global.push(...(out ?? []).map((f) => redactDeep(assertFact(f))));
+      for (const f of out?.failures ?? []) failures.push({ path: f.path ?? f.file ?? '<evidence>', adapter: adapter.id, error: String(f.error ?? f.reason ?? f.message ?? 'failed') });
     } catch (err) {
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }

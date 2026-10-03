@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+// Extensionless so it reads as a command. The ESM code lives in runtime/ and loads through
+// a dynamic import, which CommonJS allows.
+'use strict';
+
+import('../runtime/cli/main.mjs')
+  .then(({ main }) => main(process.argv.slice(2)))
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((err) => {
+    process.stderr.write(`unknot: failed to start: ${err && err.message}\n`);
+    process.exitCode = 1;
+  });

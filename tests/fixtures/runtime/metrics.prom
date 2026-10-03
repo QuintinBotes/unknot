@@ -1,0 +1,16 @@
+# HELP cpu_cores Cores in use
+# TYPE cpu_cores gauge
+cpu_cores{service="checkout",pod="checkout-a"} 0.6
+cpu_cores{service="checkout",pod="checkout-b"} 0.5
+cpu_cores{service="pricing",pod="pricing-a"} 0.2
+# TYPE container_memory_working_set_bytes gauge
+container_memory_working_set_bytes{service="checkout",pod="checkout-a"} 268435456
+container_memory_working_set_bytes{service="checkout",pod="checkout-b"} 268435456
+container_memory_working_set_bytes{service="pricing",pod="pricing-a"} 134217728
+# TYPE http_requests_total counter
+http_requests_total{service="checkout",code="200"} 9000
+http_requests_total{service="checkout",code="500"} 90
+http_requests_total{service="pricing",code="200"} 4000
+kube_deployment_status_replicas{service="checkout"} 3
+kube_deployment_status_replicas{service="pricing"} 2
+http_request_duration_seconds_bucket{service="checkout",le="0.5"} 12
