@@ -741,7 +741,7 @@ test('diagnose(): all detectors run end to end with no errors and valid findings
 // `surfaces.destructive_infra`, and classifyRisk's IAM/NET/RECOVERY hints regex over
 // paths), so a destructive plan change on a stateful resource, a privilege widening or a
 // public exposure comes out `medium`. Spec §15.9 says these are always high risk.
-test('diagnose(): destructive and privilege-widening infrastructure findings are high or critical risk', { todo: 'engine does not pass surfaces.destructive_infra; classification is path-only' }, () => {
+test('diagnose(): destructive and privilege-widening infrastructure findings are high or critical risk', {}, () => {
   for (const kind of ['infrastructure.destructive-plan-change', 'infrastructure.privilege-widening-plan']) {
     const found = diagnosed.findings.filter((f) => f.kind === kind);
     assert.ok(found.length >= 1, kind);

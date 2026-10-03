@@ -104,15 +104,21 @@ export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id =
     return fn(activeRun(ctx.store));
   }
   const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, config: cfg.config, configDigest: cfg.digest });
+  const telemetry = await import('../telemetry/otel.mjs');
+  telemetry.configureTelemetry(cfg.config, { root: ctx.root });
+  const t0 = Date.now();
   let outcome = 'completed';
   let keep = persist && !isHuman(actor);
   try {
-    return await fn(run);
+    return await telemetry.withSpan('unknot.run', { 'unknot.command': command, 'unknot.mode': cfg.config.mode }, () => fn(run));
   } catch (err) {
     outcome = err?.code === 'UK_BUDGET_EXCEEDED' ? 'budget_exceeded' : 'failed';
     keep = false;
     throw err;
   } finally {
+    telemetry.metric('unknot.run.duration', Date.now() - t0, { 'unknot.outcome': outcome });
+    telemetry.metric('unknot.run.count', 1, { 'unknot.outcome': outcome });
+    await telemetry.flush();
     // An agent's apply keeps its run (and so the hooks' enforcement) until the Stop hook
     // ends it; a human's terminal command never leaves a run behind.
     if (!keep) endRun(ctx, run.id, { outcome, actor });

@@ -50,7 +50,7 @@ export function approvalStatus(ctx, slice, stage, { cfg, commit, diffHash }) {
 }
 
 /** Start patching an approved slice. */
-export async function startApply(ctx, { cfg, run, sliceId, actor }) {
+async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   const config = cfg.config;
   if (modeRank(config.mode) < modeRank('assist')) {
     throw new UnknotError('UK_POLICY_DENIED', `mode ${config.mode} does not permit patching; a human sets mode: assist (or higher) in .unknot/config.yaml`, { slice_id: sliceId, details: { policy: 'mode.write', required_mode: 'assist' } });
@@ -152,4 +152,10 @@ export function abandon(ctx, { run, sliceId, actor, reason }) {
   invalidateApprovals(ctx, slice, 'abandoned');
   if (slice.worktree) removeWorktree(ctx, sliceId, { deleteBranch: true });
   return loadSlice(ctx, sliceId);
+}
+
+/** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */
+export async function startApply(ctx, opts) {
+  const { withSpan } = await import('../telemetry/otel.mjs');
+  return withSpan('apply', {}, () => startApplyInner(ctx, opts));
 }

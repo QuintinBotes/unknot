@@ -32,7 +32,7 @@ function recordEvidence(ctx, { run, slice, obligation, record, verdict }) {
 }
 
 /** Run every executable obligation of a slice in VERIFYING and decide the next state. */
-export async function verifySlice(ctx, { cfg, run, sliceId, actor }) {
+async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   const config = cfg.config;
   let slice = loadSlice(ctx, sliceId);
   if (slice.state !== 'VERIFYING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}; run \`unknot apply finish ${sliceId}\` first`, { slice_id: sliceId });
@@ -174,4 +174,10 @@ export function attest(ctx, { cfg, run, obligationId, result, note, approver, pr
   };
   recordEvidence(ctx, { run, slice, obligation: { id: o.id, kind: o.kind }, record, verdict: result });
   return record;
+}
+
+/** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */
+export async function verifySlice(ctx, opts) {
+  const { withSpan } = await import('../telemetry/otel.mjs');
+  return withSpan('verify', {}, () => verifySliceInner(ctx, opts));
 }

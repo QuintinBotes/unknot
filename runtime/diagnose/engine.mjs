@@ -62,7 +62,18 @@ function finalize(draft, detector, signals, config) {
     alternatives.unshift({ id: 'retain', summary: 'Keep the current design and document why; revisit if the measured cost grows.' });
   }
   const measured = { ...signals, ...(draft.measurements ?? {}) };
-  const risk = classifyRisk({ kind: KIND_TO_SLICE[detector.category] ?? 'code', changes: scope.map((path) => ({ path })), treatment: draft.treatment }, { config });
+  // Risk comes from what the change would touch: paths, plus measured surfaces (a plan
+  // that deletes or replaces, widened privilege, public exposure) the paths cannot show.
+  const m = draft.measurements ?? {};
+  const surfaces = {
+    ...(draft.surfaces ?? {}),
+    destructive_infra: Boolean(draft.surfaces?.destructive_infra || (m['plan.deletes'] ?? 0) > 0 || (m['plan.replaces'] ?? 0) > 0),
+    data_movement: Boolean(draft.surfaces?.data_movement),
+  };
+  const risk = classifyRisk(
+    { kind: KIND_TO_SLICE[detector.category] ?? 'code', changes: scope.map((path) => ({ path, description: `${draft.kind} ${draft.title}` })), objective: draft.title, treatment: draft.treatment },
+    { config, surfaces },
+  );
   const approvals = requiredApprovals(risk, config);
   return {
     schema_version: FINDING_SCHEMA_VERSION,
@@ -122,7 +133,7 @@ function suppressionFor(ctx, fingerprint, at) {
  * Run detectors over the current graph and persist findings.
  * @returns {{findings: object[], stats: object, errors: object[]}}
  */
-export async function diagnose(ctx, { config, run = null, scope = [], objective = null, only = null, graph = null }) {
+async function diagnoseInner(ctx, { config, run = null, scope = [], objective = null, only = null, graph = null }) {
   const t0 = Date.now();
   const g = graph ?? Graph.fromStore(ctx.store);
   if (g.size.nodes === 0) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
@@ -221,8 +232,8 @@ export function recordDecision(ctx, { finding, decision, rationale, actor, days 
   const v = validateArtifact('decision', record);
   if (!v.valid) throw new UnknotError('UK_SCHEMA_INVALID', `decision invalid: ${v.errors[0].path} ${v.errors[0].message}`);
   ctx.store.tx(() => {
-    const { schema_version, ...row } = record;
-    ctx.store.insert('decisions', row);
+    const { schema_version, ...decisionRow } = record;
+    ctx.store.insert('decisions', decisionRow);
     const row = ctx.store.get('SELECT version, body FROM findings WHERE id = ?', finding.id);
     const status = decision === 'accept' ? 'accepted' : 'rejected';
     ctx.store.update('findings', finding.id, row.version, { status, body: { ...JSON.parse(row.body), status }, updated_at: at });
@@ -230,4 +241,10 @@ export function recordDecision(ctx, { finding, decision, rationale, actor, days 
   });
   appendFileSync(ctx.paths.decisions, `${canonicalJSON(record)}\n`);
   return record;
+}
+
+/** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */
+export async function diagnose(ctx, opts) {
+  const { withSpan } = await import('../telemetry/otel.mjs');
+  return withSpan('diagnose', {}, () => diagnoseInner(ctx, opts));
 }

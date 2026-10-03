@@ -45,7 +45,7 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-export async function mapRepository(ctx, { config, configDigest, run = null, scope = [], only = null, history = true }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true }) {
   const t0 = Date.now();
   const observedAt = nowISO();
   const cen = census(ctx.root, { config, scope });
@@ -279,4 +279,10 @@ export function project(ctx, facts, { commit, observedAt }) {
     ctx.store.meta('mapped_at', observedAt);
   });
   return { generation, nodes: nodes.size, edges: ctx.store.get('SELECT COUNT(*) AS n FROM edges').n };
+}
+
+/** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */
+export async function mapRepository(ctx, opts) {
+  const { withSpan } = await import('../telemetry/otel.mjs');
+  return withSpan('map', {}, () => mapRepositoryInner(ctx, opts));
 }
