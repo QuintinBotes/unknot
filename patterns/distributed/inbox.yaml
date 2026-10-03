@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: distributed.inbox
+name: "Inbox"
+category: distributed
+aliases: ["Inbox pattern"]
+problem: "A consumer receiving at-least-once messages processes duplicates and cannot dedupe atomically with its own state change."
+forces:
+  - "Atomic dedupe versus extra storage and writes."
+applicability_signals:
+  - { id: consumer-is-not-naturally-idempotent, description: "Consumer is not naturally idempotent", predicate: { metric: data.idempotency, op: '==', value: 0 } }
+  - { id: redelivery-or-duplicates-observed, description: "Redelivery or duplicates observed" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: messages-carry-a-stable-unique, description: "Messages carry a stable unique id" }
+  - { id: consumer-owns-a-transactional-store, description: "Consumer owns a transactional store" }
+contraindications:
+  - { id: handler-is-naturally-idempotent, description: "Handler is naturally idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: no-stable-message-id-exists, description: "No stable message id exists" }
+benefits:
+  - "Exactly-once effect on top of at-least-once"
+  - "Dedupe in same transaction as the work"
+liabilities:
+  - "Table growth and retention policy"
+  - "Extra write per message"
+introduced_complexity:
+  - "Inbox table, retention and purge job"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.idempotent-consumer, distributed.transactional-outbox, messaging.guaranteed-delivery]
+conflicts_with: []
+introduction_recipe:
+  - "Add an inbox table keyed by message id."
+  - "Insert the id and apply the change in one transaction."
+removal_recipe:
+  - "Make handlers idempotent natively, then stop writing the inbox."
+  - "Purge the table later."
+version: 1.0.0

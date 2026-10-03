@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: messaging.normalizer
+name: "Normalizer"
+category: messaging
+problem: "Equivalent messages arrive in different formats from different sources."
+forces:
+  - "Single downstream format versus translators to maintain."
+applicability_signals:
+  - { id: multiple-formats-for-the-same, description: "Multiple formats for the same concept" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: canonical-target-format-defined, description: "Canonical target format defined" }
+contraindications:
+  - { id: one-source-format-only, description: "One source format only" }
+  - { id: differences-are-semantic-not-format, description: "Differences are semantic, not format-only" }
+benefits:
+  - "Consumers handle one format"
+liabilities:
+  - "Translator per source"
+introduced_complexity:
+  - "Translators and tests per format"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.canonical-data-model, messaging.messaging-mapper, messaging.content-based-router]
+conflicts_with: []
+introduction_recipe:
+  - "Route by format to translators."
+  - "Test round trips."
+removal_recipe:
+  - "Migrate sources to the canonical format."
+version: 1.0.0

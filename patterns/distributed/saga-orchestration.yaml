@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: distributed.saga-orchestration
+name: "Saga (orchestration)"
+category: distributed
+problem: "A multi-service transaction needs explicit control flow, timeouts and compensation that choreography makes untraceable."
+forces:
+  - "Explicit flow versus a central coordinator that can become a god service."
+  - "Visibility versus coupling to the orchestrator."
+applicability_signals:
+  - { id: more-than-a-few-participants, description: "More than a few participants or branching steps", predicate: { metric: service.count, op: '>=', value: 4 } }
+  - { id: cross-service-business-transaction, description: "Cross-service business transaction", predicate: { metric: boundary.cross_transactions, op: '>=', value: 1 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: each-step-has-a-compensating, description: "Each step has a compensating action" }
+  - { id: orchestrator-state-is-durable, description: "Orchestrator state is durable" }
+contraindications:
+  - { id: operation-fits-one-local-transaction, description: "Operation fits one local transaction", predicate: { metric: boundary.cross_transactions, op: '==', value: 0 }, hard: true }
+  - { id: only-two-participants-a-simple, description: "Only two participants; a simple event suffices", predicate: { metric: service.count, op: '<', value: 3 } }
+benefits:
+  - "Flow is readable in one place"
+  - "Timeouts and compensation are explicit"
+liabilities:
+  - "Orchestrator is a critical dependency"
+  - "Risk of domain logic migrating into it"
+introduced_complexity:
+  - "Durable workflow state"
+  - "Orchestrator deployment and versioning of in-flight sagas"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, human-review]
+rollback_strategies: [compensate, revert]
+composes_with: [distributed.process-manager, distributed.transactional-outbox, messaging.command-message]
+conflicts_with: [distributed.saga-choreography]
+introduction_recipe:
+  - "Model the saga as a state machine."
+  - "Implement steps as idempotent commands."
+  - "Run failure-injection on each step."
+removal_recipe:
+  - "Collapse into a local transaction if services merge."
+  - "Let in-flight sagas complete before removing the orchestrator."
+version: 1.0.0

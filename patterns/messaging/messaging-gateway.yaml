@@ -1,0 +1,38 @@
+schema_version: "1.0"
+id: messaging.messaging-gateway
+name: "Messaging gateway"
+category: messaging
+problem: "Application code is littered with messaging API calls."
+forces:
+  - "Isolation of messaging API versus another layer."
+applicability_signals:
+  - { id: messaging-client-used-directly-throughout, description: "Messaging client used directly throughout the domain" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions: []
+contraindications:
+  - { id: messaging-used-in-one-place, description: "Messaging used in one place only" }
+benefits:
+  - "Domain independent of broker API"
+  - "Testable with a fake"
+liabilities:
+  - "Extra abstraction"
+introduced_complexity:
+  - "One gateway interface"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.messaging-mapper, migration.branch-by-abstraction, messaging.publish-subscribe]
+conflicts_with: []
+introduction_recipe:
+  - "Create a gateway interface with domain verbs."
+  - "Move callers."
+removal_recipe:
+  - "Inline the gateway if only one broker remains and abstraction adds no value."
+version: 1.0.0

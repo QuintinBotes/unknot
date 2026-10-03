@@ -1,0 +1,38 @@
+schema_version: "1.0"
+id: messaging.event-driven-consumer
+name: "Event-driven consumer"
+category: messaging
+problem: "Consumers must react immediately to arriving messages."
+forces:
+  - "Low latency versus risk of overload by bursts."
+applicability_signals:
+  - { id: low-latency-reaction-required, description: "Low-latency reaction required" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: backpressure-or-prefetch-limits-configured, description: "Backpressure or prefetch limits configured" }
+contraindications:
+  - { id: bursts-exceed-handler-capacity-with, description: "Bursts exceed handler capacity with no backpressure" }
+  - { id: consumer-must-control-its-pace, description: "Consumer must control its pace" }
+benefits:
+  - "Low latency"
+liabilities:
+  - "Overload without prefetch limits"
+introduced_complexity:
+  - "Prefetch and concurrency settings"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.polling-consumer, messaging.competing-consumers, resilience.load-shedding]
+conflicts_with: []
+introduction_recipe:
+  - "Register the handler with a prefetch limit."
+removal_recipe:
+  - "Switch to polling."
+version: 1.0.0

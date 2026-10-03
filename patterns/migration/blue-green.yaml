@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: migration.blue-green
+name: "Blue-green deployment"
+category: migration
+problem: "In-place deploys cause downtime and slow rollback."
+forces:
+  - "Instant switch and rollback versus doubled environment cost."
+applicability_signals:
+  - { id: downtime-or-slow-rollback-is, description: "Downtime or slow rollback is unacceptable" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: environments-are-identical-and-database, description: "Environments are identical and database changes are backward compatible" }
+contraindications:
+  - { id: schema-change-not-backward-compatible, description: "Schema change not backward compatible; use expand-migrate-contract first", predicate: { metric: migration.irreversible, op: '==', value: 1 }, hard: true }
+  - { id: cannot-afford-a-duplicate-environment, description: "Cannot afford a duplicate environment" }
+benefits:
+  - "Near-instant rollback by switching back"
+  - "Full pre-switch verification"
+liabilities:
+  - "Doubled infrastructure cost"
+  - "Stateful data drift between colors"
+introduced_complexity:
+  - "Environment parity and switch mechanism"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [smoke, rollback-rehearsal, integration]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.canary-release, migration.expand-migrate-contract, infrastructure.immutable-infrastructure]
+conflicts_with: []
+introduction_recipe:
+  - "Deploy to the idle environment."
+  - "Smoke test."
+  - "Switch routing; keep the old color warm."
+removal_recipe:
+  - "Switch routing back to the previous color."
+  - "Decommission the idle color only after the soak period."
+version: 1.0.0

@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: resilience.graceful-degradation
+name: "Graceful degradation"
+category: resilience
+problem: "A non-critical dependency outage fails the whole user journey."
+forces:
+  - "Partial service versus incorrect or stale data being shown."
+applicability_signals:
+  - { id: features-depend-on-non-critical, description: "Features depend on non-critical services" }
+  - { id: whole-page-failures-from-optional, description: "Whole-page failures from optional data" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: critical-and-optional-features-are, description: "Critical and optional features are classified" }
+contraindications:
+  - { id: all-functions-are-equally-critical, description: "All functions are equally critical" }
+  - { id: degraded-output-could-cause-incorrect, description: "Degraded output could cause incorrect financial or safety decisions" }
+benefits:
+  - "Core journeys survive partial outages"
+  - "Better user experience under failure"
+liabilities:
+  - "More code paths to test"
+  - "Users may act on stale data"
+introduced_complexity:
+  - "Feature criticality map and degraded UI states"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.fallback, resilience.circuit-breaker, distributed.api-composition]
+conflicts_with: []
+introduction_recipe:
+  - "Mark the optional dependency."
+  - "Return a default or omit the section on failure."
+removal_recipe:
+  - "Make the dependency required again."
+  - "Delete degraded-mode branches and tests."
+version: 1.0.0

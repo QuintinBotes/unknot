@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: distributed.idempotent-consumer
+name: "Idempotent consumer"
+category: distributed
+problem: "Redelivered or replayed messages cause duplicate side effects."
+forces:
+  - "Safe retry versus dedupe storage and key design."
+applicability_signals:
+  - { id: at-least-once-delivery-in, description: "At-least-once delivery in use" }
+  - { id: handlers-have-non-idempotent-side, description: "Handlers have non-idempotent side effects", predicate: { metric: data.idempotency, op: '==', value: 0 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: messages-carry-stable-ids-or, description: "Messages carry stable ids or natural keys" }
+contraindications:
+  - { id: handler-is-already-idempotent, description: "Handler is already idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: no-stable-key-can-be, description: "No stable key can be derived" }
+benefits:
+  - "Safe retries and replays"
+  - "Enables at-least-once without duplicates in effect"
+liabilities:
+  - "Dedupe store or conditional writes"
+introduced_complexity:
+  - "Idempotency key design and retention window"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [unit, integration, characterization]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.inbox, messaging.guaranteed-delivery, resilience.bounded-retry-jitter]
+conflicts_with: []
+introduction_recipe:
+  - "Choose an idempotency key."
+  - "Use upsert, conditional write or a dedupe table."
+  - "Test duplicate delivery."
+removal_recipe:
+  - "Delete dedupe store only after confirming upstream no longer redelivers; otherwise keep."
+version: 1.0.0

@@ -1,0 +1,46 @@
+schema_version: "1.0"
+id: migration.dark-launch
+name: "Dark launch"
+category: migration
+problem: "New code must run in production to prove performance and correctness before users see it."
+forces:
+  - "Production realism versus hidden cost and undetected user-facing impact."
+applicability_signals:
+  - { id: new-capability-needs-production-load, description: "New capability needs production load validation" }
+  - { id: feature-is-flaggable, description: "Feature is flaggable", predicate: { metric: requests.interceptable, op: '==', value: 1 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: metrics-or-traces-will-compare, description: "Metrics or traces will compare dark results", predicate: { metric: metrics.available, op: '==', value: 1 } }
+  - { id: a-switch-can-disable-dark, description: "A switch can disable dark execution instantly" }
+contraindications:
+  - { id: no-observability-to-evaluate-the, description: "No observability to evaluate the dark path", predicate: { metric: metrics.available, op: '==', value: 0 }, hard: true }
+  - { id: dark-execution-writes-to-shared, description: "Dark execution writes to shared state" }
+benefits:
+  - "Performance and correctness evidence under real load"
+  - "Zero user exposure"
+liabilities:
+  - "Resource consumption without user value"
+  - "Needs discipline to remove"
+introduced_complexity:
+  - "Dark path invocation, comparison and kill switch"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [integration, performance, smoke, reconciliation]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.feature-flags, migration.shadow-traffic, migration.progressive-delivery]
+conflicts_with: []
+introduction_recipe:
+  - "Deploy the new path disabled for users."
+  - "Run it in the background for sampled calls."
+  - "Review metrics before enabling."
+removal_recipe:
+  - "Disable the dark flag."
+  - "Delete dark code in a separate slice."
+version: 1.0.0

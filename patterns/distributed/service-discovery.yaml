@@ -1,0 +1,46 @@
+schema_version: "1.0"
+id: distributed.service-discovery
+name: "Service discovery"
+category: distributed
+problem: "Service locations are hard-coded or manually configured, so scaling, failover and redeployment require config changes in every caller."
+forces:
+  - "Dynamic instance addresses versus stable caller configuration."
+  - "Registry availability versus staleness of cached entries."
+applicability_signals:
+  - { id: instances-scale-or-move-dynamically, description: "Instances scale or move dynamically", predicate: { metric: service.scaling_divergence, op: '>=', value: 0.3 } }
+  - { id: multiple-services-call-each-other, description: "Multiple services call each other", predicate: { metric: service.count, op: '>=', value: 3 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: health-endpoints-exist-so-the, description: "Health endpoints exist so the registry can drop failed instances" }
+contraindications:
+  - { id: few-static-services-with-fixed, description: "Few static services with fixed addresses", predicate: { metric: service.count, op: '<', value: 3 }, hard: true }
+  - { id: platform-already-provides-dns-based, description: "Platform already provides DNS-based discovery (Kubernetes services); a registry duplicates it" }
+benefits:
+  - "Callers resolve instances at runtime"
+  - "Unhealthy instances leave rotation automatically"
+liabilities:
+  - "Registry is critical infrastructure"
+  - "Stale entries cause misrouted calls"
+introduced_complexity:
+  - "Registration, deregistration and TTL lifecycle"
+  - "Client-side or server-side lookup logic"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.health-endpoint-monitoring, distributed.service-mesh, resilience.failover]
+conflicts_with: []
+introduction_recipe:
+  - "Register one service with health checks."
+  - "Resolve it through discovery in one caller with the static address as fallback."
+  - "Migrate remaining callers."
+removal_recipe:
+  - "Restore static or DNS addresses in caller configuration."
+  - "Deregister services and decommission the registry once no caller resolves through it."
+version: 1.0.0

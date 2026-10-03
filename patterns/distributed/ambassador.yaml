@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: distributed.ambassador
+name: "Ambassador"
+category: distributed
+problem: "Clients each implement connection handling, retries and monitoring for a remote service."
+forces:
+  - "Offloading network concerns versus an extra hop."
+applicability_signals:
+  - { id: legacy-client-cannot-be-modified, description: "Legacy client cannot be modified" }
+  - { id: several-clients-repeat-connectivity-logic, description: "Several clients repeat connectivity logic" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: a-co-located-proxy-process, description: "A co-located proxy process is allowed" }
+contraindications:
+  - { id: client-library-already-handles-it, description: "Client library already handles it consistently" }
+  - { id: latency-budget-excludes-an-extra, description: "Latency budget excludes an extra hop" }
+benefits:
+  - "Centralized outbound policy"
+  - "Legacy clients gain resilience"
+liabilities:
+  - "Added hop and failure point"
+introduced_complexity:
+  - "Proxy configuration per client"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.sidecar, resilience.circuit-breaker, resilience.bounded-retry-jitter]
+conflicts_with: [anti-pattern.retry-storm]
+introduction_recipe:
+  - "Deploy the ambassador on localhost."
+  - "Point one client at it."
+removal_recipe:
+  - "Repoint client at the remote service."
+  - "Remove the proxy."
+version: 1.0.0

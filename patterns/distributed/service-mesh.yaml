@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: distributed.service-mesh
+name: "Service mesh"
+category: distributed
+problem: "Every service re-implements mTLS, retries, timeouts and telemetry inconsistently in application code."
+forces:
+  - "Uniform network policy versus operational weight of a data plane."
+  - "Platform ownership versus per-team autonomy."
+applicability_signals:
+  - { id: many-services-need-uniform-mtls, description: "Many services need uniform mTLS and traffic policy", predicate: { metric: service.count, op: '>=', value: 10 } }
+  - { id: downstream-fan-out-is-high, description: "Downstream fan-out is high", predicate: { metric: service.fan_out_p95, op: '>=', value: 4 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: a-platform-team-can-operate, description: "A platform team can operate the control plane" }
+  - { id: traces-or-metrics-exist-to, description: "Traces or metrics exist to verify behavior", predicate: { metric: traces.available, op: '==', value: 1 } }
+contraindications:
+  - { id: fewer-than-ten-services-a, description: "Fewer than ten services; a library or gateway suffices", predicate: { metric: service.count, op: '<', value: 10 } }
+  - { id: no-platform-ownership-for-the, description: "No platform ownership for the mesh", predicate: { metric: team.count, op: '<', value: 2 } }
+benefits:
+  - "Uniform mTLS, retries and telemetry without code changes"
+  - "Traffic shifting for canaries"
+liabilities:
+  - "Per-pod resource and latency overhead"
+  - "Hard-to-debug control-plane failures"
+introduced_complexity:
+  - "Control plane upgrades and sidecar version skew"
+  - "Mesh policy as a second place where retries and timeouts are defined"
+architecture_invariants:
+  - "Retry and timeout policy is defined in exactly one layer, mesh or application, never both."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.sidecar, resilience.circuit-breaker, migration.canary-release]
+conflicts_with: [anti-pattern.retry-storm]
+introduction_recipe:
+  - "Enable the mesh in permissive mode for one namespace."
+  - "Verify telemetry, then enforce mTLS and policy gradually."
+removal_recipe:
+  - "Disable sidecar injection per namespace."
+  - "Move retry, timeout and mTLS policy back to libraries or the platform before removing the control plane."
+version: 1.0.0

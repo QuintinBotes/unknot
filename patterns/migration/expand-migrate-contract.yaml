@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: migration.expand-migrate-contract
+name: "Expand, migrate, contract"
+category: migration
+aliases: ["expand/contract"]
+problem: "A destructive schema or contract change cannot be applied atomically across deployers and data."
+forces:
+  - "Zero-downtime safety versus multi-release duration."
+applicability_signals:
+  - { id: change-alters-a-column-table, description: "Change alters a column, table or contract in use", predicate: { metric: table.rows, op: '>=', value: 1 } }
+  - { id: irreversible-migration-proposed, description: "Irreversible migration proposed", predicate: { metric: migration.irreversible, op: '==', value: 1 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: backups-restore-tested, description: "Backups restore-tested", predicate: { metric: backup.restore_tested, op: '==', value: 1 } }
+  - { id: every-phase-is-independently-deployable, description: "Every phase is independently deployable" }
+contraindications:
+  - { id: table-is-empty-and-unused, description: "Table is empty and unused", predicate: { metric: table.rows, op: '<', value: 1 } }
+  - { id: exclusive-locks-cannot-be-avoided, description: "Exclusive locks cannot be avoided", predicate: { metric: migration.locks_exclusive, op: '==', value: 1 }, hard: true }
+benefits:
+  - "No downtime and no big-bang risk"
+  - "Every phase reversible until contract"
+liabilities:
+  - "Several releases and temporary dual structures"
+introduced_complexity:
+  - "Phase tracking, backfill throttling and validation checks"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Phases: expand (additive only), backfill, validate, switch reads, switch writes, observe, contract."
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, integration, api-compatibility]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.backfill, migration.reconciliation, migration.parallel-change, database.expand-contract-column]
+conflicts_with: [anti-pattern.destructive-migration-in-place]
+introduction_recipe:
+  - "Expand: add the new structure additively."
+  - "Migrate data with throttling."
+  - "Validate by reconciliation."
+  - "Switch reads then writes; observe."
+removal_recipe:
+  - "Before contract: switch back to the old structure, which is still intact."
+  - "After contract: restore from backup and rebuild; this is why contract is a separate slice."
+version: 1.0.0

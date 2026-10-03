@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: migration.strangler-fig
+name: "Strangler fig"
+category: migration
+problem: "A legacy system cannot be rewritten in one step, yet new capability must replace it safely and incrementally."
+forces:
+  - "Incremental replacement versus running two systems in parallel."
+  - "Routing seam availability versus legacy coupling."
+applicability_signals:
+  - { id: traffic-for-the-capability-passes, description: "Traffic for the capability passes a routable seam", predicate: { metric: requests.interceptable, op: '==', value: 1 } }
+  - { id: legacy-cannot-be-replaced-atomically, description: "Legacy cannot be replaced atomically", predicate: { metric: module.consumers, op: '>=', value: 2 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: characterization-tests-pin-legacy-behavior, description: "Characterization tests pin legacy behavior", predicate: { metric: tests.characterization, op: '==', value: 1 } }
+  - { id: a-routing-layer-can-split, description: "A routing layer can split traffic per capability" }
+contraindications:
+  - { id: no-interception-seam-exists-for, description: "No interception seam exists for the capability", predicate: { metric: requests.interceptable, op: '==', value: 0 }, hard: true }
+  - { id: capability-is-small-enough-to, description: "Capability is small enough to replace directly in one slice" }
+benefits:
+  - "Replace one capability at a time with rollback by routing"
+  - "Legacy shrinks continuously"
+liabilities:
+  - "Two implementations coexist for the migration duration"
+  - "Routing layer becomes a long-lived dependency if never finished"
+introduced_complexity:
+  - "Routing facade and per-capability switching state"
+  - "Data synchronization during coexistence"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [characterization, integration, reconciliation, rollback-rehearsal, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [decomposition.strangler-fig-extraction, migration.compatibility-facade, migration.canary-release, migration.shadow-traffic]
+conflicts_with: [anti-pattern.big-bang-rewrite]
+introduction_recipe:
+  - "Place a routing facade in front of legacy."
+  - "Build the replacement for one capability."
+  - "Shadow, then canary, then switch that route."
+removal_recipe:
+  - "Route the capability back to legacy."
+  - "Remove the new path in a later slice once its usage is zero and legacy is no longer needed for it."
+version: 1.0.0

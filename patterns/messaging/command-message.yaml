@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: messaging.command-message
+name: "Command message"
+category: messaging
+problem: "A sender needs another component to perform an action, not just to know that something happened."
+forces:
+  - "Clear intent versus tighter coupling to the receiver."
+applicability_signals:
+  - { id: sender-intends-a-specific-action, description: "Sender intends a specific action" }
+  - { id: single-handler-owns-the-action, description: "Single handler owns the action" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: one-receiver-owns-each-command, description: "One receiver owns each command type" }
+contraindications:
+  - { id: the-sender-merely-announces-a, description: "The sender merely announces a fact (use an event)" }
+  - { id: multiple-handlers-expected, description: "Multiple handlers expected" }
+benefits:
+  - "Explicit intent and ownership"
+  - "Fits saga orchestration"
+liabilities:
+  - "Sender knows the receiver capability"
+introduced_complexity:
+  - "Command naming and handler registry"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.point-to-point, distributed.saga-orchestration, messaging.request-reply]
+conflicts_with: []
+introduction_recipe:
+  - "Define a command with an idempotency key."
+  - "Route to one handler."
+removal_recipe:
+  - "Replace with a direct call."
+  - "Remove the command type after usage is zero."
+version: 1.0.0

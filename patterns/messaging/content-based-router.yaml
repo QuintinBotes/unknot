@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.content-based-router
+name: "Content-based router"
+category: messaging
+problem: "Messages on one channel must reach different destinations depending on their content."
+forces:
+  - "Central routing versus a rule set that becomes a bottleneck."
+applicability_signals:
+  - { id: destination-depends-on-message-attributes, description: "Destination depends on message attributes" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: routing-keys-are-stable-parts, description: "Routing keys are stable parts of the contract" }
+contraindications:
+  - { id: routing-is-by-topic-or, description: "Routing is by topic or fixed; broker routing suffices" }
+  - { id: rules-would-embed-business-logic, description: "Rules would embed business logic" }
+benefits:
+  - "Producers need not know destinations"
+  - "Central, testable routing table"
+liabilities:
+  - "Router becomes a hot spot and change bottleneck"
+introduced_complexity:
+  - "Rule maintenance"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.message-filter, messaging.routing-slip, distributed.api-gateway]
+conflicts_with: []
+introduction_recipe:
+  - "Externalize rules as data."
+  - "Test each route."
+removal_recipe:
+  - "Replace with broker topic routing."
+  - "Remove router rules after zero traffic."
+version: 1.0.0

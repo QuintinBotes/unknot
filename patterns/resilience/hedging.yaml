@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: resilience.hedging
+name: "Hedged requests"
+category: resilience
+problem: "Tail latency from occasional slow replicas dominates user-perceived latency."
+forces:
+  - "Lower p99 versus extra load."
+applicability_signals:
+  - { id: p99-latency-far-above-p50, description: "p99 latency far above p50 on replicated reads" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: requests-are-idempotent-and-safe, description: "Requests are idempotent and safe to duplicate", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: spare-capacity-exists, description: "Spare capacity exists" }
+contraindications:
+  - { id: non-idempotent-operation, description: "Non-idempotent operation", predicate: { metric: data.idempotency, op: '==', value: 0 }, hard: true }
+  - { id: backend-near-saturation-where-extra, description: "Backend near saturation where extra requests worsen load" }
+benefits:
+  - "Cuts tail latency"
+  - "Masks slow replicas"
+liabilities:
+  - "Increases load, typically a few percent"
+introduced_complexity:
+  - "Hedge delay tuning and cancellation of losers"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.timeout-deadline-propagation, resilience.replication, resilience.load-shedding]
+conflicts_with: [anti-pattern.retry-storm]
+introduction_recipe:
+  - "Send a second request after the p95 latency."
+  - "Cancel the loser."
+removal_recipe:
+  - "Disable hedging at the client."
+  - "Verify tail latency impact and capacity."
+version: 1.0.0

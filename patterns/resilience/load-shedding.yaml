@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: resilience.load-shedding
+name: "Load shedding"
+category: resilience
+problem: "Under overload the service degrades for everyone instead of serving critical traffic."
+forces:
+  - "Protect core function versus dropping some valid requests."
+applicability_signals:
+  - { id: saturation-causes-latency-collapse, description: "Saturation causes latency collapse" }
+  - { id: requests-have-differing-criticality, description: "Requests have differing criticality" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: requests-can-be-prioritized, description: "Requests can be prioritized" }
+  - { id: overload-signals-queue-depth-latency, description: "Overload signals (queue depth, latency) are observable", predicate: { metric: metrics.available, op: '==', value: 1 } }
+contraindications:
+  - { id: no-priority-distinction-and-no, description: "No priority distinction and no metrics", predicate: { metric: metrics.available, op: '==', value: 0 } }
+  - { id: capacity-is-simply-under-provisioned, description: "Capacity is simply under-provisioned; scale instead" }
+benefits:
+  - "Keeps critical paths healthy"
+  - "Prevents metastable failure"
+liabilities:
+  - "Dropped requests need clear client semantics"
+introduced_complexity:
+  - "Priority classes and shedding thresholds"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.rate-limiting, resilience.bulkhead, resilience.graceful-degradation]
+conflicts_with: []
+introduction_recipe:
+  - "Shed lowest priority at a measured threshold."
+  - "Return 503 with Retry-After."
+removal_recipe:
+  - "Disable shedding thresholds."
+  - "Rely on rate limits and autoscaling."
+version: 1.0.0

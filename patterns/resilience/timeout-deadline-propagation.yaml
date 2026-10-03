@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: resilience.timeout-deadline-propagation
+name: "Timeout and deadline propagation"
+category: resilience
+problem: "Calls wait indefinitely and downstream work continues after the caller has given up, tying up threads and capacity."
+forces:
+  - "Tight deadlines cut waste versus premature failure of slow but valid work."
+applicability_signals:
+  - { id: calls-to-remote-dependencies-have, description: "Calls to remote dependencies have no timeout", predicate: { metric: timeout.present, op: '==', value: 0 } }
+  - { id: request-chains-cross-several-services, description: "Request chains cross several services", predicate: { metric: service.fan_out_p95, op: '>=', value: 2 } }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: a-per-request-deadline-budget, description: "A per-request deadline budget can be set at the edge" }
+contraindications:
+  - { id: purely-local-in-process-calls, description: "Purely local in-process calls with no I/O" }
+  - { id: long-running-batch-operations-where, description: "Long-running batch operations where a deadline is meaningless" }
+benefits:
+  - "Bounded resource holding"
+  - "Downstream stops work for abandoned requests"
+liabilities:
+  - "Wrongly tuned values cause spurious failures"
+introduced_complexity:
+  - "Deadline header propagation and per-hop budget"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.bounded-retry-jitter, resilience.circuit-breaker, distributed.sync-request-response]
+conflicts_with: [anti-pattern.unbounded-wait]
+introduction_recipe:
+  - "Set explicit timeouts from measured p99."
+  - "Propagate remaining deadline to downstream calls."
+removal_recipe:
+  - "Widen to the previous values if tuned wrongly."
+  - "Keep a safety ceiling; do not return to unbounded waits."
+version: 1.0.0

@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: migration.controlled-dual-write
+name: "Controlled dual write"
+category: migration
+problem: "Two stores must be kept in sync during migration without the unsafe naive dual-write failure modes."
+forces:
+  - "Write continuity versus divergence on partial failure."
+applicability_signals:
+  - { id: writes-need-to-land-in, description: "Writes need to land in old and new store during cutover" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: one-store-is-declared-authoritative, description: "One store is declared authoritative" }
+  - { id: reconciliation-and-idempotent-writes-exist, description: "Reconciliation and idempotent writes exist", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+contraindications:
+  - { id: no-reconciliation-tooling, description: "No reconciliation tooling", predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 }, hard: true }
+  - { id: outbox-or-cdc-can-propagate, description: "Outbox or CDC can propagate instead and dual write is avoidable" }
+benefits:
+  - "Continuous new-store population during migration"
+  - "Reversible if authoritative store is unchanged"
+liabilities:
+  - "Partial failures cause drift"
+  - "Latency from second write"
+introduced_complexity:
+  - "Failure policy, repair job and reconciliation"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+  - "Failure of the secondary write never fails the primary and is queued for repair."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [reconciliation, integration, migration-rehearsal, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [database.dual-write-to-outbox, migration.reconciliation, distributed.change-data-capture]
+conflicts_with: [anti-pattern.dual-write-hazard]
+introduction_recipe:
+  - "Write authoritative first, secondary second, best effort with a repair queue."
+  - "Reconcile continuously."
+removal_recipe:
+  - "Stop secondary writes."
+  - "Remove the secondary store in a separate slice after switching authority and observing zero reads from old."
+version: 1.0.0

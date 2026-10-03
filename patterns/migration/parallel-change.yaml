@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: migration.parallel-change
+name: "Parallel change"
+category: migration
+problem: "An interface change breaks consumers that cannot be updated atomically."
+forces:
+  - "Compatibility for unknown consumers versus temporarily doubled surface."
+applicability_signals:
+  - { id: consumers-are-many-or-outside, description: "Consumers are many or outside the repo", predicate: { metric: module.consumers, op: '>=', value: 3 } }
+  - { id: a-public-contract-must-change, description: "A public contract must change", predicate: { metric: contracts.present, op: '==', value: 1 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: old-and-new-forms-can, description: "Old and new forms can coexist" }
+  - { id: consumers-are-inventoried-or-deprecation, description: "Consumers are inventoried or deprecation is announced" }
+contraindications:
+  - { id: all-consumers-are-in-one, description: "All consumers are in one atomic change", predicate: { metric: module.consumers, op: '<', value: 2 } }
+  - { id: old-and-new-cannot-coexist, description: "Old and new cannot coexist" }
+benefits:
+  - "No consumer is broken at any step"
+  - "Each step is independently reversible"
+liabilities:
+  - "Interface carries both forms until contract"
+introduced_complexity:
+  - "Duplicate surface with deprecation tracking"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [api-compatibility, contract, characterization, integration, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.expand-migrate-contract, migration.compatibility-facade, database.expand-contract-column]
+conflicts_with: [anti-pattern.breaking-change-in-place]
+introduction_recipe:
+  - "Add the new form alongside the old (expand)."
+  - "Migrate consumers one by one."
+  - "Deprecate the old form."
+removal_recipe:
+  - "Re-expose the old form from the new one if consumers regress."
+  - "Delete the old form in a final contract slice once its usage is zero."
+version: 1.0.0

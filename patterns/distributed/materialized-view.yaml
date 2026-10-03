@@ -1,0 +1,46 @@
+schema_version: "1.0"
+id: distributed.materialized-view
+name: "Materialized view"
+category: distributed
+problem: "Expensive joins or cross-service aggregations run on every read."
+forces:
+  - "Read speed versus staleness and storage."
+applicability_signals:
+  - { id: reads-join-across-boundaries, description: "Reads join across boundaries", predicate: { metric: boundary.cross_joins, op: '>=', value: 1 } }
+  - { id: read-heavy-access-pattern, description: "Read-heavy access pattern" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: source-of-truth-change-feed, description: "Source-of-truth change feed exists" }
+  - { id: a-rebuild-path-exists, description: "A rebuild path exists" }
+contraindications:
+  - { id: reads-need-strict-real-time, description: "Reads need strict real-time freshness" }
+  - { id: low-read-volume-a-direct, description: "Low read volume; a direct query is fast enough", predicate: { metric: table.rows, op: '<', value: 100000 } }
+benefits:
+  - "Fast, shaped reads"
+  - "Removes cross-service joins at query time"
+liabilities:
+  - "Stale data window"
+  - "Extra storage and refresh cost"
+introduced_complexity:
+  - "Refresh and rebuild logic"
+  - "Drift detection"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, reconciliation, performance]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.cqrs, distributed.change-data-capture, migration.reconciliation]
+conflicts_with: []
+introduction_recipe:
+  - "Build the view alongside the query."
+  - "Compare outputs."
+  - "Switch readers."
+removal_recipe:
+  - "Repoint readers to the source query."
+  - "Drop the view once no reader uses it."
+version: 1.0.0

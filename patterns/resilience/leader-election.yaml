@@ -1,0 +1,40 @@
+schema_version: "1.0"
+id: resilience.leader-election
+name: "Leader election"
+category: resilience
+problem: "Several instances need exactly one coordinator for a task, without split brain."
+forces:
+  - "Single writer versus availability during failover."
+applicability_signals:
+  - { id: singleton-job-or-coordinator-must, description: "Singleton job or coordinator must run once" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: a-lease-or-consensus-service, description: "A lease or consensus service is available" }
+contraindications:
+  - { id: task-can-be-made-idempotent, description: "Task can be made idempotent and run by all instances" }
+  - { id: no-fencing-of-the-old, description: "No fencing of the old leader possible" }
+benefits:
+  - "One active coordinator"
+  - "Automatic takeover"
+liabilities:
+  - "Split brain without fencing tokens"
+introduced_complexity:
+  - "Lease renewal, fencing tokens and failover timing"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [integration, unit, performance, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.failover, resilience.quorum, resilience.replication]
+conflicts_with: []
+introduction_recipe:
+  - "Use a vetted lease implementation."
+  - "Include fencing tokens on writes."
+removal_recipe:
+  - "Replace with idempotent concurrent workers or an external scheduler."
+version: 1.0.0

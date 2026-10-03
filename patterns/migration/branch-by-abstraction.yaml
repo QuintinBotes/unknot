@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: migration.branch-by-abstraction
+name: "Branch by abstraction"
+category: migration
+problem: "A deep, widely used dependency must be replaced while trunk stays releasable."
+forces:
+  - "Trunk stability versus a temporary extra abstraction layer."
+applicability_signals:
+  - { id: many-callers-depend-directly-on, description: "Many callers depend directly on the old implementation", predicate: { metric: module.fan_in, op: '>=', value: 5 } }
+  - { id: replacement-cannot-be-done-in, description: "Replacement cannot be done in one change" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: callers-can-be-moved-to, description: "Callers can be moved to an interface incrementally" }
+  - { id: characterization-tests-exist, description: "Characterization tests exist", predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: single-caller-replace-directly, description: "Single caller; replace directly", predicate: { metric: module.fan_in, op: '<', value: 2 } }
+  - { id: abstraction-would-have-one-permanent, description: "Abstraction would have one permanent implementation and no replacement is planned", predicate: { metric: interface.implementations, op: '<', value: 2 } }
+benefits:
+  - "Replacement lands incrementally behind a seam"
+  - "Trunk stays green and releasable"
+liabilities:
+  - "Temporary indirection that must be deleted"
+introduced_complexity:
+  - "One interface and two implementations during migration"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Delete the abstraction after the old implementation is removed if it has a single implementation left."
+proof_obligations: [characterization, integration, reconciliation, rollback-rehearsal, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.parallel-change, migration.feature-flags, code.extract-interface]
+conflicts_with: [anti-pattern.speculative-generality]
+introduction_recipe:
+  - "Introduce an interface over the old implementation."
+  - "Move callers to it."
+  - "Build the new implementation behind it and switch via a flag."
+removal_recipe:
+  - "Flip back to the old implementation."
+  - "Remove the new implementation and, once only one implementation remains, inline the abstraction as a separate slice."
+version: 1.0.0

@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: distributed.change-data-capture
+name: "Change data capture"
+category: distributed
+aliases: ["CDC"]
+problem: "Downstream systems need DB changes, but application-level dual writes drift and polling is costly."
+forces:
+  - "Low-intrusion change feed versus coupling to the physical schema."
+applicability_signals:
+  - { id: several-consumers-need-row-changes, description: "Several consumers need row changes" }
+  - { id: dual-writes-exist-today, description: "Dual writes exist today" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: database-supports-log-based-capture, description: "Database supports log-based capture" }
+  - { id: schema-changes-are-coordinated-with, description: "Schema changes are coordinated with consumers" }
+contraindications:
+  - { id: consumers-need-business-events-not, description: "Consumers need business events, not row changes; use domain events instead" }
+  - { id: database-cannot-expose-its-log, description: "Database cannot expose its log" }
+benefits:
+  - "No application changes needed to emit changes"
+  - "Ordered feed from commit log"
+liabilities:
+  - "Leaks internal schema as a contract"
+  - "Connector operations"
+introduced_complexity:
+  - "Connector, offsets, schema-change handling"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, migration-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.transactional-outbox, distributed.materialized-view, migration.backfill]
+conflicts_with: [anti-pattern.dual-write-hazard]
+introduction_recipe:
+  - "Stand up the connector against a replica."
+  - "Consume into one read model; reconcile."
+removal_recipe:
+  - "Stop the connector and delete offsets/slots to avoid log retention growth."
+  - "Move consumers to events first."
+version: 1.0.0

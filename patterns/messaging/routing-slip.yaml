@@ -1,0 +1,40 @@
+schema_version: "1.0"
+id: messaging.routing-slip
+name: "Routing slip"
+category: messaging
+problem: "A message must pass through a dynamically determined sequence of steps."
+forces:
+  - "Flexible per-message routes versus visibility."
+applicability_signals:
+  - { id: processing-steps-vary-per-message, description: "Processing steps vary per message" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: steps-are-stateless-or-share, description: "Steps are stateless or share a contract" }
+contraindications:
+  - { id: fixed-pipeline-static-routing-suffices, description: "Fixed pipeline; static routing suffices" }
+  - { id: steps-need-central-orchestration-state, description: "Steps need central orchestration state" }
+benefits:
+  - "No central orchestrator"
+  - "Per-message flexibility"
+liabilities:
+  - "Hard to monitor and to change mid-flight"
+introduced_complexity:
+  - "Slip format and step registry"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.process-manager, messaging.content-based-router, messaging.message-history]
+conflicts_with: []
+introduction_recipe:
+  - "Attach the slip at the source."
+  - "Each step pops itself."
+removal_recipe:
+  - "Replace with fixed pipeline or orchestrator."
+version: 1.0.0

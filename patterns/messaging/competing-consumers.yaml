@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: messaging.competing-consumers
+name: "Competing consumers"
+category: messaging
+problem: "One consumer cannot keep up with a queue."
+forces:
+  - "Throughput versus ordering guarantees."
+applicability_signals:
+  - { id: queue-depth-grows-under-load, description: "Queue depth grows under load" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: handlers-are-idempotent, description: "Handlers are idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: ordering-is-not-required-or, description: "Ordering is not required, or is partitioned by key" }
+contraindications:
+  - { id: strict-global-ordering-required, description: "Strict global ordering required" }
+  - { id: handlers-not-idempotent, description: "Handlers not idempotent", predicate: { metric: data.idempotency, op: '==', value: 0 }, hard: true }
+benefits:
+  - "Horizontal scaling"
+  - "Resilience to consumer loss"
+liabilities:
+  - "Ordering lost across consumers"
+introduced_complexity:
+  - "Concurrency and partition key design"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.point-to-point, resilience.queue-based-load-leveling, distributed.idempotent-consumer]
+conflicts_with: []
+introduction_recipe:
+  - "Add a second consumer to the same queue."
+  - "Verify duplicate handling."
+removal_recipe:
+  - "Scale in to one consumer."
+  - "Drain before shutdown."
+version: 1.0.0

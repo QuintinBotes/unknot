@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: distributed.saga-choreography
+name: "Saga (choreography)"
+category: distributed
+problem: "A business transaction spans services without a distributed transaction; each step must be undone if a later step fails."
+forces:
+  - "No central coordinator versus hard-to-follow control flow."
+  - "Autonomy versus implicit coupling through events."
+applicability_signals:
+  - { id: a-business-flow-spans-several, description: "A business flow spans several services with separate stores", predicate: { metric: boundary.cross_transactions, op: '>=', value: 1 } }
+  - { id: few-participants, description: "Few participants", predicate: { metric: service.count, op: '<=', value: 4 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: every-step-has-a-compensating, description: "Every step has a compensating action" }
+  - { id: consumers-are-idempotent, description: "Consumers are idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+contraindications:
+  - { id: more-than-four-participants-flow, description: "More than four participants; flow becomes untraceable", predicate: { metric: service.count, op: '>', value: 4 } }
+  - { id: no-tracing-to-follow-the, description: "No tracing to follow the event chain", predicate: { metric: traces.available, op: '==', value: 0 } }
+  - { id: operation-fits-one-local-transaction, description: "Operation fits one local transaction", predicate: { metric: boundary.cross_transactions, op: '==', value: 0 }, hard: true }
+benefits:
+  - "No central orchestrator to operate"
+  - "Loose coupling between participants"
+liabilities:
+  - "Flow logic is spread across services"
+  - "Cyclic event dependencies are easy to create"
+introduced_complexity:
+  - "Compensation logic per step"
+  - "Correlation ids and tracing required"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+  - "Compensations are idempotent and safe to retry."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, human-review]
+rollback_strategies: [compensate, revert]
+composes_with: [distributed.transactional-outbox, distributed.idempotent-consumer, messaging.correlation-identifier]
+conflicts_with: [distributed.saga-orchestration]
+introduction_recipe:
+  - "Map steps and compensations."
+  - "Emit domain events per step via an outbox."
+  - "Test failure at each step."
+removal_recipe:
+  - "Replace with a local transaction or orchestrator."
+  - "Drain in-flight sagas before disabling event handlers."
+version: 1.0.0

@@ -1,0 +1,37 @@
+schema_version: "1.0"
+id: messaging.wire-tap
+name: "Wire tap"
+category: messaging
+problem: "Messages on a channel must be inspected without disturbing the flow."
+forces:
+  - "Observability versus payload exposure and overhead."
+applicability_signals:
+  - { id: debug-or-audit-visibility-required, description: "Debug or audit visibility required" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: sensitive-data-handling-decided, description: "Sensitive data handling decided", predicate: { metric: iam.wildcards, op: '==', value: 0 } }
+contraindications:
+  - { id: payloads-contain-data-that-must, description: "Payloads contain data that must not be copied" }
+benefits:
+  - "Non-intrusive inspection"
+liabilities:
+  - "Copies of sensitive data; extra load"
+introduced_complexity:
+  - "Tap destination retention"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.message-history, messaging.control-bus, messaging.publish-subscribe]
+conflicts_with: []
+introduction_recipe:
+  - "Copy to an audit channel with redaction."
+removal_recipe:
+  - "Remove the tap and delete retained copies."
+version: 1.0.0

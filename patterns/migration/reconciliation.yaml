@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: migration.reconciliation
+name: "Reconciliation"
+category: migration
+problem: "After a copy or sync, no one can prove the old and new data agree."
+forces:
+  - "Confidence versus compute and comparison cost."
+applicability_signals:
+  - { id: data-exists-in-two-places, description: "Data exists in two places" }
+  - { id: migration-or-sync-in-flight, description: "Migration or sync in flight" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: a-stable-key-and-comparison, description: "A stable key and comparison definition exist" }
+contraindications:
+  - { id: data-is-nondeterministic-and-cannot, description: "Data is nondeterministic and cannot be compared meaningfully" }
+  - { id: single-store-nothing-to-reconcile, description: "Single store, nothing to reconcile", predicate: { metric: table.writers, op: '<', value: 1 } }
+benefits:
+  - "Evidence of equivalence before switch"
+  - "Detects silent drift"
+liabilities:
+  - "Comparison jobs load the stores"
+introduced_complexity:
+  - "Comparison logic, tolerances and mismatch workflow"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [reconciliation, integration, unit]
+rollback_strategies: [revert]
+composes_with: [migration.backfill, migration.dual-read, migration.expand-migrate-contract]
+conflicts_with: []
+introduction_recipe:
+  - "Define the key and comparison rules."
+  - "Run read-only comparison jobs and fix mismatches to zero."
+removal_recipe:
+  - "Disable the reconciliation job once the migration contract slice has completed."
+  - "Keep reports as an audit record."
+version: 1.0.0

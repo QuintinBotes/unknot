@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: distributed.api-gateway
+name: "API gateway"
+category: distributed
+problem: "Clients call many internal services directly, duplicating authentication, routing and rate limiting in each client and service."
+forces:
+  - "One entry point centralizes cross-cutting policy but becomes a shared dependency."
+  - "Internal topology should be hidden from external clients."
+applicability_signals:
+  - { id: multiple-clients-repeat-the-same, description: "Multiple clients repeat the same edge concerns", predicate: { metric: clients.count, op: '>=', value: 2 } }
+  - { id: several-services-exposed-directly-to, description: "Several services exposed directly to the public", predicate: { metric: service.count, op: '>=', value: 3 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: api-contracts-exist-for-the, description: "API contracts exist for the exposed services", predicate: { metric: contracts.present, op: '==', value: 1 } }
+contraindications:
+  - { id: single-service-with-one-client, description: "Single service with one client; the gateway adds a hop for nothing", predicate: { metric: service.count, op: '<', value: 3 }, hard: true }
+  - { id: no-team-can-own-and, description: "No team can own and operate the gateway as a product", predicate: { metric: team.count, op: '<', value: 2 } }
+benefits:
+  - "Central authentication, throttling and routing policy"
+  - "Internal services can move without client changes"
+liabilities:
+  - "Extra network hop and latency"
+  - "Gateway becomes a single point of failure and a change bottleneck"
+introduced_complexity:
+  - "A new runtime component to deploy, scale and secure"
+  - "Routing and policy configuration that must stay in sync with services"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+  - "Keep business logic out of the gateway; only routing, auth, throttling and protocol translation."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.backend-for-frontend, resilience.rate-limiting, distributed.service-discovery]
+conflicts_with: [anti-pattern.distributed-monolith]
+introduction_recipe:
+  - "Deploy the gateway in pass-through mode."
+  - "Move one cross-cutting concern at a time from services to the gateway."
+  - "Repoint clients route by route."
+removal_recipe:
+  - "Repoint clients to the services route by route."
+  - "Reinstate per-service edge policy before decommissioning the gateway."
+version: 1.0.0

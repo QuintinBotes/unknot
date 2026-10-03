@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: distributed.backend-for-frontend
+name: "Backend for frontend"
+category: distributed
+aliases: ["BFF"]
+problem: "One general-purpose API serves clients with different needs, forcing over-fetching, conditional logic and release coupling between client teams."
+forces:
+  - "Client-specific shaping versus duplicated backend code."
+  - "Team autonomy versus consistent business rules."
+applicability_signals:
+  - { id: clients-consume-the-same-api, description: "Clients consume the same API very differently", predicate: { metric: clients.response_shape_variance, op: '>=', value: 0.5 } }
+  - { id: multiple-distinct-client-types, description: "Multiple distinct client types", predicate: { metric: clients.count, op: '>=', value: 2 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: business-rules-live-in-downstream, description: "Business rules live in downstream services, not in the BFF" }
+contraindications:
+  - { id: one-client-type-or-uniform, description: "One client type or uniform response needs", predicate: { metric: clients.count, op: '<', value: 2 }, hard: true }
+  - { id: no-dedicated-team-can-own, description: "No dedicated team can own each BFF", predicate: { metric: team.count, op: '<', value: 2 } }
+benefits:
+  - "Responses shaped per client"
+  - "Client teams release independently of the shared API"
+liabilities:
+  - "Duplicated aggregation and mapping code across BFFs"
+  - "More services to operate"
+introduced_complexity:
+  - "One extra deployable per client type"
+  - "Risk of business logic leaking into BFFs"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+  - "Extract client-specific shaping and aggregation into the BFF; leave domain rules downstream."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.api-composition, distributed.api-gateway, frontend.micro-frontends]
+conflicts_with: [anti-pattern.shared-kitchen-sink-api]
+introduction_recipe:
+  - "Choose one client with the highest shape variance."
+  - "Create its BFF calling the existing API."
+  - "Move client-specific mapping from the shared API into the BFF."
+removal_recipe:
+  - "Point the client back at the shared API."
+  - "Move any retained shaping into the client or shared API, then delete the BFF."
+version: 1.0.0

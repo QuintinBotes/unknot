@@ -1,0 +1,40 @@
+schema_version: "1.0"
+id: messaging.request-reply
+name: "Request-reply"
+category: messaging
+problem: "A sender needs a response over a messaging channel without blocking a connection."
+forces:
+  - "Async transport versus caller expecting a result."
+applicability_signals:
+  - { id: response-needed-over-a-queue, description: "Response needed over a queue" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: correlation-identifiers-carried-on-both, description: "Correlation identifiers carried on both messages" }
+contraindications:
+  - { id: plain-http-call-would-be, description: "Plain HTTP call would be simpler and the transport is not required" }
+  - { id: replies-can-arrive-after-caller, description: "Replies can arrive after caller timeout with no handling" }
+benefits:
+  - "Works across firewalled or async transports"
+  - "Replier decoupled in time"
+liabilities:
+  - "Reply channel management and timeouts"
+introduced_complexity:
+  - "Reply-to channel and correlation tracking"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.correlation-identifier, resilience.timeout-deadline-propagation, messaging.point-to-point]
+conflicts_with: []
+introduction_recipe:
+  - "Add reply-to and correlation id."
+  - "Time out waiting."
+removal_recipe:
+  - "Replace with a synchronous call."
+version: 1.0.0

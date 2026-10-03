@@ -1,0 +1,38 @@
+schema_version: "1.0"
+id: messaging.control-bus
+name: "Control bus"
+category: messaging
+problem: "Operating a messaging system requires out-of-band control and monitoring."
+forces:
+  - "Central operation versus a powerful control channel to secure."
+applicability_signals:
+  - { id: many-channels-and-components-need, description: "Many channels and components need runtime management" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: control-channel-is-authenticated-and, description: "Control channel is authenticated and authorized" }
+contraindications:
+  - { id: few-channels-managed-by-deploy, description: "Few channels managed by deploy-time config" }
+  - { id: control-channel-cannot-be-secured, description: "Control channel cannot be secured" }
+benefits:
+  - "Runtime management and monitoring"
+liabilities:
+  - "Powerful attack surface"
+introduced_complexity:
+  - "Command set and access control"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.wire-tap, distributed.external-configuration, resilience.health-endpoint-monitoring]
+conflicts_with: []
+introduction_recipe:
+  - "Expose read-only status first."
+removal_recipe:
+  - "Remove control commands, keep metrics."
+version: 1.0.0

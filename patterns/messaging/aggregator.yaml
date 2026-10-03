@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.aggregator
+name: "Aggregator"
+category: messaging
+problem: "Related messages must be combined into one result, with completeness and timeout rules."
+forces:
+  - "Completeness versus latency when parts are missing."
+applicability_signals:
+  - { id: related-messages-arrive-separately, description: "Related messages arrive separately" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: correlation-id-and-completion-criteria, description: "Correlation id and completion criteria are defined" }
+contraindications:
+  - { id: no-bounded-completion-rule-or, description: "No bounded completion rule or timeout" }
+  - { id: parts-arrive-over-days-with, description: "Parts arrive over days with no storage budget" }
+benefits:
+  - "One consolidated result"
+  - "Decouples collection from consumers"
+liabilities:
+  - "Stateful; stuck groups need timeouts"
+introduced_complexity:
+  - "Aggregation state store and expiry"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.splitter, messaging.scatter-gather, messaging.resequencer]
+conflicts_with: []
+introduction_recipe:
+  - "Define completion by count or timeout."
+  - "Persist partial state."
+removal_recipe:
+  - "Replace with a direct join or batch process."
+  - "Flush pending groups before removal."
+version: 1.0.0

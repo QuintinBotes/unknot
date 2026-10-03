@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: resilience.rate-limiting
+name: "Rate limiting"
+category: resilience
+problem: "Clients or tenants can consume unbounded capacity and degrade service for others."
+forces:
+  - "Fairness and protection versus rejecting legitimate bursts."
+applicability_signals:
+  - { id: burst-or-abusive-clients-observed, description: "Burst or abusive clients observed" }
+  - { id: shared-capacity-across-tenants, description: "Shared capacity across tenants", predicate: { metric: clients.count, op: '>=', value: 2 } }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: callers-are-identifiable, description: "Callers are identifiable" }
+  - { id: callers-handle-429-with-backoff, description: "Callers handle 429 with backoff" }
+contraindications:
+  - { id: single-trusted-caller-with-no, description: "Single trusted caller with no contention", predicate: { metric: clients.count, op: '<', value: 2 } }
+  - { id: callers-cannot-handle-rejection, description: "Callers cannot handle rejection" }
+benefits:
+  - "Predictable capacity"
+  - "Cost and abuse control"
+liabilities:
+  - "Legitimate traffic can be rejected"
+  - "Distributed counters add complexity"
+introduced_complexity:
+  - "Limits, windows, keys and a shared counter store"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.api-gateway, resilience.load-shedding, resilience.bulkhead]
+conflicts_with: []
+introduction_recipe:
+  - "Start with a generous limit in report-only mode."
+  - "Enforce with Retry-After headers."
+removal_recipe:
+  - "Raise limits to infinity at the gateway, then remove the limiter."
+  - "Keep load shedding as protection."
+version: 1.0.0

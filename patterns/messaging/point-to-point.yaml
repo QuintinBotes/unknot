@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.point-to-point
+name: "Point-to-point channel"
+category: messaging
+problem: "A message must be processed by exactly one receiver, but a broadcast would trigger duplicate handling."
+forces:
+  - "Single processing versus the flexibility of broadcast."
+applicability_signals:
+  - { id: one-logical-consumer-should-handle, description: "One logical consumer should handle each message" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: consumers-known, description: "Consumers known", predicate: { metric: messaging.consumers_known, op: '==', value: 1 } }
+contraindications:
+  - { id: several-independent-consumers-need-the, description: "Several independent consumers need the same message" }
+  - { id: consumers-unknown-and-likely-to, description: "Consumers unknown and likely to grow", predicate: { metric: messaging.consumers_known, op: '==', value: 0 } }
+benefits:
+  - "Clear ownership of processing"
+  - "Simple load distribution"
+liabilities:
+  - "Adding a second interested party requires a new channel"
+introduced_complexity:
+  - "Queue per receiver purpose"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.competing-consumers, messaging.guaranteed-delivery, distributed.async-messaging]
+conflicts_with: []
+introduction_recipe:
+  - "Create a named queue."
+  - "Route one producer to it."
+removal_recipe:
+  - "Replace with a direct call or pub/sub channel."
+  - "Drain the queue before deleting."
+version: 1.0.0

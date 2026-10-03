@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: resilience.bulkhead
+name: "Bulkhead"
+category: resilience
+problem: "One slow dependency or tenant consumes shared pools and takes down unrelated functions."
+forces:
+  - "Isolation versus lower overall utilization."
+applicability_signals:
+  - { id: shared-thread-or-connection-pools, description: "Shared thread or connection pools serve multiple dependencies" }
+  - { id: noisy-neighbors-observed, description: "Noisy neighbors observed" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: dependencies-can-be-classified-by, description: "Dependencies can be classified by criticality" }
+contraindications:
+  - { id: single-dependency-and-a-single, description: "Single dependency and a single pool" }
+  - { id: very-low-concurrency-where-partitioning, description: "Very low concurrency where partitioning wastes capacity" }
+benefits:
+  - "Failure containment"
+  - "Predictable capacity per class"
+liabilities:
+  - "Under-utilized reserved capacity"
+  - "Sizing needs maintenance"
+introduced_complexity:
+  - "Per-dependency pools or partitions and sizing"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.circuit-breaker, resilience.load-shedding, resilience.rate-limiting]
+conflicts_with: []
+introduction_recipe:
+  - "Separate the pool of the most failure-prone dependency."
+  - "Size from observed concurrency."
+removal_recipe:
+  - "Merge pools back and size the combined pool."
+  - "Keep timeouts so one dependency cannot hold it indefinitely."
+version: 1.0.0

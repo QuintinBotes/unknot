@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: distributed.async-messaging
+name: "Asynchronous messaging"
+category: distributed
+problem: "Producers and consumers are coupled in time; a slow or unavailable consumer blocks or fails the producer."
+forces:
+  - "Temporal decoupling versus eventual consistency."
+  - "Throughput smoothing versus operational visibility."
+applicability_signals:
+  - { id: producer-must-not-block-on, description: "Producer must not block on consumer availability" }
+  - { id: bursty-load-needs-smoothing, description: "Bursty load needs smoothing", predicate: { metric: service.scaling_divergence, op: '>=', value: 0.5 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: consumers-can-tolerate-delay-and, description: "Consumers can tolerate delay and duplicates", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: a-broker-is-operated-reliably, description: "A broker is operated reliably" }
+contraindications:
+  - { id: caller-needs-an-immediate-answer, description: "Caller needs an immediate answer to proceed" }
+  - { id: no-dead-letter-handling-for, description: "No dead-letter handling for failures", predicate: { metric: messaging.dlq, op: '==', value: 0 } }
+  - { id: single-service-in-scope-no, description: "Single service in scope; no boundary to decouple", predicate: { metric: service.count, op: '<', value: 2 } }
+benefits:
+  - "Producer insulated from consumer outages"
+  - "Natural load leveling"
+liabilities:
+  - "Eventual consistency complicates user experience"
+  - "Failures become asynchronous and harder to trace"
+introduced_complexity:
+  - "Broker operations"
+  - "Duplicate, ordering and poison-message handling"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.dead-letter-channel, distributed.idempotent-consumer, distributed.transactional-outbox]
+conflicts_with: [anti-pattern.dual-write-hazard]
+introduction_recipe:
+  - "Define the message contract and a dead-letter channel."
+  - "Publish alongside the existing call, consume in shadow mode."
+  - "Cut over once results match."
+removal_recipe:
+  - "Restore the synchronous call path."
+  - "Drain or replay in-flight messages before deleting the topic."
+version: 1.0.0

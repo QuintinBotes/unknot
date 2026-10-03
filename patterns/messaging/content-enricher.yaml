@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: messaging.content-enricher
+name: "Content enricher"
+category: messaging
+problem: "A message lacks data the receiver needs, held in another source."
+forces:
+  - "Self-sufficient messages versus extra lookups."
+applicability_signals:
+  - { id: receiver-needs-data-not-in, description: "Receiver needs data not in the message" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: enrichment-source-is-reliable-and, description: "Enrichment source is reliable and fast" }
+contraindications:
+  - { id: enrichment-source-slow-or-unavailable, description: "Enrichment source slow or unavailable at peak", predicate: { metric: timeout.present, op: '==', value: 0 } }
+  - { id: message-could-carry-the-data, description: "Message could carry the data at source" }
+benefits:
+  - "Receivers get complete data"
+  - "Producers stay lean"
+liabilities:
+  - "Runtime dependency on enrichment source"
+introduced_complexity:
+  - "Cache and fallback policy"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.messaging-mapper, distributed.api-composition, resilience.fallback]
+conflicts_with: []
+introduction_recipe:
+  - "Add enrichment step with timeout."
+removal_recipe:
+  - "Embed data at the source or fetch in the consumer."
+version: 1.0.0

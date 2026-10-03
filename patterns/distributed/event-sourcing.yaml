@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: distributed.event-sourcing
+name: "Event sourcing"
+category: distributed
+problem: "Current-state storage loses history; audit, replay or temporal queries are impossible or reconstructed unreliably."
+forces:
+  - "Complete history versus event schema evolution burden."
+  - "Replay power versus operational complexity."
+applicability_signals:
+  - { id: audit-or-replay-is-a, description: "Audit or replay is a stated requirement" }
+  - { id: domain-is-naturally-event-shaped, description: "Domain is naturally event-shaped" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: event-schemas-are-versioned, description: "Event schemas are versioned" }
+  - { id: snapshotting-and-projection-rebuild-are, description: "Snapshotting and projection rebuild are planned" }
+contraindications:
+  - { id: no-audit-replay-or-temporal, description: "No audit, replay or temporal-query requirement" }
+  - { id: single-team-on-a-crud, description: "Single team on a CRUD domain", predicate: { metric: team.count, op: '<', value: 2 } }
+  - { id: events-cannot-be-tested-or, description: "Events cannot be tested or versioned yet", predicate: { metric: tests.present, op: '==', value: 0 } }
+benefits:
+  - "Full audit trail and replay"
+  - "New projections from history"
+liabilities:
+  - "Event schema evolution is permanent"
+  - "Steep learning curve; hard to delete data (privacy)"
+introduced_complexity:
+  - "Event store, snapshots and projections"
+  - "Upcasting of old event versions"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, characterization, reconciliation, human-review]
+rollback_strategies: [roll_forward, restore]
+composes_with: [distributed.cqrs, distributed.materialized-view, messaging.event-message]
+conflicts_with: [anti-pattern.cargo-cult-architecture]
+introduction_recipe:
+  - "Event-source one aggregate in parallel with state storage."
+  - "Verify rebuilt state equals stored state."
+removal_recipe:
+  - "Materialize current state to tables."
+  - "Keep the event log archived; migrate readers before cutover."
+version: 1.0.0

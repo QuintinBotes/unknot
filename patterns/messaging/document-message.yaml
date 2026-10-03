@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.document-message
+name: "Document message"
+category: messaging
+problem: "A receiver needs a full data record and decides itself what to do with it."
+forces:
+  - "Self-contained payloads versus size and staleness."
+applicability_signals:
+  - { id: receiver-needs-a-complete-data, description: "Receiver needs a complete data snapshot" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: document-schema-is-versioned, description: "Document schema is versioned", predicate: { metric: contracts.present, op: '==', value: 1 } }
+contraindications:
+  - { id: large-payloads-better-fetched-by, description: "Large payloads better fetched by reference" }
+  - { id: data-must-be-fresh-at, description: "Data must be fresh at processing time" }
+benefits:
+  - "Receiver decoupled from source lookups"
+  - "Easy replay"
+liabilities:
+  - "Payload size and stale data"
+introduced_complexity:
+  - "Schema versioning"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.envelope-wrapper, messaging.canonical-data-model, messaging.event-message]
+conflicts_with: []
+introduction_recipe:
+  - "Define the document schema."
+  - "Version it."
+removal_recipe:
+  - "Replace with a reference plus fetch."
+  - "Deprecate the document type once consumers migrate."
+version: 1.0.0

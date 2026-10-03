@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: migration.dual-read
+name: "Dual read"
+category: migration
+problem: "Data moves between stores, and correctness of the new store must be confirmed before reads switch."
+forces:
+  - "Read-side verification versus doubled read load."
+applicability_signals:
+  - { id: data-is-being-copied-to, description: "Data is being copied to a new store" }
+  - { id: reads-can-be-compared, description: "Reads can be compared" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: reconciliation-tooling-exists, description: "Reconciliation tooling exists", predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 } }
+  - { id: old-store-remains-the-source, description: "Old store remains the source of truth" }
+contraindications:
+  - { id: no-reconciliation-tooling-to-compare, description: "No reconciliation tooling to compare results", predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 }, hard: true }
+  - { id: read-volume-cannot-absorb-the, description: "Read volume cannot absorb the doubled load" }
+benefits:
+  - "Detects divergence before switch"
+  - "Safe, reversible read cutover"
+liabilities:
+  - "Latency and cost from double reads"
+introduced_complexity:
+  - "Comparison logging and mismatch triage"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [reconciliation, integration, performance, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.backfill, migration.controlled-dual-write, migration.reconciliation]
+conflicts_with: []
+introduction_recipe:
+  - "Read from old; asynchronously read and diff from new."
+  - "Fix mismatches to threshold."
+  - "Switch the authoritative read to new."
+removal_recipe:
+  - "Switch reads back to the old store."
+  - "Stop dual reads; remove old reads only after usage is zero, later."
+version: 1.0.0

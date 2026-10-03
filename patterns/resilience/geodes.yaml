@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: resilience.geodes
+name: "Geodes"
+category: resilience
+problem: "Users far from a single region see high latency and the region is a single failure domain."
+forces:
+  - "Low latency and regional resilience versus multi-region data consistency."
+applicability_signals:
+  - { id: global-user-base-with-latency, description: "Global user base with latency or availability targets", predicate: { metric: driver.availability_isolation, op: '==', value: 1 } }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: data-can-be-geo-replicated, description: "Data can be geo-replicated with a defined consistency model" }
+  - { id: any-geode-can-serve-any, description: "Any geode can serve any request" }
+contraindications:
+  - { id: data-residency-forbids-replication, description: "Data residency forbids replication" }
+  - { id: single-region-user-base, description: "Single-region user base" }
+benefits:
+  - "Regional failure does not cause global outage"
+  - "Lower latency"
+liabilities:
+  - "Data conflict resolution and cost"
+introduced_complexity:
+  - "Global routing, replication and conflict handling"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [integration, performance, rollback-rehearsal, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.deployment-stamps, resilience.replication, resilience.failover]
+conflicts_with: []
+introduction_recipe:
+  - "Deploy one additional geode read-only."
+  - "Enable writes after replication verified."
+removal_recipe:
+  - "Drain traffic from a geode by routing."
+  - "Decommission after replication is no longer needed."
+version: 1.0.0

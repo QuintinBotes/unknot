@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: resilience.replication
+name: "Replication"
+category: resilience
+problem: "A single copy of data or service is a single point of loss or a read bottleneck."
+forces:
+  - "Durability and read scale versus consistency and write cost."
+applicability_signals:
+  - { id: single-copy-of-critical-state, description: "Single copy of critical state" }
+  - { id: read-heavy-load-needs-scale, description: "Read-heavy load needs scale-out" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: consistency-model-chosen-explicitly, description: "Consistency model chosen explicitly" }
+contraindications:
+  - { id: strong-consistency-required-and-replicas, description: "Strong consistency required and replicas would serve stale reads" }
+  - { id: data-volume-makes-replica-cost, description: "Data volume makes replica cost exceed the benefit" }
+benefits:
+  - "Durability and read capacity"
+  - "Foundation for failover"
+liabilities:
+  - "Replication lag"
+  - "Conflict resolution if multi-writer"
+introduced_complexity:
+  - "Lag monitoring and failure handling"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [integration, reconciliation, performance, rollback-rehearsal]
+rollback_strategies: [restore, fail_over]
+composes_with: [resilience.failover, resilience.quorum, resilience.geodes]
+conflicts_with: []
+introduction_recipe:
+  - "Add one read replica."
+  - "Route non-critical reads to it with lag guardrails."
+removal_recipe:
+  - "Route reads to the primary."
+  - "Remove replicas after confirming no readers remain."
+version: 1.0.0

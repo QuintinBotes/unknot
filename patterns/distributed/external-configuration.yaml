@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: distributed.external-configuration
+name: "External configuration"
+category: distributed
+problem: "Configuration baked into builds forces redeploys for changes and drifts between environments."
+forces:
+  - "Runtime changeability versus risk of unreviewed changes."
+applicability_signals:
+  - { id: environment-specific-values-hard-coded, description: "Environment-specific values hard-coded or duplicated" }
+  - { id: config-changes-require-redeploy, description: "Config changes require redeploy" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: config-store-with-audit-and, description: "Config store with audit and access control" }
+contraindications:
+  - { id: secrets-would-be-placed-in, description: "Secrets would be placed in plain configuration", predicate: { metric: iam.wildcards, op: '>', value: 0 } }
+  - { id: single-environment-with-static-values, description: "Single environment with static values" }
+benefits:
+  - "Change behavior without rebuild"
+  - "Consistent per-environment values"
+liabilities:
+  - "Runtime dependency on the config store"
+  - "Unreviewed config is a hidden deploy"
+introduced_complexity:
+  - "Config store, schema, validation and rollout process"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, smoke, security-scan, secrets-scan]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.feature-flags, distributed.sidecar, infrastructure.secrets-management]
+conflicts_with: []
+introduction_recipe:
+  - "Move one value group to the store with defaults."
+  - "Validate schema at startup."
+removal_recipe:
+  - "Inline values back as defaults."
+  - "Stop reading the store after confirming no consumer remains."
+version: 1.0.0

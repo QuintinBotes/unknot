@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: migration.shadow-traffic
+name: "Shadow traffic"
+category: migration
+aliases: ["traffic mirroring"]
+problem: "A replacement cannot be proven correct without realistic production input, but users must not see its results."
+forces:
+  - "Realistic comparison versus doubled load and side-effect risk."
+applicability_signals:
+  - { id: traffic-for-the-capability-passes, description: "Traffic for the capability passes a routable seam", predicate: { metric: requests.interceptable, op: '==', value: 1 } }
+  - { id: replacement-behavior-must-match-legacy, description: "Replacement behavior must match legacy" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: shadow-path-has-no-external, description: "Shadow path has no external side effects" }
+  - { id: comparison-tooling-for-responses-exists, description: "Comparison tooling for responses exists", predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 } }
+contraindications:
+  - { id: no-interception-seam, description: "No interception seam", predicate: { metric: requests.interceptable, op: '==', value: 0 }, hard: true }
+  - { id: requests-carry-side-effects-that, description: "Requests carry side effects that cannot be stubbed in shadow" }
+  - { id: requests-contain-data-that-may, description: "Requests contain data that may not leave its trust zone" }
+benefits:
+  - "Real-world diff before any user exposure"
+  - "Finds edge cases tests miss"
+liabilities:
+  - "Added load and cost"
+  - "Comparison noise from nondeterminism"
+introduced_complexity:
+  - "Mirroring, diff capture and noise filtering"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Mirror requests asynchronously; discard shadow responses; diff against production."
+proof_obligations: [integration, reconciliation, performance, smoke]
+rollback_strategies: [revert]
+composes_with: [migration.strangler-fig, migration.dark-launch, migration.canary-release]
+conflicts_with: []
+introduction_recipe:
+  - "Mirror a sample of requests to the new path with side effects disabled."
+  - "Diff results and fix mismatches until divergence is under agreed threshold."
+removal_recipe:
+  - "Stop mirroring at the router."
+  - "Delete the shadow path in a later slice if the migration is abandoned."
+version: 1.0.0

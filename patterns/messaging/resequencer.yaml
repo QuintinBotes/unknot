@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: messaging.resequencer
+name: "Resequencer"
+category: messaging
+problem: "Messages arrive out of order but consumers need an order."
+forces:
+  - "Ordering versus latency and buffer size."
+applicability_signals:
+  - { id: out-of-order-delivery-breaks, description: "Out-of-order delivery breaks consumers" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: messages-carry-sequence-numbers, description: "Messages carry sequence numbers" }
+contraindications:
+  - { id: order-is-irrelevant-or-handled, description: "Order is irrelevant or handled by commutative operations" }
+  - { id: single-partition-ordering-already-guaranteed, description: "Single partition ordering already guaranteed" }
+benefits:
+  - "Restores required order"
+liabilities:
+  - "Buffering delays and gaps stall the stream"
+introduced_complexity:
+  - "Gap timeout policy"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.aggregator, messaging.correlation-identifier, messaging.competing-consumers]
+conflicts_with: []
+introduction_recipe:
+  - "Add sequence numbers."
+  - "Buffer with gap timeout."
+removal_recipe:
+  - "Make consumers order-independent or partition by key."
+version: 1.0.0

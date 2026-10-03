@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: distributed.sidecar
+name: "Sidecar"
+category: distributed
+problem: "Cross-cutting capability (proxying, logging, config) must be shared by services in different languages without embedding library code."
+forces:
+  - "Language-neutral reuse versus per-instance overhead."
+applicability_signals:
+  - { id: polyglot-services-need-the-same, description: "Polyglot services need the same capability", predicate: { metric: service.count, op: '>=', value: 3 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: platform-runs-co-located-containers, description: "Platform runs co-located containers" }
+contraindications:
+  - { id: one-language-and-a-good, description: "One language and a good library suffices", predicate: { metric: service.count, op: '<', value: 3 } }
+  - { id: resource-constraints-rule-out-extra, description: "Resource constraints rule out extra processes" }
+benefits:
+  - "Capability upgrades independent of app code"
+  - "Language neutral"
+liabilities:
+  - "Resource overhead per instance"
+  - "Lifecycle coupling with the host"
+introduced_complexity:
+  - "Sidecar versioning and injection"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.service-mesh, distributed.ambassador, distributed.external-configuration]
+conflicts_with: []
+introduction_recipe:
+  - "Deploy the sidecar beside one service."
+  - "Route one capability through it."
+removal_recipe:
+  - "Re-embed library or remove the capability."
+  - "Disable injection and redeploy."
+version: 1.0.0

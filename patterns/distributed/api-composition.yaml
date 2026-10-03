@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: distributed.api-composition
+name: "API composition"
+category: distributed
+problem: "A client needs data owned by several services and would otherwise perform many calls and joins itself."
+forces:
+  - "Simple aggregation versus latency and partial failure."
+applicability_signals:
+  - { id: query-spans-several-service-owned, description: "Query spans several service-owned datasets", predicate: { metric: boundary.cross_joins, op: '>=', value: 1 } }
+  - { id: downstream-calls-per-request-are, description: "Downstream calls per request are moderate", predicate: { metric: service.fan_out_p95, op: '<=', value: 5 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: timeouts-and-fallbacks-per-downstream, description: "Timeouts and fallbacks per downstream call", predicate: { metric: timeout.present, op: '==', value: 1 } }
+contraindications:
+  - { id: large-in-memory-joins-or, description: "Large in-memory joins or pagination across services" }
+  - { id: fan-out-exceeds-what-latency, description: "Fan-out exceeds what latency budgets allow", predicate: { metric: service.fan_out_p95, op: '>', value: 6 } }
+benefits:
+  - "No shared database for reads"
+  - "Client sees one call"
+liabilities:
+  - "Latency is the slowest downstream"
+  - "Partial failure handling"
+introduced_complexity:
+  - "Composer service and its error policy"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.backend-for-frontend, resilience.graceful-degradation, distributed.materialized-view]
+conflicts_with: [anti-pattern.chatty-services]
+introduction_recipe:
+  - "Add a composer for one query."
+  - "Parallelize downstream calls with deadlines."
+removal_recipe:
+  - "Replace with a materialized view if latency harms."
+  - "Inline the composer into the client or BFF."
+version: 1.0.0

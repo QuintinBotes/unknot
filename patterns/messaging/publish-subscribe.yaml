@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: messaging.publish-subscribe
+name: "Publish-subscribe channel"
+category: messaging
+problem: "Producers must announce facts to an unknown or growing set of consumers without coupling to them."
+forces:
+  - "Decoupling versus loss of control over who reacts."
+applicability_signals:
+  - { id: multiple-independent-consumers-react-to, description: "Multiple independent consumers react to the same event" }
+  - { id: consumers-change-independently-of-producers, description: "Consumers change independently of producers" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: event-contract-and-ownership-are, description: "Event contract and ownership are defined", predicate: { metric: contracts.present, op: '==', value: 1 } }
+contraindications:
+  - { id: only-one-consumer-will-ever, description: "Only one consumer will ever exist", predicate: { metric: messaging.consumers_known, op: '==', value: 1 } }
+  - { id: strict-ordered-workflow-across-consumers, description: "Strict ordered workflow across consumers is required" }
+benefits:
+  - "Producers unaware of consumers"
+  - "Add consumers without producer changes"
+liabilities:
+  - "Hidden dependencies; harder impact analysis"
+introduced_complexity:
+  - "Topic governance and consumer registry"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.durable-subscriber, messaging.event-message, messaging.dead-letter-channel]
+conflicts_with: [anti-pattern.hidden-coupling-via-events]
+introduction_recipe:
+  - "Define the topic and event schema."
+  - "Add the first subscriber."
+removal_recipe:
+  - "Replace with point-to-point or direct call."
+  - "Unsubscribe consumers first; remove the topic after traffic is zero."
+version: 1.0.0

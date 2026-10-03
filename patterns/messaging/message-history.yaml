@@ -1,0 +1,36 @@
+schema_version: "1.0"
+id: messaging.message-history
+name: "Message history"
+category: messaging
+problem: "The path a message took through components cannot be reconstructed."
+forces:
+  - "Traceability versus header growth."
+applicability_signals:
+  - { id: debugging-multi-hop-flows-is, description: "Debugging multi-hop flows is hard", predicate: { metric: traces.available, op: '==', value: 0 } }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions: []
+contraindications:
+  - { id: full-distributed-tracing-already-in, description: "Full distributed tracing already in place", predicate: { metric: traces.available, op: '==', value: 1 } }
+benefits:
+  - "Reconstruct message paths"
+liabilities:
+  - "Header growth"
+introduced_complexity:
+  - "Convention for appending hop entries"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.correlation-identifier, messaging.wire-tap, messaging.routing-slip]
+conflicts_with: []
+introduction_recipe:
+  - "Append component id and timestamp on each hop."
+removal_recipe:
+  - "Stop appending; rely on tracing."
+version: 1.0.0

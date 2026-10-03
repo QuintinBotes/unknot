@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: messaging.canonical-data-model
+name: "Canonical data model"
+category: messaging
+problem: "N systems integrating pairwise need N-squared translators."
+forces:
+  - "Fewer translators versus a shared model that couples all teams."
+applicability_signals:
+  - { id: many-systems-exchange-the-same, description: "Many systems exchange the same data", predicate: { metric: service.count, op: '>=', value: 5 } }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: a-governance-owner-for-the, description: "A governance owner for the model" }
+contraindications:
+  - { id: few-systems-point-translators-are, description: "Few systems; point translators are cheaper", predicate: { metric: service.count, op: '<', value: 4 } }
+  - { id: no-team-can-govern-the, description: "No team can govern the shared model", predicate: { metric: team.count, op: '<', value: 2 } }
+benefits:
+  - "Linear instead of quadratic translators"
+liabilities:
+  - "Lowest-common-denominator model and change bottleneck"
+introduced_complexity:
+  - "Model governance"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.normalizer, messaging.messaging-mapper, distributed.api-gateway]
+conflicts_with: [anti-pattern.shared-kitchen-sink-api]
+introduction_recipe:
+  - "Model one entity."
+  - "Translate at edges only."
+removal_recipe:
+  - "Revert to point-to-point translation per pair."
+version: 1.0.0

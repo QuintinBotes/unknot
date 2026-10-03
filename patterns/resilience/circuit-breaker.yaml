@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: resilience.circuit-breaker
+name: "Circuit breaker"
+category: resilience
+problem: "A failing dependency keeps receiving calls, exhausting caller resources and delaying recovery."
+forces:
+  - "Fail fast versus rejecting calls that might have succeeded."
+applicability_signals:
+  - { id: dependency-failures-cascade-to-callers, description: "Dependency failures cascade to callers" }
+  - { id: latency-spikes-propagate-upstream, description: "Latency spikes propagate upstream" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: timeout-set, description: "Timeout set", predicate: { metric: timeout.present, op: '==', value: 1 } }
+  - { id: a-fallback-or-error-response, description: "A fallback or error response is defined" }
+contraindications:
+  - { id: no-timeout-configured-fix-that, description: "No timeout configured; fix that first", predicate: { metric: timeout.present, op: '==', value: 0 }, hard: true }
+  - { id: dependency-is-in-process-or, description: "Dependency is in-process or never fails independently" }
+benefits:
+  - "Stops cascading failure"
+  - "Gives the dependency time to recover"
+liabilities:
+  - "Thresholds need tuning"
+  - "Can mask partial degradation"
+introduced_complexity:
+  - "State machine, thresholds and half-open probing"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.fallback, resilience.bulkhead, resilience.bounded-retry-jitter]
+conflicts_with: [anti-pattern.retry-storm]
+introduction_recipe:
+  - "Wrap one remote call."
+  - "Tune from observed error rates."
+  - "Emit state-change metrics."
+removal_recipe:
+  - "Unwrap the call, keeping the timeout."
+  - "Remove breaker metrics and alerts after unwrapping."
+version: 1.0.0

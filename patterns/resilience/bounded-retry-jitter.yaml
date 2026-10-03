@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: resilience.bounded-retry-jitter
+name: "Bounded retry with jitter"
+category: resilience
+problem: "Transient failures cause user-visible errors, while naive retries amplify outages into retry storms."
+forces:
+  - "Recovery from transient faults versus load amplification."
+applicability_signals:
+  - { id: transient-errors-observed-on-idempotent, description: "Transient errors observed on idempotent calls" }
+  - { id: retries-unbounded-or-fixed-interval, description: "Retries unbounded or fixed-interval", predicate: { metric: retry.bounded, op: '==', value: 0 } }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: operation-is-idempotent, description: "Operation is idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: timeout-is-set, description: "Timeout is set", predicate: { metric: timeout.present, op: '==', value: 1 } }
+contraindications:
+  - { id: operation-is-not-idempotent, description: "Operation is not idempotent", predicate: { metric: data.idempotency, op: '==', value: 0 }, hard: true }
+  - { id: failure-is-deterministic-4xx-validation, description: "Failure is deterministic (4xx validation) and retry cannot help" }
+benefits:
+  - "Absorbs transient faults"
+  - "Jitter prevents synchronized retry waves"
+liabilities:
+  - "Extra latency on failure"
+  - "Multiplies load if layered"
+introduced_complexity:
+  - "Backoff, jitter, max attempts and retry budget"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+  - "Retries happen at one layer only, with a bounded attempt count and a retry budget."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.circuit-breaker, resilience.timeout-deadline-propagation, distributed.idempotent-consumer]
+conflicts_with: [anti-pattern.retry-storm]
+introduction_recipe:
+  - "Cap attempts and use exponential backoff with full jitter."
+  - "Retry only retryable error classes."
+removal_recipe:
+  - "Remove the retry wrapper; callers handle failure directly."
+  - "Ensure a circuit breaker or timeout remains."
+version: 1.0.0

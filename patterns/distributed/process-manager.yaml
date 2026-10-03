@@ -1,0 +1,46 @@
+schema_version: "1.0"
+id: distributed.process-manager
+name: "Process manager"
+category: distributed
+problem: "A long-running process routes among steps based on intermediate results and needs durable state keyed by correlation."
+forces:
+  - "Dynamic routing versus a stateful component to operate."
+applicability_signals:
+  - { id: next-step-depends-on-prior, description: "Next step depends on prior results" }
+  - { id: process-spans-time-and-multiple, description: "Process spans time and multiple messages" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: correlation-identifiers-exist-on-messages, description: "Correlation identifiers exist on messages" }
+  - { id: process-state-is-persisted-durably, description: "Process state is persisted durably" }
+contraindications:
+  - { id: linear-flow-with-no-branching, description: "Linear flow with no branching; a simple handler suffices" }
+  - { id: process-completes-within-one-transaction, description: "Process completes within one transaction", predicate: { metric: boundary.cross_transactions, op: '==', value: 0 }, hard: true }
+benefits:
+  - "Central routing logic is testable"
+  - "Survives restarts via durable state"
+liabilities:
+  - "Stateful component to version and migrate"
+  - "Can become a god object"
+introduced_complexity:
+  - "Process state schema and versioning"
+  - "Timeout and stuck-process handling"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.saga-orchestration, messaging.correlation-identifier, messaging.routing-slip]
+conflicts_with: []
+introduction_recipe:
+  - "Define states and transitions."
+  - "Persist state per correlation id."
+  - "Add timeouts for stuck instances."
+removal_recipe:
+  - "Inline routing into the participants or a simple handler."
+  - "Complete or migrate in-flight instances before removal."
+version: 1.0.0

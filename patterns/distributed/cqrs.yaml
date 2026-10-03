@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: distributed.cqrs
+name: "CQRS"
+category: distributed
+aliases: ["Command Query Responsibility Segregation"]
+problem: "One model serves both writes and reads, forcing compromises when read shape or scale diverges sharply from write rules."
+forces:
+  - "Independent read/write optimization versus doubled models."
+  - "Eventual consistency on the read side."
+applicability_signals:
+  - { id: read-and-write-loads-diverge, description: "Read and write loads diverge strongly", predicate: { metric: service.scaling_divergence, op: '>=', value: 0.6 } }
+  - { id: reads-need-shapes-unlike-the, description: "Reads need shapes unlike the write model" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: a-reliable-mechanism-propagates-changes, description: "A reliable mechanism propagates changes to read models" }
+  - { id: staleness-is-acceptable-to-users, description: "Staleness is acceptable to users" }
+contraindications:
+  - { id: single-team-on-a-crud, description: "Single team on a CRUD domain", predicate: { metric: team.count, op: '<', value: 2 } }
+  - { id: no-read-write-scaling-divergence, description: "No read/write scaling divergence", predicate: { metric: service.scaling_divergence, op: '<', value: 0.3 } }
+  - { id: users-require-read-your-writes, description: "Users require read-your-writes everywhere" }
+benefits:
+  - "Read models fit queries and scale separately"
+  - "Write model stays focused on invariants"
+liabilities:
+  - "Eventual consistency in the UI"
+  - "Two models to keep aligned"
+introduced_complexity:
+  - "Projection pipeline and its failure handling"
+  - "Rebuild and drift reconciliation"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.materialized-view, distributed.event-sourcing, distributed.transactional-outbox]
+conflicts_with: [anti-pattern.cargo-cult-architecture]
+introduction_recipe:
+  - "Split one query path into a read model fed by events."
+  - "Compare read model against source."
+  - "Switch reads."
+removal_recipe:
+  - "Point reads back at the write model."
+  - "Retire projections after read usage reaches zero."
+version: 1.0.0

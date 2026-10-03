@@ -1,0 +1,46 @@
+schema_version: "1.0"
+id: resilience.failover
+name: "Failover"
+category: resilience
+problem: "Loss of a primary component causes an outage until manual recovery."
+forces:
+  - "Availability versus data loss and split-brain risk."
+applicability_signals:
+  - { id: single-instance-on-the-critical, description: "Single instance on the critical path" }
+  - { id: availability-target-exceeds-manual-recovery, description: "Availability target exceeds manual recovery time" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: standby-is-kept-in-sync, description: "Standby is kept in sync" }
+  - { id: failover-is-rehearsed, description: "Failover is rehearsed" }
+  - { id: restore-tested-backups, description: "Restore-tested backups", predicate: { metric: backup.restore_tested, op: '==', value: 1 } }
+contraindications:
+  - { id: standby-cannot-be-kept-consistent, description: "Standby cannot be kept consistent enough for the RPO" }
+  - { id: failover-never-rehearsed, description: "Failover never rehearsed", predicate: { metric: backup.restore_tested, op: '==', value: 0 } }
+benefits:
+  - "Shorter recovery time"
+  - "Planned maintenance without outage"
+liabilities:
+  - "Standby cost"
+  - "Failover bugs appear only when needed"
+introduced_complexity:
+  - "Detection, promotion and client redirection"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [integration, rollback-rehearsal, smoke, performance]
+rollback_strategies: [fail_over, revert]
+composes_with: [resilience.replication, resilience.health-endpoint-monitoring, resilience.leader-election]
+conflicts_with: []
+introduction_recipe:
+  - "Provision standby."
+  - "Automate detection and promotion."
+  - "Rehearse on a schedule."
+removal_recipe:
+  - "Fail back to the original primary."
+  - "Decommission the standby only after confirming no dependency on it."
+version: 1.0.0

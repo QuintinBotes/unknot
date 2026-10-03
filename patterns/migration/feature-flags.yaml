@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: migration.feature-flags
+name: "Feature flags"
+category: migration
+aliases: ["feature toggles"]
+problem: "Deploy and release are coupled, so every unfinished or risky change gates deploys and cannot be reverted without a redeploy."
+forces:
+  - "Decoupled release versus combinatorial test states and stale flags."
+applicability_signals:
+  - { id: risky-change-needs-gradual-or, description: "Risky change needs gradual or reversible exposure" }
+  - { id: long-lived-branches-exist, description: "Long-lived branches exist" }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: flag-evaluation-is-cheap-and, description: "Flag evaluation is cheap and fails to a known safe default" }
+  - { id: each-flag-has-an-owner, description: "Each flag has an owner and expiry" }
+contraindications:
+  - { id: flag-would-guard-a-security, description: "Flag would guard a security or schema change that cannot be toggled safely" }
+  - { id: flag-count-already-high-and, description: "Flag count already high and unmanaged" }
+benefits:
+  - "Instant rollback without redeploy"
+  - "Trunk-based delivery"
+liabilities:
+  - "Dead flags accumulate"
+  - "Untested flag combinations"
+introduced_complexity:
+  - "Flag service, targeting rules and cleanup process"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+  - "Every flag has an expiry; the flag and the dead branch are removed once rollout completes."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [unit, integration, smoke, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.branch-by-abstraction, migration.canary-release, distributed.external-configuration]
+conflicts_with: [anti-pattern.flag-debt]
+introduction_recipe:
+  - "Add a flag defaulting to the old behavior."
+  - "Test both states."
+  - "Roll out progressively."
+removal_recipe:
+  - "Remove the flag and the dead branch in a separate slice once rollout is complete and stable."
+version: 1.0.0

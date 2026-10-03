@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: migration.canary-release
+name: "Canary release"
+category: migration
+problem: "A full rollout exposes all users to an unproven change at once."
+forces:
+  - "Limited blast radius versus slower rollout and duplicate versions."
+applicability_signals:
+  - { id: change-affects-production-behavior-with, description: "Change affects production behavior with measurable health signals", predicate: { metric: metrics.available, op: '==', value: 1 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: automatic-health-metrics-can-detect, description: "Automatic health metrics can detect regression" }
+  - { id: version-coexistence-is-safe-for, description: "Version coexistence is safe for data and contracts" }
+contraindications:
+  - { id: no-metrics-to-judge-the, description: "No metrics to judge the canary", predicate: { metric: metrics.available, op: '==', value: 0 }, hard: true }
+  - { id: change-is-not-backward-compatible, description: "Change is not backward compatible with data at rest" }
+benefits:
+  - "Early detection with small blast radius"
+  - "Fast revert by routing"
+liabilities:
+  - "Two versions live concurrently"
+introduced_complexity:
+  - "Traffic splitting and promotion criteria"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [smoke, performance, rollback-rehearsal, integration]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.progressive-delivery, migration.feature-flags, resilience.health-endpoint-monitoring]
+conflicts_with: []
+introduction_recipe:
+  - "Route a small share to the new version."
+  - "Compare health to baseline."
+  - "Promote in steps."
+removal_recipe:
+  - "Route all traffic to the stable version."
+  - "Decommission canary infrastructure in a later slice."
+version: 1.0.0

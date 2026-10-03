@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: migration.compatibility-facade
+name: "Compatibility facade"
+category: migration
+problem: "Consumers rely on a legacy interface that must stay available while the implementation behind it is replaced."
+forces:
+  - "Consumer stability versus carrying an adapter indefinitely."
+applicability_signals:
+  - { id: consumers-cannot-be-updated-promptly, description: "Consumers cannot be updated promptly", predicate: { metric: module.consumers, op: '>=', value: 3 } }
+  - { id: contract-exists, description: "Contract exists", predicate: { metric: contracts.present, op: '==', value: 1 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: legacy-contract-is-characterized, description: "Legacy contract is characterized", predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: few-internal-consumers-who-can, description: "Few internal consumers who can migrate directly", predicate: { metric: module.consumers, op: '<', value: 2 } }
+  - { id: facade-would-permanently-hide-a, description: "Facade would permanently hide a broken design" }
+benefits:
+  - "Implementation changes invisible to consumers"
+  - "Consumers migrate on their own schedule"
+liabilities:
+  - "Adapter can fossilize"
+introduced_complexity:
+  - "Facade plus usage tracking and a deprecation date"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [api-compatibility, contract, characterization, integration, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.strangler-fig, migration.parallel-change, decomposition.strangler-fig-extraction]
+conflicts_with: []
+introduction_recipe:
+  - "Wrap the legacy contract in a facade."
+  - "Delegate to the new implementation."
+  - "Track usage per consumer."
+removal_recipe:
+  - "Repoint the facade at legacy implementation."
+  - "Remove the facade in a separate slice once consumer usage reaches zero."
+version: 1.0.0

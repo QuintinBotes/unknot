@@ -1,0 +1,40 @@
+schema_version: "1.0"
+id: messaging.scatter-gather
+name: "Scatter-gather"
+category: messaging
+problem: "A request must be sent to several recipients and the replies combined."
+forces:
+  - "Best-of-many results versus slowest-responder latency."
+applicability_signals:
+  - { id: multiple-providers-answer-the-same, description: "Multiple providers answer the same question" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: per-reply-deadline-defined, description: "Per-reply deadline defined", predicate: { metric: timeout.present, op: '==', value: 1 } }
+contraindications:
+  - { id: no-timeout-on-replies, description: "No timeout on replies", predicate: { metric: timeout.present, op: '==', value: 0 }, hard: true }
+  - { id: single-authoritative-provider, description: "Single authoritative provider" }
+benefits:
+  - "Aggregated or best response"
+  - "Parallel latency"
+liabilities:
+  - "Partial failure handling"
+introduced_complexity:
+  - "Fan-out, deadlines and completion rule"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.aggregator, messaging.splitter, resilience.hedging]
+conflicts_with: []
+introduction_recipe:
+  - "Fan out with correlation id."
+  - "Gather by deadline or count."
+removal_recipe:
+  - "Call the single preferred provider directly."
+version: 1.0.0

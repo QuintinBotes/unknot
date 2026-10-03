@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: messaging.dead-letter-channel
+name: "Dead letter channel"
+category: messaging
+problem: "Messages that repeatedly fail block the queue or vanish silently."
+forces:
+  - "Isolation of poison messages versus operational follow-up burden."
+applicability_signals:
+  - { id: poison-messages-seen, description: "Poison messages seen" }
+  - { id: channel-has-no-dead-letter, description: "Channel has no dead-letter destination", predicate: { metric: messaging.dlq, op: '==', value: 0 } }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: retry-limit-is-bounded, description: "Retry limit is bounded", predicate: { metric: retry.bounded, op: '==', value: 1 } }
+contraindications:
+  - { id: channel-already-has-a-monitored, description: "Channel already has a monitored dead-letter queue", predicate: { metric: messaging.dlq, op: '==', value: 1 } }
+  - { id: nobody-owns-triage-of-dead, description: "Nobody owns triage of dead letters" }
+benefits:
+  - "Failures isolated and inspectable"
+  - "Main flow keeps moving"
+liabilities:
+  - "DLQ grows unnoticed without alerting"
+introduced_complexity:
+  - "DLQ monitoring and replay tooling"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [integration, unit, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.guaranteed-delivery, resilience.bounded-retry-jitter, messaging.message-history]
+conflicts_with: []
+introduction_recipe:
+  - "Configure the DLQ after N attempts."
+  - "Alert on depth and age."
+  - "Document replay."
+removal_recipe:
+  - "Drain and replay or discard DLQ content first."
+  - "Then remove the DLQ binding."
+version: 1.0.0

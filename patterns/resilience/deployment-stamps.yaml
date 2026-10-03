@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: resilience.deployment-stamps
+name: "Deployment stamps"
+category: resilience
+problem: "A single large deployment limits scale, couples tenants and enlarges blast radius."
+forces:
+  - "Isolation and scale-out versus operating many copies."
+applicability_signals:
+  - { id: tenant-or-regional-isolation-needed, description: "Tenant or regional isolation needed", predicate: { metric: driver.availability_isolation, op: '==', value: 1 } }
+  - { id: scale-limits-of-one-deployment, description: "Scale limits of one deployment reached" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: deployment-is-fully-automated, description: "Deployment is fully automated" }
+  - { id: a-stateless-control-plane-to, description: "A stateless control plane to route tenants to stamps" }
+contraindications:
+  - { id: few-tenants-and-low-scale, description: "Few tenants and low scale; one deployment suffices", predicate: { metric: team.count, op: '<', value: 2 } }
+  - { id: per-stamp-operating-cost-is, description: "Per-stamp operating cost is unjustified" }
+benefits:
+  - "Blast radius limited per stamp"
+  - "Linear scaling by adding stamps"
+liabilities:
+  - "Fleet of deployments to patch"
+  - "Cross-stamp queries are hard"
+introduced_complexity:
+  - "Stamp provisioning, routing and upgrade orchestration"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.geodes, resilience.bulkhead, infrastructure.immutable-infrastructure]
+conflicts_with: []
+introduction_recipe:
+  - "Automate one stamp end to end."
+  - "Route a pilot tenant."
+removal_recipe:
+  - "Migrate tenants back to a shared deployment."
+  - "Decommission stamps after tenant data moves and usage is zero."
+version: 1.0.0

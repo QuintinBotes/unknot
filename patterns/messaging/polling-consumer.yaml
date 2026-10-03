@@ -1,0 +1,36 @@
+schema_version: "1.0"
+id: messaging.polling-consumer
+name: "Polling consumer"
+category: messaging
+problem: "A consumer must control the rate of consumption."
+forces:
+  - "Rate control versus idle polling cost."
+applicability_signals:
+  - { id: consumer-capacity-varies, description: "Consumer capacity varies" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions: []
+contraindications:
+  - { id: latency-sensitive-handlers-where-push, description: "Latency-sensitive handlers where push is available" }
+benefits:
+  - "Consumer controls pace"
+liabilities:
+  - "Poll latency or wasted polls"
+introduced_complexity:
+  - "Poll interval and batch size"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.event-driven-consumer, resilience.queue-based-load-leveling, messaging.competing-consumers]
+conflicts_with: []
+introduction_recipe:
+  - "Poll with long-poll or backoff."
+removal_recipe:
+  - "Switch to push delivery."
+version: 1.0.0

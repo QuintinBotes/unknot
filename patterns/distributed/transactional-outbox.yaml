@@ -1,0 +1,45 @@
+schema_version: "1.0"
+id: distributed.transactional-outbox
+name: "Transactional outbox"
+category: distributed
+problem: "A service must update its database and publish a message atomically; writing to both separately loses messages when one fails."
+forces:
+  - "Atomicity without distributed transactions versus relay latency."
+applicability_signals:
+  - { id: service-writes-a-db-row, description: "Service writes a DB row and publishes an event in one flow", predicate: { metric: boundary.cross_transactions, op: '>=', value: 1 } }
+  - { id: missing-events-have-been-observed, description: "Missing events have been observed" }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: consumers-are-idempotent, description: "Consumers are idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: a-relay-or-cdc-process, description: "A relay or CDC process can read the outbox" }
+contraindications:
+  - { id: no-messaging-in-the-flow, description: "No messaging in the flow" }
+  - { id: consumers-cannot-tolerate-duplicates, description: "Consumers cannot tolerate duplicates", predicate: { metric: data.idempotency, op: '==', value: 0 }, hard: true }
+benefits:
+  - "At-least-once publish with no dual write"
+  - "Atomic with the business change"
+liabilities:
+  - "Relay lag and duplicates"
+  - "Outbox table growth"
+introduced_complexity:
+  - "Outbox table, relay and cleanup job"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Introduce the pattern behind a narrow interface at one boundary."
+  - "Route one low-risk flow through it and compare behavior with the old path."
+proof_obligations: [integration, contract, reconciliation, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [database.dual-write-to-outbox, distributed.change-data-capture, distributed.idempotent-consumer]
+conflicts_with: [anti-pattern.dual-write-hazard]
+introduction_recipe:
+  - "Add the outbox table via expand migration."
+  - "Write business row and outbox row in one transaction."
+  - "Relay to the broker; consumers dedupe."
+removal_recipe:
+  - "Return to direct publish only after verifying consumers are idempotent."
+  - "Drain the outbox, stop the relay, then drop the table in a later slice."
+version: 1.0.0

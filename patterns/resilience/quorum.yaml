@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: resilience.quorum
+name: "Quorum"
+category: resilience
+problem: "Replicated writes or elections can yield conflicting results when nodes disagree or partition."
+forces:
+  - "Consistency versus availability under partition."
+applicability_signals:
+  - { id: replicated-state-with-concurrent-writers, description: "Replicated state with concurrent writers or elections" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: odd-node-count-and-clear, description: "Odd node count and clear read/write quorum sizes" }
+contraindications:
+  - { id: single-node-or-async-primary, description: "Single node or async primary-replica where quorum adds nothing" }
+  - { id: latency-budget-excludes-cross-node, description: "Latency budget excludes cross-node round trips" }
+benefits:
+  - "Consistent decisions under partition"
+  - "Tolerates minority failure"
+liabilities:
+  - "Unavailable without majority"
+  - "Higher write latency"
+introduced_complexity:
+  - "Quorum configuration and membership changes"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [integration, performance, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.leader-election, resilience.replication, resilience.failover]
+conflicts_with: []
+introduction_recipe:
+  - "Use a proven consensus system rather than building one."
+removal_recipe:
+  - "Migrate state to a single-writer store."
+  - "Retire the cluster after the migration."
+version: 1.0.0

@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: distributed.sync-request-response
+name: "Synchronous request-response"
+category: distributed
+problem: "Callers need an immediate answer, but chained synchronous calls can multiply latency and couple availability."
+forces:
+  - "Simplicity and immediate consistency versus temporal coupling."
+  - "Caller convenience versus failure propagation."
+applicability_signals:
+  - { id: the-caller-cannot-proceed-without, description: "The caller cannot proceed without the answer" }
+  - { id: few-hops-per-request, description: "Few hops per request", predicate: { metric: service.fan_out_p95, op: '<=', value: 3 } }
+required_evidence:
+  - "Contracts for the affected boundary"
+  - "Runtime traces or metrics for the affected flows"
+preconditions:
+  - { id: timeouts-are-configured-on-every, description: "Timeouts are configured on every call", predicate: { metric: timeout.present, op: '==', value: 1 } }
+contraindications:
+  - { id: calls-have-no-timeout, description: "Calls have no timeout", predicate: { metric: timeout.present, op: '==', value: 0 }, hard: true }
+  - { id: deep-synchronous-chains-across-many, description: "Deep synchronous chains across many services", predicate: { metric: service.fan_out_p95, op: '>', value: 5 } }
+benefits:
+  - "Simple to reason about and debug"
+  - "Immediate consistency and error feedback"
+liabilities:
+  - "Availability is the product of the chain"
+  - "Latency accumulates"
+introduced_complexity:
+  - "Timeout, retry and deadline policy per call"
+architecture_invariants:
+  - "Callers depend on the contract, never on the pattern machinery behind it."
+  - "The pattern is introduced behind a seam so it can be removed without touching business logic."
+transformations:
+  - "Add explicit timeouts and idempotency to each call before adding more callers."
+proof_obligations: [integration, contract, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.timeout-deadline-propagation, resilience.circuit-breaker, resilience.bounded-retry-jitter]
+conflicts_with: [anti-pattern.chatty-services]
+introduction_recipe:
+  - "Define a contract for the call."
+  - "Set timeout and bounded retry."
+  - "Add tracing across the hop."
+removal_recipe:
+  - "Replace the call with an async message or local read model if coupling proves harmful."
+  - "Keep the contract until all callers have moved."
+version: 1.0.0

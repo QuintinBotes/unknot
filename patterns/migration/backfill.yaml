@@ -1,0 +1,44 @@
+schema_version: "1.0"
+id: migration.backfill
+name: "Backfill"
+category: migration
+problem: "New structure or store must be populated with existing data without locking or overloading production."
+forces:
+  - "Speed versus production impact."
+applicability_signals:
+  - { id: new-column-table-or-store, description: "New column, table or store requires historical data", predicate: { metric: table.rows, op: '>=', value: 1000000 } }
+required_evidence:
+  - "Consumer inventory for the old path"
+  - "Usage metrics or traces for old and new paths"
+preconditions:
+  - { id: backfill-is-idempotent-and-resumable, description: "Backfill is idempotent and resumable" }
+  - { id: restore-tested-backup, description: "Restore-tested backup", predicate: { metric: backup.restore_tested, op: '==', value: 1 } }
+contraindications:
+  - { id: table-small-enough-for-a, description: "Table small enough for a direct migration", predicate: { metric: table.rows, op: '<', value: 10000 } }
+  - { id: exclusive-locks-required, description: "Exclusive locks required", predicate: { metric: migration.locks_exclusive, op: '==', value: 1 }, hard: true }
+benefits:
+  - "Bounded impact via batching and throttling"
+  - "Resumable after failure"
+liabilities:
+  - "Long-running job to monitor"
+introduced_complexity:
+  - "Batching, checkpointing and throttling controls"
+architecture_invariants:
+  - "The old path stays fully functional until observed usage reaches zero."
+  - "Removal of the old path is a separate slice, never bundled with the switch."
+transformations:
+  - "Add the new path alongside the old behind a switch that defaults to old."
+  - "Migrate and validate on the new path before moving any traffic."
+  - "Safe sequence: expand, migrate, validate, switch, observe, contract. Contract (removing the old path) is its own slice taken only after old-path usage reaches zero."
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, performance]
+rollback_strategies: [revert, roll_forward]
+composes_with: [migration.expand-migrate-contract, migration.reconciliation, migration.dual-read]
+conflicts_with: []
+introduction_recipe:
+  - "Run only after expand."
+  - "Batch by key range with throttle and checkpoint."
+  - "Reconcile before any switch."
+removal_recipe:
+  - "Stop the job; discard populated new data if unused."
+  - "Drop new structure later during contract."
+version: 1.0.0

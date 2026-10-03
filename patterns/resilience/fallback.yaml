@@ -1,0 +1,43 @@
+schema_version: "1.0"
+id: resilience.fallback
+name: "Fallback"
+category: resilience
+problem: "A call fails with no alternative, and the caller has no safe default."
+forces:
+  - "Continuity versus hiding failures."
+applicability_signals:
+  - { id: a-safe-default-cache-or, description: "A safe default, cache or secondary source exists" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: fallback-result-is-acceptable-to, description: "Fallback result is acceptable to the business" }
+  - { id: fallback-path-is-itself-independent, description: "Fallback path is itself independent of the failing dependency" }
+contraindications:
+  - { id: no-acceptable-substitute-value-exists, description: "No acceptable substitute value exists" }
+  - { id: fallback-depends-on-the-same, description: "Fallback depends on the same failing infrastructure" }
+benefits:
+  - "Requests succeed with reduced fidelity"
+  - "Pairs naturally with breaker"
+liabilities:
+  - "Masks outages without alerting"
+  - "Fallback code rots untested"
+introduced_complexity:
+  - "Fallback source and its staleness policy"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [resilience.circuit-breaker, resilience.graceful-degradation, resilience.failover]
+conflicts_with: []
+introduction_recipe:
+  - "Choose a safe default or cache."
+  - "Alert when fallback rate rises."
+removal_recipe:
+  - "Remove the fallback branch; surface the error."
+  - "Ensure alerting is not tied to fallback metrics."
+version: 1.0.0

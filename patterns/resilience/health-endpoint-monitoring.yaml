@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: resilience.health-endpoint-monitoring
+name: "Health endpoint monitoring"
+category: resilience
+problem: "Orchestrators and load balancers cannot tell whether an instance can serve traffic."
+forces:
+  - "Accurate readiness versus expensive or flapping deep checks."
+applicability_signals:
+  - { id: instances-serve-traffic-while-unhealthy, description: "Instances serve traffic while unhealthy" }
+  - { id: no-readiness-liveness-distinction, description: "No readiness/liveness distinction" }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: orchestrator-or-load-balancer-honors, description: "Orchestrator or load balancer honors health status" }
+contraindications:
+  - { id: no-consumer-of-health-status, description: "No consumer of health status exists" }
+  - { id: deep-checks-would-cascade-failures, description: "Deep checks would cascade failures from shared dependencies" }
+benefits:
+  - "Automatic removal and restart"
+  - "Safer rollouts"
+liabilities:
+  - "False positives can cause restart storms"
+introduced_complexity:
+  - "Liveness, readiness and dependency checks kept distinct"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.service-discovery, migration.canary-release, resilience.failover]
+conflicts_with: []
+introduction_recipe:
+  - "Add shallow liveness and dependency-aware readiness."
+  - "Wire to the orchestrator."
+removal_recipe:
+  - "Revert probes to a TCP check."
+  - "Remove endpoints after the orchestrator no longer uses them."
+version: 1.0.0

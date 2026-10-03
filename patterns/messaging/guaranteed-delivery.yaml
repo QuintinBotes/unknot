@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.guaranteed-delivery
+name: "Guaranteed delivery"
+category: messaging
+problem: "Messages may be lost if the broker or receiver fails mid-flight."
+forces:
+  - "Durability versus throughput and duplicates."
+applicability_signals:
+  - { id: message-loss-is-unacceptable, description: "Message loss is unacceptable" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: consumers-are-idempotent, description: "Consumers are idempotent", predicate: { metric: data.idempotency, op: '==', value: 1 } }
+contraindications:
+  - { id: messages-are-ephemeral-telemetry-where, description: "Messages are ephemeral telemetry where loss is fine" }
+  - { id: consumers-cannot-tolerate-duplicates, description: "Consumers cannot tolerate duplicates", predicate: { metric: data.idempotency, op: '==', value: 0 }, hard: true }
+benefits:
+  - "No lost messages across failures"
+  - "Replay possible"
+liabilities:
+  - "Latency and storage cost"
+  - "At-least-once means duplicates"
+introduced_complexity:
+  - "Persistence, acknowledgements and redelivery policy"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [distributed.idempotent-consumer, distributed.transactional-outbox, messaging.dead-letter-channel]
+conflicts_with: []
+introduction_recipe:
+  - "Enable durable queues and publisher confirms."
+  - "Ack after processing."
+removal_recipe:
+  - "Downgrade to non-persistent only for explicitly lossy channels."
+version: 1.0.0

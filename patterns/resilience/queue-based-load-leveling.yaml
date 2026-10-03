@@ -1,0 +1,42 @@
+schema_version: "1.0"
+id: resilience.queue-based-load-leveling
+name: "Queue-based load leveling"
+category: resilience
+problem: "Spiky producers overwhelm a downstream service sized for average load."
+forces:
+  - "Smooth consumption versus added latency and queue management."
+applicability_signals:
+  - { id: bursty-producers-and-steady-consumers, description: "Bursty producers and steady consumers", predicate: { metric: service.scaling_divergence, op: '>=', value: 0.5 } }
+required_evidence:
+  - "Failure and latency history for the dependency"
+  - "Traces or metrics for the affected calls"
+preconditions:
+  - { id: work-is-asynchronous-tolerant, description: "Work is asynchronous-tolerant" }
+  - { id: queue-has-a-dead-letter, description: "Queue has a dead-letter path", predicate: { metric: messaging.dlq, op: '==', value: 1 } }
+contraindications:
+  - { id: callers-require-immediate-result, description: "Callers require immediate result" }
+  - { id: no-dead-letter-handling-for, description: "No dead-letter handling for poison messages", predicate: { metric: messaging.dlq, op: '==', value: 0 } }
+benefits:
+  - "Consumer sized for average rather than peak"
+  - "Producer availability decoupled"
+liabilities:
+  - "Queue backlog hides overload until late"
+introduced_complexity:
+  - "Queue depth monitoring and consumer autoscaling"
+architecture_invariants:
+  - "Resilience policy is set in exactly one layer per call path."
+  - "Failure behavior is tested by injection, not assumed."
+transformations:
+  - "Add the mechanism to one dependency with conservative defaults."
+  - "Verify behavior with fault injection before widening."
+proof_obligations: [unit, integration, performance, smoke]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.competing-consumers, messaging.dead-letter-channel, distributed.async-messaging]
+conflicts_with: []
+introduction_recipe:
+  - "Put a queue between producer and consumer."
+  - "Alert on queue age."
+removal_recipe:
+  - "Reinstate direct calls with rate limiting."
+  - "Drain the queue before removal."
+version: 1.0.0

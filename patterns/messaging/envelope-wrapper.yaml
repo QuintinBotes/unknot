@@ -1,0 +1,40 @@
+schema_version: "1.0"
+id: messaging.envelope-wrapper
+name: "Envelope wrapper"
+category: messaging
+problem: "Payloads must carry routing, security or tracing metadata without altering the business body."
+forces:
+  - "Uniform metadata versus wrapping overhead."
+applicability_signals:
+  - { id: cross-cutting-headers-needed-on, description: "Cross-cutting headers needed on many messages" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: envelope-schema-is-stable-and, description: "Envelope schema is stable and versioned" }
+contraindications:
+  - { id: broker-headers-already-carry-the, description: "Broker headers already carry the metadata" }
+benefits:
+  - "Separates metadata from payload"
+  - "Enables generic middleware"
+liabilities:
+  - "Extra wrapping step"
+introduced_complexity:
+  - "Envelope schema governance"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.correlation-identifier, messaging.document-message, messaging.canonical-data-model]
+conflicts_with: []
+introduction_recipe:
+  - "Define the envelope."
+  - "Wrap at the edge and unwrap at the consumer."
+removal_recipe:
+  - "Move metadata to broker headers."
+  - "Unwrap in consumers first."
+version: 1.0.0

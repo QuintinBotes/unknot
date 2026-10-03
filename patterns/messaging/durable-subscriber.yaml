@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: messaging.durable-subscriber
+name: "Durable subscriber"
+category: messaging
+problem: "A subscriber misses messages published while it is offline."
+forces:
+  - "No loss versus broker storage."
+applicability_signals:
+  - { id: subscribers-go-offline-but-cannot, description: "Subscribers go offline but cannot lose events" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: subscription-retention-and-expiry-defined, description: "Subscription retention and expiry defined" }
+contraindications:
+  - { id: messages-irrelevant-once-stale, description: "Messages irrelevant once stale" }
+  - { id: retention-would-exceed-storage-budget, description: "Retention would exceed storage budget" }
+benefits:
+  - "Offline subscribers catch up"
+liabilities:
+  - "Backlog growth for dead subscribers"
+introduced_complexity:
+  - "Subscription lifecycle and cleanup"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.publish-subscribe, messaging.guaranteed-delivery, messaging.dead-letter-channel]
+conflicts_with: []
+introduction_recipe:
+  - "Use a named durable subscription."
+  - "Alert on lag."
+removal_recipe:
+  - "Delete the subscription after confirming the subscriber is retired."
+version: 1.0.0

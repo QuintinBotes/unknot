@@ -1,0 +1,41 @@
+schema_version: "1.0"
+id: messaging.messaging-bridge
+name: "Messaging bridge"
+category: messaging
+problem: "Two messaging systems must interoperate without rewriting either."
+forces:
+  - "Integration speed versus another failure point."
+applicability_signals:
+  - { id: separate-brokers-or-protocols-must, description: "Separate brokers or protocols must exchange messages" }
+required_evidence:
+  - "Message contracts and producer/consumer inventory"
+  - "Delivery, lag and failure metrics for the channel"
+preconditions:
+  - { id: mapping-rules-between-formats-are, description: "Mapping rules between formats are defined" }
+contraindications:
+  - { id: one-system-can-be-migrated, description: "One system can be migrated onto the other soon" }
+  - { id: bridge-would-carry-transactions-it, description: "Bridge would carry transactions it cannot guarantee" }
+benefits:
+  - "Systems integrate without change"
+  - "Supports gradual migration"
+liabilities:
+  - "Added latency and duplicates"
+introduced_complexity:
+  - "Bridge monitoring and mapping"
+architecture_invariants:
+  - "Message contracts are versioned and changed only compatibly."
+  - "Consumers tolerate duplicates and unknown fields."
+transformations:
+  - "Introduce the construct on one channel behind the existing producer or consumer interface."
+  - "Run old and new in parallel and compare before cutover."
+proof_obligations: [contract, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [messaging.messaging-mapper, migration.strangler-fig, messaging.guaranteed-delivery]
+conflicts_with: []
+introduction_recipe:
+  - "Bridge one topic."
+  - "Verify counts on both sides."
+removal_recipe:
+  - "Migrate producers or consumers to one system."
+  - "Stop the bridge after zero traffic."
+version: 1.0.0
