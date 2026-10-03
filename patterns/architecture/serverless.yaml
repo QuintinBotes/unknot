@@ -1,0 +1,58 @@
+schema_version: "1.0"
+id: architecture.serverless
+name: Serverless
+aliases:
+  - functions as a service
+category: architecture
+problem: "Event-triggered managed functions and services remove server management and scale to zero, at the price of execution limits and vendor coupling."
+forces:
+  - Spiky or idle workloads make fixed capacity wasteful
+  - "Cold starts, limits and platform lock-in constrain design"
+applicability_signals:
+  - id: spiky-load
+    description: Load is intermittent with long idle periods.
+    predicate: { metric: service.scaling_divergence, op: '>', value: 1 }
+required_evidence:
+  - Invocation distribution and duration
+  - Cost model at expected volume
+preconditions:
+  - id: stateless
+    description: Handlers are stateless and idempotent.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+  - id: timeouts
+    description: Timeouts are explicit.
+    predicate: { metric: timeout.present, op: '==', value: 1 }
+contraindications:
+  - id: steady-high-load
+    description: Steady high utilization makes per-invocation pricing costlier than servers.
+  - id: long-running
+    description: Work exceeds platform execution limits.
+benefits:
+  - No server management and fine-grained scaling
+  - Pay per use for intermittent work
+liabilities:
+  - Cold start latency and execution limits
+  - Local testing and debugging differ from production
+introduced_complexity:
+  - Event wiring and IAM per function
+  - Observability across many small functions
+architecture_invariants:
+  - Functions keep no durable local state
+transformations:
+  - "Move one event-driven, stateless job to a function with the old path behind a flag"
+  - Scope IAM per function with no wildcards
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.web-queue-worker
+  - architecture.edge
+conflicts_with:
+  - anti-pattern.nanoservices
+removal_recipe:
+  - Re-host the handler in the existing service
+  - Remove triggers and IAM after the flag is off
+version: 1.0.0

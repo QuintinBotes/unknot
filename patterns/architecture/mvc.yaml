@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.mvc
+name: Model-View-Controller
+aliases:
+  - MVC
+category: architecture
+problem: "Separating model, view and controller keeps presentation, input handling and domain state from tangling in UI code."
+forces:
+  - Views change faster than domain state
+  - Controllers tend to accumulate business logic
+applicability_signals:
+  - id: fat-views
+    description: Views or handlers contain domain logic.
+    predicate: { metric: function.cognitive, op: '>', value: 15 }
+required_evidence:
+  - Business logic located in views or handlers
+  - UI test coverage
+preconditions:
+  - id: framework-support
+    description: The framework supports an MVC convention.
+contraindications:
+  - id: rich-client-state
+    description: Rich client state with two-way binding fits MVVM or unidirectional state better.
+benefits:
+  - Clear separation of presentation and domain
+  - Models are testable without a view
+liabilities:
+  - Fat controllers and anemic models
+  - Controller-view coupling remains
+introduced_complexity:
+  - "Routing, controller and view conventions"
+architecture_invariants:
+  - The model does not depend on the view
+transformations:
+  - Move business logic from one controller into a service or model
+  - Keep controllers to input mapping and orchestration
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.service-layer
+conflicts_with:
+  - architecture.mvvm
+removal_recipe:
+  - Inline trivial controllers into route handlers
+  - Remove base controller layers that add no behavior
+version: 1.0.0

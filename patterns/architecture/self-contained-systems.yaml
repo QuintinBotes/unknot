@@ -1,0 +1,58 @@
+schema_version: "1.0"
+id: architecture.self-contained-systems
+name: Self-Contained Systems
+aliases:
+  - SCS
+category: architecture
+problem: "Autonomous, vertically complete web systems each own UI, logic and data for one business area and integrate loosely, mostly asynchronously or via links."
+forces:
+  - Teams want end-to-end ownership including the UI
+  - Cross-system synchronous coupling defeats autonomy
+applicability_signals:
+  - id: team-autonomy
+    description: Team autonomy is a recorded driver.
+    predicate: { metric: driver.team_autonomy, op: '==', value: 1 }
+required_evidence:
+  - "Ownership of full vertical slices (UI, logic, data)"
+  - Cross-system navigation and call frequency
+preconditions:
+  - id: per-system-ci
+    description: Each system has its own pipeline.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }
+contraindications:
+  - id: shared-state
+    description: Systems share mutable state or one database.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+    hard: true
+  - id: single-owner
+    description: One team would own every system (common ownership).
+    predicate: { metric: team.count, op: '<=', value: 1 }
+benefits:
+  - Teams ship a whole business capability independently
+  - Loose integration limits cascading failure
+liabilities:
+  - UI duplication and inconsistent look unless a design system is shared
+  - Data duplication across systems
+introduced_complexity:
+  - Cross-system integration via links or events
+  - Shared design system versioning
+architecture_invariants:
+  - "No system reads another system's database"
+transformations:
+  - Carve out one vertical slice including its data and UI route
+  - Integrate through links and events before synchronous calls
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - decomposition.micro-frontend-by-route
+  - frontend.multi-zone-routing
+conflicts_with:
+  - anti-pattern.distributed-monolith
+removal_recipe:
+  - Proxy the old routes back to the monolith
+  - Merge data stores only after reconciliation shows zero diff
+version: 1.0.0

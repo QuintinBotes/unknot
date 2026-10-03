@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: domain.domain-service
+name: Domain Service
+category: domain
+problem: Domain operations that belong to no single entity or value object need a stateless home in the domain language.
+forces:
+  - Forcing the operation onto an entity distorts the model
+  - Services can absorb all logic and leave entities empty
+applicability_signals:
+  - id: stray-logic
+    description: A rule spans several aggregates and fits none of them.
+required_evidence:
+  - Rule locations and the entities it touches
+  - Name expressed in domain language
+preconditions:
+  - id: stateless
+    description: The operation needs no state of its own.
+contraindications:
+  - id: anemic
+    description: Most logic already lives in services and entities are bags of fields.
+    predicate: { metric: class.methods, op: '<=', value: 2 }
+benefits:
+  - Operations named in domain terms
+  - Keeps entities focused
+liabilities:
+  - Overuse produces an anemic domain model
+  - Hidden dependencies among services
+introduced_complexity:
+  - Service interface and injection wiring
+architecture_invariants:
+  - A domain service holds no state and no infrastructure code
+transformations:
+  - Extract the multi-aggregate rule into a named service
+  - Keep orchestration in application services
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.aggregate
+  - domain.service-layer
+conflicts_with:
+  - domain.table-module
+removal_recipe:
+  - Move the rule onto the aggregate that owns most inputs
+  - Delete the service when one caller remains
+version: 1.0.0

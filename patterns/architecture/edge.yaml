@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.edge
+name: Edge Architecture
+aliases:
+  - edge computing
+category: architecture
+problem: "Computation and caching move close to users or devices to cut latency and offload origin, with consistency and observability costs."
+forces:
+  - Latency to origin dominates user experience
+  - Distributed edge state is eventually consistent
+applicability_signals:
+  - id: latency-bound
+    description: Response time is dominated by round trips to a distant origin.
+required_evidence:
+  - Latency by region
+  - Cacheability of responses
+preconditions:
+  - id: cache-keys
+    description: Cache keys and invalidation rules are defined.
+contraindications:
+  - id: strong-consistency
+    description: Requests need strong read-after-write consistency from a single origin.
+benefits:
+  - Lower latency and origin offload
+  - Absorbs traffic spikes and some attacks at the edge
+liabilities:
+  - Stale or divergent edge state
+  - Debugging across many locations
+introduced_complexity:
+  - Cache invalidation and per-region config
+  - Edge runtime limits
+architecture_invariants:
+  - The origin remains the source of truth
+transformations:
+  - Cache one safe read-only route at the edge with short TTL
+  - Add edge logic only for stateless transforms
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.edge-composition
+  - architecture.serverless
+conflicts_with: []
+removal_recipe:
+  - Disable edge rules so traffic passes to origin
+  - Purge cached entries
+version: 1.0.0

@@ -1,0 +1,56 @@
+schema_version: "1.0"
+id: domain.domain-model
+name: Domain Model
+category: domain
+problem: "A network of objects carries both data and behavior, handling complex and varied business rules better than scripts."
+forces:
+  - Complex rules interact and vary
+  - Mapping objects to storage costs effort
+applicability_signals:
+  - id: rule-duplication
+    description: Business rules are duplicated across procedures.
+    predicate: { metric: duplication.instances, op: '>', value: 2 }
+  - id: large-script
+    description: Procedures are long and branch heavily.
+    predicate: { metric: function.cognitive, op: '>', value: 25 }
+required_evidence:
+  - Rule duplication and complexity
+  - Change frequency of the logic
+preconditions:
+  - id: tests
+    description: Tests hold behavior during migration.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: simple-crud
+    description: Logic is simple CRUD; a model is overhead.
+    predicate: { metric: function.cyclomatic, op: '<=', value: 5 }
+benefits:
+  - Behavior sits with data it governs
+  - Rules are composable and testable
+liabilities:
+  - Object-relational mapping complexity
+  - Easy to build an anemic model that adds only ceremony
+introduced_complexity:
+  - Mapping layer and aggregate boundaries
+architecture_invariants:
+  - "Business rules live in the model, not in controllers or SQL"
+transformations:
+  - Move one cohesive rule set from a script into entities or value objects
+  - Keep the script as a thin caller
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.aggregate
+  - domain.entity
+  - domain.value-object
+conflicts_with:
+  - domain.transaction-script
+  - domain.table-module
+removal_recipe:
+  - Flatten objects back to scripts where rules are trivial
+  - Delete the mapping code
+version: 1.0.0

@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: domain.vertical-slice
+name: Vertical Slice Architecture
+category: domain
+problem: "Each request or use case is implemented end-to-end in its own slice, minimizing coupling between slices and maximizing within them."
+forces:
+  - Layers force every use case through the same abstractions
+  - Slices may duplicate small amounts of code
+applicability_signals:
+  - id: pass-through-layers
+    description: Layers mostly forward calls.
+    predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.5 }
+required_evidence:
+  - Pass-through ratio per layer
+  - Files touched per use case
+preconditions:
+  - id: tests
+    description: Slices are testable end-to-end.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: rich-shared-domain
+    description: A complex shared domain model needs one authoritative implementation across many use cases.
+benefits:
+  - Fewer abstractions and more locality
+  - Each use case can choose its own data access
+liabilities:
+  - Duplication across slices
+  - Cross-cutting rules must be enforced by convention
+introduced_complexity:
+  - Slice structure convention and shared kernel for common rules
+architecture_invariants:
+  - "Slices share through the domain core, not each other"
+transformations:
+  - Implement the next new use case as a slice alongside the layers
+  - Migrate use cases opportunistically
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.package-by-feature
+  - architecture.modular-monolith
+conflicts_with:
+  - architecture.layered-monolith
+removal_recipe:
+  - Move slice code back into layered services
+  - Share duplicated logic only when stable
+version: 1.0.0

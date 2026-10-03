@@ -1,0 +1,55 @@
+schema_version: "1.0"
+id: architecture.cell-stamp
+name: Cell-Based (Stamp) Architecture
+aliases:
+  - deployment stamps
+  - cell architecture
+category: architecture
+problem: "The system is replicated as self-contained cells or stamps, each serving a subset of tenants, to limit blast radius and scale by adding cells."
+forces:
+  - A single failure should affect a bounded share of tenants
+  - Cell routing and cross-cell operations add complexity
+applicability_signals:
+  - id: blast-radius
+    description: An incident affects all tenants.
+    predicate: { metric: driver.availability_isolation, op: '==', value: 1 }
+required_evidence:
+  - Incident blast radius history
+  - Tenant size distribution
+preconditions:
+  - id: tenant-key
+    description: A stable tenant or partition key exists for routing.
+  - id: automation
+    description: A cell can be provisioned by automation.
+    predicate: { metric: ci.present, op: '==', value: 1 }
+contraindications:
+  - id: global-queries
+    description: Core features need cross-tenant queries on live data.
+benefits:
+  - Bounded blast radius and predictable scale unit
+  - Per-cell upgrades and canaries
+liabilities:
+  - Cost of N copies and routing layer
+  - Cross-cell reporting and migration are hard
+introduced_complexity:
+  - Cell router and tenant placement
+  - Fleet-level deployment tooling
+architecture_invariants:
+  - A tenant is served by exactly one cell at a time
+transformations:
+  - Provision a second cell and move a pilot tenant
+  - Put a thin router in front with identity routing first
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.microservices
+  - architecture.edge
+conflicts_with: []
+removal_recipe:
+  - Migrate tenants back to the primary cell
+  - Decommission empty cells
+version: 1.0.0

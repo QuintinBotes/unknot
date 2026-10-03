@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: architecture.kappa-architecture
+name: Kappa Architecture
+category: architecture
+problem: "A single streaming pipeline over a replayable log serves both real-time and reprocessing needs, removing the separate batch codebase."
+forces:
+  - One code path is easier to maintain
+  - Reprocessing large history through a stream is slow and costly
+applicability_signals:
+  - id: duplicate-logic
+    description: Batch and streaming implementations duplicate the same logic.
+    predicate: { metric: duplication.instances, op: '>', value: 1 }
+required_evidence:
+  - Log retention and replay throughput
+  - Duplicated logic inventory
+preconditions:
+  - id: replayable
+    description: The log retains enough history to rebuild state.
+  - id: idempotent-sinks
+    description: Sinks are idempotent.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+contraindications:
+  - id: short-retention
+    description: Log retention is too short to reprocess required history.
+benefits:
+  - One processing codebase
+  - Reprocessing is replaying with new logic
+liabilities:
+  - Replay cost and time for large history
+  - Streaming expertise required
+introduced_complexity:
+  - Long log retention and versioned job deployments
+architecture_invariants:
+  - State is derivable from the log
+transformations:
+  - Reproduce one batch output from the stream and diff it
+  - Switch consumers after zero-diff soak
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.stream-processing
+conflicts_with:
+  - architecture.lambda-architecture
+removal_recipe:
+  - Restore the batch job and re-point consumers
+  - Reduce log retention only after batch is gone
+version: 1.0.0

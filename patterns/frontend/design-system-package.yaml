@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: frontend.design-system-package
+name: Design System Package
+category: frontend
+problem: Shared UI primitives and tokens ship as a versioned package so independent apps stay visually and behaviorally consistent.
+forces:
+  - Teams or apps duplicate components and drift visually
+  - A shared package couples release and API stability
+applicability_signals:
+  - id: duplicated-ui
+    description: The same UI components are duplicated across apps.
+    predicate: { metric: duplication.instances, op: '>', value: 2 }
+required_evidence:
+  - Duplicate components and visual drift
+  - Consumers per component
+preconditions:
+  - id: owner
+    description: A team owns the package and its roadmap.
+    predicate: { metric: resource.owner_known, op: '==', value: 1 }
+contraindications:
+  - id: one-app
+    description: One app and one team; a package adds release overhead.
+    predicate: { metric: frontend.teams, op: '<=', value: 1 }
+benefits:
+  - Consistent UI and one fix point
+  - Enables micro-frontends to look like one product
+liabilities:
+  - Breaking changes ripple to all consumers
+  - Slow evolution if governance is heavy
+introduced_complexity:
+  - "Semantic versioning, changelog and visual regression tests"
+architecture_invariants:
+  - The package depends on no application code
+transformations:
+  - Extract the most duplicated primitives into the package
+  - Migrate consumers app by app
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.build-time-packages
+  - frontend.runtime-module-federation
+conflicts_with: []
+removal_recipe:
+  - Inline the components back into consuming apps
+  - Unpublish after the last consumer migrates
+version: 1.0.0

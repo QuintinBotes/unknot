@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: architecture.n-tier
+name: N-Tier
+aliases:
+  - multi-tier
+category: architecture
+problem: "Physical or deployment tiers separate web, application and data hosts for security zoning and independent scaling of tiers."
+forces:
+  - Network zoning and tier-specific hardening
+  - Each tier hop adds latency and failure modes
+applicability_signals:
+  - id: tier-scale-divergence
+    description: Tiers have different scaling profiles.
+    predicate: { metric: service.scaling_divergence, op: '>', value: 0.5 }
+required_evidence:
+  - Per-tier resource and latency metrics
+  - Network zones and ingress exposure
+preconditions:
+  - id: stateless-app
+    description: The application tier is stateless or externalizes session state.
+contraindications:
+  - id: latency-budget
+    description: The latency budget cannot absorb an additional tier hop.
+benefits:
+  - Security zones limit data tier exposure
+  - Tiers scale and patch independently
+liabilities:
+  - Layers become deployment boundaries and stay chatty
+  - Tier-level scaling does not isolate business capabilities
+introduced_complexity:
+  - Network configuration and per-tier deployment
+  - Cross-tier timeouts and retries
+architecture_invariants:
+  - Only the adjacent tier may call a tier
+transformations:
+  - Merge tiers that scale and deploy together
+  - Add timeouts and bounded retries on every tier call
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.layered-monolith
+  - architecture.client-server
+conflicts_with: []
+removal_recipe:
+  - Co-locate tiers in one process and keep the interface in code
+  - Remove the tier hop after parity tests pass
+version: 1.0.0

@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: architecture.event-driven-orchestration
+name: Event-Driven Orchestration
+aliases:
+  - saga orchestrator
+category: architecture
+problem: "A central orchestrator drives a multi-step process by commands and events, keeping the flow explicit, observable and compensable."
+forces:
+  - Long-running processes need explicit state and compensation
+  - The orchestrator can become a god service
+applicability_signals:
+  - id: multi-step
+    description: A business process spans several services with compensations.
+    predicate: { metric: boundary.cross_transactions, op: '>', value: 0 }
+required_evidence:
+  - Process steps and failure modes
+  - Current distributed transaction scope
+preconditions:
+  - id: idempotent
+    description: Steps are idempotent and bounded in retries.
+    predicate: { metric: retry.bounded, op: '==', value: 1 }
+contraindications:
+  - id: simple-flow
+    description: The flow is a single step or pure fan-out; choreography is enough.
+benefits:
+  - Visible process state and one place for compensation
+  - Easier to reason about timeouts and failure
+liabilities:
+  - Orchestrator holds domain knowledge and may centralize change
+  - Extra component to scale and operate
+introduced_complexity:
+  - Saga state store and timeouts
+  - Compensation logic per step
+architecture_invariants:
+  - "Orchestrator owns only process state, not business rules of participants"
+transformations:
+  - Model the existing flow as an explicit state machine in-process first
+  - Move step execution to services one at a time
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - distributed.saga
+  - distributed.outbox
+conflicts_with:
+  - architecture.event-driven-choreography
+removal_recipe:
+  - Inline the state machine back into one service
+  - Drain in-flight sagas before removal
+version: 1.0.0

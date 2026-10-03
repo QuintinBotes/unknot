@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: domain.module-facade
+name: Module Facade
+category: domain
+problem: A single public entry point per module hides internals so consumers cannot depend on private structure.
+forces:
+  - Consumers reach into module internals
+  - A facade that mirrors internals adds nothing
+applicability_signals:
+  - id: wide-surface
+    description: A module exposes many public symbols.
+    predicate: { metric: module.public_exports, op: '>', value: 20 }
+  - id: many-consumers
+    description: Many distinct modules import it.
+    predicate: { metric: module.consumers, op: '>', value: 5 }
+required_evidence:
+  - Exports and consumer list
+  - Private-symbol access violations
+preconditions:
+  - id: consumers-known
+    description: All consumers are discoverable in the graph.
+contraindications:
+  - id: tiny-module
+    description: The module has one consumer and a few exports.
+    predicate: { metric: module.consumers, op: '<=', value: 1 }
+benefits:
+  - Internals can change without touching consumers
+  - First step of extraction (T2)
+liabilities:
+  - Extra layer of delegation
+  - Facade can bloat into a god object
+introduced_complexity:
+  - Facade interface and delegation code
+architecture_invariants:
+  - Consumers import only the facade
+transformations:
+  - Create the facade with old paths delegating to it
+  - "Move consumers to the facade, then enforce with a lint rule"
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - code.facade
+  - decomposition.extract-module
+  - architecture.modular-monolith
+conflicts_with: []
+removal_recipe:
+  - Re-export internals again and delete the facade
+  - Remove the lint rule
+version: 1.0.0

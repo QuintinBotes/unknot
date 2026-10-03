@@ -1,0 +1,56 @@
+schema_version: "1.0"
+id: architecture.domain-oriented-monolith
+name: Domain-Oriented Monolith
+aliases:
+  - domain-aligned modular monolith
+category: architecture
+problem: "Modules are aligned to business domains and owned by the teams that understand them, not to technical layers."
+forces:
+  - Business change is organized by domain while code is organized by layer
+  - Domain boundaries must be real enough to survive team changes
+applicability_signals:
+  - id: cross-feature
+    description: Domain concepts are split across layer folders.
+  - id: ownership-misaligned
+    description: No single team owns most of a domain area.
+    predicate: { metric: ownership.alignment, op: '<', value: 0.8 }
+required_evidence:
+  - Domain term overlap in paths and identifiers
+  - Ownership alignment per candidate module
+preconditions:
+  - id: domain-map
+    description: "A context map or domain list, even informal, exists to align to."
+contraindications:
+  - id: unstable-boundaries
+    description: Candidate domain clusters are not robust under perturbation.
+    predicate: { metric: boundary.robust, op: '==', value: 0 }
+benefits:
+  - Change stays inside one domain and one team
+  - Natural extraction seams if a driver appears later
+liabilities:
+  - Domain boundaries chosen wrongly are costly to move
+  - Shared kernel code tends to grow into a hub
+introduced_complexity:
+  - Context map maintenance
+  - Anti-corruption code where domains disagree on a model
+architecture_invariants:
+  - "A domain module owns its data and exposes behavior, not tables"
+transformations:
+  - "Group code by domain behind a facade, delegating old paths"
+  - Move one domain at a time and keep the old import path as a shim
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.bounded-context
+  - domain.package-by-feature
+  - architecture.modular-monolith
+conflicts_with:
+  - architecture.layered-monolith
+removal_recipe:
+  - "Re-export old paths from the new modules, then delete shims"
+  - Merge domains back if the boundary proves unstable
+version: 1.0.0

@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.mvvm
+name: Model-View-ViewModel
+aliases:
+  - MVVM
+category: architecture
+problem: A view model exposes bindable state and commands so the view binds declaratively and UI logic is testable without the view.
+forces:
+  - Data binding reduces glue code
+  - Binding hides data flow and invites memory and cycle bugs
+applicability_signals:
+  - id: glue-code
+    description: Imperative glue code copies model state to widgets.
+required_evidence:
+  - Binding support in the UI framework
+  - View-model test coverage
+preconditions:
+  - id: binding
+    description: The framework provides observable bindings.
+contraindications:
+  - id: multi-store
+    description: Many view models mutate shared state; prefer unidirectional state.
+    predicate: { metric: frontend.shared_state_stores, op: '>', value: 3 }
+benefits:
+  - Testable view logic and minimal view code
+  - Designer and developer work separate cleanly
+liabilities:
+  - Implicit data flow is hard to trace
+  - View models bloat with presentation and domain logic mixed
+introduced_complexity:
+  - Observable properties and binding converters
+architecture_invariants:
+  - View models never reference views
+transformations:
+  - Introduce a view model for one screen and bind existing widgets
+  - "Keep domain logic in services, not the view model"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.unidirectional-ui-state
+conflicts_with:
+  - architecture.mvp
+removal_recipe:
+  - Inline the view model into the component state
+  - Remove converters and binding shims
+version: 1.0.0

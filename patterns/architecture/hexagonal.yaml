@@ -1,0 +1,57 @@
+schema_version: "1.0"
+id: architecture.hexagonal
+name: Hexagonal Architecture
+aliases:
+  - ports and adapters
+category: architecture
+problem: "The application core defines ports for its needs and adapters implement them, so domain logic is testable without frameworks or I/O."
+forces:
+  - Domain logic is entangled with frameworks and persistence
+  - Adapters add indirection that must earn its keep
+applicability_signals:
+  - id: infra-in-domain
+    description: Domain code imports infrastructure directly.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+required_evidence:
+  - Imports from domain to infrastructure
+  - Number of adapters per port
+preconditions:
+  - id: tests
+    description: Tests exist to hold behavior while seams are introduced.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: thin-crud
+    description: The application is thin CRUD with no meaningful domain logic.
+  - id: single-adapter
+    description: Ports with exactly one implementation and no test double.
+    predicate: { metric: interface.implementations, op: '<=', value: 1 }
+benefits:
+  - Domain logic is testable in isolation
+  - Infrastructure is replaceable at the edges
+liabilities:
+  - Extra interfaces and mapping code
+  - Ports with one implementation are pure ceremony
+introduced_complexity:
+  - Port and adapter pairs
+  - DTO mapping at each boundary
+architecture_invariants:
+  - The domain core imports no adapter or framework
+transformations:
+  - Introduce a port for one external dependency with an adapter delegating to existing code
+  - Add an architecture rule forbidding core-to-adapter imports
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.onion
+  - migration.branch-by-abstraction
+  - domain.dependency-inversion
+conflicts_with:
+  - anti-pattern.speculative-generality
+removal_recipe:
+  - Inline single-implementation ports
+  - Delete the dependency rule after inlining
+version: 1.0.0

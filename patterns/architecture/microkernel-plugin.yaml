@@ -1,0 +1,52 @@
+schema_version: "1.0"
+id: architecture.microkernel-plugin
+name: Microkernel (Plugin) Architecture
+aliases:
+  - plugin architecture
+category: architecture
+problem: "A minimal core defines extension points while variable behavior lives in plugins, so extensions evolve without modifying the core."
+forces:
+  - Many variants of one behavior must coexist
+  - The extension contract must stay stable
+applicability_signals:
+  - id: many-variants
+    description: Many implementations of one interface exist or are expected.
+    predicate: { metric: interface.implementations, op: '>=', value: 3 }
+required_evidence:
+  - Implementation count and variation points
+  - Third-party or team extension demand
+preconditions:
+  - id: stable-contract
+    description: A stable plugin contract can be defined.
+contraindications:
+  - id: single-impl
+    description: Only one implementation exists and none is planned.
+    predicate: { metric: interface.implementations, op: '<=', value: 1 }
+benefits:
+  - Extensions ship independently of the core
+  - Isolates volatile variants from the stable core
+liabilities:
+  - Plugin API becomes a public compatibility burden
+  - Plugin interactions are hard to test
+introduced_complexity:
+  - "Plugin loader, registry and lifecycle"
+  - API versioning and sandboxing
+architecture_invariants:
+  - The core depends on no plugin
+transformations:
+  - Define the extension point and move one variant behind it
+  - Keep a built-in default implementation
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.dependency-inversion
+  - code.strategy
+conflicts_with: []
+removal_recipe:
+  - Inline the sole plugin into the core
+  - Delete the loader and registry
+version: 1.0.0

@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: architecture.data-warehouse
+name: Data Warehouse
+category: architecture
+problem: "Curated, modeled, historical data is centralized for analytics, separating reporting load from operational systems."
+forces:
+  - Analytical queries hurt operational databases
+  - Central modeling is a bottleneck for new sources
+applicability_signals:
+  - id: reporting-load
+    description: Reporting queries run against the operational database.
+required_evidence:
+  - Analytical query load on operational stores
+  - Source system inventory
+preconditions:
+  - id: reconciliation
+    description: Reconciliation checks between source and warehouse exist.
+    predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 }
+contraindications:
+  - id: unstructured
+    description: Most data is unstructured or schema-on-read; a lake fits better.
+benefits:
+  - "Consistent, governed metrics and fast analytics"
+  - Operational systems are protected from reporting
+liabilities:
+  - ETL pipelines to maintain; schema changes break loads
+  - Central team bottleneck
+introduced_complexity:
+  - ETL/ELT pipelines and dimensional models
+architecture_invariants:
+  - The warehouse is read-only for operational flows
+transformations:
+  - Replicate one source to a read-only store and move one report
+  - Reconcile counts and totals before switching consumers
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.batch-processing
+  - architecture.lakehouse
+conflicts_with: []
+removal_recipe:
+  - Point reports back to source replicas
+  - Retire pipelines after consumers move
+version: 1.0.0

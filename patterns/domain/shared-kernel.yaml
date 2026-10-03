@@ -1,0 +1,54 @@
+schema_version: "1.0"
+id: domain.shared-kernel
+name: Shared Kernel
+category: domain
+problem: "Two contexts agree to share a small subset of the model and code, keeping duplication low at the cost of coordinated change."
+forces:
+  - Duplicating a tiny stable model is costly and divergent
+  - Shared code couples release and review across teams
+applicability_signals:
+  - id: duplicated-model
+    description: The same small model is duplicated in two contexts.
+    predicate: { metric: duplication.instances, op: '>', value: 1 }
+required_evidence:
+  - Duplicate model definitions
+  - Change frequency of the shared part
+preconditions:
+  - id: close-teams
+    description: The teams coordinate closely on changes.
+contraindications:
+  - id: growing-hub
+    description: The shared part is large or high churn.
+    predicate: { metric: module.churn, op: '>', value: 50 }
+  - id: independent-deploy
+    description: Contexts need independent deployment.
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+benefits:
+  - Avoids translation for a small common core
+  - One definition of shared concepts
+liabilities:
+  - Changes need cross-team agreement
+  - Tends to grow into a dumping ground
+introduced_complexity:
+  - Shared module governance and change process
+architecture_invariants:
+  - The kernel stays small and has no dependency on either context
+transformations:
+  - Extract the shared model into a minimal module
+  - Add a size and churn guard on the module
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.bounded-context
+  - architecture.modular-monolith
+conflicts_with:
+  - domain.anti-corruption-layer
+  - architecture.microservices
+removal_recipe:
+  - Copy the kernel into each context and delete the shared module
+  - Introduce an anti-corruption layer where models diverge
+version: 1.0.0

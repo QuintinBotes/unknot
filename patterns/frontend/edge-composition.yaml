@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: frontend.edge-composition
+name: Edge Composition
+category: frontend
+problem: "Pages or fragments are assembled or routed at a CDN or edge runtime, so composition happens near the user and origin load drops."
+forces:
+  - Latency and origin offload
+  - Edge runtime limits and stale fragments
+applicability_signals:
+  - id: latency-bound
+    description: Origin round trips dominate load time.
+required_evidence:
+  - Latency by region and cache hit rates
+  - Fragment cacheability
+preconditions:
+  - id: cache-rules
+    description: Cache keys and invalidation rules are defined.
+contraindications:
+  - id: personalized-pages
+    description: Most content is per-user and uncacheable.
+benefits:
+  - Low latency and origin offload
+  - Routing changes without an origin deploy
+liabilities:
+  - Debugging across edge locations
+  - Vendor-specific runtime limits
+introduced_complexity:
+  - "Edge rules, cache invalidation and fragment contracts"
+architecture_invariants:
+  - The origin remains authoritative for every fragment
+transformations:
+  - "Route one path through the edge with identity pass-through, then cache one fragment"
+  - Add short TTLs first
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.edge
+  - frontend.server-side-composition
+conflicts_with: []
+removal_recipe:
+  - Disable edge rules so traffic passes to origin
+  - Purge cached fragments
+version: 1.0.0

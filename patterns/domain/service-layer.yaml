@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: domain.service-layer
+name: Service Layer
+aliases:
+  - application service
+category: domain
+problem: "A layer defines the application boundary and coordinates use cases, transactions and security above the domain model."
+forces:
+  - Multiple clients need the same use cases
+  - Business logic leaks into services and leaves the model empty
+applicability_signals:
+  - id: duplicated-use-cases
+    description: Several controllers repeat the same orchestration.
+    predicate: { metric: duplication.instances, op: '>', value: 1 }
+required_evidence:
+  - Orchestration repeated across entry points
+  - Transaction scope per use case
+preconditions:
+  - id: entry-points
+    description: "More than one entry point (UI, API, jobs) shares use cases."
+    predicate: { metric: clients.count, op: '>=', value: 2 }
+contraindications:
+  - id: passthrough
+    description: Service methods only forward to a repository.
+    predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.7 }
+benefits:
+  - One place for transaction and authorization boundaries
+  - Entry points stay thin
+liabilities:
+  - Pass-through methods add noise
+  - Services can absorb domain logic
+introduced_complexity:
+  - Service interfaces and transaction annotations
+architecture_invariants:
+  - Services orchestrate; domain rules stay in the model
+transformations:
+  - Extract repeated orchestration into one service method
+  - Delete pass-through service methods
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.domain-model
+  - domain.domain-service
+conflicts_with:
+  - anti-pattern.speculative-generality
+removal_recipe:
+  - Inline single-caller services into the entry point
+  - Remove empty service classes
+version: 1.0.0

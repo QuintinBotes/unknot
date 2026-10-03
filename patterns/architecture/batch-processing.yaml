@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: architecture.batch-processing
+name: Batch Processing
+category: architecture
+problem: "Bulk work runs on a schedule over bounded datasets, trading latency for throughput and simplicity."
+forces:
+  - Data volume favors bulk operations
+  - Results are not needed in real time
+applicability_signals:
+  - id: periodic-bulk
+    description: Work is naturally periodic and bounded.
+required_evidence:
+  - Data volume and processing window
+  - Failure and restart history
+preconditions:
+  - id: restartable
+    description: Jobs are idempotent and restartable from checkpoints.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+contraindications:
+  - id: freshness
+    description: Consumers need results within seconds; consider streaming.
+benefits:
+  - High throughput and simple resource scheduling
+  - Straightforward replay and reprocessing
+liabilities:
+  - Stale data between runs
+  - Large failures with long recovery
+introduced_complexity:
+  - "Scheduler, checkpoints and reconciliation"
+architecture_invariants:
+  - A rerun over the same input yields the same output
+transformations:
+  - Add idempotency keys and checkpoints before changing schedules
+  - Split one large job along a stable partition key
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.pipes-and-filters
+  - architecture.data-warehouse
+conflicts_with:
+  - architecture.stream-processing
+removal_recipe:
+  - Disable the schedule and run on demand
+  - Replace with stream processing only after a freshness driver is recorded
+version: 1.0.0

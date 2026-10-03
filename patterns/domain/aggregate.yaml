@@ -1,0 +1,54 @@
+schema_version: "1.0"
+id: domain.aggregate
+name: Aggregate
+category: domain
+problem: A cluster of objects needs one consistency boundary and one entry point so invariants hold within a single transaction.
+forces:
+  - Invariants spanning several objects must be enforced atomically
+  - Large aggregates cause contention and slow loads
+applicability_signals:
+  - id: scattered-invariants
+    description: Rules over related objects are enforced by several callers.
+  - id: large-class
+    description: A candidate root has many fields.
+    predicate: { metric: class.fields, op: '>', value: 15 }
+required_evidence:
+  - Transactions touching related entities
+  - Contention or deadlocks on related rows
+preconditions:
+  - id: invariants-known
+    description: The invariants to protect are written down.
+contraindications:
+  - id: cross-aggregate-tx
+    description: "Multi-aggregate atomic updates are routine, suggesting wrong boundaries."
+    predicate: { metric: boundary.cross_transactions, op: '>', value: 2 }
+benefits:
+  - Invariants enforced in one place
+  - Clear transaction and locking boundary
+liabilities:
+  - Oversized aggregates serialize writers
+  - Cross-aggregate rules need eventual consistency
+introduced_complexity:
+  - Root-only access discipline and reference-by-id
+architecture_invariants:
+  - Only the root is referenced from outside
+  - One transaction modifies one aggregate
+transformations:
+  - Route writes for related objects through one root method
+  - Replace direct object references across aggregates with ids
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.entity
+  - domain.domain-event
+  - domain.domain-model
+conflicts_with:
+  - domain.transaction-script
+removal_recipe:
+  - Expose child objects again behind the former API
+  - Inline the root if it only wraps one entity
+version: 1.0.0

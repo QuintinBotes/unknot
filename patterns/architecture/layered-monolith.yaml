@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: architecture.layered-monolith
+name: Layered Monolith
+aliases:
+  - layered architecture
+category: architecture
+problem: "Horizontal layers (presentation, application, data) separate technical concerns inside one deployable, but they do not isolate business capabilities."
+forces:
+  - Technical separation is easy to enforce and teach
+  - Feature changes cut across every layer and increase co-change
+applicability_signals:
+  - id: layer-violations
+    description: Upward or skipping imports between layers are measurable.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+required_evidence:
+  - Layer rule violations from the dependency graph
+  - Co-change between layers per feature
+preconditions:
+  - id: layer-map
+    description: Layers are defined as path or package rules that a tool can check.
+contraindications:
+  - id: feature-co-change
+    description: Most commits touch every layer for one feature; consider package-by-feature.
+    predicate: { metric: module.co_change_leak, op: '>', value: 0.5 }
+benefits:
+  - Familiar structure with low onboarding cost
+  - Dependency direction rules are simple to automate
+liabilities:
+  - Layers hide domain boundaries; business logic scatters
+  - Pass-through layers add indirection with no behavior
+introduced_complexity:
+  - Mapping code between layer models
+  - Layer rule configuration and baselines
+architecture_invariants:
+  - Dependencies point downward only
+transformations:
+  - Enforce layer rules in warn mode with a baseline of existing violations
+  - Collapse pass-through layers before adding any new one
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.dependency-inversion
+  - domain.service-layer
+conflicts_with:
+  - domain.vertical-slice
+removal_recipe:
+  - Replace layer folders with feature packages one feature at a time
+  - Keep the layer lint rule until the last feature moves
+version: 1.0.0

@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: domain.domain-event
+name: Domain Event
+category: domain
+problem: Significant business facts are recorded as immutable events so other parts react without the origin knowing about them.
+forces:
+  - Side effects couple the origin to reactors
+  - Events become a public contract once consumed
+applicability_signals:
+  - id: side-effect-chains
+    description: One operation directly calls several unrelated follow-up actions.
+    predicate: { metric: module.fan_out, op: '>', value: 10 }
+required_evidence:
+  - Direct calls triggered by one operation
+  - Consumers of each fact
+preconditions:
+  - id: consumers-known
+    description: Consumers are known or discoverable.
+    predicate: { metric: messaging.consumers_known, op: '==', value: 1 }
+contraindications:
+  - id: single-reactor
+    description: Only one reaction exists and strict ordering is needed; a direct call is simpler.
+benefits:
+  - Decouples origin from reactions
+  - Audit trail of business facts
+liabilities:
+  - Implicit flow hard to trace
+  - Event schema is a compatibility surface
+introduced_complexity:
+  - "Event types, dispatching and versioning"
+architecture_invariants:
+  - "Events are past tense, immutable and carry identity and time"
+transformations:
+  - Raise one event alongside the existing call and verify parity
+  - Move one reaction to the event handler
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.event-driven-choreography
+  - distributed.outbox
+  - domain.aggregate
+conflicts_with: []
+removal_recipe:
+  - Restore the direct call and stop dispatching
+  - Delete handlers with no consumers
+version: 1.0.0

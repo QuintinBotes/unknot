@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: architecture.event-driven-choreography
+name: Event-Driven Choreography
+category: architecture
+problem: "Services react to published events with no central coordinator, so each participant stays decoupled from the others."
+forces:
+  - Low coupling between producers and consumers
+  - The end-to-end flow becomes implicit and hard to trace
+applicability_signals:
+  - id: fan-out
+    description: One fact needs several independent reactions.
+required_evidence:
+  - Known consumers per event
+  - End-to-end flow traces
+preconditions:
+  - id: known-consumers
+    description: Consumers of each event are known.
+    predicate: { metric: messaging.consumers_known, op: '==', value: 1 }
+  - id: idempotent
+    description: Handlers are idempotent.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+contraindications:
+  - id: complex-flow
+    description: The process has many compensating branches and needs a visible state; prefer orchestration.
+benefits:
+  - Producers do not know consumers
+  - Easy to add reactions
+liabilities:
+  - Flow is implicit; debugging needs tracing
+  - Cyclic event chains and hidden coupling through payload shape
+introduced_complexity:
+  - Event schemas and versioning
+  - Correlation ids and DLQ operations
+architecture_invariants:
+  - Events are facts in the past tense with versioned schemas
+transformations:
+  - Publish one domain event alongside the existing call
+  - Move one consumer to the event after parity tests
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.domain-event
+  - distributed.outbox
+conflicts_with:
+  - architecture.event-driven-orchestration
+removal_recipe:
+  - Restore the direct call and stop publishing
+  - Unsubscribe consumers one by one
+version: 1.0.0

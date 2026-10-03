@@ -1,0 +1,70 @@
+schema_version: "1.0"
+id: decomposition.extract-module
+name: Extract Module or Package
+aliases:
+  - extract package
+category: decomposition
+treatment: T2
+problem: A cohesive capability should become a separately versioned and testable module that is still part of the same deployment.
+forces:
+  - Independent versioning and testing are needed without independent deploy
+  - Consumers must move to a narrow public API
+applicability_signals:
+  - id: narrow-surface
+    description: "Heuristic: few distinct entry points used from outside."
+    predicate: { metric: boundary.interface_count, op: '<=', value: 5 }
+  - id: low-co-change-leak
+    description: "Heuristic: co-change leak at or under 0.2."
+    predicate: { metric: module.co_change_leak, op: '<=', value: 0.2 }
+  - id: multiple-consumers
+    description: Several modules consume it.
+    predicate: { metric: module.consumers, op: '>=', value: 2 }
+required_evidence:
+  - "Interface count, consumer list and dependency direction"
+  - Shared-table and global-state inventory
+preconditions:
+  - id: tests
+    description: Tests cover the module surface.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: cycle-with-remainder
+    description: The candidate is in a dependency cycle with the rest of the code.
+    predicate: { metric: cycle.size, op: '>', value: 1 }
+    hard: true
+  - id: shared-table-writers
+    description: Another boundary writes the same tables.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+    hard: true
+  - id: shared-mutable-state
+    description: The candidate shares mutable global state with the remainder (checklist; resolve first).
+    hard: true
+benefits:
+  - Enforced boundary and independent versioning
+  - Smaller blast radius for changes
+liabilities:
+  - Packaging and versioning overhead
+  - Facade delegation until all consumers move
+introduced_complexity:
+  - "Module manifest, public API and build wiring"
+architecture_invariants:
+  - All consumers go through the facade
+  - Dependency direction is one way
+transformations:
+  - Put a facade over the module with old paths delegating to it
+  - "Move consumers to the facade, then move the code"
+proof_obligations:
+  - characterization
+  - architecture-fitness
+  - no-new-cycles
+  - api-compatibility
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.module-facade
+  - code.facade
+  - migration.branch-by-abstraction
+conflicts_with: []
+removal_recipe:
+  - "Delegate back: revert the move; the facade can stay"
+  - Inline the module into the host and delete its manifest
+version: 1.0.0

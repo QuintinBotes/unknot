@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: architecture.stream-processing
+name: Stream Processing
+category: architecture
+problem: "Continuous processing of unbounded event streams provides low-latency derived state, aggregates and reactions."
+forces:
+  - "Freshness requirements are seconds, not hours"
+  - "Ordering, late data and exactly-once semantics are hard"
+applicability_signals:
+  - id: freshness
+    description: A consumer requires near-real-time derived data.
+required_evidence:
+  - Latency requirement and event rates
+  - Out-of-order and late-event frequency
+preconditions:
+  - id: idempotent-sinks
+    description: Sinks are idempotent or transactional.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+  - id: dlq
+    description: Poison events go to a dead-letter path.
+    predicate: { metric: messaging.dlq, op: '==', value: 1 }
+contraindications:
+  - id: no-ops
+    description: No team can operate a streaming platform and a batch job meets the freshness need.
+benefits:
+  - Low-latency results and continuous state
+  - Natural back-pressure and replay from the log
+liabilities:
+  - State management and reprocessing are operationally demanding
+  - Debugging time-dependent logic is hard
+introduced_complexity:
+  - "Windowing, watermarks and state stores"
+  - Schema evolution of the event log
+architecture_invariants:
+  - Processing is deterministic for a given log offset range
+transformations:
+  - Run the streaming job in shadow next to the batch and compare outputs
+  - Cut over one consumer once reconciliation shows zero diff
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.kappa-architecture
+  - distributed.outbox
+conflicts_with:
+  - architecture.batch-processing
+removal_recipe:
+  - Point consumers back at the batch output
+  - Retain the log until consumers confirm
+version: 1.0.0

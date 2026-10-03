@@ -1,0 +1,78 @@
+schema_version: "1.0"
+id: decomposition.database-decomposition
+name: Database Decomposition
+aliases:
+  - data ladder
+category: decomposition
+treatment: T6
+problem: "Shared tables, cross-boundary joins and foreign keys block a boundary from owning its data, so ownership must be established stepwise before any data moves."
+forces:
+  - Multiple candidates write the same tables
+  - Cross-boundary joins and foreign keys must become explicit calls
+applicability_signals:
+  - id: shared-writers
+    description: Another boundary writes the same tables.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+  - id: cross-joins
+    description: Queries join tables owned by different candidates.
+    predicate: { metric: boundary.cross_joins, op: '>', value: 0 }
+required_evidence:
+  - Table by module read/write matrix and the foreign-key graph crossing the boundary
+  - Transaction scopes and a tested restore
+preconditions:
+  - id: reconciliation
+    description: Reconciliation tooling can prove zero diff.
+    predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 }
+  - id: restore-tested
+    description: A backup restore has been tested.
+    predicate: { metric: backup.restore_tested, op: '==', value: 1 }
+contraindications:
+  - id: no-reconciliation
+    description: No reconciliation tooling.
+    predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 }
+    hard: true
+  - id: no-proven-restore
+    description: No proven backup restore.
+    predicate: { metric: backup.restore_tested, op: '==', value: 0 }
+    hard: true
+  - id: strict-atomicity-no-saga
+    description: Strict cross-boundary atomicity is required and no saga is possible (checklist).
+    hard: true
+  - id: irreversible-first-slice
+    description: The proposed slice is irreversible.
+    predicate: { metric: migration.irreversible, op: '==', value: 1 }
+    hard: true
+benefits:
+  - Clear data ownership before extraction
+  - Each step is reversible until legacy objects are dropped
+liabilities:
+  - Replacing joins with calls changes performance
+  - Dual-write or sync windows risk divergence
+introduced_complexity:
+  - "Ownership annotations, views or wrappers, CDC or outbox, reconciliation jobs"
+architecture_invariants:
+  - "Ladder order: annotate, read-only view or wrapper, FK/join to code behind a flag, owner-side store, reconcile, flip reads, flip writes, soak, drop"
+  - "Dropping legacy objects is a separate, irreversible, human-gated slice with a restore plan"
+transformations:
+  - "First slice: ownership annotation plus a read-only view or wrapper; no data moves"
+  - "Next: move one cross-boundary join to code behind a flag, then reconcile"
+proof_obligations:
+  - reconciliation
+  - migration-rehearsal
+  - performance
+  - rollback-rehearsal
+  - human-review
+rollback_strategies:
+  - revert
+  - restore
+  - roll_forward
+composes_with:
+  - migration.parallel-change
+  - distributed.outbox
+  - decomposition.strangler-fig-extraction
+conflicts_with:
+  - anti-pattern.shared-database
+removal_recipe:
+  - Drop the view or stop the sync; switch reads back to the original tables
+  - "Before legacy drop: flip back; after drop only restore and replay, which is slow and costly"
+version: 1.0.0

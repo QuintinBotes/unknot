@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: domain.value-object
+name: Value Object
+category: domain
+problem: "Concepts defined only by their attributes should be immutable, comparable by value and validated at construction."
+forces:
+  - Primitive obsession spreads validation and units across callers
+  - Immutability simplifies reasoning and sharing
+applicability_signals:
+  - id: primitive-params
+    description: Functions take several related primitives together.
+    predicate: { metric: function.params, op: '>', value: 4 }
+required_evidence:
+  - Repeated groups of primitives
+  - Validation duplicated at call sites
+preconditions:
+  - id: immutability
+    description: The language supports cheap immutable types.
+contraindications:
+  - id: single-use
+    description: The group is used in one place; a wrapper only adds indirection.
+    predicate: { metric: symbol.references, op: '<=', value: 1 }
+benefits:
+  - Validation and units in one place
+  - Safe to share and cache
+liabilities:
+  - More types and mapping to storage
+  - Over-wrapping trivial values
+introduced_complexity:
+  - Construction validation and serialization mapping
+architecture_invariants:
+  - Instances are immutable and valid on construction
+transformations:
+  - Wrap one repeated primitive group in a small type with validation
+  - Replace call-site checks with the type
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - code.introduce-parameter-object
+  - domain.entity
+conflicts_with:
+  - anti-pattern.speculative-generality
+removal_recipe:
+  - Inline the type back to primitives where it adds no rule
+  - Delete mapping code
+version: 1.0.0

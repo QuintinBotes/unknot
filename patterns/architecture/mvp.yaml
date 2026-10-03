@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.mvp
+name: Model-View-Presenter
+aliases:
+  - MVP
+category: architecture
+problem: "A passive view delegates all logic to a presenter, making UI behavior unit-testable without a rendering framework."
+forces:
+  - UI logic must be tested without the UI toolkit
+  - Presenter-view interfaces add boilerplate
+applicability_signals:
+  - id: untestable-ui-logic
+    description: UI logic lives in view classes that need a toolkit to run.
+    predicate: { metric: class.methods, op: '>', value: 20 }
+required_evidence:
+  - UI logic in view classes
+  - Test setup cost for UI behavior
+preconditions:
+  - id: view-interface
+    description: A view interface can be defined.
+contraindications:
+  - id: declarative-ui
+    description: The UI toolkit is declarative with state-driven rendering; presenters add little.
+benefits:
+  - Presenter logic tests run without the UI
+  - Views stay passive
+liabilities:
+  - Presenter-view interface duplication
+  - Presenters grow into god classes
+introduced_complexity:
+  - View interfaces and presenter lifecycle handling
+architecture_invariants:
+  - The view contains no decisions
+transformations:
+  - "Extract one screen's logic into a presenter behind a view interface"
+  - Cover presenter behavior with unit tests
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.mvc
+conflicts_with:
+  - architecture.mvvm
+removal_recipe:
+  - Merge the presenter into the view component
+  - Delete the view interface when only one implementation remains
+version: 1.0.0

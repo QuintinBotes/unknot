@@ -1,0 +1,47 @@
+schema_version: "1.0"
+id: domain.entity
+name: Entity
+category: domain
+problem: Objects whose identity persists across state changes need an explicit identity and lifecycle rather than value comparison.
+forces:
+  - Identity must survive attribute changes
+  - Equality by identity differs from equality by value
+applicability_signals:
+  - id: id-juggling
+    description: Code compares or copies records by field to decide whether they are the same thing.
+required_evidence:
+  - Places comparing record fields as identity
+  - Lifecycle events of the concept
+preconditions:
+  - id: stable-id
+    description: A stable identifier exists or can be assigned.
+contraindications:
+  - id: no-identity
+    description: The concept has no lifecycle; it is a value object.
+benefits:
+  - Clear identity semantics
+  - Lifecycle logic has one home
+liabilities:
+  - Identity management and persistence mapping
+  - Anemic entities if behavior stays in services
+introduced_complexity:
+  - Identity generation and equality rules
+architecture_invariants:
+  - "Equality is by identity, never by attributes"
+transformations:
+  - Introduce an id type and compare by it
+  - Move lifecycle rules onto the entity
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.aggregate
+  - domain.value-object
+conflicts_with: []
+removal_recipe:
+  - Convert to a value object when identity is never used
+  - Remove identity-based equality overrides
+version: 1.0.0

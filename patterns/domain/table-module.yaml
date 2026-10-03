@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: domain.table-module
+name: Table Module
+category: domain
+problem: "One class per database table handles all rows and logic for it, fitting record-set-oriented stacks."
+forces:
+  - Tooling returns record sets
+  - Logic across tables lives in no single class
+applicability_signals:
+  - id: record-set-stack
+    description: The framework passes record sets between layers.
+required_evidence:
+  - Framework data access style
+  - Cross-table rule locations
+preconditions:
+  - id: stable-schema
+    description: The schema is stable and well understood.
+contraindications:
+  - id: complex-rules
+    description: Rules cross many tables and vary by instance.
+    predicate: { metric: function.cyclomatic, op: '>', value: 20 }
+benefits:
+  - Matches record-set tooling
+  - Simple mapping to tables
+liabilities:
+  - Poor fit for complex inheritance or per-instance rules
+  - Logic fragments across table classes
+introduced_complexity:
+  - Table-to-class mapping
+architecture_invariants:
+  - Each table has exactly one module class
+transformations:
+  - Retain while rules are per-table
+  - Move cross-table rules into a service layer
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.service-layer
+  - domain.transaction-script
+conflicts_with:
+  - domain.domain-model
+removal_recipe:
+  - Replace with domain objects per aggregate gradually
+  - Retire the table class when no callers remain
+version: 1.0.0

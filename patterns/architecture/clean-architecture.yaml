@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.clean-architecture
+name: Clean Architecture
+category: architecture
+problem: "Entities, use cases, interface adapters and frameworks form rings where only inward dependencies are allowed and use cases are the application boundary."
+forces:
+  - Business rules must outlive frameworks
+  - Strict ring layering can multiply boilerplate
+applicability_signals:
+  - id: framework-coupling
+    description: Business rules import framework types.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+required_evidence:
+  - Framework imports in domain or use-case code
+  - Use-case to controller ratio
+preconditions:
+  - id: use-cases
+    description: Use cases can be named as application entry points.
+contraindications:
+  - id: crud
+    description: The system is CRUD with trivial rules; full ring layering adds ceremony.
+benefits:
+  - Framework and database are details at the edge
+  - Use cases are directly testable
+liabilities:
+  - "Boilerplate: request and response models for every use case"
+  - Easy to over-apply to simple features
+introduced_complexity:
+  - Boundary DTOs and presenters
+  - Composition root and dependency rules
+architecture_invariants:
+  - Inner rings know nothing of outer rings
+transformations:
+  - Wrap one use case behind an input port and keep the controller thin
+  - Add a dependency rule check in warn mode
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.hexagonal
+  - architecture.onion
+conflicts_with:
+  - anti-pattern.speculative-generality
+removal_recipe:
+  - Inline use-case boundary DTOs where they only copy fields
+  - Collapse rings that add no isolation
+version: 1.0.0

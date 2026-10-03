@@ -1,0 +1,55 @@
+schema_version: "1.0"
+id: architecture.monolith
+name: Monolith
+aliases:
+  - single deployable
+category: architecture
+problem: "One deployable unit keeps operations, transactions and refactoring simple while the system is small or its boundaries are still unknown."
+forces:
+  - Boundaries are not yet stable enough to freeze into network contracts
+  - "Operational capacity (on-call, observability, CI/CD) is limited"
+applicability_signals:
+  - id: no-driver
+    description: "No recorded decomposition driver; releases, scaling and ownership are not causing measured pain."
+    predicate: { metric: team.count, op: '<=', value: 1 }
+required_evidence:
+  - Release cadence and deploy-coupling history
+  - "Recorded decomposition drivers (spec 15A.2), or their absence"
+preconditions:
+  - id: single-pipeline
+    description: One build and release pipeline covers the whole deployable.
+contraindications:
+  - id: availability-isolation
+    description: A capability needs its own SLO or blast-radius isolation.
+    predicate: { metric: driver.availability_isolation, op: '==', value: 1 }
+  - id: team-contention
+    description: Several teams suffer merge and release contention in one deployable.
+    predicate: { metric: driver.team_autonomy, op: '==', value: 1 }
+benefits:
+  - Single transaction scope and in-process calls
+  - "Cheapest to build, test, run and debug"
+liabilities:
+  - Everything deploys and scales together
+  - Without enforced module boundaries it degrades into a big ball of mud
+introduced_complexity:
+  - Internal coupling grows silently unless boundaries are checked
+architecture_invariants:
+  - One deployable owns all writes to its database
+transformations:
+  - Retain as is and add boundary monitoring only
+  - Introduce module boundary rules before any extraction
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.modular-monolith
+  - decomposition.retain
+conflicts_with:
+  - architecture.microservices
+removal_recipe:
+  - "Not a removal target: moving off it follows the retain, modularize, extract ladder (spec 15A.1)"
+  - Extract a module only after a driver is recorded
+version: 1.0.0

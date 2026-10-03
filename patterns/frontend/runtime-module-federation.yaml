@@ -1,0 +1,59 @@
+schema_version: "1.0"
+id: frontend.runtime-module-federation
+name: Runtime Module Federation
+category: frontend
+problem: "Separately built and deployed bundles share modules and load each other at runtime, allowing independent deploys within one page."
+forces:
+  - Independent deploys inside one SPA shell
+  - Shared singleton versions must be negotiated at runtime
+applicability_signals:
+  - id: independent-deploy
+    description: Teams need to release independently into one shell.
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+  - id: multi-team
+    description: Several teams contribute.
+    predicate: { metric: frontend.teams, op: '>=', value: 2 }
+required_evidence:
+  - Shared dependency inventory and version ranges
+  - Per-remote release cadence
+preconditions:
+  - id: per-remote-ci
+    description: Each remote has its own pipeline.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }
+contraindications:
+  - id: shared-state
+    description: "Heuristic: many global stores shared across remotes."
+    predicate: { metric: frontend.shared_state_stores, op: '>', value: 3 }
+  - id: single-owner
+    description: A single team owns every remote.
+    predicate: { metric: frontend.teams, op: '<=', value: 1 }
+    hard: true
+benefits:
+  - Independent release of remotes into a shared shell
+  - Shared libraries loaded once
+liabilities:
+  - Runtime version negotiation failures and hard-to-reproduce bugs
+  - Bundle and tooling lock-in
+introduced_complexity:
+  - "Federation config, shared-singleton policy and remote versioning"
+architecture_invariants:
+  - Remotes expose a versioned contract and share no mutable state
+transformations:
+  - Expose one low-coupling remote with a fallback to the local implementation
+  - Pin shared singleton versions explicitly
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.design-system-package
+  - decomposition.micro-frontend-by-route
+conflicts_with:
+  - frontend.build-time-packages
+removal_recipe:
+  - Switch the shell back to the local implementation
+  - Remove the remote config and shared singletons rules
+version: 1.0.0

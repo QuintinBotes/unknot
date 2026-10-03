@@ -1,0 +1,54 @@
+schema_version: "1.0"
+id: architecture.web-queue-worker
+name: Web-Queue-Worker
+category: architecture
+problem: "A web front end enqueues long-running work that background workers process, keeping request latency independent of job duration."
+forces:
+  - Long or bursty jobs must not block interactive requests
+  - Asynchronous results need a visibility path for users
+applicability_signals:
+  - id: slow-requests
+    description: "Requests do work that is slow, retryable and not needed for the response."
+required_evidence:
+  - Request duration distribution by endpoint
+  - "Job volume, retry and failure rates"
+preconditions:
+  - id: idempotent-jobs
+    description: Jobs can run more than once safely.
+    predicate: { metric: data.idempotency, op: '==', value: 1 }
+  - id: dlq
+    description: A dead-letter path exists.
+    predicate: { metric: messaging.dlq, op: '==', value: 1 }
+contraindications:
+  - id: unbounded-retry
+    description: Retries are unbounded.
+    predicate: { metric: retry.bounded, op: '==', value: 0 }
+    hard: true
+benefits:
+  - Decouples request latency from job duration
+  - Workers scale independently from the web tier
+liabilities:
+  - Eventual completion; users need status polling or notification
+  - Queue and worker become operational dependencies
+introduced_complexity:
+  - Job status model and poison-message handling
+  - Queue monitoring and backlog alerts
+architecture_invariants:
+  - Every job is idempotent and carries a correlation id
+transformations:
+  - Move one slow non-essential step behind a queue with a feature flag
+  - Add a DLQ and bounded retry before enabling traffic
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.batch-processing
+  - architecture.event-driven-choreography
+conflicts_with: []
+removal_recipe:
+  - Run the job inline again behind the flag
+  - Drain the queue before removing workers
+version: 1.0.0

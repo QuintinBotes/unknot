@@ -1,0 +1,64 @@
+schema_version: "1.0"
+id: decomposition.frontend-modular-monolith
+name: Frontend Modular Monolith
+aliases:
+  - layered frontend slices
+category: decomposition
+treatment: T8
+problem: "A single frontend deploy has tangled feature folders, cross-feature imports and shared-state sprawl that layer and slice rules can contain without splitting deployment."
+forces:
+  - One deploy is acceptable
+  - Feature code is imported across folders with no rules
+applicability_signals:
+  - id: cross-feature-imports
+    description: "Features import each other's internals."
+    predicate: { metric: frontend.cross_feature_imports, op: '>', value: 0 }
+  - id: layer-violations
+    description: Layer rule violations exist.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+  - id: cycles
+    description: Import cycles exist.
+    predicate: { metric: cycle.size, op: '>', value: 1 }
+required_evidence:
+  - Import graph per layer and cycle list
+  - Feature ownership and shared-state stores
+preconditions:
+  - id: frontend-app
+    description: "Scope is an application, not a library (checklist)."
+contraindications:
+  - id: cross-team-independent-deploy
+    description: "Soft: independent deploy is a driver across teams; consider T7."
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+  - id: library
+    description: The code is a library where feature layers do not apply (checklist).
+    hard: true
+benefits:
+  - Contained coupling with a single deploy
+  - Makes a later route split cheaper if a driver appears
+liabilities:
+  - Lint configuration and baseline to maintain
+  - Does not give independent deploys
+introduced_complexity:
+  - Layer and slice rule configuration with a baseline file
+architecture_invariants:
+  - Imports go down layers only; no cross-slice imports
+transformations:
+  - "First slice: layer and slice lint rules in warn mode with a baseline of violations"
+  - Then block new violations and break cycles
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - lint
+  - diff-budget
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.feature-sliced-design
+  - architecture.unidirectional-ui-state
+  - decomposition.modularize-in-place
+conflicts_with:
+  - decomposition.micro-frontend-by-route
+removal_recipe:
+  - Revert the lint configuration commit
+  - "Bundle size and behavior are unchanged, so nothing else to undo"
+version: 1.0.0

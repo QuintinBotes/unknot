@@ -1,0 +1,55 @@
+schema_version: "1.0"
+id: frontend.feature-sliced-design
+name: Feature-Sliced Design
+aliases:
+  - FSD
+category: frontend
+problem: "Frontend code is organized by layers (app, pages, widgets, features, entities, shared) and slices with a one-way import rule."
+forces:
+  - Feature folders are tangled and import each other
+  - The methodology adds structure that tiny apps do not need
+applicability_signals:
+  - id: cross-feature-imports
+    description: Features import each other.
+    predicate: { metric: frontend.cross_feature_imports, op: '>', value: 0 }
+  - id: layer-violations
+    description: Layer violations exist.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+required_evidence:
+  - Import graph per layer
+  - Cross-slice imports
+preconditions:
+  - id: team-agreement
+    description: The team agrees to the layer vocabulary.
+contraindications:
+  - id: small-app
+    description: The app is small enough that layers add only ceremony.
+    predicate: { metric: module.loc, op: '<', value: 5000 }
+benefits:
+  - One-way imports and predictable locations
+  - Contained coupling without independent deploy
+liabilities:
+  - Learning curve and judgment on layer placement
+  - Mis-placed code becomes a shared dumping ground
+introduced_complexity:
+  - Layer and slice lint rules
+architecture_invariants:
+  - A layer imports only from layers below it; slices do not import siblings
+transformations:
+  - Add layer lint rules in warn mode with a baseline
+  - Move one feature into a slice and re-export from the old path
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - decomposition.frontend-modular-monolith
+  - architecture.unidirectional-ui-state
+conflicts_with: []
+removal_recipe:
+  - Revert the lint rules
+  - Move slice code back and re-export old paths
+version: 1.0.0

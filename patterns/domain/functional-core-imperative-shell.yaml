@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: domain.functional-core-imperative-shell
+name: "Functional Core, Imperative Shell"
+category: domain
+problem: "Decision logic is pure and testable in a core, while I/O and state live in a thin shell that calls it."
+forces:
+  - Logic mixed with I/O needs mocks to test
+  - Pure data in and out may require more explicit types
+applicability_signals:
+  - id: io-mixed
+    description: Decision logic is tangled with I/O in the same function.
+    predicate: { metric: function.cognitive, op: '>', value: 15 }
+required_evidence:
+  - Functions mixing I/O and branching
+  - Mock count per test
+preconditions:
+  - id: tests
+    description: Characterization tests exist before extraction.
+    predicate: { metric: tests.characterization, op: '==', value: 1 }
+contraindications:
+  - id: io-only
+    description: The function is almost all I/O orchestration with little logic.
+    predicate: { metric: function.cyclomatic, op: '<=', value: 2 }
+benefits:
+  - Core tests need no mocks
+  - Shell is thin and easily reviewed
+liabilities:
+  - Extra data types between shell and core
+  - Not natural in heavily stateful frameworks
+introduced_complexity:
+  - Input and output value types for the core
+architecture_invariants:
+  - The core performs no I/O and holds no hidden state
+transformations:
+  - Extract the decision part as a pure function returning commands or results
+  - Have the shell execute them
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.value-object
+  - architecture.hexagonal
+conflicts_with: []
+removal_recipe:
+  - Inline the core back into the caller
+  - Drop the intermediate command types
+version: 1.0.0

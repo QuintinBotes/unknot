@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: architecture.data-mesh
+name: Data Mesh
+category: architecture
+problem: "Domain teams own analytical data as products with self-serve platform support and federated governance, replacing a central data team bottleneck."
+forces:
+  - A central team cannot model every domain
+  - Federated ownership needs real platform support and standards
+applicability_signals:
+  - id: central-bottleneck
+    description: A central data team is the delivery bottleneck for many domains.
+    predicate: { metric: owners.count, op: '>=', value: 3 }
+required_evidence:
+  - Backlog and lead time of the central team
+  - "Domain teams' data capability"
+preconditions:
+  - id: domain-ownership
+    description: Domains have clear owning teams.
+    predicate: { metric: resource.owner_known, op: '==', value: 1 }
+contraindications:
+  - id: small-org
+    description: Few teams and domains; central modeling is cheaper.
+    predicate: { metric: team.count, op: '<', value: 3 }
+benefits:
+  - Ownership aligned to domain knowledge
+  - Scales data delivery with teams
+liabilities:
+  - Duplicate effort and inconsistent standards without governance
+  - Platform investment is substantial
+introduced_complexity:
+  - "Data product contracts, discovery and federated policy"
+architecture_invariants:
+  - "Each data product has an owner, contract and quality SLO"
+transformations:
+  - Publish one domain dataset as a product with a contract
+  - Add discovery metadata and an SLO
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.bounded-context
+  - architecture.data-lake
+conflicts_with:
+  - architecture.data-warehouse
+removal_recipe:
+  - Fold the product back into the central model
+  - Retire contract and SLO tooling after consumers move
+version: 1.0.0

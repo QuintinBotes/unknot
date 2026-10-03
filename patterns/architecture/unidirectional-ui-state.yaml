@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: architecture.unidirectional-ui-state
+name: Unidirectional UI State
+aliases:
+  - Flux
+  - Redux-style
+  - MVU
+category: architecture
+problem: "State changes flow one way (action, update, state, view), making UI behavior predictable and traceable at the cost of ceremony."
+forces:
+  - Shared UI state mutated from many places causes inconsistent screens
+  - A global store for local state is overhead
+applicability_signals:
+  - id: shared-mutation
+    description: Several components mutate the same state.
+    predicate: { metric: frontend.shared_state_stores, op: '>', value: 1 }
+required_evidence:
+  - Components sharing state
+  - Bugs traced to inconsistent state
+preconditions:
+  - id: state-ownership
+    description: It is clear which state is global and which is local.
+contraindications:
+  - id: local-state
+    description: Most state is local to a component; a global store only adds indirection.
+    predicate: { metric: frontend.shared_state_stores, op: '<=', value: 1 }
+benefits:
+  - Predictable updates and time-travel debugging
+  - Single place to reason about state transitions
+liabilities:
+  - Boilerplate for actions and reducers
+  - Global stores couple features and hinder route-level splitting
+introduced_complexity:
+  - "Store, action and selector conventions"
+architecture_invariants:
+  - State changes only through dispatched actions
+transformations:
+  - "Move one feature's shared state into a scoped store"
+  - "Keep derived state in selectors, not copies"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.mvvm
+  - frontend.feature-sliced-design
+conflicts_with: []
+removal_recipe:
+  - Replace a store with local component state
+  - Remove unused actions and selectors
+version: 1.0.0

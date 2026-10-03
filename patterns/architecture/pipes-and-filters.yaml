@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: architecture.pipes-and-filters
+name: Pipes and Filters
+category: architecture
+problem: "Processing is decomposed into independent stages connected by streams, so stages can be reordered, tested and scaled separately."
+forces:
+  - Data flows through ordered transformations
+  - Stage contracts must stay stable and stateless
+applicability_signals:
+  - id: sequential-transform
+    description: Code performs a long sequence of transformations on a data stream or document.
+    predicate: { metric: function.lines, op: '>', value: 100 }
+required_evidence:
+  - Stage inputs and outputs
+  - Throughput per stage
+preconditions:
+  - id: stage-contracts
+    description: Each stage has a defined input and output type.
+contraindications:
+  - id: shared-state
+    description: Stages depend on shared mutable state or need random access to the whole dataset.
+benefits:
+  - Stages are testable and replaceable in isolation
+  - Parallelism by stage or partition
+liabilities:
+  - Per-record overhead between stages
+  - Error handling and ordering across stages is harder
+introduced_complexity:
+  - Stage contract definitions and error channels
+architecture_invariants:
+  - Stages are stateless or own their state exclusively
+transformations:
+  - Extract one transformation into a pure function with a typed contract
+  - Compose stages and prove output parity on recorded input
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.batch-processing
+  - architecture.stream-processing
+conflicts_with: []
+removal_recipe:
+  - Inline the stages into a single function behind unchanged tests
+  - Remove stage contracts once inlined
+version: 1.0.0

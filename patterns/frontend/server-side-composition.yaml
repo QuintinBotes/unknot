@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: frontend.server-side-composition
+name: Server-Side Composition
+category: frontend
+problem: Fragments owned by different teams are assembled into a page on the server or at a gateway before the response reaches the browser.
+forces:
+  - Fast first paint and SEO with team-owned fragments
+  - The composition layer becomes a runtime dependency of every page
+applicability_signals:
+  - id: multi-team-page
+    description: One page includes fragments from several teams.
+    predicate: { metric: frontend.teams, op: '>=', value: 2 }
+required_evidence:
+  - Fragment ownership per page
+  - Fragment latency and failure rates
+preconditions:
+  - id: timeouts
+    description: Fragment fetches have timeouts and fallbacks.
+    predicate: { metric: timeout.present, op: '==', value: 1 }
+contraindications:
+  - id: hub-page
+    description: "One screen integrates many fragments, creating a hub-like point of failure."
+benefits:
+  - Good performance and SEO
+  - Fragments deploy independently of the shell
+liabilities:
+  - Composition layer is a critical single point of failure
+  - Shared state and styling across fragments is awkward
+introduced_complexity:
+  - "Composer (SSI, ESI or gateway) and fragment contracts"
+architecture_invariants:
+  - "A fragment failure degrades its slot, not the page"
+transformations:
+  - Compose one non-critical fragment with a timeout and static fallback
+  - Version the fragment contract
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.edge-composition
+  - decomposition.micro-frontend-by-route
+conflicts_with: []
+removal_recipe:
+  - Inline the fragment back into the page template
+  - Remove the composer rule for it
+version: 1.0.0

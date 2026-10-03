@@ -1,0 +1,58 @@
+schema_version: "1.0"
+id: architecture.modular-monolith
+name: Modular Monolith
+category: architecture
+problem: "A single deployable is divided into modules with explicit public APIs and enforced dependency rules, giving ownership boundaries without network cost."
+forces:
+  - Teams need clear ownership while one deployment stays acceptable
+  - Modules must be extractable later without a rewrite
+applicability_signals:
+  - id: cycles
+    description: Modules form dependency cycles or reach into private internals.
+    predicate: { metric: cycle.size, op: '>', value: 1 }
+  - id: ownership-split
+    description: Several teams share one deployable.
+    predicate: { metric: owners.count, op: '>=', value: 2 }
+required_evidence:
+  - Module dependency graph with cycles and private-access violations
+  - Ownership map (CODEOWNERS or git history)
+preconditions:
+  - id: tests
+    description: Characterization tests exist before boundaries are enforced.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: tiny-codebase
+    description: The codebase is small enough that module ceremony outweighs benefit.
+    predicate: { metric: module.loc, op: '<', value: 5000 }
+benefits:
+  - Boundaries and ownership without distributed-systems cost
+  - Keeps extraction as an option (T2/T3) with evidence
+liabilities:
+  - Static rules miss reflection and dynamic loading; zero violations do not prove isolation
+  - A shared database can still couple modules
+introduced_complexity:
+  - Boundary configuration and a baseline file of known violations
+  - Facade or public API per module
+architecture_invariants:
+  - Modules interact only through declared public APIs
+  - Module graph is acyclic
+transformations:
+  - Add boundary rules in warn mode with a baseline (T1)
+  - Break cycles by dependency inversion or moving shared types
+  - "Ratchet: block new violations in CI"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - decomposition.modularize-in-place
+  - domain.module-facade
+  - domain.acyclic-dependencies
+conflicts_with:
+  - anti-pattern.distributed-monolith
+removal_recipe:
+  - Delete the rules file and baseline; code is unchanged
+  - Flatten module APIs only if modules are merged
+version: 1.0.0

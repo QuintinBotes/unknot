@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.lambda-architecture
+name: Lambda Architecture
+category: architecture
+problem: "A batch layer for accuracy and a speed layer for freshness are merged at query time, at the cost of maintaining two code paths."
+forces:
+  - Both accuracy over history and low latency are required
+  - Two implementations of the same logic diverge
+applicability_signals:
+  - id: dual-need
+    description: Consumers need both complete historical results and seconds-fresh results.
+required_evidence:
+  - Freshness and accuracy requirements
+  - Divergence between batch and speed outputs
+preconditions:
+  - id: reconciliation
+    description: Batch and speed outputs can be compared.
+    predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 }
+contraindications:
+  - id: replayable-log
+    description: A replayable log makes a single streaming path sufficient (kappa).
+benefits:
+  - Accurate batch truth with a fresh approximation
+  - Batch layer simplifies reprocessing
+liabilities:
+  - Two code paths to keep in sync
+  - Merge logic at query time
+introduced_complexity:
+  - Batch and speed layers and a serving merge
+architecture_invariants:
+  - The batch result supersedes the speed result for the same window
+transformations:
+  - Share transformation code between layers to limit divergence
+  - Evaluate collapsing to one path when a replayable log exists
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.batch-processing
+  - architecture.stream-processing
+conflicts_with:
+  - architecture.kappa-architecture
+  - architecture.lakehouse
+removal_recipe:
+  - Move to a single streaming path with reprocessing
+  - Retire the batch layer after diff checks
+version: 1.0.0

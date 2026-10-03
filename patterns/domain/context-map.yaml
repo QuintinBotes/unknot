@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: domain.context-map
+name: Context Map
+category: domain
+problem: "Relationships between bounded contexts (upstream, downstream, partnership, conformist) are drawn explicitly so integration choices are intentional."
+forces:
+  - Implicit dependencies hide who must coordinate with whom
+  - Maps rot if not maintained
+applicability_signals:
+  - id: unclear-integration
+    description: It is unclear which team depends on which model.
+    predicate: { metric: module.fan_in, op: '>', value: 10 }
+required_evidence:
+  - Inter-context call and data dependencies
+  - Team relationships
+preconditions:
+  - id: contexts-identified
+    description: Bounded contexts have been named.
+contraindications:
+  - id: single-context
+    description: The system has one context; a map adds no information.
+    predicate: { metric: team.count, op: '<=', value: 1 }
+benefits:
+  - Integration style chosen deliberately per relationship
+  - Highlights hub-like contexts and cycles
+liabilities:
+  - Documentation that decays
+  - Can become a political artifact
+introduced_complexity:
+  - A maintained diagram or catalog tied to code boundaries
+architecture_invariants:
+  - Each relationship names an integration style and an owner
+transformations:
+  - Generate a first map from the module graph and review with domain owners
+  - Mark each edge with its integration style
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.bounded-context
+  - domain.anti-corruption-layer
+conflicts_with: []
+removal_recipe:
+  - Archive the map when contexts merge
+  - Remove stale edges
+version: 1.0.0

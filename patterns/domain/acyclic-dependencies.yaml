@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: domain.acyclic-dependencies
+name: Acyclic Dependencies Principle
+category: domain
+problem: "The module dependency graph is a DAG so modules can be built, tested, released and reasoned about in order."
+forces:
+  - Cycles make modules inseparable
+  - Breaking cycles needs new abstractions or moved code
+applicability_signals:
+  - id: cycle
+    description: A dependency cycle exists among modules.
+    predicate: { metric: cycle.size, op: '>', value: 1 }
+required_evidence:
+  - Strongly connected components in the module graph
+  - Edges in each cycle with call counts
+preconditions:
+  - id: tests
+    description: Tests hold behavior while cycles are broken.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: runtime-cycle
+    description: The cycle is through dynamic loading or reflection the static graph cannot see.
+benefits:
+  - Modules can be extracted or tested alone
+  - Predictable build order
+liabilities:
+  - Breaking cycles can add interfaces or relocate code
+  - Static graph may miss dynamic edges
+introduced_complexity:
+  - Cycle detection in CI with a baseline
+architecture_invariants:
+  - The module graph has no cycles
+transformations:
+  - Block new cycles in CI while baselining existing ones
+  - Break the smallest cycle edge by inversion or moving the shared type
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.dependency-inversion
+  - architecture.modular-monolith
+conflicts_with: []
+removal_recipe:
+  - Remove the CI rule only if modules are merged
+  - Restore moved types if the split proves wrong
+version: 1.0.0

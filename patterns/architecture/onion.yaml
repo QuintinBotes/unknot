@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: architecture.onion
+name: Onion Architecture
+category: architecture
+problem: "Concentric layers place the domain model at the center and make all dependencies point inward, with infrastructure at the outermost ring."
+forces:
+  - Domain model must not depend on persistence or UI
+  - Inner-ring abstractions need discipline to stay free of leaks
+applicability_signals:
+  - id: inward-violations
+    description: Inner rings import outer rings.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+required_evidence:
+  - Dependency direction violations
+  - Domain tests that need infrastructure to run
+preconditions:
+  - id: tests
+    description: Tests exist before inverting dependencies.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: thin-domain
+    description: "There is little domain logic to protect, only data movement."
+benefits:
+  - Testable domain core
+  - Infrastructure replaceable without touching the domain
+liabilities:
+  - More layers and mapping than a simple layered design
+  - Services in the application ring can become anemic pass-throughs
+introduced_complexity:
+  - "Interfaces defined in inner rings, implemented outside"
+  - Composition root wiring
+architecture_invariants:
+  - Source dependencies point inward only
+transformations:
+  - Move one repository interface into the domain ring and implement it outside
+  - Enforce ring direction with an architecture rule in warn mode
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.hexagonal
+  - domain.dependency-inversion
+conflicts_with:
+  - architecture.layered-monolith
+removal_recipe:
+  - Merge rings that carry only pass-through code
+  - Remove the ring rule once merged
+version: 1.0.0

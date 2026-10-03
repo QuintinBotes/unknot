@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.client-server
+name: Client-Server
+category: architecture
+problem: Clients and a shared server split presentation from centralized data and rules so many clients share one authoritative backend.
+forces:
+  - Central authority over data and rules
+  - Client diversity and network latency
+applicability_signals:
+  - id: multiple-clients
+    description: More than one client consumes the same backend.
+    predicate: { metric: clients.count, op: '>=', value: 2 }
+required_evidence:
+  - Client inventory and API usage
+  - Latency and availability budget for the client-server hop
+preconditions:
+  - id: contract
+    description: A documented API or protocol exists between client and server.
+    predicate: { metric: contracts.present, op: '==', value: 1 }
+contraindications:
+  - id: offline-first
+    description: The product must work offline with local authority over data.
+benefits:
+  - Single source of truth and centralized security enforcement
+  - Clients can evolve independently of server internals
+liabilities:
+  - Server is a shared bottleneck and failure point
+  - Chatty protocols amplify latency
+introduced_complexity:
+  - Versioned API contract
+  - Client and server compatibility testing
+architecture_invariants:
+  - "Business rules are enforced on the server, never trusted from the client"
+transformations:
+  - Define the contract first and generate client stubs
+  - Move client-side business rules to the server
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.n-tier
+  - decomposition.backend-for-frontend
+conflicts_with: []
+removal_recipe:
+  - Collapse to an embedded library only if a single client remains
+  - Keep the contract tests until the last client migrates
+version: 1.0.0

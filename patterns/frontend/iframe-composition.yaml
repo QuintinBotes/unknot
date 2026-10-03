@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: frontend.iframe-composition
+name: Iframe Composition
+category: frontend
+problem: "Independent applications are embedded in iframes, giving strong isolation of code, styles and failures at a high integration cost."
+forces:
+  - Hard isolation of untrusted or legacy UI
+  - "Routing, sizing, focus and accessibility cost"
+applicability_signals:
+  - id: legacy-embed
+    description: A legacy or third-party UI must be embedded unchanged.
+  - id: security-isolation
+    description: Security isolation of the embedded UI is required.
+    predicate: { metric: driver.security_isolation, op: '==', value: 1 }
+required_evidence:
+  - Cross-frame messaging needs
+  - Accessibility and deep-link requirements
+preconditions:
+  - id: postmessage-contract
+    description: A cross-frame message contract exists.
+contraindications:
+  - id: shared-navigation
+    description: "Deep linking, focus management and shared navigation are central."
+benefits:
+  - "Strongest isolation of scripts, styles and crashes"
+  - Works with any technology
+liabilities:
+  - "Routing, history, focus and screen reader issues"
+  - Duplicated assets and slow load
+introduced_complexity:
+  - "postMessage contract, height sync and sandbox policy"
+architecture_invariants:
+  - Frames share no state except explicit messages
+transformations:
+  - Embed the legacy area in a sandboxed frame behind a stable route
+  - Define a message schema before sharing any state
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - migration.strangler-fig
+conflicts_with:
+  - frontend.web-components-composition
+removal_recipe:
+  - Replace the frame with a native route
+  - Remove sandbox and message handlers
+version: 1.0.0

@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: decomposition.retain
+name: Retain (Do Nothing)
+aliases:
+  - no decomposition
+category: decomposition
+treatment: T0
+problem: "The current structure is acceptable, and the best alternative does not repay its cost and risk; deliberately leaving it alone is a valid, always-available outcome."
+forces:
+  - "Subtract first: every extraction adds permanent complexity (spec 1.2)"
+  - Evidence for the alternatives may be incomplete or unstable
+applicability_signals:
+  - id: unstable-boundary
+    description: Candidate boundaries are not robust across algorithms and weight perturbation.
+    predicate: { metric: boundary.robust, op: '==', value: 0 }
+  - id: no-traces
+    description: "Runtime evidence is missing, so chattiness and coupling are unknown."
+    predicate: { metric: traces.available, op: '==', value: 0 }
+  - id: low-churn
+    description: "Heuristic: the candidate area has low commit churn."
+    predicate: { metric: module.churn, op: '<', value: 10 }
+required_evidence:
+  - Score card showing why no candidate beats the status quo
+  - Expected metric deltas of the best alternative against its slice cost and risk
+preconditions: []
+contraindications: []
+benefits:
+  - "No migration risk, no new operational surface"
+  - Frees effort for higher-value work
+liabilities:
+  - Existing pain such as merge contention or slow builds persists
+  - Delaying a justified decomposition can raise its later cost
+introduced_complexity:
+  - None; optionally a boundary-monitoring CI report
+architecture_invariants:
+  - No source change is made on behalf of this treatment
+transformations:
+  - Record the retain decision with the rejected treatments and their reasons
+  - Optionally add a read-only boundary-monitoring report to CI
+proof_obligations:
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - decomposition.modularize-in-place
+conflicts_with:
+  - anti-pattern.distributed-monolith
+removal_recipe:
+  - Nothing to remove; revisit when a driver is recorded or evidence improves
+version: 1.0.0

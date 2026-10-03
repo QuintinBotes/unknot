@@ -1,0 +1,59 @@
+schema_version: "1.0"
+id: decomposition.branch-by-abstraction-seam
+name: Branch by Abstraction Seam
+category: decomposition
+treatment: T4
+problem: "An in-process subsystem must be replaced incrementally with no routable request to strangle, so an abstraction seam lets old and new coexist on trunk."
+forces:
+  - "The seam is inside the process, not at a network entry"
+  - Many internal callers must migrate in batches
+applicability_signals:
+  - id: not-interceptable
+    description: No routable request seam exists for the capability.
+    predicate: { metric: requests.interceptable, op: '==', value: 0 }
+  - id: many-callers
+    description: Many modules call the subsystem.
+    predicate: { metric: module.consumers, op: '>=', value: 3 }
+required_evidence:
+  - Caller list and usage variance
+  - Call graph to the subsystem
+preconditions:
+  - id: tests
+    description: Characterization tests exist to run against both suppliers.
+    predicate: { metric: tests.characterization, op: '==', value: 1 }
+contraindications:
+  - id: no-tests
+    description: No covering tests.
+    predicate: { metric: tests.present, op: '==', value: 0 }
+    hard: true
+  - id: no-stable-interface
+    description: "Callers use the subsystem in divergent ways, so no stable interface can be defined (checklist)."
+    hard: true
+benefits:
+  - Replacement ships continuously without a long-lived branch
+  - Flag-controlled and easy to revert
+liabilities:
+  - Temporary abstraction that must be removed after cutover
+  - Two implementations to keep consistent meanwhile
+introduced_complexity:
+  - "Interface, adapter and a supplier toggle"
+architecture_invariants:
+  - The flag default stays on the old supplier until parity is proven
+transformations:
+  - Introduce an interface plus an adapter delegating to the existing implementation
+  - Migrate callers one batch at a time; contraction is a separate slice
+proof_obligations:
+  - characterization
+  - unit
+  - architecture-fitness
+  - no-new-cycles
+rollback_strategies:
+  - revert
+composes_with:
+  - migration.branch-by-abstraction
+  - domain.dependency-inversion
+conflicts_with: []
+removal_recipe:
+  - Toggle the flag back to the old supplier
+  - "After cutover, inline the interface and delete the old supplier in a contraction slice"
+version: 1.0.0

@@ -1,0 +1,62 @@
+schema_version: "1.0"
+id: architecture.microservices
+name: Microservices
+category: architecture
+problem: "Independently deployable services each own one business capability and its data, trading operational cost for independent release, scale and ownership."
+forces:
+  - "A recorded driver (deploy, scale, isolation, autonomy) outweighs distribution cost"
+  - Each service needs an owning team and its own pipeline
+applicability_signals:
+  - id: driver
+    description: Independent deployment is a recorded driver.
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+required_evidence:
+  - Traces for call counts and latency
+  - Data ownership map and cross-boundary transactions
+preconditions:
+  - id: observability
+    description: Distributed tracing is available.
+    predicate: { metric: traces.available, op: '==', value: 1 }
+contraindications:
+  - id: shared-writers
+    description: Another boundary writes the same tables.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+    hard: true
+  - id: cross-tx
+    description: Strict atomicity crosses the boundary with no saga design.
+    predicate: { metric: boundary.cross_transactions, op: '>', value: 0 }
+    hard: true
+  - id: chatty
+    description: "Heuristic: more than 5 cross-boundary calls per request at p95."
+    predicate: { metric: boundary.calls_per_request_p95, op: '>', value: 5 }
+benefits:
+  - "Independent release, scaling and failure isolation per capability"
+  - Technology choice per service
+liabilities:
+  - "Distributed failure modes, latency and eventual consistency"
+  - Operational overhead scales with service count
+introduced_complexity:
+  - "Service discovery, timeouts, retries and tracing"
+  - Contract testing and data synchronization
+architecture_invariants:
+  - Services own their data; no shared tables
+  - Services deploy independently of each other
+transformations:
+  - "Reach this through staged extraction, not a rewrite (strangler fig)"
+  - "Extract one service behind an identity-route facade at 0% traffic"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - migration.strangler-fig
+  - distributed.cqrs
+conflicts_with:
+  - anti-pattern.distributed-monolith
+  - anti-pattern.nanoservices
+removal_recipe:
+  - Merge services back into a module behind a facade
+  - "Replace network calls with in-process calls, then retire the service"
+version: 1.0.0

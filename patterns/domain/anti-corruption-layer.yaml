@@ -1,0 +1,53 @@
+schema_version: "1.0"
+id: domain.anti-corruption-layer
+name: Anti-Corruption Layer
+aliases:
+  - ACL
+category: domain
+problem: A translation layer protects a clean model from the concepts and quirks of a legacy or foreign system.
+forces:
+  - Foreign models leak into the domain and distort it
+  - Translation code is itself a maintenance cost
+applicability_signals:
+  - id: foreign-types
+    description: Foreign system types appear throughout domain code.
+    predicate: { metric: module.consumers, op: '>', value: 5 }
+required_evidence:
+  - Spread of foreign types in the codebase
+  - Stability of the foreign contract
+preconditions:
+  - id: contract
+    description: The foreign interface is known or captured by contract tests.
+    predicate: { metric: contracts.present, op: '==', value: 1 }
+contraindications:
+  - id: similar-model
+    description: The foreign model already matches yours; use a shared kernel or direct use.
+benefits:
+  - Domain model stays clean
+  - One place to change when the foreign system changes
+liabilities:
+  - Translation and mapping overhead
+  - Can hide data loss in lossy translation
+introduced_complexity:
+  - "Adapters, mappers and contract tests"
+architecture_invariants:
+  - Foreign types do not cross the layer inward
+transformations:
+  - Wrap one foreign call in an adapter delegating to existing code
+  - Move callers to the adapter in batches
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.context-map
+  - migration.strangler-fig
+  - migration.branch-by-abstraction
+conflicts_with:
+  - domain.shared-kernel
+removal_recipe:
+  - Delete the layer after the foreign system is retired
+  - Inline adapters if both models converge
+version: 1.0.0

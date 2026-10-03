@@ -1,0 +1,54 @@
+schema_version: "1.0"
+id: domain.dependency-inversion
+name: Dependency Inversion
+category: domain
+problem: "High-level policy depends on abstractions it owns, and low-level details implement them, so dependency direction can differ from call direction."
+forces:
+  - Core logic depends on volatile details
+  - Interfaces with one implementation are overhead
+applicability_signals:
+  - id: policy-imports-detail
+    description: Core modules import infrastructure modules.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+  - id: unstable-dependency
+    description: A stable module depends on an unstable one.
+    predicate: { metric: module.instability, op: '>', value: 0.7 }
+required_evidence:
+  - Direction of dependencies vs layers
+  - Instability of depended-on modules
+preconditions:
+  - id: tests
+    description: Tests exist for the seam.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: single-impl
+    description: The abstraction has one implementation and no test double.
+    predicate: { metric: interface.implementations, op: '<=', value: 1 }
+benefits:
+  - Core is testable and stable
+  - Details are replaceable
+liabilities:
+  - Indirection and wiring
+  - Speculative interfaces
+introduced_complexity:
+  - Interfaces owned by the policy module and a composition root
+architecture_invariants:
+  - "Abstractions are owned by the consumer, not the implementer"
+transformations:
+  - Define an interface in the core and have the detail implement it
+  - Wire at the composition root
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.hexagonal
+  - migration.branch-by-abstraction
+conflicts_with:
+  - anti-pattern.speculative-generality
+removal_recipe:
+  - Inline the interface and use the concrete type directly
+  - Delete test doubles that become unused
+version: 1.0.0

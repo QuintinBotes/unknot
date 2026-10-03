@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: domain.stable-dependencies
+name: Stable Dependencies Principle
+category: domain
+problem: Modules depend in the direction of stability so volatile code can change without rippling into stable code.
+forces:
+  - Stable modules with volatile dependencies change often anyway
+  - "Stability is measured, not asserted"
+applicability_signals:
+  - id: stable-depends-volatile
+    description: High fan-in modules depend on high-instability modules.
+    predicate: { metric: module.instability, op: '>', value: 0.7 }
+  - id: hub
+    description: A module has very high fan-in.
+    predicate: { metric: module.fan_in, op: '>', value: 20 }
+required_evidence:
+  - Instability (fan-out/(fan-in+fan-out)) per module
+  - Churn of depended-on modules
+preconditions:
+  - id: graph
+    description: A trustworthy dependency graph exists.
+contraindications:
+  - id: few-modules
+    description: Too few modules for instability to be meaningful.
+benefits:
+  - Change ripple is predictable
+  - Highlights modules needing an abstraction
+liabilities:
+  - Metric is heuristic and language-sensitive
+  - Fixing violations may need interfaces
+introduced_complexity:
+  - Instability thresholds and exceptions list
+architecture_invariants:
+  - Dependencies point toward more stable modules
+transformations:
+  - Report violations as warnings with a baseline
+  - Introduce an interface owned by the stable module for the worst edge
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.dependency-inversion
+  - domain.acyclic-dependencies
+conflicts_with: []
+removal_recipe:
+  - Delete the stability rule and baseline
+  - Keep only the cycle rule
+version: 1.0.0

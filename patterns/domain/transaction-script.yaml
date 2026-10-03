@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: domain.transaction-script
+name: Transaction Script
+category: domain
+problem: "Each business operation is one procedure that runs the whole transaction, which is the simplest way to handle simple logic."
+forces:
+  - "Simple, mostly independent operations"
+  - Duplicate logic grows as rules interact
+applicability_signals:
+  - id: simple-ops
+    description: Operations are mostly independent with little shared domain logic.
+    predicate: { metric: function.cyclomatic, op: '<=', value: 10 }
+required_evidence:
+  - Duplication across scripts
+  - Rule interaction count
+preconditions:
+  - id: sql-comfort
+    description: The team is comfortable with direct data access.
+contraindications:
+  - id: duplicate-rules
+    description: The same rule is repeated across scripts.
+    predicate: { metric: duplication.similarity, op: '>', value: 0.8 }
+benefits:
+  - Lowest ceremony for simple logic
+  - Easy to trace end to end
+liabilities:
+  - Duplication as logic grows
+  - Hard to unit test without data access
+introduced_complexity:
+  - Few; script organization conventions
+architecture_invariants:
+  - Each script owns one transaction boundary
+transformations:
+  - Retain as is when logic stays simple
+  - Extract a repeated rule into a shared function before introducing a domain model
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.service-layer
+  - domain.table-module
+conflicts_with:
+  - domain.domain-model
+removal_recipe:
+  - Migrate one script at a time to a domain model when rules interact
+  - Keep the others as scripts
+version: 1.0.0

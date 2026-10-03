@@ -1,0 +1,54 @@
+schema_version: "1.0"
+id: frontend.multi-zone-routing
+name: Multi-Zone Routing
+category: frontend
+problem: "Separate applications own disjoint URL path prefixes behind a shared domain via rewrites or a reverse proxy, with hard navigation between zones."
+forces:
+  - Route-level ownership with independent deploys
+  - Navigation across zones reloads the page
+applicability_signals:
+  - id: disjoint-routes
+    description: Teams own disjoint route sets.
+    predicate: { metric: frontend.teams, op: '>=', value: 2 }
+  - id: low-cross-navigation
+    description: "Heuristic: few navigations cross zones."
+    predicate: { metric: frontend.cross_route_navigation, op: '<=', value: 0.1 }
+required_evidence:
+  - Route graph and ownership
+  - Cross-zone navigation counts
+preconditions:
+  - id: shared-session
+    description: Auth/session is shareable across zones.
+contraindications:
+  - id: frequent-cross-zone
+    description: "Heuristic: over 30% of navigations cross zones."
+    predicate: { metric: frontend.cross_route_navigation, op: '>', value: 0.3 }
+    hard: true
+benefits:
+  - Independent deploy per zone with simple routing
+  - Instant rollback by rewrite rule
+liabilities:
+  - Hard navigation and duplicated runtime between zones
+  - Shared header and nav must be kept in sync
+introduced_complexity:
+  - Rewrite rules and shared asset/prefix configuration
+architecture_invariants:
+  - Each path prefix maps to exactly one zone
+transformations:
+  - Add an identity rewrite for all paths to the current app
+  - Move one low-coupling prefix to a new zone
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - decomposition.micro-frontend-by-route
+  - architecture.self-contained-systems
+conflicts_with: []
+removal_recipe:
+  - Point the rewrite back to the original app
+  - Delete the zone after the route is stable on the monolith
+version: 1.0.0

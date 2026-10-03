@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: architecture.data-lake
+name: Data Lake
+category: architecture
+problem: Raw data in open formats is stored cheaply at scale for later schema-on-read analysis and machine learning.
+forces:
+  - Diverse raw data is needed before its use is known
+  - Without governance a lake becomes a swamp
+applicability_signals:
+  - id: diverse-sources
+    description: Many heterogeneous sources feed analysis or ML.
+required_evidence:
+  - Source and format inventory
+  - Consumers and their access patterns
+preconditions:
+  - id: catalog
+    description: A data catalog with ownership exists.
+    predicate: { metric: resource.owner_known, op: '==', value: 1 }
+contraindications:
+  - id: no-consumers
+    description: No identified consumer needs the raw data.
+benefits:
+  - Cheap storage of raw data and flexible later use
+  - Supports ML and exploratory analysis
+liabilities:
+  - Quality and discoverability degrade without curation
+  - Access control is harder over raw files
+introduced_complexity:
+  - "Catalog, lifecycle policies and zone layout"
+architecture_invariants:
+  - Every dataset has an owner and retention rule
+transformations:
+  - Land one source with an owner and retention policy
+  - Add quality checks before first consumer
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.lakehouse
+  - architecture.data-mesh
+conflicts_with: []
+removal_recipe:
+  - Archive and delete datasets without consumers
+  - Remove ingest jobs for retired sources
+version: 1.0.0

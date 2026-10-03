@@ -1,0 +1,60 @@
+schema_version: "1.0"
+id: decomposition.parallel-change-contract
+name: "Parallel Change (Expand, Migrate, Contract)"
+aliases:
+  - expand and contract
+category: decomposition
+treatment: T5
+problem: "A signature, schema column, event payload or API with many or external consumers must change without breaking any of them."
+forces:
+  - Consumers cannot all be changed in one release
+  - Old and new must coexist during migration
+applicability_signals:
+  - id: many-consumers
+    description: Many consumers depend on the surface.
+    predicate: { metric: module.consumers, op: '>=', value: 3 }
+  - id: contracts
+    description: A contract exists to test against.
+    predicate: { metric: contracts.present, op: '==', value: 1 }
+required_evidence:
+  - "Consumer inventory from graph in-edges, gateway logs or schema usage"
+  - Telemetry of old-path usage
+preconditions:
+  - id: consumers-known
+    description: All consumers are identified (checklist).
+contraindications:
+  - id: consumers-unknown
+    description: Consumers are unknown or unreachable; keep to expand only and report uncertainty (checklist).
+    hard: true
+  - id: no-coexistence
+    description: Old and new cannot run at the same time (checklist).
+    hard: true
+benefits:
+  - Zero-downtime change with independent consumer migration
+  - Each step is separately reversible until contract
+liabilities:
+  - Temporary duplication of the old and new forms
+  - "Contract step can be postponed indefinitely, leaving both forms"
+introduced_complexity:
+  - "Dual forms, deprecation tracking and usage telemetry"
+architecture_invariants:
+  - Old consumers keep working until usage reaches zero
+transformations:
+  - "Expand only: add the new form additively and leave the old form untouched"
+  - "Migrate consumers, then contract in a separate slice"
+proof_obligations:
+  - api-compatibility
+  - contract
+  - integration
+  - smoke
+rollback_strategies:
+  - revert
+  - roll_forward
+composes_with:
+  - migration.parallel-change
+  - decomposition.database-decomposition
+conflicts_with: []
+removal_recipe:
+  - Do not execute the contract step; the expand step is additive and can be deleted
+  - Remove the old form only when telemetry shows zero use
+version: 1.0.0

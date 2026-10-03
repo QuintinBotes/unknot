@@ -1,0 +1,82 @@
+schema_version: "1.0"
+id: decomposition.micro-frontend-by-route
+name: Micro-Frontend by Route
+aliases:
+  - vertical micro-frontend
+category: decomposition
+treatment: T7
+problem: "Teams that own disjoint route sets need independent release of their routes, composed behind a router or reverse proxy."
+forces:
+  - Independent frontend release across teams
+  - "Duplicated runtime, hard navigation and shared session or state"
+applicability_signals:
+  - id: multiple-teams
+    description: Two or more teams own separate route sets.
+    predicate: { metric: frontend.teams, op: '>=', value: 2 }
+  - id: low-cross-route-navigation
+    description: "Heuristic: users rarely navigate between candidate apps (share of cross-app transitions at or under 0.1)."
+    predicate: { metric: frontend.cross_route_navigation, op: '<=', value: 0.1 }
+  - id: independent-deploy
+    description: Independent deployment is a recorded driver.
+    predicate: { metric: driver.team_autonomy, op: '==', value: 1 }
+required_evidence:
+  - Route graph with ownership per route directory
+  - "Navigation transition counts, bundle composition and build-time stats"
+preconditions:
+  - id: recorded-driver
+    description: "At least one driver is recorded; micro-frontends are not offered without one (checklist across driver.* metrics)."
+  - id: per-app-ci
+    description: Each app has its own pipeline.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }
+  - id: auth-shareable
+    description: Session and auth are shareable across apps (checklist).
+contraindications:
+  - id: common-ownership
+    description: A single team owns every route (common-ownership anti-pattern).
+    predicate: { metric: frontend.teams, op: '<=', value: 1 }
+    hard: true
+  - id: heavy-shared-state
+    description: "Heuristic: more than 3 shared global stores span routes."
+    predicate: { metric: frontend.shared_state_stores, op: '>', value: 3 }
+    hard: true
+  - id: frequent-cross-navigation
+    description: "Heuristic: more than 30% of navigations cross app boundaries."
+    predicate: { metric: frontend.cross_route_navigation, op: '>', value: 0.3 }
+    hard: true
+  - id: no-per-app-ci
+    description: No independent pipeline per app.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 0 }
+    hard: true
+benefits:
+  - Independent route release and upgrade cadence
+  - Rollback is a rewrite rule flip
+liabilities:
+  - "Duplicated runtime and bundle weight, hard navigation between zones"
+  - Inconsistent UX unless a design system is shared
+introduced_complexity:
+  - "Reverse proxy or rewrite rules, per-app pipelines and shared auth"
+architecture_invariants:
+  - Each route is served by exactly one app
+  - No shared mutable state across apps
+transformations:
+  - "First slice: identity reverse-proxy route to the existing monolith, no behavior change"
+  - Then move one low-coupling route; retiring the old route is a separate contraction slice
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - rollback-rehearsal
+  - human-review
+rollback_strategies:
+  - revert
+  - fail_over
+composes_with:
+  - frontend.multi-zone-routing
+  - frontend.design-system-package
+  - migration.strangler-fig
+conflicts_with:
+  - decomposition.frontend-modular-monolith
+removal_recipe:
+  - "Rewrite the route back to the monolith, which is instant"
+  - Delete the app after the route has been healthy on the monolith
+version: 1.0.0

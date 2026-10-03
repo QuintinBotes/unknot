@@ -1,0 +1,52 @@
+schema_version: "1.0"
+id: domain.bounded-context
+name: Bounded Context
+category: domain
+problem: One model cannot serve every part of a large domain; an explicit boundary lets each model keep a consistent vocabulary and meaning.
+forces:
+  - The same term means different things to different teams
+  - A single canonical model grows into a compromise nobody owns
+applicability_signals:
+  - id: term-overload
+    description: The same entity name carries conflicting fields or rules in different areas.
+  - id: ownership-split
+    description: Different teams own different meanings of one concept.
+    predicate: { metric: owners.count, op: '>=', value: 2 }
+required_evidence:
+  - Domain term overlap across paths and identifiers
+  - Ownership map and CODEOWNERS
+preconditions:
+  - id: domain-knowledge
+    description: A domain expert can confirm the boundary; the graph alone cannot.
+contraindications:
+  - id: unstable-cluster
+    description: The candidate boundary changes under perturbation.
+    predicate: { metric: boundary.robust, op: '==', value: 0 }
+benefits:
+  - Consistent language and model within a boundary
+  - A natural unit for ownership and later extraction
+liabilities:
+  - Translation cost at every boundary crossing
+  - Wrong boundaries are expensive to move
+introduced_complexity:
+  - Context map and translation layers
+architecture_invariants:
+  - A model is authoritative only inside its context
+transformations:
+  - "Document the context and its public language, then enforce a module boundary"
+  - Introduce translation where two models meet
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.context-map
+  - domain.anti-corruption-layer
+  - architecture.modular-monolith
+conflicts_with: []
+removal_recipe:
+  - Merge contexts by unifying vocabulary and deleting translators
+  - Drop module rules for the merged area
+version: 1.0.0

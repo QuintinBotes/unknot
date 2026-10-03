@@ -1,0 +1,52 @@
+schema_version: "1.0"
+id: architecture.soa
+name: Service-Oriented Architecture
+aliases:
+  - SOA
+category: architecture
+problem: "Enterprise capabilities are exposed as reusable services with contracts and mediation (often an ESB), prioritizing reuse across applications."
+forces:
+  - Many applications need the same enterprise capability
+  - Central mediation concentrates logic and risk
+applicability_signals:
+  - id: shared-capability
+    description: The same capability is reimplemented in several applications.
+    predicate: { metric: duplication.instances, op: '>', value: 1 }
+required_evidence:
+  - Consumer inventory per capability
+  - Contract coverage
+preconditions:
+  - id: governance
+    description: Contract governance and ownership exist for shared services.
+    predicate: { metric: contracts.present, op: '==', value: 1 }
+contraindications:
+  - id: smart-bus
+    description: Business logic would live in the integration bus.
+benefits:
+  - Reuse of enterprise capabilities across applications
+  - Contracts decouple consumers from implementations
+liabilities:
+  - Central bus becomes a bottleneck and change choke point
+  - Reuse pressure creates broad shared contracts
+introduced_complexity:
+  - Service registry and governance
+  - Canonical models and mediation rules
+architecture_invariants:
+  - "Consumers depend on contracts, never on service internals"
+transformations:
+  - Publish one capability behind a versioned contract (parallel change)
+  - "Keep mediation to routing and transport, not business rules"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - migration.parallel-change
+  - architecture.microservices
+conflicts_with: []
+removal_recipe:
+  - Inline rarely reused services back into consumers
+  - Retire bus routes once consumers use direct contracts
+version: 1.0.0

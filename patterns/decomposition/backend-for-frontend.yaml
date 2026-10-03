@@ -1,0 +1,67 @@
+schema_version: "1.0"
+id: decomposition.backend-for-frontend
+name: Backend for Frontend
+aliases:
+  - BFF
+category: decomposition
+treatment: T9
+problem: "Distinct clients with divergent data needs compete for one general-purpose API, causing client-side aggregation and shared backend churn."
+forces:
+  - Clients need different response shapes
+  - An extra hop adds latency and a component to own
+applicability_signals:
+  - id: multiple-clients
+    description: Two or more distinct clients.
+    predicate: { metric: clients.count, op: '>=', value: 2 }
+  - id: divergent-shapes
+    description: "Heuristic: clients consume responses very differently (variance above 0.3)."
+    predicate: { metric: clients.response_shape_variance, op: '>', value: 0.3 }
+required_evidence:
+  - Client by endpoint matrix and response-shape variance
+  - Aggregated call counts per screen
+preconditions:
+  - id: contract
+    description: The upstream APIs have contracts to test against.
+    predicate: { metric: contracts.present, op: '==', value: 1 }
+contraindications:
+  - id: single-client
+    description: Only one client.
+    predicate: { metric: clients.count, op: '<=', value: 1 }
+    hard: true
+  - id: identical-requests
+    description: "Heuristic: clients make nearly identical requests (variance under 0.1)."
+    predicate: { metric: clients.response_shape_variance, op: '<', value: 0.1 }
+    hard: true
+  - id: latency-budget
+    description: The latency budget cannot absorb another hop (checklist).
+    hard: true
+benefits:
+  - Client-specific shapes without bloating the core API
+  - Frontend team controls its aggregation layer
+liabilities:
+  - Another deployable per client and duplicated logic across BFFs
+  - Extra latency hop
+introduced_complexity:
+  - "BFF service, auth propagation and per-client contracts"
+architecture_invariants:
+  - "A BFF contains no business rules, only aggregation and shaping"
+transformations:
+  - "First slice: one read-only BFF endpoint for one screen proxying existing APIs"
+  - Switch that screen behind a client flag
+proof_obligations:
+  - contract
+  - api-compatibility
+  - performance
+  - integration
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - distributed.api-gateway
+  - migration.strangler-fig
+conflicts_with:
+  - anti-pattern.nanoservices
+removal_recipe:
+  - Flip the client flag back to direct calls
+  - Delete the BFF endpoint once the flag is retired
+version: 1.0.0

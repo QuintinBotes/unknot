@@ -1,0 +1,52 @@
+schema_version: "1.0"
+id: architecture.space-based
+name: Space-Based Architecture
+aliases:
+  - tuple space
+  - in-memory data grid
+category: architecture
+problem: "Processing units share a replicated in-memory data grid so the database is not the scaling bottleneck for extreme, spiky load."
+forces:
+  - Database is the throughput bottleneck
+  - Replicated in-memory state is complex to keep consistent
+applicability_signals:
+  - id: db-bottleneck
+    description: Database throughput limits scaling and sharding is not enough.
+    predicate: { metric: driver.independent_scale, op: '==', value: 1 }
+required_evidence:
+  - Database saturation metrics
+  - Read/write ratio and data size
+preconditions:
+  - id: async-persist
+    description: The domain tolerates asynchronous persistence.
+contraindications:
+  - id: strong-consistency
+    description: Strict transactional consistency is required across keys.
+    predicate: { metric: boundary.cross_transactions, op: '>', value: 0 }
+benefits:
+  - Elastic scaling without database contention
+  - Low latency from in-memory data
+liabilities:
+  - Data loss window and replication lag
+  - Specialized tooling and operations
+introduced_complexity:
+  - "Data grid, write-behind persistence and partitioning"
+architecture_invariants:
+  - Persistent store is eventually updated from the grid and reconcilable
+transformations:
+  - Move one hot read model into a grid fed by change events
+  - Reconcile grid and database continuously
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.actor-model
+  - distributed.cqrs
+conflicts_with: []
+removal_recipe:
+  - Route reads back to the database
+  - Drain write-behind and retire the grid
+version: 1.0.0

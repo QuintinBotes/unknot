@@ -1,0 +1,57 @@
+schema_version: "1.0"
+id: architecture.service-based
+name: Service-Based Architecture
+aliases:
+  - coarse-grained services
+category: architecture
+problem: "A handful of coarse domain services share a database, giving independent deploys for major domains without microservice granularity."
+forces:
+  - Some independent deploy or scale is needed
+  - Fine-grained services would add more cost than benefit
+applicability_signals:
+  - id: few-domains
+    description: Three to a dozen coarse domains with distinct release needs.
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+required_evidence:
+  - Recorded driver with evidence
+  - Domain-to-table access matrix
+preconditions:
+  - id: traces
+    description: Tracing exists across service calls.
+    predicate: { metric: traces.available, op: '==', value: 1 }
+  - id: per-service-ci
+    description: Each service has its own pipeline.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }
+contraindications:
+  - id: shared-writers
+    description: Multiple services write the same tables without ownership rules.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+benefits:
+  - Fewer moving parts than microservices
+  - Transactions can stay local within a service
+liabilities:
+  - Shared database couples schema changes across services
+  - Services can grow into mini-monoliths
+introduced_complexity:
+  - Schema ownership conventions
+  - Inter-service contracts and versioning
+architecture_invariants:
+  - Each table has exactly one owning service for writes
+transformations:
+  - Annotate table ownership first
+  - "Extract one domain via strangler facade starting at 0% traffic"
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - migration.strangler-fig
+  - decomposition.strangler-fig-extraction
+conflicts_with:
+  - anti-pattern.nanoservices
+removal_recipe:
+  - Merge services behind in-process calls
+  - Retire service endpoints after callers move
+version: 1.0.0

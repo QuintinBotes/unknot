@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: domain.package-by-feature
+name: Package by Feature
+category: domain
+problem: Code is grouped by business feature rather than technical layer so a change touches one directory.
+forces:
+  - Feature changes cut across layer folders
+  - Shared code between features must go somewhere
+applicability_signals:
+  - id: co-change
+    description: Commits routinely touch the same set of files across layer folders.
+    predicate: { metric: module.co_change_leak, op: '>', value: 0.4 }
+required_evidence:
+  - Co-change of files across layers
+  - Feature-to-file mapping
+preconditions:
+  - id: tests
+    description: Tests protect moves.
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: tiny-app
+    description: The application is small; layer folders are fine.
+    predicate: { metric: module.loc, op: '<', value: 3000 }
+benefits:
+  - Locality of change and ownership
+  - Features can be moved or removed whole
+liabilities:
+  - Cross-feature reuse needs a shared area that can grow
+  - Large moves create churn and merge conflicts
+introduced_complexity:
+  - Feature package conventions and import rules
+architecture_invariants:
+  - "Features do not import each other's internals"
+transformations:
+  - "Move one feature's files together with re-exports from old paths"
+  - Add an import rule against cross-feature internals
+proof_obligations:
+  - architecture-fitness
+  - no-new-cycles
+  - characterization
+rollback_strategies:
+  - revert
+composes_with:
+  - domain.vertical-slice
+  - architecture.domain-oriented-monolith
+conflicts_with:
+  - architecture.layered-monolith
+removal_recipe:
+  - Move files back under layer folders with re-exports
+  - Remove feature import rules
+version: 1.0.0

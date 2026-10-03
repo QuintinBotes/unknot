@@ -1,0 +1,48 @@
+schema_version: "1.0"
+id: architecture.actor-model
+name: Actor Model
+category: architecture
+problem: "Isolated actors with private state communicate only by asynchronous messages, removing shared-memory locking for highly concurrent stateful entities."
+forces:
+  - Many independent stateful entities with concurrency
+  - Message ordering and failure supervision must be designed
+applicability_signals:
+  - id: lock-contention
+    description: Shared mutable state is guarded by locks around per-entity state.
+required_evidence:
+  - Concurrency hot spots
+  - Entity count and message rates
+preconditions:
+  - id: timeouts
+    description: Message timeouts and supervision are defined.
+    predicate: { metric: timeout.present, op: '==', value: 1 }
+contraindications:
+  - id: request-reply-heavy
+    description: Most interactions are synchronous request-reply over shared data.
+benefits:
+  - No shared-memory races on actor state
+  - Natural fault isolation and supervision
+liabilities:
+  - Debugging asynchronous message flows
+  - Unbounded mailboxes can hide overload
+introduced_complexity:
+  - "Supervision trees, mailboxes and back-pressure"
+architecture_invariants:
+  - "An actor's state is touched only by that actor"
+transformations:
+  - Wrap one stateful entity behind a message interface
+  - Bound mailbox sizes and add timeouts
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.event-driven-choreography
+  - architecture.space-based
+conflicts_with: []
+removal_recipe:
+  - Replace the actor with a guarded in-process object behind the same interface
+  - Drop the actor runtime if unused
+version: 1.0.0

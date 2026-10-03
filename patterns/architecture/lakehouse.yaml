@@ -1,0 +1,50 @@
+schema_version: "1.0"
+id: architecture.lakehouse
+name: Lakehouse
+category: architecture
+problem: Open table formats add transactions and schema enforcement on lake storage so one copy serves both BI and ML workloads.
+forces:
+  - Separate lake and warehouse duplicate data and pipelines
+  - Table format and engine maturity constrain choices
+applicability_signals:
+  - id: dual-copy
+    description: The same data is maintained in both a lake and a warehouse.
+    predicate: { metric: duplication.instances, op: '>', value: 1 }
+required_evidence:
+  - Duplicated datasets and pipelines
+  - "Workload mix (BI, ML, streaming)"
+preconditions:
+  - id: reconciliation
+    description: Reconciliation tooling exists to prove parity.
+    predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 }
+contraindications:
+  - id: small-data
+    description: Data volume is small enough for one relational database.
+benefits:
+  - One copy of data with ACID tables
+  - Fewer pipelines than lake plus warehouse
+liabilities:
+  - "Younger tooling and table maintenance (compaction, vacuum)"
+  - Engine and format lock-in
+introduced_complexity:
+  - Table format maintenance jobs and catalog
+architecture_invariants:
+  - "Tables are the only access path, never raw files"
+transformations:
+  - Move one warehouse table to the lakehouse and dual-read with diff checks
+  - Retire the duplicate only after reconciliation shows zero diff
+proof_obligations:
+  - architecture-fitness
+  - characterization
+  - smoke
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.data-lake
+  - architecture.data-warehouse
+conflicts_with:
+  - architecture.lambda-architecture
+removal_recipe:
+  - Restore the warehouse table from the lake snapshot
+  - Re-point consumers and stop table maintenance jobs
+version: 1.0.0

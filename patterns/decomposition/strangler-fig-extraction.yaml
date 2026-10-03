@@ -1,0 +1,97 @@
+schema_version: "1.0"
+id: decomposition.strangler-fig-extraction
+name: Extract Service via Strangler Fig
+aliases:
+  - service extraction
+category: decomposition
+treatment: T3
+problem: "A capability with a recorded driver is replaced by a separately deployed service, traffic-shifted behind a routing facade while the monolith stays intact and releasable."
+forces:
+  - "Independent deploy, scale, availability or security isolation outweighs distribution cost"
+  - "Data, transactions and latency cross the new network boundary"
+applicability_signals:
+  - id: independent-deploy
+    description: Independent deployment is a recorded driver (at least one driver is required; this is one of the admissible ones).
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+  - id: high-ownership-alignment
+    description: One team owns most of the candidate.
+    predicate: { metric: ownership.alignment, op: '>=', value: 0.8 }
+  - id: robust
+    description: The candidate is stable under perturbation.
+    predicate: { metric: boundary.robust, op: '==', value: 1 }
+required_evidence:
+  - "Traces for call counts and latency, SLO baselines"
+  - "Data ownership map, cross-boundary transactions and co-change leak"
+preconditions:
+  - id: recorded-driver
+    description: "At least one driver is recorded: independent_deploy, independent_scale, availability_isolation, security_isolation, team_autonomy, technology_divergence or build_time (checklist across driver.* metrics)."
+  - id: requests-interceptable
+    description: Requests for the capability pass a routable seam (HTTP or queue entry).
+    predicate: { metric: requests.interceptable, op: '==', value: 1 }
+  - id: traces-available
+    description: Runtime traces are imported.
+    predicate: { metric: traces.available, op: '==', value: 1 }
+  - id: per-unit-ci
+    description: The new service gets an independent pipeline.
+    predicate: { metric: ci.per_unit_pipeline, op: '==', value: 1 }
+contraindications:
+  - id: cross-boundary-transactions
+    description: Transactions write tables owned by more than one candidate and no saga is designed.
+    predicate: { metric: boundary.cross_transactions, op: '>', value: 0 }
+    hard: true
+  - id: shared-table-writers
+    description: Another boundary writes the same tables.
+    predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 }
+    hard: true
+  - id: low-ownership-alignment
+    description: "Heuristic: single-team ownership share below 0.8."
+    predicate: { metric: ownership.alignment, op: '<', value: 0.8 }
+    hard: true
+  - id: chatty-boundary
+    description: "Heuristic: more than 5 cross-boundary calls per request at p95."
+    predicate: { metric: boundary.calls_per_request_p95, op: '>', value: 5 }
+    hard: true
+  - id: reverse-dependencies
+    description: "Heuristic: more than 3 edges back from the candidate into the remainder."
+    predicate: { metric: boundary.reverse_deps, op: '>', value: 3 }
+    hard: true
+  - id: not-robust
+    description: The candidate boundary is unstable.
+    predicate: { metric: boundary.robust, op: '==', value: 0 }
+    hard: true
+benefits:
+  - "Independent release, scaling and failure isolation for one capability"
+  - Reversible by route flip while the monolith remains
+liabilities:
+  - "Network latency, partial failure and eventual consistency"
+  - "Permanent operational surface: pipeline, on-call, observability"
+introduced_complexity:
+  - "Routing facade, contract tests, parallel-run scaffolding"
+  - Data synchronization and reconciliation
+architecture_invariants:
+  - The monolith stays untouched until a separate contraction slice
+  - No behavior change while the facade is identity-routed
+transformations:
+  - "First slice: identity-route facade at 0% traffic with parity tests"
+  - "Then shadow (side-effect-free parallel run), then a 1% canary"
+  - "Dropping legacy code or data is a separate, human-gated contraction slice"
+proof_obligations:
+  - contract
+  - characterization
+  - performance
+  - smoke
+  - rollback-rehearsal
+rollback_strategies:
+  - revert
+  - fail_over
+composes_with:
+  - migration.strangler-fig
+  - migration.branch-by-abstraction
+  - decomposition.database-decomposition
+conflicts_with:
+  - anti-pattern.distributed-monolith
+  - anti-pattern.nanoservices
+removal_recipe:
+  - Set route weight to 0 and keep the monolith path; this is instant
+  - Remove the service only after the monolith path is verified healthy
+version: 1.0.0

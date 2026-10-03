@@ -1,0 +1,62 @@
+schema_version: "1.0"
+id: decomposition.modularize-in-place
+name: Modularize in Place
+aliases:
+  - modular monolith
+category: decomposition
+treatment: T1
+problem: "Module boundaries inside the single deployable are unenforced, producing cycles and private access that block any later extraction."
+forces:
+  - Structural coupling is high but the domain is cohesive
+  - A shared database and one deploy are acceptable
+applicability_signals:
+  - id: cycles
+    description: Modules form dependency cycles.
+    predicate: { metric: cycle.size, op: '>', value: 1 }
+  - id: layer-violations
+    description: Layer or boundary rule violations exist.
+    predicate: { metric: layer.violations, op: '>', value: 0 }
+  - id: co-change-leak
+    description: "Heuristic: more than 20% of commits touch other boundaries."
+    predicate: { metric: module.co_change_leak, op: '>', value: 0.2 }
+required_evidence:
+  - "Import graph, strongly connected components and violation counts"
+  - Ownership map
+preconditions:
+  - id: tests
+    description: "Characterization tests cover the code before boundaries are enforced; if absent, add them first."
+    predicate: { metric: tests.present, op: '>', value: 0 }
+contraindications:
+  - id: no-tests
+    description: "Soft: no covering tests, so write characterization tests first."
+    predicate: { metric: tests.present, op: '==', value: 0 }
+benefits:
+  - Boundaries and ownership without distributed-systems cost
+  - Lays the groundwork for T2 or T3 only if a driver appears
+liabilities:
+  - Static rules miss dynamic loading and reflection; zero violations do not prove runtime isolation
+  - The shared database still couples modules
+introduced_complexity:
+  - Boundary rule configuration and a baseline file of existing violations
+architecture_invariants:
+  - Violation count never increases
+  - The module graph is a DAG at the module level
+transformations:
+  - Add boundary rules in warn-only mode with a baseline of existing violations
+  - Then block new violations in CI and break the smallest cycle first
+proof_obligations:
+  - characterization
+  - architecture-fitness
+  - no-new-cycles
+  - diff-budget
+rollback_strategies:
+  - revert
+composes_with:
+  - architecture.modular-monolith
+  - domain.module-facade
+  - domain.acyclic-dependencies
+conflicts_with: []
+removal_recipe:
+  - Revert the rule configuration commit; the baseline file is deleted with it
+  - "No runtime behavior changes, so nothing else to undo"
+version: 1.0.0

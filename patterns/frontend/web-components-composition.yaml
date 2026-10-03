@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: frontend.web-components-composition
+name: Web Components Composition
+category: frontend
+problem: "Framework-neutral custom elements let teams on different stacks embed each other's UI through a standard browser contract."
+forces:
+  - Technology divergence between teams
+  - "Styling, SSR and form integration with custom elements are uneven"
+applicability_signals:
+  - id: mixed-frameworks
+    description: Teams use different frameworks that must interoperate.
+    predicate: { metric: driver.technology_divergence, op: '==', value: 1 }
+required_evidence:
+  - Framework inventory per area
+  - SSR and accessibility requirements
+preconditions:
+  - id: element-contract
+    description: "Element attributes, properties and events are specified."
+contraindications:
+  - id: ssr-required
+    description: Full server rendering of every element is required and not supported.
+benefits:
+  - Framework-agnostic integration contract
+  - Encapsulation through shadow DOM
+liabilities:
+  - "Weaker SSR, form and theming support"
+  - Duplicated framework runtimes
+introduced_complexity:
+  - Element API versioning and event contracts
+architecture_invariants:
+  - Elements communicate through attributes and events only
+transformations:
+  - Wrap one self-contained widget as a custom element and embed it
+  - Version its attributes and events
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.design-system-package
+conflicts_with:
+  - frontend.iframe-composition
+removal_recipe:
+  - Replace the element with the native component of the host
+  - Remove the wrapper and its registration
+version: 1.0.0

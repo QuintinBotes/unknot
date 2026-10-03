@@ -1,0 +1,51 @@
+schema_version: "1.0"
+id: frontend.build-time-packages
+name: Build-Time Package Composition
+category: frontend
+problem: Independently developed frontend packages are published to a registry and assembled into one application at build time.
+forces:
+  - Teams own versioned packages but ship one bundle
+  - Any package change needs an application rebuild and release
+applicability_signals:
+  - id: shared-ui-modules
+    description: Several teams contribute modules to one app.
+    predicate: { metric: frontend.teams, op: '>=', value: 2 }
+required_evidence:
+  - Package dependency graph and version skew
+  - Release coordination cost
+preconditions:
+  - id: versioning
+    description: Packages are semantically versioned with changelogs.
+contraindications:
+  - id: independent-release
+    description: Teams need to release without rebuilding the app.
+    predicate: { metric: driver.independent_deploy, op: '==', value: 1 }
+benefits:
+  - Single optimized bundle with shared dependencies deduplicated
+  - Type checking and tests across package boundaries
+liabilities:
+  - "Lockstep releases: the app must rebuild for any package change"
+  - Version drift across consuming apps
+introduced_complexity:
+  - "Registry, versioning policy and integration pipeline"
+architecture_invariants:
+  - The app pins explicit package versions
+transformations:
+  - Extract one feature into a workspace package with an explicit public entry
+  - Publish and consume it with a pinned version
+proof_obligations:
+  - smoke
+  - integration
+  - performance
+  - human-review
+rollback_strategies:
+  - revert
+composes_with:
+  - frontend.design-system-package
+  - decomposition.frontend-modular-monolith
+conflicts_with:
+  - frontend.runtime-module-federation
+removal_recipe:
+  - Inline the package source back into the app
+  - Unpublish after the last consumer migrates
+version: 1.0.0
