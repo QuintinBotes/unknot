@@ -186,7 +186,7 @@ describe('PDP shell protections reinforce judgeShell (alwaysOn)', () => {
 });
 
 describe('BUGS: escapes found by this suite', () => {
-  const bug = (cmd, why) => test(`denies ${JSON.stringify(cmd)}`, { todo: `BUG: ${why}` }, () => {
+  const bug = (cmd, why) => test(`denies ${JSON.stringify(cmd)}`, {}, () => {
     const v = judge(cmd);
     assert.equal(v.allow, false, `allowed: ${cmd}`);
   });

@@ -18,7 +18,10 @@ export function globToRegExp(pattern, { nocase = false } = {}) {
   if (typeof pattern !== 'string' || pattern.length === 0 || pattern.includes('\0')) {
     throw new TypeError(`invalid glob ${JSON.stringify(pattern)}`);
   }
-  const body = translate(pattern.replace(/^\.\//, ''));
+  if (pattern.length > 512) throw new TypeError('glob longer than 512 characters');
+  // Three or more stars mean the same as `**`; collapsing them keeps the regex linear
+  // (one `[^/]*` per star backtracks catastrophically on long runs).
+  const body = translate(pattern.replace(/^\.\//, '').replace(/\*{3,}/g, '**').replace(/(?<!\*)\*\*(?!\/|$)(?<!\/\*\*)/g, (m, off, str) => (off === 0 || str[off - 1] === '/' ? m : '*')));
   const re = new RegExp(`^${body}$`, nocase ? 'si' : 's');
   cache.set(key, re);
   return re;

@@ -28,6 +28,15 @@ export async function main(eventName) {
     }
     // An initialised project whose state cannot be judged gets no mutations: the safe
     // way to be wrong. Reads stay allowed so the user can still investigate.
+    const target = event.tool_input?.file_path ?? event.tool_input?.path ?? event.tool_input?.notebook_path ?? null;
+    if (root && name === 'PreToolUse' && target) {
+      const { isSecretPath } = await import('../core/paths.mjs');
+      const { relative } = await import('node:path');
+      if (isSecretPath(relative(root, target)) || /\.config\/unknot|\.ssh\//.test(target)) {
+        respond(preToolDeny('Unknot could not evaluate policy and will not expose credential paths meanwhile; run `unknot doctor`.'));
+        return;
+      }
+    }
     if (root && name === 'PreToolUse' && MUTATING.test(event.tool_name ?? '')) {
       respond(preToolDeny(`Unknot could not evaluate policy (${err?.code ?? 'error'}: ${err?.message ?? err}); mutations are blocked until \`unknot doctor\` passes. Details: .unknot/state/hook-errors.log`));
       return;

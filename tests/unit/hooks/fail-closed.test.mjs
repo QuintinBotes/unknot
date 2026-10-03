@@ -163,7 +163,7 @@ describe('hook process: fail-closed when state cannot be read', () => {
   });
 
   test('a secret read is still denied when the ledger cannot be written',
-    { todo: 'BUG: handlers.mjs onPreToolUse awaits recordDecision() (ledger append) before returning a deny; if the append throws (locked/full DB) main.mjs falls through to respond(null) for non-MUTATING tools, so Read of .env is allowed' },
+    {},
     () => {
       const p = project();
       // Simulate a full disk / locked database: the decision log cannot be written.

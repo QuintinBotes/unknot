@@ -217,11 +217,12 @@ export function recordDecision(ctx, { finding, decision, rationale, actor, days 
   if (!rationale || rationale.trim().length < 10) throw new UnknotError('UK_SCHEMA_INVALID', 'a rationale of at least 10 characters is required');
   const at = nowISO();
   const suppress_until = decision === 'reject' ? new Date(Date.now() + days * 86_400_000).toISOString() : null;
-  const record = { id: `D-${ctx.store.nextId('D', 4).slice(2)}`, finding_id: finding.id, fingerprint: finding.fingerprint, decision, rationale: rationale.trim(), actor, suppress_until, at };
+  const record = { schema_version: '1.0', id: `D-${ctx.store.nextId('D', 4).slice(2)}`, finding_id: finding.id, fingerprint: finding.fingerprint, decision, rationale: rationale.trim(), actor, suppress_until, at };
   const v = validateArtifact('decision', record);
   if (!v.valid) throw new UnknotError('UK_SCHEMA_INVALID', `decision invalid: ${v.errors[0].path} ${v.errors[0].message}`);
   ctx.store.tx(() => {
-    ctx.store.insert('decisions', record);
+    const { schema_version, ...row } = record;
+    ctx.store.insert('decisions', row);
     const row = ctx.store.get('SELECT version, body FROM findings WHERE id = ?', finding.id);
     const status = decision === 'accept' ? 'accepted' : 'rejected';
     ctx.store.update('findings', finding.id, row.version, { status, body: { ...JSON.parse(row.body), status }, updated_at: at });

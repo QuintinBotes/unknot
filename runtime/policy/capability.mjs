@@ -34,9 +34,10 @@ export const PROFILES = Object.freeze({
 });
 
 export function profileFor(agentType) {
-  if (!agentType) return null;
-  const name = String(agentType).replace(/^unknot:/, '');
-  return PROFILES[name] ? { name, ...PROFILES[name] } : { name: 'foreign', ...PROFILES.foreign };
+  const name = String(agentType ?? '').replace(/^unknot:/, '');
+  // Own-property lookup: an agent type named `constructor` or `__proto__` must not reach
+  // Object.prototype and come back as a profile without ops.
+  return name && Object.hasOwn(PROFILES, name) ? { name, ...PROFILES[name] } : { name: 'foreign', ...PROFILES.foreign };
 }
 
 function mac(projectId, payload) {

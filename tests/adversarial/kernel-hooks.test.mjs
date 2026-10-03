@@ -115,7 +115,7 @@ describe('subagents cannot exceed their capability', () => {
   });
 
   test('a very long agent_type name must not turn a denial into an allow',
-    { todo: 'BUG: handlers.mjs actorOf() lets model:<agent_type> exceed the 128-char ledger actor limit; appendEvent throws while recording the denial, the hook crashes and main.mjs answers null (allow) for Read of .env' },
+    {},
     async () => {
       const s = scene();
       const a = await pre(s, 'Read', { file_path: join(s.p.dir, '.env') }, { agent_id: 'long', agent_type: 'x'.repeat(200) }).catch(() => null);
@@ -123,7 +123,7 @@ describe('subagents cannot exceed their capability', () => {
     });
 
   test('an agent event with an agent_id but no agent_type must not crash the decision',
-    { todo: 'BUG: pdp.mjs decide()/capability.mjs profileFor(undefined)=null -> TypeError; main.mjs answers null (allow) for Read of .env' },
+    {},
     async () => {
       const s = scene();
       const a = await pre(s, 'Read', { file_path: join(s.p.dir, '.env') }, { agent_id: 'no-type' }).catch(() => null);
@@ -131,7 +131,7 @@ describe('subagents cannot exceed their capability', () => {
     });
 
   test('an agent type named like an Object.prototype member must not crash the decision',
-    { todo: 'BUG: capability.mjs profileFor("constructor") returns a profile without ops; decide() throws and the hook fails open for reads' },
+    {},
     async () => {
       const s = scene();
       const a = await pre(s, 'Read', { file_path: join(s.p.dir, '.env') }, { agent_id: 'proto', agent_type: 'constructor' }).catch(() => null);

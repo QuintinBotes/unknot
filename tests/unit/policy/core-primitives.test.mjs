@@ -86,7 +86,7 @@ describe('glob', () => {
   });
 
   test('a run of consecutive stars does not backtrack catastrophically',
-    { todo: 'BUG: glob.mjs translate() emits one `[^/]*` per `*`, so `*` x18 against 26 chars takes ~0.8s and grows polynomially/exponentially (ReDoS via config globs)' },
+    {},
     () => {
       const t = Date.now();
       m('*'.repeat(18) + 'a', 'a'.repeat(26) + 'b');
@@ -262,7 +262,7 @@ describe('redaction', () => {
   });
 
   test('aws secret access key ending in "/" or "+" is still redacted',
-    { todo: 'BUG: redact.mjs aws-secret-access-key rule ends in `\\b`, which cannot match after a trailing `/` or `+` (valid base64 key characters), so such keys leak' },
+    {},
     () => {
       for (const last of ['/', '+']) {
         const key = `${rep('aB3q', 9)}aB3${last}`;

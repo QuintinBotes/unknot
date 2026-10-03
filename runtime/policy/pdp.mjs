@@ -3,6 +3,7 @@
 // run, the actor's capability and the effective config. Recording and budget charging
 // happen in the caller, so this module is easy to test exhaustively.
 
+import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { matchAny } from '../core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.mjs';
@@ -78,6 +79,11 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
       return deny('state.protected', 'direct access to Unknot state or key material is not allowed');
     }
     const shell = judgeShell(cmd, { pluginRoot });
+    // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
+    // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
+    if (/\.unknot(\/|\b)/i.test(cmd) && !shell.allow) {
+      return deny('state.protected', 'commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI');
+    }
     const touched = [...shell.writes];
     for (const c of shell.commands) {
       const name = c.argv[0]?.value?.split('/').pop();
@@ -93,12 +99,15 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
   return null;
 }
 
+// Compared case-insensitively: on case-insensitive filesystems `.unknot/DECISIONS.jsonl`
+// is the decisions file, even before it exists.
 function isStatePath(rel) {
+  const r = rel.toLowerCase();
   return (
-    rel === '.unknot/config.yaml' ||
-    rel === '.unknot/decisions.jsonl' ||
-    rel === '.unknot/.gitignore' ||
-    matchAny(rel, ['.unknot/state/**', '.unknot/cas/**', '.unknot/runs/**', '.unknot/campaigns/**', '.unknot/slices/**', '.unknot/telemetry/**'])
+    r === '.unknot/config.yaml' ||
+    r === '.unknot/decisions.jsonl' ||
+    r === '.unknot/.gitignore' ||
+    matchAny(r, ['.unknot/state/**', '.unknot/cas/**', '.unknot/runs/**', '.unknot/campaigns/**', '.unknot/slices/**', '.unknot/telemetry/**', '.unknot/decompositions/**'])
   );
 }
 
@@ -148,8 +157,17 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
     case 'exec': {
       const verdict = judgeShell(op.command, { pluginRoot });
       if (!verdict.allow) return deny('exec.shell', verdict.reasons.join('; '), base);
-      for (const r of verdict.reads) {
-        const rel = relFrom(ctx.root, realpathLenient(resolve(op.cwd ?? ctx.root, r)));
+      const home = realpathLenient(unknotHome());
+      const root = realpathLenient(ctx.root);
+      for (const r of [...verdict.reads, ...(verdict.args ?? [])]) {
+        if (r === '/dev/null' || r === '-' || r === '.' || r === '..') continue;
+        if (!r.includes('/') && !r.startsWith('.') && !existsSync(resolve(op.cwd ?? ctx.root, r))) continue; // a pattern or word, not a path
+        const real = realpathLenient(resolve(op.cwd ?? ctx.root, r));
+        if (isInside(home, real)) return deny('keys.protected', 'Unknot key material is not readable by agents', base);
+        const inRoot = isInside(root, real);
+        const inPlugin = pluginRoot && isInside(realpathLenient(pluginRoot), real);
+        if (!inRoot && !inPlugin) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${r}`, base);
+        const rel = inRoot ? relFrom(ctx.root, real) : null;
         if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file`, base);
       }
       return allow('exec.read_only', { ...base, commands: verdict.commands.length });
@@ -208,6 +226,7 @@ function decideWrite({ ctx, config, run, slice, profile, capability, op, base })
     if (!isInside(wt, real)) return deny('scope.worktree', `writes must be inside the slice worktree ${toPosix(relative(ctx.root, wt))}/, not ${rel}`, base);
     const inner = toPosix(relative(wt, real));
     if (inner === '.git' || inner.startsWith('.git/')) return deny('write.git', 'git internals are not writable', base);
+    if (/^\.unknot(\/|$)/i.test(inner)) return deny('state.protected', 'a slice cannot change Unknot configuration or state, even in its worktree', base);
     const body = slice.body ?? {};
     const include = body.scope?.include ?? [];
     const exclude = body.scope?.exclude ?? [];
@@ -217,6 +236,7 @@ function decideWrite({ ctx, config, run, slice, profile, capability, op, base })
     if (matchAny(inner, config.generated_paths) || matchAny(inner, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) {
       return deny('scope.generated', `${inner} is generated or vendored; it is not edited as source`, base);
     }
+    if (matchAny(inner, config.scope?.exclude ?? [])) return deny('scope.excluded', `${inner} is excluded from Unknot's scope (config scope.exclude)`, base);
     if (matchAny(inner, config.protected_paths, { nocase: true })) {
       const named = include.some((g) => matchAny(inner, [g]) && !g.includes('**'));
       if (!named || !['high', 'critical'].includes(slice.risk)) {

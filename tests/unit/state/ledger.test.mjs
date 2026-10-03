@@ -93,7 +93,7 @@ describe('append-only triggers', () => {
     assert.equal(p.ctx.store.get('SELECT COUNT(*) AS n FROM events').n, 2);
   });
 
-  test('INSERT OR REPLACE cannot overwrite an existing seq', { todo: 'BUG: events_append_only_d does not fire for INSERT OR REPLACE (recursive_triggers off), store.mjs DDL_V1; an existing event row can be replaced' }, () => {
+  test('INSERT OR REPLACE cannot overwrite an existing seq', {}, () => {
     const { p } = seeded(2);
     const row = p.ctx.store.get('SELECT * FROM events WHERE seq = 1');
     assert.throws(() => p.ctx.store.run(

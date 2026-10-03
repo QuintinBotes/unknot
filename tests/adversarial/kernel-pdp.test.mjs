@@ -95,7 +95,7 @@ describe('human-only commands cannot be reached through shell tricks', () => {
 });
 
 describe('BUGS: shell writes to protected state that alwaysOn misses', () => {
-  const bug = (cmd, why) => test(`denies ${cmd}`, { todo: `BUG: ${why}` }, () => assert.equal(bash(cmd)?.decision, 'deny', `allowed: ${cmd}`));
+  const bug = (cmd, why) => test(`denies ${cmd}`, {}, () => assert.equal(bash(cmd)?.decision, 'deny', `allowed: ${cmd}`));
   const reason = 'pdp.mjs alwaysOn only inspects redirects and a short list of write programs (rm mv cp tee ... rsync); it does not see in-place editors, interpreters, cd+relative redirects or dd of=';
 
   bug("sed -i.bak s/plan/campaign/ .unknot/config.yaml", `${reason} (sed -i)`);

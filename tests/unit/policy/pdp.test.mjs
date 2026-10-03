@@ -256,12 +256,12 @@ describe('decide: writes', () => {
     }
   });
 
-  test('config scope.exclude entries (build/**, generated/**) are not writable', { todo: 'BUG: pdp.mjs decideWrite never consults config.scope.exclude; only slice exclude, generated_paths and a hard-coded vendor/node_modules/dist list' }, () => {
+  test('config scope.exclude entries (build/**, generated/**) are not writable', {}, () => {
     const w = world({ include: ['**'] });
     for (const f of ['build/b.js', 'generated/x.js']) assert.equal(write(w, f).decision, 'deny', f);
   });
 
-  test('a slice cannot rewrite its own worktree copy of .unknot config/state', { todo: 'BUG: pdp.mjs state protection (isStatePath) is relative to ctx.root only, so <worktree>/.unknot/config.yaml is writable when slice include is broad; config.scope.exclude (.unknot/**) is never consulted' }, () => {
+  test('a slice cannot rewrite its own worktree copy of .unknot config/state', {}, () => {
     const w = world({ include: ['**'] });
     mkdirSync(join(w.wt, '.unknot'), { recursive: true });
     assert.equal(write(w, '.unknot/config.yaml').decision, 'deny');
@@ -347,7 +347,7 @@ describe('decide: subagent capabilities and profiles', () => {
   });
 
   test('a subagent event without agent_type is treated as foreign instead of crashing the decision',
-    { todo: 'BUG: capability.mjs profileFor(undefined) returns null and pdp.mjs decide() throws TypeError (profile.name) when agent_id is set without agent_type; the hook then fails open for reads (main.mjs answers null)' },
+    {},
     () => {
       const w = world();
       const actor = { agent_id: 'ag' };
@@ -530,13 +530,13 @@ describe('decide: Bash', () => {
     assert.equal(policy(bash('wc -c < config/server.pem')), 'secrets.read');
   });
 
-  test('cat of a secret file named as an argument is denied', { todo: 'BUG: pdp.mjs exec case only screens `<` redirect targets for secret paths; `cat .env` / `head id_rsa` argument reads reach the model' }, () => {
+  test('cat of a secret file named as an argument is denied', {}, () => {
     assert.equal(bash('cat .env').decision, 'deny');
     assert.equal(bash('head -c 100 config/server.pem').decision, 'deny');
     assert.equal(bash('grep -r TOKEN .env').decision, 'deny');
   });
 
-  test('Bash reads outside the project are denied', { todo: 'BUG: pdp.mjs exec never checks argument paths against the project root, so `cat /etc/passwd` or `cat <UNKNOT_HOME>/projects/*/audit.pem` is allowed during a run' }, () => {
+  test('Bash reads outside the project are denied', {}, () => {
     assert.equal(bash('cat /etc/passwd').decision, 'deny');
     assert.equal(bash(`cat ${w.p.home}/projects/x/audit.pem`).decision, 'deny');
     assert.equal(bash('ls /Users').decision, 'deny');

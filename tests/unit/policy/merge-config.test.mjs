@@ -163,7 +163,7 @@ describe('applyOrgPolicy: tighten-only', () => {
   });
 
   test('mcp: a repo that allows no servers gains none from the org list',
-    { todo: 'BUG: merge.mjs mcp.allowed_servers: empty repo list is treated as "unset" so the org allowlist is granted to the repo (widening); network.allowed_domains handles the same case correctly' },
+    {},
     () => {
       assert.deepEqual(merged(K.cfg(), { mcp: { allowed_servers: ['github'] } }).mcp.allowed_servers, []);
     });
@@ -174,7 +174,7 @@ describe('applyOrgPolicy: tighten-only', () => {
   });
 
   test('scope.include: disjoint repo/org includes must not collapse to "everything"',
-    { todo: 'BUG: merge.mjs scope.include intersect() of disjoint lists yields [] and an empty include means unrestricted scope' },
+    {},
     () => {
       const out = merged(K.cfg({ scope: { include: ['src/**'] } }), { scope: { include: ['lib/**'] } });
       assert.ok(out.scope.include.length > 0 || out.scope.exclude.includes('**'), `include=${JSON.stringify(out.scope.include)}`);

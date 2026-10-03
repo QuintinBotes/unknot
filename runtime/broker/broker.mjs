@@ -5,9 +5,9 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { accessSync, appendFileSync, constants, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, delimiter, join, resolve as resolvePath } from 'node:path';
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
@@ -43,8 +43,19 @@ function subcommand(args) {
   return null;
 }
 
+// System binary directories where an absolute tool path is acceptable.
+const SYSTEM_BIN = ['/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/opt/homebrew/bin', '/opt/local/bin', '/run/current-system/sw/bin'];
+
+// Flags that make a rendering tool execute programs from the repository under analysis.
+const EXEC_FLAGS = /^--post-renderer|^--enable-exec|^--enable-alpha-plugins|^--enable-helm|^--load-restrictor|^--plugin|^--exec/;
+
 /** Validate an argv for a runtime-internal tool. Returns null or a denial reason. */
 export function checkInternalArgv(argv) {
+  // A bare name only: `./git` or `/tmp/x/terraform` could be a binary the repository put
+  // there, named like a tool the runtime trusts.
+  if ((argv[0].includes('/') || argv[0].includes('\\')) && !SYSTEM_BIN.some((d) => argv[0].startsWith(`${d}/`) && !argv[0].slice(d.length + 1).includes('/'))) {
+    return `${argv[0]} must be a bare executable name or live in a system bin directory`;
+  }
   const name = basename(argv[0]);
   const rule = TOOL_RULES[name];
   if (!rule) return `${name} is not an executable the runtime drives`;
@@ -52,9 +63,38 @@ export function checkInternalArgv(argv) {
   const sub = subcommand(args);
   if (rule.deny && sub && rule.deny.test(sub)) return `${name} ${sub} is forbidden`;
   if (rule.allow && (!sub || !rule.allow.has(sub))) return `${name} ${sub ?? ''} is not allowed`;
-  if (rule.needs && ['apply', 'create'].includes(sub) && !args.some((a) => rule.needs.test(a))) return `${name} ${sub} requires --dry-run`;
+  const exec = args.find((a) => EXEC_FLAGS.test(a));
+  if (exec) return `${name} ${exec} executes programs and is not allowed`;
+  if (rule.needs && ['apply', 'create'].includes(sub)) {
+    // Every --dry-run must be client or server: kubectl takes the last one, so a later
+    // `--dry-run=none` would turn a preview into a real apply.
+    const dry = args.filter((a) => a === '--dry-run' || a.startsWith('--dry-run='));
+    if (!dry.length || dry.some((a) => !rule.needs.test(a))) return `${name} ${sub} requires --dry-run=client or --dry-run=server and nothing else`;
+  }
   if (name === 'git' && sub === 'push') return 'git push is never run by Unknot';
   if (name === 'helm' && sub === 'dependency' && !['list'].includes(args[args.indexOf('dependency') + 1])) return 'helm dependency is limited to list';
+  return null;
+}
+
+/** Absolute path of an executable, or null. Bare names are searched on PATH. */
+export function which(file, pathEnv = process.env.PATH ?? '') {
+  if (file.includes('/')) {
+    try {
+      accessSync(file, constants.X_OK);
+      return file;
+    } catch {
+      return null;
+    }
+  }
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) continue;
+    try {
+      accessSync(join(dir, file), constants.X_OK);
+      return join(dir, file);
+    } catch {
+      // next PATH entry
+    }
+  }
   return null;
 }
 
@@ -114,6 +154,10 @@ export async function brokerExec(ctx, req) {
   }
   if (run) charge(ctx, run, 'commands', 1);
 
+  const resolved = which(argv[0].includes('/') ? resolvePath(cwd, argv[0]) : argv[0], process.env.PATH);
+  if (origin === 'internal' && resolved && isInside(realpathLenient(ctx.root), realpathLenient(resolved))) {
+    throw new UnknotError('UK_POLICY_DENIED', `${argv[0]} resolves inside the repository (${resolved}); the runtime does not execute repository-supplied tools`);
+  }
   const runDir = join(ctx.paths.runs, run?.id ?? 'adhoc');
   const tmp = join(runDir, 'tmp');
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
@@ -125,7 +169,9 @@ export async function brokerExec(ctx, req) {
   const envDigest = digest({ keys: Object.keys(env).sort(), path: env.PATH, sandbox: wrapped.sandbox, network });
   appendEvent(ctx, { type: 'exec.started', run_id: run?.id, slice_id: sliceId, actor: 'runtime:broker', payload: { exec_id: execId, argv, cwd: realCwd, sandbox: wrapped.sandbox, origin } });
 
-  const result = await new Promise((resolvePromise) => {
+  const result = !resolved
+    ? { error: Object.assign(new Error(`${argv[0]}: not found`), { code: 'ENOENT' }), streams: { stdout: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false }, stderr: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false } }, timedOut: false, durationMs: 0 }
+    : await new Promise((resolvePromise) => {
     const started = process.hrtime.bigint();
     const child = spawn(wrapped.file, wrapped.args, { cwd: realCwd, env, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     const streams = { stdout: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false }, stderr: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false } };

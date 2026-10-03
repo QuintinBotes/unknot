@@ -49,7 +49,12 @@ export function applyOrgPolicy(repo, org) {
   if (org.max_mode && MODES.includes(org.max_mode) && modeRank(c.mode) > modeRank(org.max_mode)) set('mode', org.max_mode);
   if (org.mode && modeRank(c.mode) > modeRank(org.mode)) set('mode', org.mode);
 
-  if (org.scope?.include?.length) set('scope.include', c.scope.include.length ? intersect(c.scope.include, org.scope.include) : org.scope.include);
+  if (org.scope?.include?.length) {
+    // An empty include means "everything", so a disjoint intersection must become a
+    // pattern that matches nothing, never the empty list.
+    const both = c.scope.include.length ? intersect(c.scope.include, org.scope.include) : org.scope.include;
+    set('scope.include', both.length ? both : ['.unknot-no-scope/__nothing__']);
+  }
   for (const key of ['scope.exclude', 'protected_paths', 'generated_paths', 'security.redact_patterns']) {
     const o = get(org, key);
     if (o) set(key, union(get(c, key), o));
@@ -75,7 +80,7 @@ export function applyOrgPolicy(repo, org) {
   if (org.approvers) {
     set('approvers', org.approvers_locked ? { ...org.approvers } : { ...c.approvers, ...org.approvers });
   }
-  if (org.mcp?.allowed_servers) set('mcp.allowed_servers', intersect(c.mcp.allowed_servers.length ? c.mcp.allowed_servers : null, org.mcp.allowed_servers) ?? []);
+  if (org.mcp?.allowed_servers) set('mcp.allowed_servers', intersect(c.mcp.allowed_servers ?? [], org.mcp.allowed_servers));
   if (org.network?.allowed_domains) set('network.allowed_domains', intersect(c.network.allowed_domains, org.network.allowed_domains));
   if (org.telemetry?.enabled === false) set('telemetry.enabled', false);
   for (const k of ['runs', 'cache']) if (org.retention?.[k]) set(`retention.${k}`, minDuration(c.retention[k], org.retention[k]));

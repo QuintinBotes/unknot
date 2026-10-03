@@ -39,6 +39,9 @@ CREATE TRIGGER IF NOT EXISTS events_append_only_u BEFORE UPDATE ON events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS events_append_only_d BEFORE DELETE ON events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS events_append_only_i BEFORE INSERT ON events
+  WHEN EXISTS (SELECT 1 FROM events WHERE seq = NEW.seq OR id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE INDEX IF NOT EXISTS events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS events_slice ON events(slice_id);
 CREATE TABLE IF NOT EXISTS facts (
@@ -125,7 +128,8 @@ export class Store {
     if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.file = file;
     this.db = new DatabaseSync(file, { readOnly });
-    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
+    // recursive_triggers makes REPLACE fire the delete trigger too.
+    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = ON;');
     if (!readOnly) {
       if (file !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL;');
       this.migrate();
@@ -142,6 +146,7 @@ export class Store {
         `store schema ${current} is newer than this runtime supports (${STORE_SCHEMA_VERSION}); upgrade Unknot`,
       );
     }
+    if (current >= 1) this.db.exec(DDL_V1); // idempotent: adds triggers introduced after creation
     if (current < 1) {
       this.db.exec(DDL_V1);
       this.db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)").run(String(STORE_SCHEMA_VERSION));

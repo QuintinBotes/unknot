@@ -41,6 +41,20 @@ async function loadRunState(ctx) {
 }
 
 function recordDecision(ctx, run, op, d, actor) {
+  try {
+    recordDecisionUnsafe(ctx, run, op, d, actor);
+  } catch (err) {
+    // A full disk or a locked database must not turn a deny into an allow: the decision
+    // stands and the logging failure is reported separately.
+    try {
+      process.stderr.write(`unknot: could not record policy decision: ${err.message}\n`);
+    } catch {
+      // nothing else to do
+    }
+  }
+}
+
+function recordDecisionUnsafe(ctx, run, op, d, actor) {
   ctx.store.insert('policy_results', {
     run_id: run?.id ?? null,
     operation: { op: op.op, tool: op.tool, paths: op.paths?.map((p) => relative(ctx.root, p)), command: op.command?.slice(0, 500), domain: op.domain, server: op.server },
@@ -62,7 +76,7 @@ function recordDecision(ctx, run, op, d, actor) {
   }
 }
 
-const actorOf = (event) => (event.agent_id ? `model:${String(event.agent_type ?? 'agent').replace(/[^A-Za-z0-9@._:/-]/g, '_')}` : 'model:main');
+const actorOf = (event) => (event.agent_id ? `model:${String(event.agent_type ?? 'agent').replace(/[^A-Za-z0-9@._:/-]/g, '_').slice(0, 100)}` : 'model:main');
 
 export async function onPreToolUse(event) {
   const ctx = await projectFor(event);

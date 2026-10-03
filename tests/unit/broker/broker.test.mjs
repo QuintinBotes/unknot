@@ -47,7 +47,7 @@ describe('internal argv rules (checkInternalArgv)', () => {
   }
 
   test('executables must be bare names, not repository-controlled paths named like a tool',
-    { todo: 'BUG: broker.mjs checkInternalArgv matches basename(argv[0]), so ./git, /tmp/x/terraform or a repo-supplied binary named like an allowed tool passes the allowlist and is executed' },
+    {},
     () => {
       for (const argv of [['./git', 'status'], ['bin/terraform', 'validate'], ['/tmp/evil/git', 'status'], ['../git', 'log']]) {
         assert.equal(typeof checkInternalArgv(argv), 'string', argv.join(' '));
@@ -55,14 +55,14 @@ describe('internal argv rules (checkInternalArgv)', () => {
     });
 
   test('a later --dry-run flag cannot override an earlier dry-run=client',
-    { todo: 'BUG: broker.mjs kubectl rule accepts any one `--dry-run=client|server` among args; `kubectl apply -f x --dry-run=client --dry-run=none` (last wins in kubectl) performs a real apply' },
+    {},
     () => {
       assert.equal(typeof checkInternalArgv(['kubectl', 'apply', '-f', 'x', '--dry-run=client', '--dry-run=none']), 'string');
     });
 
   for (const argv of [['helm', 'template', 'c', '--post-renderer', './evil.sh'], ['kustomize', 'build', '--enable-exec', 'dir'], ['kustomize', 'build', '--enable-alpha-plugins', 'dir'], ['kubectl', 'kustomize', '--enable-exec', 'dir']]) {
     test(`plugin/exec flags are refused: ${argv.join(' ')}`,
-      { todo: 'BUG: broker.mjs TOOL_RULES has no flag rules for helm --post-renderer or kustomize --enable-exec/--enable-alpha-plugins, which execute programs from the repository under analysis' },
+      {},
       () => assert.equal(typeof checkInternalArgv(argv), 'string'));
   }
 });
@@ -192,7 +192,7 @@ describe('brokerExec: execution, verdicts and evidence', () => {
   });
 
   test('a missing executable is inconclusive, not a plain failure',
-    { todo: 'BUG: broker.mjs under sandbox-exec/bwrap a missing tool exits non-zero from the wrapper (verdict "fail", error null), so verdict/adapterExec ENOENT -> UK_ADAPTER_UNSUPPORTED handling never triggers' },
+    {},
     async () => {
       const r = await exec({ argv: ['definitely-not-installed-zzz'], cwd: p.dir, origin: 'configured', config });
       assert.equal(r.record.verdict, 'inconclusive');

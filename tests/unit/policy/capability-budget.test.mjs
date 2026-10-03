@@ -19,18 +19,18 @@ describe('profiles', () => {
     }
   });
 
-  test('profileFor maps unknot: prefix, unknown types to foreign, nothing to null', () => {
+  test('profileFor maps unknot: prefix, unknown types and missing types to foreign', () => {
     assert.equal(profileFor('unknot:refactorer').name, 'refactorer');
     assert.equal(profileFor('refactorer').name, 'refactorer');
     assert.equal(profileFor('general-purpose').name, 'foreign');
     assert.equal(profileFor('Explore').name, 'foreign');
     assert.equal(profileFor('unknot:not-a-real-agent').name, 'foreign');
     assert.deepEqual(profileFor('Explore').ops, ['fs.read']);
-    assert.equal(profileFor(undefined), null);
+    assert.equal(profileFor(undefined).name, 'foreign');
   });
 
   test('agent types named like Object.prototype members map to foreign, not to a profile without ops',
-    { todo: 'BUG: capability.mjs profileFor() does `PROFILES[name]` on a plain object, so agent_type "constructor"/"toString"/"__proto__" yields a profile with ops undefined; pdp.decide() then throws and the hook fails open for reads' },
+    {},
     () => {
       for (const t of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'unknot:constructor']) {
         const prof = profileFor(t);
