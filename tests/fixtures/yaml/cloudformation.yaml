@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+Conditions:
+  IsProd: !Equals [!Ref Env, prod]
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-${Env}"
+  Topic:
+    Type: AWS::SNS::Topic
+    Condition: IsProd
+    Properties:
+      TopicName: !Join
+        - "-"
+        - - !Ref Env
+          - !Sub "${AWS::Region}-topic"
+          - !Select [0, !GetAZs ""]
+Outputs:
+  BucketArn:
+    Value: !GetAtt Bucket.Arn
+  BucketDomain:
+    Value: !GetAtt
+      - Bucket
+      - DomainName
+  Copy:
+    Value: !If [IsProd, !Ref Bucket, !Ref "AWS::NoValue"]

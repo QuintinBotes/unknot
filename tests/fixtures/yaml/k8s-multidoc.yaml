@@ -1,0 +1,43 @@
+# Deployment and Service for the web tier
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: "nginx:1.25"
+          ports:
+            - containerPort: 80
+          env:
+            - name: MODE
+              value: "on"
+            - name: DEBUG
+              value: 'false'
+          resources:
+            limits: {cpu: 500m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: web
+---

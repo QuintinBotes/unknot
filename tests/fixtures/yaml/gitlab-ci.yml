@@ -1,0 +1,24 @@
+stages: [build, test]
+
+.base: &base
+  image: node:22
+  before_script:
+    - npm ci
+  tags: [docker]
+
+build:
+  <<: *base
+  stage: build
+  script:
+    - npm run build
+  artifacts:
+    paths: [dist/]
+
+test:
+  <<: *base
+  stage: test
+  script:
+    - npm test
+  only:
+    - main
+    - /^release\/.*$/

@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+  web:
+    build: .
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    command: ["npm", "start"]
+volumes:
+  db-data: {}
