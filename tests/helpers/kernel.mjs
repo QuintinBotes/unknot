@@ -24,6 +24,7 @@ export const store = await m('state/store.mjs');
 export const ledger = await m('state/ledger.mjs');
 export const machine = await m('state/machine.mjs');
 export const runs = await m('state/runs.mjs');
+export const configMod = await m('policy/config.mjs');
 export const cas = await m('state/cas.mjs');
 export const handoff = await m('state/handoff.mjs');
 export const budget = await m('policy/budget.mjs');
@@ -75,7 +76,11 @@ export function makeProject({ files = {}, config = null } = {}) {
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'init');
   const ctx = context.openProject(dir, { create: true });
-  if (config !== null) writeFileSync(join(ctx.paths.base, 'config.yaml'), config);
+  if (config !== null) {
+    writeFileSync(join(ctx.paths.base, 'config.yaml'), config);
+    // A person accepts the config at a terminal; tests record that acceptance directly.
+    configMod.recordAcceptedConfig(ctx, config, 'human:test');
+  }
   const home = HOME;
   keys.auditPrivateKey(ctx.projectId);
   keys.cacheKey(ctx.projectId);

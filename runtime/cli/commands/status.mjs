@@ -6,7 +6,7 @@ import { output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ flags }) {
-  const { ctx, config } = open(flags);
+  const { ctx, config, cfg } = open(flags);
   const now = new Date().toISOString();
   const run = activeRun(ctx.store);
   const mapped = ctx.store.meta('mapped_commit');
@@ -19,6 +19,7 @@ export async function run({ flags }) {
   const open_obligations = ctx.store.all("SELECT slice_id, COUNT(*) AS n FROM proof_obligations WHERE status IN ('open','inconclusive','fail') GROUP BY slice_id");
   const status = {
     mode: config.mode,
+    config_acceptance: cfg.acceptance,
     active_run: run ? { id: run.id, command: run.command, started_at: run.started_at, slice: run.slice_id } : null,
     graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current) },
     findings: Object.fromEntries(findings.map((f) => [f.status, f.n])),
@@ -31,7 +32,7 @@ export async function run({ flags }) {
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
-    `Mode: ${status.mode}${run ? ` · active run ${run.id} (${run.command})` : ''}`,
+    `Mode: ${status.mode}${run ? ` · active run ${run.id} (${run.command})` : ''}${cfg.notice ? `\nConfig: ${cfg.notice}` : ''}`,
     `Graph: generation ${status.graph.generation ?? '—'} at ${mapped?.slice(0, 12) || '—'}${status.graph.stale ? ` (STALE: HEAD is ${current?.slice(0, 12)}; run unknot map)` : ''}`,
     `Findings: ${Object.entries(status.findings).map(([k, v]) => `${v} ${k}`).join(', ') || 'none (run unknot diagnose)'}`,
     '',

@@ -13,7 +13,7 @@ process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../runtime/context.mjs');
-const { loadConfig } = await import('../../runtime/policy/config.mjs');
+const { loadConfig, recordAcceptedConfig } = await import('../../runtime/policy/config.mjs');
 const { mapRepository } = await import('../../runtime/graph/builder.mjs');
 const { diagnose } = await import('../../runtime/diagnose/engine.mjs');
 const { createCampaign } = await import('../../runtime/plan/campaign.mjs');
@@ -98,7 +98,11 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
   }));
   g(dir, 'add', '-A');
   g(dir, 'commit', '-qm', 'unknot config');
+  assert.equal(loadConfig(ctx).config.mode, 'plan', 'an unaccepted config never runs above plan');
+  assert.deepEqual(loadConfig(ctx).config.approvers, {}, 'an unaccepted config registers no approvers');
+  recordAcceptedConfig(ctx, readFileSync(join(dir, '.unknot/config.yaml'), 'utf8'), 'human:test');
   const cfg = loadConfig(ctx);
+  assert.equal(cfg.config.mode, 'assist');
   const config = cfg.config;
 
   const mapped = await mapRepository(ctx, { config, configDigest: cfg.digest });

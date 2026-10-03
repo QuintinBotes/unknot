@@ -27,7 +27,9 @@ function recordEvidence(ctx, { run, slice, obligation, record, verdict }) {
     ctx.store.insert('evidence', { id: record.id, obligation_id: obligation.id, slice_id: slice.id, run_id: run.id, record, verdict, diff_hash: slice.diff_hash, at: nowISO() });
     const status = verdict === 'pass' ? 'pass' : verdict === 'fail' ? 'fail' : 'inconclusive';
     ctx.store.run('UPDATE proof_obligations SET status = ?, evidence_id = ?, version = version + 1 WHERE id = ?', status, record.id, obligation.id);
-    appendEvent(ctx, { type: 'evidence.recorded', run_id: run.id, slice_id: slice.id, actor: 'runtime:verifier', payload: { obligation: obligation.id, kind: obligation.kind, verdict, evidence: record.id } });
+    // The record's digest goes into the signed, chained ledger; evidence counts only if it
+    // still matches, so a row written straight into the database proves nothing.
+    appendEvent(ctx, { type: 'evidence.recorded', run_id: run.id, slice_id: slice.id, actor: 'runtime:verifier', payload: { obligation: obligation.id, kind: obligation.kind, verdict, evidence: record.id, record_digest: digest(record), diff_hash: slice.diff_hash } });
   });
 }
 
@@ -89,7 +91,13 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
 function evidenceValid(ctx, slice, o) {
   if (o.status !== 'pass' || !o.evidence_id) return false;
   const ev = ctx.store.get('SELECT verdict, diff_hash, record FROM evidence WHERE id = ?', o.evidence_id);
-  return Boolean(ev && ev.verdict === 'pass' && ev.diff_hash === slice.diff_hash);
+  if (!ev || ev.verdict !== 'pass' || ev.diff_hash !== slice.diff_hash) return false;
+  const want = digest(JSON.parse(ev.record));
+  for (const e of ctx.store.all("SELECT payload FROM events WHERE type = 'evidence.recorded' AND slice_id = ?", slice.id)) {
+    const p = JSON.parse(e.payload);
+    if (p.evidence === o.evidence_id && p.obligation === o.id && p.record_digest === want && p.verdict === 'pass' && p.diff_hash === slice.diff_hash) return true;
+  }
+  return false;
 }
 
 export async function decide(ctx, { cfg, run, slice, actor, results = [], notes = [], pair = null }) {

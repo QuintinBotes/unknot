@@ -60,16 +60,57 @@ export function loadOrgPolicy() {
   return bundles;
 }
 
-export function readRepoConfig(paths) {
-  if (!existsSync(paths.config)) return { raw: null, source: null };
-  const text = readFileSync(paths.config, 'utf8');
-  let raw;
+function parseConfigText(text, filename) {
   try {
-    raw = parseYAML(text, { filename: paths.config }) ?? {};
+    return parseYAML(text, { filename }) ?? {};
   } catch (err) {
-    throw new UnknotError('UK_CONFIG_INVALID', `${paths.config}: ${err.message}`);
+    throw new UnknotError('UK_CONFIG_INVALID', `${filename}: ${err.message}`);
   }
-  return { raw, source: paths.config };
+}
+
+export function readRepoConfig(paths) {
+  if (!existsSync(paths.config)) return { raw: null, source: null, text: null };
+  const text = readFileSync(paths.config, 'utf8');
+  return { raw: parseConfigText(text, paths.config), source: paths.config, text };
+}
+
+/**
+ * Record `text` as the human-accepted configuration (spec §4.2: mode elevation requires
+ * explicit configuration and cannot be inferred). Called only by `unknot config accept`
+ * at a terminal, and by tests.
+ */
+export function recordAcceptedConfig(ctx, text, actor) {
+  const v = validateArtifact('config', parseConfigText(text, '<accepted>'));
+  if (!v.valid) throw new UnknotError('UK_CONFIG_INVALID', `config invalid: ${v.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
+  const d = digest(text);
+  ctx.store.tx(() => {
+    ctx.store.meta('accepted_config_digest', d);
+    ctx.store.meta('accepted_config_text', text);
+  });
+  return d;
+}
+
+/**
+ * Which configuration text to honour. A config file nobody accepted, or one changed
+ * after acceptance (by an agent, a merge, or a script), never raises authority: the
+ * accepted snapshot stays in force, or, with none, the file applies capped at plan mode
+ * with no approvers.
+ */
+function acceptedView(ctx, file) {
+  if (!file.text) return { raw: null, acceptance: 'none', notice: null };
+  const accepted = ctx.store?.meta?.('accepted_config_digest') ?? null;
+  if (accepted && accepted === digest(file.text)) return { raw: file.raw, acceptance: 'accepted', notice: null };
+  const snapshot = ctx.store?.meta?.('accepted_config_text') ?? null;
+  if (snapshot) {
+    // Changes that only tighten (a lower mode, smaller limits, more protected paths)
+    // apply at once; anything that would loosen waits for acceptance. Approvers, commands
+    // and evidence sources are never taken from an unaccepted file.
+    const { approvers, commands, adapters, detectors, evidence, ...tighten } = file.raw;
+    return { raw: parseConfigText(snapshot, '<accepted snapshot>'), tighten, acceptance: 'changed', notice: '.unknot/config.yaml changed since a human accepted it; only changes that tighten policy apply until `unknot config accept` is run in a terminal' };
+  }
+  const capped = { ...file.raw, approvers: {} };
+  if (capped.mode && !['observe', 'plan'].includes(capped.mode)) capped.mode = 'plan';
+  return { raw: capped, acceptance: 'unaccepted', notice: '.unknot/config.yaml has never been accepted; running in plan mode with no approvers until a human runs `unknot config accept`' };
 }
 
 /**
@@ -77,7 +118,10 @@ export function readRepoConfig(paths) {
  * @returns {{config: object, digest: string, adjustments: object[], sources: string[], org: object[]}}
  */
 export function loadConfig(ctx, { overrideRaw } = {}) {
-  const { raw, source } = overrideRaw ? { raw: overrideRaw, source: '<inline>' } : readRepoConfig(ctx.paths);
+  const file = overrideRaw ? { raw: overrideRaw, source: '<inline>', text: null } : readRepoConfig(ctx.paths);
+  const view = overrideRaw ? { raw: overrideRaw, acceptance: 'inline', notice: null } : acceptedView(ctx, file);
+  const raw = view.raw;
+  const source = file.source;
   if (raw) {
     const res = validateArtifact('config', raw);
     if (!res.valid) {
@@ -88,6 +132,11 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
   }
   let config = overlay(structuredClone(DEFAULT_CONFIG), raw ?? {});
   const adjustments = [];
+  if (view.tighten) {
+    const r = applyOrgPolicy(config, { ...view.tighten, mode: view.tighten.mode });
+    config = r.config;
+    adjustments.push(...r.adjustments.map((a) => ({ ...a, by: 'unaccepted config.yaml (tighten-only)' })));
+  }
   const org = loadOrgPolicy();
   for (const bundle of org) {
     const r = applyOrgPolicy(config, bundle.policy);
@@ -100,5 +149,7 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
     adjustments,
     sources: [source, ...org.map((b) => b.file)].filter(Boolean),
     org: org.map(({ file, signed, digest: d }) => ({ file, signed, digest: d })),
+    acceptance: view.acceptance,
+    notice: view.notice,
   };
 }

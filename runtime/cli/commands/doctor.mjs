@@ -39,6 +39,7 @@ export async function run({ flags }) {
       const { loadConfig } = await import('../../policy/config.mjs');
       const ctx = openProject(root);
       const cfg = loadConfig(ctx);
+      add('config acceptance', cfg.acceptance === 'accepted' || cfg.acceptance === 'none', cfg.notice ?? `accepted (${cfg.acceptance})`, cfg.acceptance === 'accepted' || cfg.acceptance === 'none' ? 'ok' : 'warn');
       add('config', true, `mode ${cfg.config.mode}, digest ${cfg.digest.slice(0, 19)}…, sources ${cfg.sources.join(', ') || 'defaults'}`);
       for (const b of cfg.org) add('org policy', true, `${b.file} (${b.signed ? 'signed' : 'unsigned'})`, b.signed ? 'ok' : 'warn');
       if (cfg.adjustments.length) add('org adjustments', true, `${cfg.adjustments.length} repo value(s) tightened by org policy`, 'info');

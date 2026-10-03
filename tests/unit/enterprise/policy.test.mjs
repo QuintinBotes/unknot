@@ -10,6 +10,7 @@ delete process.env.CLAUDECODE;
 
 const { generatePolicyKey, loadPolicyKey, signPolicyFile, trustKey, verifyPolicyDir, validateOrgPolicy, effectivePolicy } = await import('../../../runtime/enterprise/policy-bundle.mjs');
 const { openProject } = await import('../../../runtime/context.mjs');
+const { recordAcceptedConfig } = await import('../../../runtime/policy/config.mjs');
 
 const POLICY = `max_mode: plan
 approvers_locked: true
@@ -83,6 +84,7 @@ test('effective policy: organization policy tightens the repository config', () 
   mkdirSync(join(project, '.unknot'));
   writeFileSync(join(project, '.unknot/config.yaml'), 'version: 1\nmode: governed\nlimits:\n  max_changed_files: 50\nretention:\n  runs: 90d\n');
   const ctx = openProject(project, { create: true });
+  recordAcceptedConfig(ctx, readFileSync(join(project, '.unknot/config.yaml'), 'utf8'), 'human:test');
 
   const before = effectivePolicy(ctx);
   assert.equal(before.config.mode, 'governed');
