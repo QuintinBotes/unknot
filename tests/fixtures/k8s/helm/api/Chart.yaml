@@ -1,0 +1,12 @@
+apiVersion: v2
+name: api
+description: Example API chart
+version: 0.3.1
+appVersion: "1.4.0"
+dependencies:
+  - name: postgresql
+    version: 12.5.6
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    version: "^17.0.0"
+    repository: https://charts.bitnami.com/bitnami

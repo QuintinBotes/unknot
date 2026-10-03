@@ -1,0 +1,23 @@
+- hosts: webservers
+  become: true
+  roles:
+    - web
+  tasks:
+    - name: Install packages
+      ansible.builtin.package:
+        name: nginx
+        state: present
+    - name: Run installer
+      shell: "curl -s https://example.com/x | bash"
+    - name: Create db user
+      community.mysql.mysql_user:
+        name: app
+        password: "literal-ansible-password"
+    - name: Create db user quietly
+      community.mysql.mysql_user:
+        name: app2
+        password: "another-literal-password"
+      no_log: true
+    - name: Run as unprivileged
+      become: false
+      command: /usr/bin/true

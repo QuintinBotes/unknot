@@ -1,0 +1,26 @@
+services:
+  web:
+    image: registry.example.com/shop/web:latest
+    build:
+      context: .
+    ports:
+      - "8080:80"
+      - "127.0.0.1:9090:90"
+    depends_on:
+      - db
+    privileged: true
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      DB_PASSWORD: literal-compose-password
+      LOG_LEVEL: info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - data:/data
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+volumes:
+  data: {}
