@@ -163,6 +163,87 @@
     },
     "treatment": {
       "$ref": "decomposition-recommendation.schema.json#/$defs/treatment"
+    },
+    "proposed_by": {
+      "type": "string",
+      "pattern": "^(human|model|runtime|ci):[A-Za-z0-9@._:/-]{1,128}$",
+      "description": "Who proposed the slice; a high-risk slice cannot be approved by its proposer (spec \u00a76.1)."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(F-\\d{4,}|DEC-\\d{4,}|CMP-\\d+)$"
+      },
+      "description": "Findings or decomposition recommendations this slice addresses."
+    },
+    "patterns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "properties": {
+        "public_api": {
+          "type": "boolean"
+        },
+        "internal_contract": {
+          "type": "boolean"
+        },
+        "module_boundary": {
+          "type": "boolean"
+        },
+        "tenant_boundary": {
+          "type": "boolean"
+        },
+        "data_movement": {
+          "type": "boolean"
+        },
+        "destructive_infra": {
+          "type": "boolean"
+        },
+        "dependency_change": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "infra": {
+      "type": "object",
+      "properties": {
+        "plan_path": {
+          "type": "string"
+        },
+        "plan_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state_serial": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "environment": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "declared_risk": {
+      "$ref": "#/$defs/risk"
+    },
+    "rationale": {
+      "type": "string"
     }
   },
   "required": [

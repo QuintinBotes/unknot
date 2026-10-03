@@ -59,6 +59,24 @@
           "type": "null"
         }
       ]
+    },
+    "builtin": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "scope",
+        "diff-budget",
+        "parse",
+        "secrets",
+        "cycles",
+        "api",
+        "complexity",
+        "infra-plan"
+      ],
+      "description": "A runtime-executed check, when the obligation is not a configured command."
     }
   },
   "required": [
@@ -153,6 +171,24 @@
               "type": "null"
             }
           ]
+        },
+        "builtin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "scope",
+            "diff-budget",
+            "parse",
+            "secrets",
+            "cycles",
+            "api",
+            "complexity",
+            "infra-plan"
+          ],
+          "description": "A runtime-executed check, when the obligation is not a configured command."
         }
       },
       "required": [
