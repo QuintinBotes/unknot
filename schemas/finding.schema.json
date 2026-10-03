@@ -275,6 +275,15 @@
           "type": "null"
         }
       ]
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "description": "Risk class of addressing this finding, derived by the runtime (spec \u00a720)."
     }
   },
   "required": [
