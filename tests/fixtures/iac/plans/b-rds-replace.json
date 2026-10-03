@@ -1,0 +1,60 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.7.5",
+  "planned_values": {
+    "root_module": {}
+  },
+  "resource_changes": [
+    {
+      "address": "aws_db_instance.main",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "delete",
+          "create"
+        ],
+        "before": {
+          "identifier": "acme-prod",
+          "engine": "postgres",
+          "backup_retention_period": 7,
+          "deletion_protection": true,
+          "password": "hunter2-SECRET-VALUE",
+          "allocated_storage": 500,
+          "instance_class": "db.r6g.large"
+        },
+        "after": {
+          "identifier": "acme-prod",
+          "engine": "mysql",
+          "backup_retention_period": 1,
+          "deletion_protection": false,
+          "password": "hunter3-SECRET-VALUE",
+          "allocated_storage": 500,
+          "instance_class": "db.r6g.large"
+        },
+        "after_unknown": {
+          "id": true,
+          "arn": true
+        },
+        "before_sensitive": {
+          "password": true
+        },
+        "after_sensitive": {
+          "password": true
+        },
+        "replace_paths": [
+          [
+            "engine"
+          ]
+        ]
+      },
+      "action_reason": "replace_because_cannot_update"
+    }
+  ],
+  "output_changes": {},
+  "configuration": {
+    "root_module": {}
+  }
+}

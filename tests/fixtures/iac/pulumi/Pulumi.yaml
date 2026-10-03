@@ -1,0 +1,26 @@
+name: acme
+runtime: yaml
+resources:
+  logs:
+    type: aws:s3:Bucket
+    properties:
+      bucket: acme-logs
+  role:
+    type: aws:iam:Role
+    properties:
+      assumeRolePolicy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"Service":"ec2.amazonaws.com"}}]}'
+  rolePolicy:
+    type: aws:iam:RolePolicy
+    properties:
+      role: ${role.name}
+      policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}'
+    options:
+      dependsOn:
+        - ${logs}
+  db:
+    type: aws:rds:Instance
+    options:
+      protect: true
+    properties:
+      engine: postgres
+      instanceClass: db.t3.micro

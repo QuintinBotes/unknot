@@ -1,0 +1,41 @@
+{
+  "provider": "aws",
+  "resources": [
+    {
+      "type": "aws_s3_bucket",
+      "id": "acme-prod-assets",
+      "name": "acme-prod-assets",
+      "region": "us-east-1",
+      "tags": {
+        "Env": "prod",
+        "Owner": "alice"
+      }
+    },
+    {
+      "type": "aws_s3_bucket",
+      "id": "acme-shadow-bucket",
+      "name": "acme-shadow-bucket",
+      "region": "us-east-1",
+      "tags": {
+        "Purpose": "adhoc"
+      }
+    },
+    {
+      "type": "aws_db_instance",
+      "id": "db-123",
+      "name": "acme-prod",
+      "region": "us-east-1",
+      "tags": {
+        "Env": "prod"
+      },
+      "change_source": "console"
+    },
+    {
+      "type": "aws_vpc",
+      "id": "vpc-1",
+      "name": "main",
+      "region": "us-east-1",
+      "tags": {}
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  Env:
+    Type: String
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub "acme-${Env}-assets"
+      Tags:
+        - Key: Env
+          Value: !Ref Env
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !GetAtt Bucket.Arn
+  WebSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: web
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    DependsOn: Bucket
+    Properties:
+      Engine: postgres
+      DBInstanceClass: db.t3.micro
+      BackupRetentionPeriod: 7
+      VPCSecurityGroups:
+        - !GetAtt WebSG.GroupId
+      MasterUserPassword: !Ref DbPassword
+  Fn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs20.x
+      Role: !GetAtt AppRole.Arn
+Outputs:
+  BucketArn:
+    Value: !GetAtt Bucket.Arn

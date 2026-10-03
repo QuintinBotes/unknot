@@ -1,0 +1,130 @@
+{
+  "steps": [
+    {
+      "op": "create",
+      "urn": "urn:pulumi:prod::acme::aws:s3/bucket:Bucket::logs",
+      "newState": {
+        "type": "aws:s3/bucket:Bucket",
+        "inputs": {
+          "bucket": "acme-logs"
+        }
+      }
+    },
+    {
+      "op": "create-replacement",
+      "urn": "urn:pulumi:prod::acme::aws:rds/instance:Instance::db",
+      "newState": {
+        "type": "aws:rds/instance:Instance",
+        "inputs": {
+          "engine": "mysql",
+          "backupRetentionPeriod": 1,
+          "password": {
+            "4dabf18193072939515e22adb298388d": "1b47061264138c4ac30d75fd1eb44270",
+            "ciphertext": "CIPHER-SECRET-BLOB"
+          }
+        }
+      }
+    },
+    {
+      "op": "replace",
+      "urn": "urn:pulumi:prod::acme::aws:rds/instance:Instance::db",
+      "oldState": {
+        "type": "aws:rds/instance:Instance",
+        "inputs": {
+          "engine": "postgres",
+          "backupRetentionPeriod": 7,
+          "password": {
+            "4dabf18193072939515e22adb298388d": "1b47061264138c4ac30d75fd1eb44270",
+            "ciphertext": "OLD-CIPHER-SECRET"
+          }
+        }
+      },
+      "newState": {
+        "type": "aws:rds/instance:Instance",
+        "inputs": {
+          "engine": "mysql",
+          "backupRetentionPeriod": 1
+        }
+      },
+      "detailedDiff": {
+        "engine": {
+          "kind": "UPDATE_REPLACE"
+        }
+      },
+      "replaceKeys": [
+        "engine"
+      ]
+    },
+    {
+      "op": "delete-replaced",
+      "urn": "urn:pulumi:prod::acme::aws:rds/instance:Instance::db",
+      "oldState": {
+        "type": "aws:rds/instance:Instance",
+        "inputs": {
+          "engine": "postgres"
+        }
+      }
+    },
+    {
+      "op": "same",
+      "urn": "urn:pulumi:prod::acme::aws:ec2/vpc:Vpc::main",
+      "oldState": {
+        "type": "aws:ec2/vpc:Vpc",
+        "inputs": {
+          "cidrBlock": "10.0.0.0/16"
+        }
+      },
+      "newState": {
+        "type": "aws:ec2/vpc:Vpc",
+        "inputs": {
+          "cidrBlock": "10.0.0.0/16"
+        }
+      }
+    },
+    {
+      "op": "update",
+      "urn": "urn:pulumi:prod::acme::aws:ec2/securityGroup:SecurityGroup::web",
+      "oldState": {
+        "type": "aws:ec2/securityGroup:SecurityGroup",
+        "inputs": {
+          "ingress": [
+            {
+              "fromPort": 22,
+              "toPort": 22,
+              "protocol": "tcp",
+              "cidrBlocks": [
+                "10.0.0.0/8"
+              ]
+            }
+          ]
+        }
+      },
+      "newState": {
+        "type": "aws:ec2/securityGroup:SecurityGroup",
+        "inputs": {
+          "ingress": [
+            {
+              "fromPort": 22,
+              "toPort": 22,
+              "protocol": "tcp",
+              "cidrBlocks": [
+                "0.0.0.0/0"
+              ]
+            }
+          ]
+        }
+      },
+      "detailedDiff": {
+        "ingress[0].cidrBlocks[0]": {
+          "kind": "UPDATE"
+        }
+      }
+    }
+  ],
+  "changeSummary": {
+    "create": 1,
+    "replace": 1,
+    "update": 1,
+    "same": 1
+  }
+}

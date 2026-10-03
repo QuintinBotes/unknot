@@ -1,0 +1,153 @@
+{
+  "version": 4,
+  "terraform_version": "1.7.5",
+  "serial": 42,
+  "lineage": "a1b2c3d4-0000-4000-8000-000000000001",
+  "outputs": {
+    "db_url": {
+      "value": "postgres://admin:hunter2-SECRET-VALUE@db",
+      "type": "string",
+      "sensitive": true
+    },
+    "bucket": {
+      "value": "acme-prod-assets",
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 2,
+          "attributes": {
+            "id": "db-123",
+            "arn": "arn:aws:rds:us-east-1:111122223333:db:acme-prod",
+            "identifier": "acme-prod",
+            "engine": "postgres",
+            "password": "hunter2-SECRET-VALUE",
+            "master_user_secret": [
+              {
+                "secret_arn": "arn:aws:secretsmanager:x",
+                "token": "tok-SECRET-9999"
+              }
+            ],
+            "connection_info": {
+              "dsn": "host=db password=hunter2-SECRET-VALUE"
+            },
+            "tags_all": {
+              "Env": "prod"
+            }
+          },
+          "sensitive_attributes": [
+            [
+              {
+                "type": "get_attr",
+                "value": "password"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "assets",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "acme-prod-assets",
+            "arn": "arn:aws:s3:::acme-prod-assets",
+            "bucket": "acme-prod-assets",
+            "region": "us-east-1",
+            "tags_all": {
+              "Env": "prod"
+            }
+          },
+          "sensitive_attributes": []
+        }
+      ]
+    },
+    {
+      "module": "module.net",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "main",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 1,
+          "attributes": {
+            "id": "vpc-1",
+            "cidr_block": "10.0.0.0/16"
+          },
+          "sensitive_attributes": []
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_sns_topic",
+      "name": "legacy",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "arn:aws:sns:us-east-1:111122223333:legacy",
+            "name": "legacy"
+          },
+          "sensitive_attributes": []
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "random_password",
+      "name": "db",
+      "provider": "provider[\"registry.terraform.io/hashicorp/random\"]",
+      "instances": [
+        {
+          "schema_version": 3,
+          "attributes": {
+            "id": "none",
+            "length": 24,
+            "result": "rand-SECRET-RESULT",
+            "bcrypt_hash": "$2a$10$SECRETHASH"
+          },
+          "sensitive_attributes": [
+            [
+              {
+                "type": "get_attr",
+                "value": "result"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "data",
+      "type": "aws_caller_identity",
+      "name": "current",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "111122223333",
+            "account_id": "111122223333"
+          },
+          "sensitive_attributes": []
+        }
+      ]
+    }
+  ],
+  "check_results": null
+}
