@@ -367,6 +367,7 @@
             "fits",
             "contraindicated",
             "insufficient_evidence",
+            "not_applicable",
             "not_evaluated"
           ]
         },
