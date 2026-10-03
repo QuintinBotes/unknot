@@ -209,12 +209,21 @@ function resolvesToPlugin(word, pluginRoot) {
     const candidate = join(dir, word);
     try {
       accessSync(candidate, constants.X_OK);
+      // The first `unknot` on PATH is the one the shell would run: it must be ours.
       return isUnknotBin(candidate, pluginRoot);
     } catch {
       // not in this PATH entry
     }
   }
-  return false;
+  // Hooks run with Claude Code's own PATH, which does not include plugin bin directories;
+  // the Bash tool's PATH does (dogfood FB13). With no other `unknot` visible, the bare name
+  // resolves to the plugin's CLI.
+  try {
+    accessSync(join(pluginRoot, 'bin', 'unknot'), constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
