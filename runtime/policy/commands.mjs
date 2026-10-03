@@ -14,8 +14,21 @@ const READ_ONLY = new Set([
   'diff', 'cmp', 'sort', 'uniq', 'cut', 'tr', 'column', 'nl', 'printf', 'echo', 'true', 'false', 'pwd',
   'basename', 'dirname', 'realpath', 'readlink', 'date', 'which', 'type', 'test', '[', 'seq', 'od',
   'xxd', 'hexdump', 'strings', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'tac', 'rev', 'fold',
-  'comm', 'join', 'paste', 'jq', 'expand', 'unexpand', 'cloc', 'tokei', 'sleep',
+  'comm', 'join', 'paste', 'jq', 'expand', 'unexpand', 'sleep',
 ]);
+
+// Flags that make an otherwise read-only tool run another program or write a file.
+const EXEC_FLAGS = {
+  rg: /^--pre(=|$)|^--pre-glob/,
+  sort: /^--compress-program|^-o|^--output/,
+  tree: /^-o$|^--output/,
+  grep: /^--exclude-from=\/dev/,
+  jq: /^--rawfile$|^--slurpfile$/,
+};
+
+// The only variables a model may set in front of a command. Everything else (GIT_*,
+// PAGER, EDITOR, LESSOPEN, LD_*, NODE_OPTIONS, ...) can turn a read into an execution.
+const SAFE_ASSIGNMENTS = new Set(['LC_ALL', 'LANG', 'LC_CTYPE', 'TZ', 'NO_COLOR', 'TERM', 'COLUMNS']);
 
 const GIT_READ = new Set([
   'status', 'log', 'show', 'diff', 'blame', 'ls-files', 'ls-tree', 'rev-parse', 'describe', 'shortlog',
@@ -40,9 +53,10 @@ function judge(cmd, { pluginRoot }) {
   if (head.dynamic) return 'the command name is computed at run time';
   const name = basenameOf(head);
   const args = cmd.argv.slice(1);
-  if (cmd.assignments.some((a) => /^UNKNOT_|^PATH$|^LD_|^DYLD_|^NODE_OPTIONS$|^IFS$/.test(a.name))) {
-    return `setting ${cmd.assignments.map((a) => a.name).join(', ')} is not allowed`;
-  }
+  const unsafe = cmd.assignments.filter((a) => !SAFE_ASSIGNMENTS.has(a.name));
+  if (unsafe.length) return `setting ${unsafe.map((a) => a.name).join(', ')} is not allowed`;
+  const flag = EXEC_FLAGS[name] && args.find((w) => EXEC_FLAGS[name].test(w.value));
+  if (flag) return `${name} ${flag.value} can run programs or write files`;
   const viaNode = name === 'node' && args[0] && !args[0].dynamic && isUnknotBin(args[0].value, pluginRoot);
   if (name === 'unknot' && !resolvesToPlugin(head.value, pluginRoot)) return '`unknot` does not resolve to this plugin\'s CLI';
   if (name === 'unknot' || viaNode) {
@@ -56,7 +70,9 @@ function judge(cmd, { pluginRoot }) {
     const sub = args.find((w) => !lit(w)?.startsWith('-'));
     if (args.some((w) => /^-c$|^--exec-path|^--config-env/.test(w.value))) return 'git configuration overrides are not allowed';
     if (!sub || !GIT_READ.has(lit(sub))) return `git ${sub ? lit(sub) : ''} is not a read-only git command`;
-    if (args.some((w) => /^--output(=|$)|^--ext-diff$|^--textconv$/.test(w.value))) return 'git output/diff-driver flags are not allowed';
+    if (args.some((w) => /^--output(=|$)|^--ext-diff$|^--textconv$|^-O|^--open-files-in-pager|^--exec(=|$)|^--upload-pack|^--receive-pack/.test(w.value))) {
+      return 'git output, pager and diff-driver flags are not allowed';
+    }
     return null;
   }
   if (name === 'find') {
