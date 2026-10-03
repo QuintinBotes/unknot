@@ -51,7 +51,8 @@ export const EDGE_TYPES = Object.freeze(new Set([
   'CONTAINS', 'CO_CHANGES', 'RUNTIME_CALLS', 'RENDERS',
 ]));
 
-export const SOURCE_TYPES = Object.freeze(new Set(['ast', 'lsp', 'trace', 'config', 'catalog', 'human', 'inference']));
+// 'vcs' extends the spec's list: git history is recorded fact, not inference.
+export const SOURCE_TYPES = Object.freeze(new Set(['ast', 'lsp', 'trace', 'config', 'catalog', 'human', 'inference', 'vcs']));
 export const CONFIDENCE = Object.freeze(new Set(['high', 'medium', 'low']));
 export const LABELS = Object.freeze(new Set(['observed', 'corroborated', 'inferred', 'unknown', 'contradicted']));
 
