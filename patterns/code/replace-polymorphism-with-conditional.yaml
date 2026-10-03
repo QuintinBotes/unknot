@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.replace-polymorphism-with-conditional
+name: 'Replace Polymorphism with Conditional'
+category: code
+problem: 'A hierarchy has few variants with trivial behaviour; the dispatch machinery outweighs the logic.'
+forces:
+  - 'Closed set of variants'
+  - 'Hierarchy scatters tiny methods'
+applicability_signals:
+  - { id: few-variants, description: 'Interface has few implementations', predicate: { metric: interface.implementations, op: '<=', value: 2 } }
+  - { id: tiny-methods, description: 'Variant methods are very short', predicate: { metric: function.lines, op: '<=', value: 5 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: open-set, description: 'New variants are added regularly', predicate: { metric: module.churn, op: '>=', value: 10 } }
+  - { id: external-impls, description: 'Third parties implement the interface', predicate: { metric: module.consumers, op: '>=', value: 3 } }
+benefits:
+  - 'Logic readable in one place'
+  - 'Fewer types'
+liabilities:
+  - 'Switch must be edited for each new case'
+  - 'Loses open extension'
+introduced_complexity:
+  - 'A switch that centralises variant logic'
+architecture_invariants:
+  - 'Every variant is handled in the switch'
+transformations:
+  - 'code.collapse-hierarchy'
+  - 'code.inline-function'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.collapse-hierarchy]
+conflicts_with: [code.replace-conditional-with-polymorphism]
+introduction_recipe:
+  - 'Add a type tag to the base'
+  - 'Move variant bodies into one switch'
+  - 'Delete subclass overrides'
+removal_recipe:
+  - 'Re-extract each switch branch into a subclass'
+  - 'Replace the switch with a polymorphic call'
+  - 'Remove the type tag'
+version: 1.0.0

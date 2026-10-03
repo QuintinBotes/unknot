@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: anti-pattern.big-ball-of-mud
+name: 'Big Ball of Mud'
+category: anti-pattern
+problem: 'No discernible structure; every module depends on many others and changes ripple widely.'
+forces:
+  - 'Expedient growth without boundaries'
+  - 'Fear of change keeps structure from improving'
+applicability_signals:
+  - { id: cycles, description: 'Large dependency cycles exist', predicate: { metric: cycle.size, op: '>=', value: 10 } }
+  - { id: layer-violations, description: 'Layer rules are widely broken', predicate: { metric: layer.violations, op: '>=', value: 20 } }
+  - { id: co-change, description: 'Most commits touch other boundaries', predicate: { metric: module.co_change_leak, op: '>', value: 0.5 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: small-throwaway, description: 'The code is small, short-lived or a prototype', predicate: { metric: module.loc, op: '<=', value: 2000 } }
+  - { id: stable-and-isolated, description: 'It is stable, rarely changed and fenced off', predicate: { metric: module.churn, op: '<=', value: 1 } }
+benefits:
+  - 'Incremental seams make change safer'
+  - 'Clear boundaries reduce blast radius'
+liabilities:
+  - 'Large effort with uncertain payoff'
+  - 'Mixing refactors with features risks regressions'
+introduced_complexity:
+  - 'Boundary modules and fitness rules to maintain'
+architecture_invariants:
+  - 'Refactoring proceeds in small behaviour-preserving slices'
+transformations:
+  - 'code.module-pattern'
+  - 'code.facade'
+  - 'code.remove-dead-code'
+proof_obligations: [characterization, architecture-fitness, human-review]
+rollback_strategies: [revert]
+composes_with: [anti-pattern.lava-flow]
+conflicts_with: []
+version: 1.0.0

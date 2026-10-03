@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: database.replace-app-validation-with-constraint
+name: 'Replace App Validation with Constraint'
+category: database
+problem: 'Rules enforced only in application code can be bypassed by other writers.'
+forces:
+  - 'Multiple writers bypass app checks'
+  - 'Existing rows may violate the rule'
+applicability_signals:
+  - { id: multi-writer, description: 'Several writers touch the table', predicate: { metric: table.writers, op: '>', value: 1 } }
+  - { id: duplicated-checks, description: 'Validation is duplicated in code', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: violations-audited, description: 'Existing violating rows are found and fixed first' }
+  - { id: constraint-not-valid-first, description: 'Constraint is added unvalidated, then validated' }
+contraindications:
+  - { id: lock-hazard, description: 'Constraint add takes an exclusive lock', predicate: { metric: migration.locks_exclusive, op: '==', value: 1 } }
+benefits:
+  - 'Integrity enforced for every writer'
+  - 'Single source of truth'
+liabilities:
+  - 'Writes that violated silently now fail'
+  - 'Lock hazards on large tables'
+introduced_complexity:
+  - 'Database error handling in the app'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.standardize-migrations'
+proof_obligations: [migration-rehearsal, integration, unit, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [database.standardize-migrations]
+conflicts_with: []
+version: 1.0.0

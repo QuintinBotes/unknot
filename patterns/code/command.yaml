@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.command
+name: 'Command'
+category: code
+problem: 'Requests must be queued, logged, undone or parameterised as objects.'
+forces:
+  - 'Operations need to be stored or replayed'
+  - 'Invoker should not know the receiver'
+applicability_signals:
+  - { id: undo-needed, description: 'Undo or replay is a requirement' }
+  - { id: dispatch-switch, description: 'A large switch dispatches operations', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: plain-call, description: 'Callers only invoke operations immediately; a function call suffices' }
+  - { id: one-use, description: 'Each command class has a single caller', predicate: { metric: symbol.references, op: '<=', value: 1 } }
+benefits:
+  - 'Undo, queue and audit become possible'
+  - 'Decouples invoker and receiver'
+liabilities:
+  - 'Class per operation'
+  - 'Boilerplate where a closure would do'
+introduced_complexity:
+  - 'A command interface and one class per operation'
+architecture_invariants:
+  - 'Executing a command twice follows its documented idempotence'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.memento, code.chain-of-responsibility]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Define a command interface'
+  - 'Encapsulate each operation with its receiver and arguments'
+  - 'Route invocations through the invoker'
+removal_recipe:
+  - 'Replace command objects with direct function calls or closures'
+  - 'Remove the command interface'
+  - 'Drop undo support only if no requirement remains'
+version: 1.0.0

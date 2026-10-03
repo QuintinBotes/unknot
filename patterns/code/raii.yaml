@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.raii
+name: 'RAII'
+category: code
+problem: 'Resources are released manually and leak on early returns or errors.'
+forces:
+  - 'Cleanup must run on every exit path'
+  - 'Manual release is forgotten'
+applicability_signals:
+  - { id: manual-cleanup, description: 'Explicit release calls follow acquire calls', predicate: { metric: function.cyclomatic, op: '>', value: 8 } }
+  - { id: leak-paths, description: 'Early returns skip cleanup', predicate: { metric: function.max_nesting, op: '>=', value: 4 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: gc-finalizers, description: 'Language lacks deterministic destruction and offers scoped constructs instead' }
+  - { id: process-lifetime, description: 'Resource lives for the entire process' }
+benefits:
+  - 'Cleanup on all paths'
+  - 'Less error-handling code'
+liabilities:
+  - 'Lifetime coupled to scope'
+  - 'Destructor failures are awkward'
+introduced_complexity:
+  - 'A guard object per resource'
+architecture_invariants:
+  - 'A resource is released exactly once'
+transformations:
+  - 'code.resource-ownership'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.resource-ownership]
+conflicts_with: []
+introduction_recipe:
+  - 'Wrap the resource in an owning type'
+  - 'Acquire in the constructor or scoped block'
+  - 'Release in the destructor or finally block'
+removal_recipe:
+  - 'Replace the wrapper with the language scoped construct'
+  - 'Inline acquire and release at the single site'
+  - 'Delete the guard type'
+version: 1.0.0

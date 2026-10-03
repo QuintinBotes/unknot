@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.decorator
+name: 'Decorator'
+category: code
+problem: 'Behaviour must be added to objects dynamically without subclass explosion.'
+forces:
+  - 'Optional behaviours combine freely'
+  - 'Subclassing every combination is infeasible'
+applicability_signals:
+  - { id: stacked-wrappers, description: 'Several wrappers share one interface', predicate: { metric: abstraction.layers, op: '>=', value: 2 } }
+  - { id: combinations, description: 'Behaviour combinations exceed class count', predicate: { metric: interface.implementations, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: one-decorator, description: 'A single decorator is always applied', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: order-sensitive, description: 'Behaviour depends on stacking order that is undocumented' }
+benefits:
+  - 'Composable behaviour'
+  - 'Open for extension'
+liabilities:
+  - 'Call stacks become deeper'
+  - 'Identity checks break through wrappers'
+introduced_complexity:
+  - 'Wrapper classes sharing the component interface'
+architecture_invariants:
+  - 'Decorators preserve the component contract'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.chain-of-responsibility, code.proxy]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Define the component interface'
+  - 'Write a decorator that delegates and adds behaviour'
+  - 'Compose decorators at the composition root'
+removal_recipe:
+  - 'Fold the decorator behaviour into the wrapped class'
+  - 'Update callers to the unwrapped type'
+  - 'Delete the decorator'
+version: 1.0.0

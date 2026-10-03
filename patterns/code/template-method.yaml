@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.template-method
+name: 'Template Method'
+category: code
+problem: 'Several algorithms share a skeleton and differ in a few steps.'
+forces:
+  - 'Duplicated algorithm skeletons'
+  - 'Steps vary, order does not'
+applicability_signals:
+  - { id: duplicate-skeleton, description: 'Near-identical methods differ in a few steps', predicate: { metric: duplication.similarity, op: '>', value: 0.7 } }
+  - { id: subclass-clones, description: 'Several subclasses repeat the same flow', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: one-subclass, description: 'Only one subclass overrides the steps', predicate: { metric: interface.implementations, op: '<=', value: 1 } }
+  - { id: fragile-base, description: 'The base class is fragile and inheritance is deep', predicate: { metric: abstraction.layers, op: '>=', value: 3 } }
+benefits:
+  - 'Removes duplicated flow'
+  - 'Fixed algorithm order'
+liabilities:
+  - 'Inheritance coupling'
+  - 'Overridable steps are an API'
+introduced_complexity:
+  - 'An abstract base class with hook methods'
+architecture_invariants:
+  - 'Step order in the template is invariant'
+transformations:
+  - 'code.strategy'
+  - 'code.collapse-hierarchy'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.strategy]
+conflicts_with: [code.collapse-hierarchy]
+introduction_recipe:
+  - 'Extract the common skeleton into a base method'
+  - 'Make the varying steps abstract hooks'
+  - 'Make subclasses override only the hooks'
+removal_recipe:
+  - 'Inline the hooks into the single concrete class'
+  - 'Merge the base into the subclass'
+  - 'Delete the abstract hooks'
+version: 1.0.0

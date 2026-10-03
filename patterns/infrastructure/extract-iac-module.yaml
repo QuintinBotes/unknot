@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.extract-iac-module
+name: 'Extract IaC Module'
+category: infrastructure
+problem: 'Copy-pasted infrastructure definitions drift.'
+forces:
+  - 'Reuse versus coupling'
+  - 'Module versioning'
+applicability_signals:
+  - { id: clones, description: 'Definitions are duplicated', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: similar, description: 'Definitions are highly similar', predicate: { metric: duplication.similarity, op: '>', value: 0.85 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: no-op-plan, description: 'Plan after extraction shows no changes' }
+contraindications:
+  - { id: plan-deletes, description: 'The plan deletes resources, so a no-op or refactor claim is false', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+  - { id: plan-replaces, description: 'Plan replaces resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'One place to fix'
+  - 'Consistent configuration'
+liabilities:
+  - 'Module upgrades affect all users'
+  - 'Hidden defaults'
+introduced_complexity:
+  - 'A versioned module and its interface'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.inline-one-use-wrapper-module'
+proof_obligations: [infra-plan, architecture-fitness, diff-budget]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.golden-path]
+conflicts_with: [infrastructure.inline-one-use-wrapper-module]
+version: 1.0.0

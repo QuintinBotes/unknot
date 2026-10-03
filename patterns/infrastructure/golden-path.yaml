@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.golden-path
+name: 'Golden Path'
+category: infrastructure
+problem: 'Teams each build their own delivery and infrastructure setups.'
+forces:
+  - 'Paved road versus freedom'
+  - 'Platform team capacity'
+applicability_signals:
+  - { id: many-teams, description: 'Many teams build bespoke setups', predicate: { metric: team.count, op: '>=', value: 5 } }
+  - { id: no-ci, description: 'Some teams lack CI', predicate: { metric: ci.present, op: '==', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: adoption-plan, description: 'Teams agree to adopt the path' }
+contraindications:
+  - { id: one-team, description: 'A single team owns everything', predicate: { metric: team.count, op: '<=', value: 1 } }
+  - { id: plan-replaces, description: 'Plan replaces existing resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Consistent, secure defaults'
+  - 'Faster onboarding'
+liabilities:
+  - 'Path can calcify'
+  - 'Escape hatches needed'
+introduced_complexity:
+  - 'Templates and platform support'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.extract-iac-module, infrastructure.policy-as-code]
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: database.standardize-migrations
+name: 'Standardize Migrations'
+category: database
+problem: 'Ad hoc schema changes cause irreversible and lock-heavy surprises.'
+forces:
+  - 'Inconsistent migration tooling'
+  - 'Irreversible changes without review'
+applicability_signals:
+  - { id: irreversible, description: 'Migrations include irreversible steps', predicate: { metric: migration.irreversible, op: '==', value: 1 } }
+  - { id: locks, description: 'Migrations take exclusive locks', predicate: { metric: migration.locks_exclusive, op: '==', value: 1 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: tooling-chosen, description: 'One migration tool is chosen' }
+  - { id: rehearsal-env, description: 'A rehearsal environment with production-like data exists' }
+contraindications:
+  - { id: single-script, description: 'A single static schema never changes' }
+benefits:
+  - 'Reviewable, ordered changes'
+  - 'Lock and reversibility checks'
+liabilities:
+  - 'Process overhead'
+  - 'Initial baselining'
+introduced_complexity:
+  - 'Migration tooling and CI gates'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.replace-app-validation-with-constraint'
+proof_obligations: [migration-rehearsal, lint, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [database.replace-app-validation-with-constraint]
+conflicts_with: []
+version: 1.0.0

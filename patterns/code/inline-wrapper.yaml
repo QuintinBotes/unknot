@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.inline-wrapper
+name: 'Inline Wrapper'
+category: code
+problem: 'A class or function wraps another and only forwards calls.'
+forces:
+  - 'Indirection without added behaviour'
+  - 'Readers must hop through the wrapper'
+applicability_signals:
+  - { id: passthrough, description: 'Wrapper forwards almost every call', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: single-impl, description: 'Wrapped abstraction has one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: public-boundary, description: 'Wrapper is a published API boundary', predicate: { metric: module.consumers, op: '>=', value: 3 } }
+  - { id: planned-substitution, description: 'A second implementation is committed work' }
+benefits:
+  - 'Fewer layers'
+  - 'Simpler stack traces'
+liabilities:
+  - 'Callers couple directly to the wrapped type'
+  - 'Loses a seam for tests'
+introduced_complexity:
+  - 'Direct dependency on the wrapped type'
+architecture_invariants:
+  - 'Callers observe identical behaviour'
+transformations:
+  - 'code.remove-dead-code'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.inline-function, code.collapse-hierarchy]
+conflicts_with: [code.facade, code.adapter]
+introduction_recipe:
+  - 'Wrap the target and forward calls'
+  - 'Add behaviour in the wrapper'
+  - 'Redirect callers to the wrapper'
+removal_recipe:
+  - 'Replace each wrapper call with the wrapped call'
+  - 'Keep a re-export if external consumers exist'
+  - 'Delete the wrapper once unreferenced'
+version: 1.0.0

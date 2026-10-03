@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: anti-pattern.spaghetti-code
+name: 'Spaghetti Code'
+category: anti-pattern
+problem: 'Tangled control flow makes functions hard to follow and to change safely.'
+forces:
+  - 'Accreted conditionals'
+  - 'Shared mutable locals'
+applicability_signals:
+  - { id: complex, description: 'Function complexity is very high', predicate: { metric: function.cyclomatic, op: '>', value: 30 } }
+  - { id: deep, description: 'Nesting is very deep', predicate: { metric: function.max_nesting, op: '>=', value: 6 } }
+  - { id: long, description: 'Function is very long', predicate: { metric: function.lines, op: '>', value: 150 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: generated-or-parser, description: 'Generated or table-driven parsers are legitimately branchy' }
+  - { id: stable-untouched, description: 'The function has not changed and is well tested', predicate: { metric: module.churn, op: '==', value: 0 } }
+benefits:
+  - 'Readable, testable functions'
+  - 'Lower defect rate'
+liabilities:
+  - 'Risk of subtle behaviour change'
+  - 'Needs characterization first'
+introduced_complexity:
+  - 'More named functions'
+architecture_invariants:
+  - 'Control flow equivalence is verified by tests'
+transformations:
+  - 'code.guard-clauses'
+  - 'code.extract-function'
+  - 'code.consolidate-duplicate-conditional'
+proof_obligations: [characterization, unit, typecheck]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

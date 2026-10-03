@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.dependency-injection
+name: 'Dependency Injection'
+category: code
+problem: 'Classes construct or locate their own collaborators, which blocks substitution and testing.'
+forces:
+  - 'Collaborators must be replaceable in tests'
+  - 'Construction should live in one place'
+applicability_signals:
+  - { id: hidden-deps, description: 'Classes instantiate collaborators internally', predicate: { metric: module.fan_out, op: '>=', value: 6 } }
+  - { id: global-access, description: 'Collaborators are reached through globals or singletons', predicate: { metric: layer.violations, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: framework-overkill, description: 'A container is added where plain constructor arguments suffice' }
+  - { id: one-impl, description: 'A single implementation with no test need', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+benefits:
+  - 'Substitutable collaborators'
+  - 'Explicit dependency graph'
+liabilities:
+  - 'Wiring code grows'
+  - 'Container magic hides the graph'
+introduced_complexity:
+  - 'A composition root and constructor parameters'
+architecture_invariants:
+  - 'Only the composition root constructs concrete collaborators'
+transformations:
+  - 'code.factory-method'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.singleton, code.abstract-factory]
+conflicts_with: []
+introduction_recipe:
+  - 'Identify internally constructed collaborators'
+  - 'Accept them as constructor parameters'
+  - 'Build the graph in the composition root'
+removal_recipe:
+  - 'Construct the sole collaborator inside its user'
+  - 'Remove the parameter and interface'
+  - 'Drop container registration'
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.hub-and-spoke-network
+name: 'Hub and Spoke Network'
+category: infrastructure
+problem: 'Many networks need shared egress, inspection and connectivity.'
+forces:
+  - 'Shared services and inspection'
+  - 'Hub is a shared dependency'
+applicability_signals:
+  - { id: many-networks, description: 'Several networks need uniform connectivity', predicate: { metric: service.count, op: '>=', value: 10 } }
+  - { id: public, description: 'Public ingress exists', predicate: { metric: network.public_ingress, op: '==', value: 1 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: cidr-plan, description: 'Address ranges do not overlap' }
+contraindications:
+  - { id: single-network, description: 'One network and one team', predicate: { metric: team.count, op: '<=', value: 1 } }
+  - { id: plan-replaces, description: 'Plan replaces network resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Central egress control'
+  - 'Reusable shared services'
+liabilities:
+  - 'Hub is a blast-radius point'
+  - 'Peering and routing complexity'
+introduced_complexity:
+  - 'Route tables and shared hub operations'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.network-segmentation'
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.network-segmentation, infrastructure.private-endpoints]
+conflicts_with: [infrastructure.cell-isolation]
+version: 1.0.0

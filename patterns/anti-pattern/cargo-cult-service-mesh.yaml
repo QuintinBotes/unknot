@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.cargo-cult-service-mesh
+name: 'Cargo-Cult Service Mesh'
+category: anti-pattern
+problem: 'A mesh is installed without the traffic, identity or policy needs that justify it.'
+forces:
+  - 'Mesh is promoted as default'
+  - 'Sidecar overhead is ignored'
+applicability_signals:
+  - { id: few-services, description: 'Few services exist', predicate: { metric: service.count, op: '<=', value: 5 } }
+  - { id: no-mtls-need, description: 'No identity or isolation driver', predicate: { metric: driver.security_isolation, op: '==', value: 0 } }
+required_evidence: ['mesh configuration', 'traffic metrics']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: zero-trust-required, description: 'mTLS between workloads is a requirement', predicate: { metric: driver.security_isolation, op: '==', value: 1 } }
+  - { id: many-services, description: 'Many services need uniform traffic policy', predicate: { metric: service.count, op: '>=', value: 30 } }
+benefits:
+  - 'Lower latency and resource use'
+  - 'Simpler debugging'
+liabilities:
+  - 'Capabilities must be replaced in code or platform'
+  - 'Removal needs staged rollout'
+introduced_complexity:
+  - 'Library-level retries and identity'
+architecture_invariants:
+  - 'Service-to-service authentication is retained'
+transformations:
+  - 'infrastructure.workload-identity'
+  - 'infrastructure.inline-one-use-wrapper-module'
+proof_obligations: [infra-plan, smoke, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

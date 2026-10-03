@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: database.dual-write-to-outbox
+name: 'Dual Write to Outbox'
+category: database
+problem: 'A write to a store and a broker is not atomic and can diverge.'
+forces:
+  - 'No distributed transaction'
+  - 'Consumers need change events'
+applicability_signals:
+  - { id: cross-tx, description: 'Request writes across transaction boundaries', predicate: { metric: boundary.cross_transactions, op: '>', value: 0 } }
+  - { id: no-reconcile, description: 'No reconciliation tooling', predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: consumers-idempotent, description: 'Consumers handle duplicates', predicate: { metric: data.idempotency, op: '==', value: 1 } }
+  - { id: relay-capacity, description: 'Relay throughput is verified' }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: no-consumers, description: 'Consumers are unknown', predicate: { metric: messaging.consumers_known, op: '==', value: 0 } }
+benefits:
+  - 'Atomic state and event'
+  - 'Replayable events'
+liabilities:
+  - 'Delivery latency'
+  - 'Outbox table growth'
+introduced_complexity:
+  - 'An outbox table and relay process'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.owned-interface-for-cross-service-writes'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, compensate]
+composes_with: [database.owned-interface-for-cross-service-writes]
+conflicts_with: []
+version: 1.0.0

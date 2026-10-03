@@ -1,0 +1,38 @@
+schema_version: '1.0'
+id: database.introduce-partitioning
+name: 'Introduce Partitioning'
+category: database
+problem: 'Very large tables suffer slow maintenance and scans.'
+forces:
+  - 'Maintenance windows grow'
+  - 'Partition key choice is hard to change'
+applicability_signals:
+  - { id: huge, description: 'Table is extremely large', predicate: { metric: table.rows, op: '>', value: 100000000 } }
+  - { id: low-scans, description: 'Most indexes are rarely scanned', predicate: { metric: index.scans, op: '<', value: 100 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: key-validated, description: 'Partition key matches dominant query filters' }
+  - { id: copy-rehearsed, description: 'Rehearsal on a production-sized copy succeeds' }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: exclusive-lock, description: 'Conversion takes an exclusive lock', predicate: { metric: migration.locks_exclusive, op: '==', value: 1 } }
+  - { id: cross-partition-queries, description: 'Queries span all partitions' }
+benefits:
+  - 'Faster maintenance and pruning'
+  - 'Cheap retention'
+liabilities:
+  - 'Cross-partition query cost'
+  - 'Key lock-in'
+introduced_complexity:
+  - 'Partition management jobs'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.archive-cold-data'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, roll_forward]
+composes_with: [database.archive-cold-data]
+conflicts_with: []
+version: 1.0.0

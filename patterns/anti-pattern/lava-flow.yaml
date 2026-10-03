@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.lava-flow
+name: 'Lava Flow'
+category: anti-pattern
+problem: 'Dead or obscure code hardens in place because nobody dares remove it.'
+forces:
+  - 'Unknown purpose of old code'
+  - 'Removal is perceived as risky'
+applicability_signals:
+  - { id: unreferenced, description: 'Symbols have no inbound references', predicate: { metric: symbol.references, op: '==', value: 0 } }
+  - { id: untouched, description: 'Code has had no commits for a long period', predicate: { metric: module.churn, op: '==', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: dynamic-entry, description: 'Entry points are reached by reflection, config or plugins' }
+  - { id: regulatory-retention, description: 'Code is retained for legal or audit reasons' }
+benefits:
+  - 'Smaller surface to maintain'
+  - 'Faster builds and reviews'
+liabilities:
+  - 'False positives may break dynamic callers'
+  - 'Needs quarantine'
+introduced_complexity:
+  - 'A quarantine window before deletion'
+architecture_invariants:
+  - 'Nothing reachable from a live entry point is removed'
+transformations:
+  - 'code.remove-dead-code'
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, scope-check, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.cluster-per-environment
+name: 'Cluster per Environment'
+category: infrastructure
+problem: 'Shared clusters mix production with non-production blast radius.'
+forces:
+  - 'Environment isolation'
+  - 'Cost of extra clusters'
+applicability_signals:
+  - { id: mixed-env, description: 'Environments share a cluster' }
+  - { id: team-count, description: 'Several teams deploy to it', predicate: { metric: team.count, op: '>=', value: 3 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: cost-accepted, description: 'Added cost is accepted' }
+contraindications:
+  - { id: small-workload, description: 'Very few services run there', predicate: { metric: service.count, op: '<=', value: 3 } }
+  - { id: plan-deletes, description: 'Plan deletes resources', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Prod isolated from tests'
+  - 'Safe upgrades first in lower env'
+liabilities:
+  - 'More clusters to operate'
+  - 'Config drift between them'
+introduced_complexity:
+  - 'Per-environment cluster lifecycle'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.namespace-tenancy'
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.gitops-reconciliation]
+conflicts_with: [infrastructure.namespace-tenancy]
+version: 1.0.0

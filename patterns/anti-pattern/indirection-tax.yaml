@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.indirection-tax
+name: 'Indirection Tax'
+category: anti-pattern
+problem: 'Calls pass through many forwarding layers, costing readability and debugging time.'
+forces:
+  - 'Layers added by convention'
+  - 'Pass-through wrappers accumulate'
+applicability_signals:
+  - { id: passthrough, description: 'Wrappers forward most calls', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: deep, description: 'Many layers per call', predicate: { metric: abstraction.layers, op: '>=', value: 4 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: boundary-layer, description: 'The layer is a deliberate trust or transaction boundary' }
+  - { id: tested-seam, description: 'The seam is the only practical test boundary' }
+benefits:
+  - 'Shorter stacks'
+  - 'Faster comprehension'
+liabilities:
+  - 'Direct coupling to lower layers'
+  - 'Lost test seam'
+introduced_complexity:
+  - 'None'
+architecture_invariants:
+  - 'Layer rules that matter stay enforced'
+transformations:
+  - 'code.inline-wrapper'
+  - 'code.inline-function'
+proof_obligations: [characterization, architecture-fitness, typecheck]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.retry-storm
+name: 'Retry Storm'
+category: anti-pattern
+problem: 'Unbounded or synchronised retries amplify a failure into an outage.'
+forces:
+  - 'Retries at every layer'
+  - 'Missing backoff and jitter'
+applicability_signals:
+  - { id: unbounded, description: 'Retries are not bounded', predicate: { metric: retry.bounded, op: '==', value: 0 } }
+  - { id: no-timeout, description: 'Calls have no timeout', predicate: { metric: timeout.present, op: '==', value: 0 } }
+required_evidence: ['request traces', 'retry configuration']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: idempotent-bounded, description: 'Bounded retries on idempotent calls are healthy', predicate: { metric: retry.bounded, op: '==', value: 1 } }
+  - { id: non-critical, description: 'Failure has no downstream effect' }
+benefits:
+  - 'Failure containment'
+  - 'Predictable load'
+liabilities:
+  - 'Lower success under transient errors'
+  - 'Needs idempotency'
+introduced_complexity:
+  - 'A retry policy with budgets'
+architecture_invariants:
+  - 'Retried operations are idempotent'
+transformations:
+  - 'code.policy-object'
+  - 'code.decorator'
+proof_obligations: [unit, integration, performance]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

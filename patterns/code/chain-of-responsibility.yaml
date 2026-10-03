@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.chain-of-responsibility
+name: 'Chain of Responsibility'
+category: code
+problem: 'A request must be handled by one of several handlers selected at runtime.'
+forces:
+  - 'Handler set changes independently of senders'
+  - 'Order of handling matters'
+applicability_signals:
+  - { id: long-if-chain, description: 'A long conditional ladder selects a handler', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+  - { id: many-handlers, description: 'Several handlers share one interface', predicate: { metric: interface.implementations, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: fixed-two, description: 'Only two fixed branches exist; a plain conditional is clearer', predicate: { metric: function.cyclomatic, op: '<=', value: 5 } }
+  - { id: unclear-order, description: 'Handler order is undocumented and fragile' }
+benefits:
+  - 'Decouples sender from handlers'
+  - 'Handlers added without editing senders'
+liabilities:
+  - 'Requests may go unhandled'
+  - 'Hard to trace through the chain'
+introduced_complexity:
+  - 'A handler interface and chain wiring'
+architecture_invariants:
+  - 'Every request is handled or explicitly rejected'
+transformations:
+  - 'code.guard-clauses'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.command, code.decorator]
+conflicts_with: [code.guard-clauses]
+introduction_recipe:
+  - 'Define the handler interface with a next link'
+  - 'Move each branch into a handler'
+  - 'Assemble the chain at the composition root'
+removal_recipe:
+  - 'Inline handlers into one ordered conditional'
+  - 'Replace chain wiring with the conditional call'
+  - 'Delete the handler interface'
+version: 1.0.0

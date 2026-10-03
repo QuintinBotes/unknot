@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.remove-dead-code
+name: 'Remove Dead Code'
+category: code
+problem: 'Unreferenced code costs reading, build and review effort and misleads maintainers.'
+forces:
+  - 'Dead code is read, built and maintained'
+  - 'Dynamic references can hide usage'
+applicability_signals:
+  - { id: unreferenced, description: 'Symbol has no inbound references', predicate: { metric: symbol.references, op: '==', value: 0 } }
+  - { id: untraced, description: 'Runtime traces show no execution', predicate: { metric: traces.available, op: '==', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: dynamic-entry, description: 'Symbol may be reached by reflection, config or plugin loading' }
+  - { id: public-api, description: 'Symbol is exported to external consumers', predicate: { metric: module.consumers, op: '>=', value: 1 } }
+benefits:
+  - 'Less code to read'
+  - 'Smaller attack surface'
+liabilities:
+  - 'False positives break dynamic callers'
+  - 'Needs a quarantine window'
+introduced_complexity:
+  - 'A quarantine period for risky deletions'
+architecture_invariants:
+  - 'No removed symbol is reachable from any entry point'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, typecheck, lint, scope-check, human-review]
+rollback_strategies: [revert]
+composes_with: [code.inline-function, code.inline-wrapper]
+conflicts_with: []
+introduction_recipe:
+  - 'Confirm zero references including dynamic and config usage'
+  - 'Delete in a small commit'
+  - 'Run the full build and tests'
+removal_recipe:
+  - 'Restore the deleted code from version control'
+  - 'Reintroduce references only if revived'
+  - 'Add a test that documents the revived use'
+version: 1.0.0

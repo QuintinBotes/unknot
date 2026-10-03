@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: database.merge-duplicate-indexes
+name: 'Merge Duplicate Indexes'
+category: database
+problem: 'Overlapping indexes duplicate write cost where one index could serve both.'
+forces:
+  - 'Redundant prefix indexes'
+  - 'Different column order may matter'
+applicability_signals:
+  - { id: duplicates, description: 'Duplicate or prefix-covered indexes exist', predicate: { metric: index.duplicates, op: '>', value: 0 } }
+  - { id: low-scans, description: 'One of the pair is rarely scanned', predicate: { metric: index.scans, op: '<', value: 100 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: plans-compared, description: 'Query plans are compared before and after on a copy' }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: distinct-ordering, description: 'Column order serves distinct queries' }
+benefits:
+  - 'Faster writes'
+  - 'Less storage'
+liabilities:
+  - 'Plan regressions'
+  - 'Lock risk on build'
+introduced_complexity:
+  - 'Staged build and drop'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.remove-unused-index'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, revert]
+composes_with: [database.remove-unused-index]
+conflicts_with: []
+version: 1.0.0

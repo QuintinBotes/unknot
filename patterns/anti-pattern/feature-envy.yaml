@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.feature-envy
+name: 'Feature Envy'
+category: anti-pattern
+problem: 'A method uses another class data more than its own.'
+forces:
+  - 'Behaviour placed away from data'
+  - 'Layer shortcuts'
+applicability_signals:
+  - { id: foreign-access, description: 'A method reads many fields of another class', predicate: { metric: module.fan_out, op: '>=', value: 5 } }
+  - { id: violations, description: 'Layer rules are crossed for data', predicate: { metric: layer.violations, op: '>=', value: 1 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: dto-mapper, description: 'The method is a mapper or serializer by design' }
+  - { id: visitor-style, description: 'It is an intentional visitor or strategy over data' }
+benefits:
+  - 'Behaviour next to data'
+  - 'Fewer cross-class reads'
+liabilities:
+  - 'Moves can introduce cycles'
+  - 'API changes'
+introduced_complexity:
+  - 'Slightly larger target class'
+architecture_invariants:
+  - 'Moved method keeps its signature at old call sites during transition'
+transformations:
+  - 'code.extract-function'
+  - 'code.introduce-parameter-object'
+proof_obligations: [characterization, unit, no-new-cycles]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

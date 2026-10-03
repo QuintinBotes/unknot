@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.facade
+name: 'Facade'
+category: code
+problem: 'Clients face a complex subsystem with many collaborating classes.'
+forces:
+  - 'Subsystem details leak to clients'
+  - 'A narrow entry point eases change'
+applicability_signals:
+  - { id: wide-surface, description: 'Clients import many subsystem modules', predicate: { metric: module.fan_out, op: '>=', value: 8 } }
+  - { id: public-surface, description: 'Subsystem exposes a large public API', predicate: { metric: module.public_exports, op: '>=', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: passthrough, description: 'Facade methods forward one to one', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: few-clients, description: 'A single client calls the subsystem' }
+benefits:
+  - 'Smaller coupling surface'
+  - 'Single documented entry point'
+liabilities:
+  - 'Can become a god object'
+  - 'Hides needed capability'
+introduced_complexity:
+  - 'A facade class plus its tests'
+architecture_invariants:
+  - 'Clients use only the facade'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.adapter]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'List the operations clients actually use'
+  - 'Create a facade exposing only those'
+  - 'Redirect client imports to the facade'
+removal_recipe:
+  - 'Verify the facade adds no logic'
+  - 'Redirect callers to the subsystem'
+  - 'Delete the facade'
+version: 1.0.0

@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.shared-database
+name: 'Shared Database'
+category: anti-pattern
+problem: 'Several services read and write the same tables, coupling them through the schema.'
+forces:
+  - 'Convenience of one store'
+  - 'Schema changes ripple'
+applicability_signals:
+  - { id: multi-writer, description: 'Tables have several writers', predicate: { metric: table.writers, op: '>', value: 1 } }
+  - { id: shared-writes, description: 'Boundaries share table writers', predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 } }
+  - { id: cross-joins, description: 'Queries join across boundaries', predicate: { metric: boundary.cross_joins, op: '>', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: read-only-reference, description: 'Shared read-only reference data with one writer is fine', predicate: { metric: table.writers, op: '<=', value: 1 } }
+  - { id: single-team, description: 'One team owns every consumer', predicate: { metric: team.count, op: '<=', value: 1 } }
+benefits:
+  - 'Independent schema evolution'
+  - 'Clear data ownership'
+liabilities:
+  - 'Cross-service reads need APIs or replication'
+  - 'Transaction scope changes'
+introduced_complexity:
+  - 'Owned interfaces or an outbox'
+architecture_invariants:
+  - 'Each table has one owning service'
+transformations:
+  - 'database.split-schema-by-ownership'
+  - 'database.owned-interface-for-cross-service-writes'
+proof_obligations: [contract, reconciliation, migration-rehearsal]
+rollback_strategies: [revert, restore]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

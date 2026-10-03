@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.cargo-cult-event-sourcing
+name: 'Cargo-Cult Event Sourcing'
+category: anti-pattern
+problem: 'Events are the system of record without any need for history, audit or replay.'
+forces:
+  - 'Pattern adopted for novelty'
+  - 'Event versioning cost ignored'
+applicability_signals:
+  - { id: no-replay, description: 'Replay is never used' }
+  - { id: no-reconcile, description: 'No projection reconciliation exists', predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: audit-required, description: 'Full history or audit is a requirement' }
+  - { id: temporal-queries, description: 'Temporal queries are a product feature' }
+benefits:
+  - 'Simpler persistence'
+  - 'Easier schema evolution'
+liabilities:
+  - 'History is lost if not archived'
+  - 'Large data migration'
+introduced_complexity:
+  - 'A current-state table'
+architecture_invariants:
+  - 'Historical data needed for audit is archived first'
+transformations:
+  - 'database.remove-derived-store'
+  - 'database.consolidate-tables-with-compatibility-view'
+proof_obligations: [reconciliation, migration-rehearsal, human-review]
+rollback_strategies: [restore, roll_forward]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

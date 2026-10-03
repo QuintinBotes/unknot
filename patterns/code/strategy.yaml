@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.strategy
+name: 'Strategy'
+category: code
+problem: 'An algorithm must be selectable at runtime among interchangeable variants.'
+forces:
+  - 'Algorithms vary by context'
+  - 'Conditionals select an algorithm'
+applicability_signals:
+  - { id: switch-on-kind, description: 'A conditional selects among algorithms', predicate: { metric: function.cyclomatic, op: '>', value: 10 } }
+  - { id: multi-impl, description: 'Several implementations of one interface exist', predicate: { metric: interface.implementations, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: single-impl, description: 'Only one implementation exists', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+  - { id: passthrough, description: 'A strategy wraps one function call', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+benefits:
+  - 'Swappable algorithms'
+  - 'Testable variants'
+liabilities:
+  - 'Interface plus classes for simple choices'
+  - 'Callers must pick the strategy'
+introduced_complexity:
+  - 'A strategy interface and implementations'
+architecture_invariants:
+  - 'All strategies honour the same contract'
+transformations:
+  - 'code.inline-function'
+  - 'code.collapse-hierarchy'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.dependency-injection, code.state]
+conflicts_with: [code.collapse-hierarchy]
+introduction_recipe:
+  - 'Define the strategy interface'
+  - 'Move each algorithm into an implementation'
+  - 'Inject the chosen strategy'
+removal_recipe:
+  - 'Confirm one implementation or a trivial choice'
+  - 'Inline the strategy call at its single site'
+  - 'Delete the interface'
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.accidental-complexity
+name: 'Accidental Complexity'
+category: anti-pattern
+problem: 'Machinery exceeds what the problem requires: extra layers, tools and indirections.'
+forces:
+  - 'Resume-driven or fashion-driven design'
+  - 'Unexamined defaults'
+applicability_signals:
+  - { id: many-layers, description: 'Request path crosses many layers', predicate: { metric: abstraction.layers, op: '>=', value: 5 } }
+  - { id: single-impl, description: 'Interfaces have one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: essential-domain, description: 'Complexity mirrors real domain rules' }
+  - { id: regulated, description: 'A compliance rule requires the mechanism' }
+benefits:
+  - 'Less to learn and operate'
+  - 'Faster change'
+liabilities:
+  - 'Removing seams reduces flexibility'
+  - 'Rework cost'
+introduced_complexity:
+  - 'None if removal is correct'
+architecture_invariants:
+  - 'Essential behaviour is retained'
+transformations:
+  - 'code.inline-wrapper'
+  - 'code.collapse-hierarchy'
+proof_obligations: [characterization, architecture-fitness, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

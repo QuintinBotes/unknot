@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.flyweight
+name: 'Flyweight'
+category: code
+problem: 'Huge numbers of similar objects exhaust memory.'
+forces:
+  - 'Memory pressure from many near-identical objects'
+  - 'Intrinsic state can be shared'
+applicability_signals:
+  - { id: many-instances, description: 'Millions of similar instances exist' }
+  - { id: duplicate-state, description: 'Instances repeat identical fields', predicate: { metric: duplication.similarity, op: '>', value: 0.9 } }
+required_evidence: ['memory profile', 'instance counts']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: no-evidence, description: 'No memory measurement shows a problem' }
+  - { id: mutable-shared, description: 'Shared state is mutable' }
+benefits:
+  - 'Lower memory use'
+  - 'Fewer allocations'
+liabilities:
+  - 'Splitting intrinsic and extrinsic state hurts readability'
+  - 'Requires factory and cache management'
+introduced_complexity:
+  - 'A flyweight factory and extrinsic state passing'
+architecture_invariants:
+  - 'Shared state is immutable'
+transformations:
+  - 'code.immutable-object'
+proof_obligations: [characterization, unit, performance, typecheck]
+rollback_strategies: [revert]
+composes_with: [code.immutable-object]
+conflicts_with: [code.prototype]
+introduction_recipe:
+  - 'Split intrinsic from extrinsic state'
+  - 'Create a cache keyed by intrinsic state'
+  - 'Pass extrinsic state as arguments'
+removal_recipe:
+  - 'Inline the shared object into each owner'
+  - 'Remove the cache and factory'
+  - 'Re-measure memory and confirm acceptable'
+version: 1.0.0

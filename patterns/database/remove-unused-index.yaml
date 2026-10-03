@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: database.remove-unused-index
+name: 'Remove Unused Index'
+category: database
+problem: 'Indexes that no query uses slow writes and consume storage.'
+forces:
+  - 'Write amplification and storage cost'
+  - 'A rarely used index may serve a monthly job'
+applicability_signals:
+  - { id: no-scans, description: 'Index has no scans in the observation window', predicate: { metric: index.scans, op: '==', value: 0 } }
+  - { id: large, description: 'Index is large relative to its table', predicate: { metric: table.rows, op: '>', value: 1000000 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: rebuild-ready, description: 'Index definition is saved so it can be recreated' }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: backs-constraint, description: 'Index enforces a unique or foreign key constraint' }
+benefits:
+  - 'Faster writes'
+  - 'Less storage'
+liabilities:
+  - 'Rare queries may regress'
+  - 'Rebuild of a large index is slow'
+introduced_complexity:
+  - 'A hide-then-drop staging step'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.merge-duplicate-indexes'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, revert]
+composes_with: [database.merge-duplicate-indexes]
+conflicts_with: []
+version: 1.0.0

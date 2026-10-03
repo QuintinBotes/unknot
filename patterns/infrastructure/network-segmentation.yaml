@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.network-segmentation
+name: 'Network Segmentation'
+category: infrastructure
+problem: 'Flat networks let a compromise spread laterally.'
+forces:
+  - 'Least-privilege network access'
+  - 'Rule sprawl'
+applicability_signals:
+  - { id: public, description: 'Public ingress exists', predicate: { metric: network.public_ingress, op: '==', value: 1 } }
+  - { id: wildcards, description: 'Wildcard permissions exist', predicate: { metric: iam.wildcards, op: '>', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: flows-mapped, description: 'Existing traffic flows are mapped' }
+contraindications:
+  - { id: plan-replaces, description: 'Plan replaces network resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+  - { id: unknown-flows, description: 'Traffic flows are unknown', predicate: { metric: traces.available, op: '==', value: 0 } }
+benefits:
+  - 'Smaller blast radius'
+  - 'Auditable flows'
+liabilities:
+  - 'Outage risk if flows are missed'
+  - 'More rules to maintain'
+introduced_complexity:
+  - 'Security groups and rule review'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.private-endpoints'
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.hub-and-spoke-network, infrastructure.private-endpoints]
+conflicts_with: []
+version: 1.0.0

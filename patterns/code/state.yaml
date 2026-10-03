@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.state
+name: 'State'
+category: code
+problem: 'Behaviour changes with an internal mode and conditionals on that mode are repeated.'
+forces:
+  - 'Mode-dependent behaviour'
+  - 'Repeated switch statements on one field'
+applicability_signals:
+  - { id: repeated-switch, description: 'The same state switch appears in several methods', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: branchy, description: 'Methods branch heavily on a mode', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: two-states, description: 'Two simple states; a boolean is clearer', predicate: { metric: function.cyclomatic, op: '<=', value: 5 } }
+  - { id: few-transitions, description: 'Transitions are trivial' }
+benefits:
+  - 'One class per state clarifies rules'
+  - 'Removes repeated conditionals'
+liabilities:
+  - 'Many small classes'
+  - 'State transitions spread out'
+introduced_complexity:
+  - 'A state interface and class per state'
+architecture_invariants:
+  - 'Only legal transitions are reachable'
+transformations:
+  - 'code.replace-conditional-with-polymorphism'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.strategy]
+conflicts_with: [code.replace-polymorphism-with-conditional]
+introduction_recipe:
+  - 'Extract a state interface'
+  - 'Move mode-specific behaviour into state classes'
+  - 'Delegate from the context'
+removal_recipe:
+  - 'Replace state classes with an enum field and a switch'
+  - 'Inline state methods'
+  - 'Delete the state interface'
+version: 1.0.0

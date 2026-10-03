@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.configuration-drift
+name: 'Configuration Drift'
+category: anti-pattern
+problem: 'Running configuration diverges from the declared source of truth.'
+forces:
+  - 'Out-of-band changes'
+  - 'No reconciliation loop'
+applicability_signals:
+  - { id: drift, description: 'Plans show changes nobody authored', predicate: { metric: plan.replaces, op: '>', value: 0 } }
+  - { id: unowned, description: 'Resources have no known owner', predicate: { metric: resource.owner_known, op: '==', value: 0 } }
+required_evidence: ['infrastructure plan', 'resource inventory']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: emergency-change, description: 'A documented break-glass change is pending reconciliation' }
+  - { id: ephemeral, description: 'Resource is ephemeral and recreated' }
+benefits:
+  - 'Declared state is trusted'
+  - 'Auditable changes'
+liabilities:
+  - 'Reconciliation may revert hotfixes'
+  - 'Initial drift cleanup effort'
+introduced_complexity:
+  - 'A reconciliation controller'
+architecture_invariants:
+  - 'Reconciliation never applies without the delivery pipeline'
+transformations:
+  - 'infrastructure.gitops-reconciliation'
+  - 'infrastructure.policy-as-code'
+proof_obligations: [infra-plan, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.event-soup
+name: 'Event Soup'
+category: anti-pattern
+problem: 'Untracked events trigger each other in unpredictable cascades.'
+forces:
+  - 'Easy to add subscribers'
+  - 'No catalogue of flows'
+applicability_signals:
+  - { id: unknown-consumers, description: 'Consumers of events are not known', predicate: { metric: messaging.consumers_known, op: '==', value: 0 } }
+  - { id: no-contracts, description: 'Events lack schemas', predicate: { metric: contracts.present, op: '==', value: 0 } }
+  - { id: no-dlq, description: 'No dead-letter handling', predicate: { metric: messaging.dlq, op: '==', value: 0 } }
+required_evidence: ['event catalogue', 'consumer map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: small-bus, description: 'A small, documented bus with known consumers', predicate: { metric: messaging.consumers_known, op: '==', value: 1 } }
+  - { id: notification-only, description: 'Events are fire-and-forget notifications' }
+benefits:
+  - 'Traceable flows'
+  - 'Safer evolution'
+liabilities:
+  - 'Governance overhead'
+  - 'Slower subscriber addition'
+introduced_complexity:
+  - 'An event catalogue and schemas'
+architecture_invariants:
+  - 'Every event has a known owner and schema'
+transformations:
+  - 'code.mediator'
+  - 'code.observer'
+proof_obligations: [contract, integration, architecture-fitness]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

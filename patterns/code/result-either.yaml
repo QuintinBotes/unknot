@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.result-either
+name: 'Result / Either'
+category: code
+problem: 'Exceptions used for expected failures make control flow invisible.'
+forces:
+  - 'Expected failures need typed handling'
+  - 'Exception paths are unchecked'
+applicability_signals:
+  - { id: catch-heavy, description: 'Many try/catch blocks handle expected failures', predicate: { metric: function.cyclomatic, op: '>', value: 10 } }
+  - { id: error-codes, description: 'Error codes are returned as untyped values' }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: team-convention, description: 'The language and team convention is exceptions' }
+  - { id: unrecoverable, description: 'Failures are unrecoverable and should abort' }
+benefits:
+  - 'Failures visible in types'
+  - 'Forces callers to handle errors'
+liabilities:
+  - 'Verbose chaining'
+  - 'Mixed with exceptions it adds a second error channel'
+introduced_complexity:
+  - 'A result type and mapping helpers'
+architecture_invariants:
+  - 'Every failure path returns a typed error'
+transformations:
+  - 'code.option-type'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.option-type]
+conflicts_with: []
+introduction_recipe:
+  - 'Define a result type with success and error cases'
+  - 'Return it from fallible functions'
+  - 'Handle both cases at call sites'
+removal_recipe:
+  - 'Return values or throw at boundaries instead'
+  - 'Unwrap results at the module edge'
+  - 'Delete the result helpers'
+version: 1.0.0

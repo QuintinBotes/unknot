@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.snowflake-environment
+name: 'Snowflake Environment'
+category: anti-pattern
+problem: 'Hand-built environments cannot be reproduced from code.'
+forces:
+  - 'Manual fixes accumulate'
+  - 'Knowledge lives in people'
+applicability_signals:
+  - { id: manual-resources, description: 'Resources are not owned by code', predicate: { metric: resource.owner_known, op: '==', value: 0 } }
+  - { id: plan-drift, description: 'Plans show unexpected replacements', predicate: { metric: plan.replaces, op: '>', value: 0 } }
+required_evidence: ['infrastructure plan', 'resource inventory']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: disposable-lab, description: 'Short-lived experiment environments' }
+  - { id: legacy-appliance, description: 'Vendor appliance cannot be codified' }
+benefits:
+  - 'Reproducible environments'
+  - 'Faster recovery'
+liabilities:
+  - 'Import effort'
+  - 'Risk of replacing live resources'
+introduced_complexity:
+  - 'IaC modules and pipeline'
+architecture_invariants:
+  - 'Imports never change live resources'
+transformations:
+  - 'infrastructure.import-manual-resources'
+  - 'infrastructure.immutable-infrastructure'
+  - 'infrastructure.gitops-reconciliation'
+proof_obligations: [infra-plan, human-review]
+rollback_strategies: [revert, recreate]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

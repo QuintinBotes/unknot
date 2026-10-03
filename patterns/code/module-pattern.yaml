@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.module-pattern
+name: 'Module Pattern'
+category: code
+problem: 'Related functions and private state are scattered or exposed without encapsulation.'
+forces:
+  - 'Cohesive code needs a narrow public surface'
+  - 'Private state should stay private'
+applicability_signals:
+  - { id: wide-exports, description: 'Module exports many symbols', predicate: { metric: module.public_exports, op: '>=', value: 20 } }
+  - { id: leaky-internals, description: 'Other modules import internals', predicate: { metric: layer.violations, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: tiny-module, description: 'The module has a handful of functions', predicate: { metric: module.loc, op: '<=', value: 50 } }
+  - { id: language-visibility, description: 'The language already enforces visibility' }
+benefits:
+  - 'Narrow public surface'
+  - 'Encapsulated state'
+liabilities:
+  - 'Extra files'
+  - 'Over-splitting'
+introduced_complexity:
+  - 'An explicit export list'
+architecture_invariants:
+  - 'Consumers use only exported symbols'
+transformations:
+  - 'code.facade'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.facade]
+conflicts_with: []
+introduction_recipe:
+  - 'Group cohesive functions in one module'
+  - 'Export only the minimal surface'
+  - 'Hide state behind exports'
+removal_recipe:
+  - 'Merge the module into its sole consumer'
+  - 'Inline thin re-exports'
+  - 'Delete the module file'
+version: 1.0.0

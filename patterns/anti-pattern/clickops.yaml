@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.clickops
+name: 'ClickOps'
+category: anti-pattern
+problem: 'Infrastructure is changed through consoles, leaving no reviewable history.'
+forces:
+  - 'Console is fast'
+  - 'IaC skill gap'
+applicability_signals:
+  - { id: unowned, description: 'Resources have no owning code', predicate: { metric: resource.owner_known, op: '==', value: 0 } }
+  - { id: drift, description: 'Plans show manual changes', predicate: { metric: plan.replaces, op: '>', value: 0 } }
+required_evidence: ['infrastructure plan', 'resource inventory']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: sandbox, description: 'Personal sandbox accounts' }
+  - { id: incident-break-glass, description: 'Controlled emergency access' }
+benefits:
+  - 'Reviewable change'
+  - 'Reproducible environments'
+liabilities:
+  - 'Slower initial change'
+  - 'Import mistakes'
+introduced_complexity:
+  - 'A delivery pipeline'
+architecture_invariants:
+  - 'Production changes flow through the delivery system'
+transformations:
+  - 'infrastructure.import-manual-resources'
+  - 'infrastructure.golden-path'
+proof_obligations: [infra-plan, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

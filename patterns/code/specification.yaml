@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.specification
+name: 'Specification'
+category: code
+problem: 'Business rules are combined in ad hoc boolean expressions across the code.'
+forces:
+  - 'Rules are reused and combined'
+  - 'Boolean logic is duplicated'
+applicability_signals:
+  - { id: duplicated-rules, description: 'The same predicate is repeated', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: complex-condition, description: 'Compound conditions are long', predicate: { metric: function.cognitive, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: one-rule, description: 'A single rule used once; a plain function suffices', predicate: { metric: symbol.references, op: '<=', value: 1 } }
+  - { id: no-composition, description: 'Rules are never combined' }
+benefits:
+  - 'Named, composable rules'
+  - 'Testable in isolation'
+liabilities:
+  - 'Objects for what could be functions'
+  - 'Query translation can be awkward'
+introduced_complexity:
+  - 'Rule classes with and/or/not combinators'
+architecture_invariants:
+  - 'A specification is a pure predicate'
+transformations:
+  - 'code.extract-function'
+  - 'code.policy-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.policy-object]
+conflicts_with: []
+introduction_recipe:
+  - 'Name each rule as a predicate'
+  - 'Add combinators for and, or and not'
+  - 'Replace inline conditions with named rules'
+removal_recipe:
+  - 'Inline the rule into a named function'
+  - 'Delete combinators that are never composed'
+  - 'Delete the specification classes'
+version: 1.0.0

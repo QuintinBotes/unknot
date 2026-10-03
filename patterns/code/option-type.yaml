@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.option-type
+name: 'Option Type'
+category: code
+problem: 'Nullable values cause null dereference errors and unclear contracts.'
+forces:
+  - 'Absence must be explicit'
+  - 'Null checks are forgotten'
+applicability_signals:
+  - { id: null-returns, description: 'Functions return null for absence' }
+  - { id: null-checks, description: 'Many null checks exist', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: strict-null-types, description: 'The type system already tracks nullability' }
+  - { id: hot-path, description: 'Allocation cost matters on a hot path' }
+benefits:
+  - 'Compiler-enforced presence checks'
+  - 'Clear contracts'
+liabilities:
+  - 'Wrapping and unwrapping noise'
+  - 'Library mismatch with idiom'
+introduced_complexity:
+  - 'An optional wrapper type'
+architecture_invariants:
+  - 'No raw null crosses a public boundary'
+transformations:
+  - 'code.null-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.result-either]
+conflicts_with: []
+introduction_recipe:
+  - 'Introduce an option type'
+  - 'Change absent-capable returns to the option type'
+  - 'Handle both cases explicitly'
+removal_recipe:
+  - 'Use the language native nullable types with strict checking'
+  - 'Unwrap at call sites'
+  - 'Delete the wrapper type'
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.primitive-obsession
+name: 'Primitive Obsession'
+category: anti-pattern
+problem: 'Domain concepts are modelled as raw strings and numbers.'
+forces:
+  - 'Quick modelling'
+  - 'Boundary formats leak inward'
+applicability_signals:
+  - { id: many-params, description: 'Functions take many primitive parameters', predicate: { metric: function.params, op: '>=', value: 5 } }
+  - { id: repeated-validation, description: 'Validation repeats', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: transport-layer, description: 'Primitives are right at serialization boundaries' }
+  - { id: perf-critical, description: 'Wrapping is a measured hot-path cost' }
+benefits:
+  - 'Domain meaning in types'
+  - 'Validation in one place'
+liabilities:
+  - 'Wrapping noise'
+  - 'Serialization mapping'
+introduced_complexity:
+  - 'Small value types'
+architecture_invariants:
+  - 'Values validated once at construction'
+transformations:
+  - 'code.replace-primitive-with-value-object'
+  - 'code.introduce-parameter-object'
+proof_obligations: [characterization, unit, typecheck]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.resource-ownership
+name: 'Resource Ownership'
+category: code
+problem: 'Unclear who closes handles, connections or buffers creates leaks and double closes.'
+forces:
+  - 'Lifetimes cross module boundaries'
+  - 'Multiple closers risk double free'
+applicability_signals:
+  - { id: unclear-owner, description: 'Handles pass between modules with no owner', predicate: { metric: module.fan_out, op: '>=', value: 6 } }
+  - { id: leaks, description: 'Resource acquisition lacks matched release' }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: short-lived, description: 'The process ends quickly and releases all' }
+  - { id: shared-pool, description: 'A pool manages lifetime already' }
+benefits:
+  - 'Single responsible closer'
+  - 'Fewer leaks'
+liabilities:
+  - 'Ownership transfer rules to document'
+  - 'Borrowers need discipline'
+introduced_complexity:
+  - 'Explicit owner and borrow conventions'
+architecture_invariants:
+  - 'Exactly one owner closes each resource'
+transformations:
+  - 'code.raii'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.raii]
+conflicts_with: []
+introduction_recipe:
+  - 'Assign one owner per resource'
+  - 'Pass borrowed references only'
+  - 'Close in the owner and document transfer'
+removal_recipe:
+  - 'Hand lifetime to a pool or the runtime'
+  - 'Remove ownership wrappers'
+  - 'Keep a single close at process end'
+version: 1.0.0

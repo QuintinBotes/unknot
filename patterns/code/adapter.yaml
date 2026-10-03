@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.adapter
+name: 'Adapter'
+category: code
+problem: 'An existing component has an incompatible interface for its consumers.'
+forces:
+  - 'Third-party or legacy interface cannot be changed'
+  - 'Consumers want a stable domain-shaped interface'
+applicability_signals:
+  - { id: foreign-api, description: 'A foreign API is called from many modules', predicate: { metric: module.fan_in, op: '>=', value: 3 } }
+  - { id: leaky-types, description: 'External types appear in domain signatures', predicate: { metric: layer.violations, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: passthrough, description: 'The adapter only forwards calls one to one', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: single-use, description: 'One caller and a stable API' }
+benefits:
+  - 'Isolates foreign change'
+  - 'Enables substitution in tests'
+liabilities:
+  - 'Extra layer to maintain'
+  - 'May hide capability the target offers'
+introduced_complexity:
+  - 'A translation class and its mapping tests'
+architecture_invariants:
+  - 'Only the adapter imports the foreign API'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.facade, code.dependency-injection]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Define the interface the domain wants'
+  - 'Implement it by translating to the foreign API'
+  - 'Replace direct foreign calls with the adapter'
+removal_recipe:
+  - 'Confirm the adapter is a pure passthrough'
+  - 'Replace adapter calls with direct calls'
+  - 'Delete the adapter and its interface'
+version: 1.0.0

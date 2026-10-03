@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: database.split-schema-by-ownership
+name: 'Split Schema by Ownership'
+category: database
+problem: 'Tables written by several owners couple teams through the schema.'
+forces:
+  - 'Cross-team schema changes'
+  - 'Unclear data ownership'
+applicability_signals:
+  - { id: shared-writes, description: 'Tables have several writers', predicate: { metric: table.writers, op: '>', value: 1 } }
+  - { id: cross-joins, description: 'Queries cross ownership lines', predicate: { metric: boundary.cross_joins, op: '>', value: 0 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: owners-agreed, description: 'Each table has one agreed owner' }
+  - { id: contracts-defined, description: 'Cross-owner access has a contract' }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: single-owner, description: 'Only one team owns everything', predicate: { metric: owners.count, op: '<=', value: 1 } }
+benefits:
+  - 'Independent evolution'
+  - 'Clear accountability'
+liabilities:
+  - 'Joins become API calls'
+  - 'Transactions split'
+introduced_complexity:
+  - 'Contracts between owners'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.owned-interface-for-cross-service-writes'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, roll_forward]
+composes_with: [database.owned-interface-for-cross-service-writes]
+conflicts_with: [database.merge-stores]
+version: 1.0.0

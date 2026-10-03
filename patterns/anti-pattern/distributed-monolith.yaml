@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: anti-pattern.distributed-monolith
+name: 'Distributed Monolith'
+category: anti-pattern
+problem: 'Services are separately deployed but must change and release together.'
+forces:
+  - 'Premature service split'
+  - 'Shared data and synchronous chains'
+applicability_signals:
+  - { id: lockstep, description: 'Services are released together', predicate: { metric: service.deploy_coupling, op: '>', value: 0.5 } }
+  - { id: chatty, description: 'Requests fan out to many services', predicate: { metric: service.fan_out_p95, op: '>=', value: 5 } }
+  - { id: shared-writes, description: 'Tables have several writers', predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: intentional-release-train, description: 'A coordinated release train is a deliberate regulatory choice' }
+  - { id: single-team, description: 'One team owns all services and accepts lockstep', predicate: { metric: team.count, op: '<=', value: 1 } }
+benefits:
+  - 'Fewer deploy failures'
+  - 'Lower operating cost'
+liabilities:
+  - 'Merging services is disruptive'
+  - 'Re-splitting later is costly'
+introduced_complexity:
+  - 'Larger deployables'
+architecture_invariants:
+  - 'No data is lost in a merge'
+transformations:
+  - 'infrastructure.merge-lockstep-stacks'
+  - 'database.merge-stores'
+  - 'database.owned-interface-for-cross-service-writes'
+proof_obligations: [contract, integration, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

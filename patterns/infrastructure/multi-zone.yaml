@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.multi-zone
+name: 'Multi-Zone'
+category: infrastructure
+problem: 'A single availability zone is a single point of failure.'
+forces:
+  - 'Zone loss tolerance'
+  - 'Cross-zone traffic cost'
+applicability_signals:
+  - { id: availability-driver, description: 'Availability isolation is required', predicate: { metric: driver.availability_isolation, op: '==', value: 1 } }
+  - { id: single-owner, description: 'One service has no zone redundancy', predicate: { metric: service.count, op: '>=', value: 1 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: stateful-plan, description: 'Stateful services replicate across zones' }
+contraindications:
+  - { id: plan-replaces, description: 'Plan replaces stateful resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+  - { id: non-critical, description: 'Workload tolerates downtime' }
+benefits:
+  - 'Survives a zone loss'
+  - 'Rolling maintenance'
+liabilities:
+  - 'Higher data transfer cost'
+  - 'Replication lag'
+introduced_complexity:
+  - 'Zone-aware scheduling and storage'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, fail_over]
+composes_with: [infrastructure.cell-isolation, infrastructure.warm-standby]
+conflicts_with: []
+version: 1.0.0

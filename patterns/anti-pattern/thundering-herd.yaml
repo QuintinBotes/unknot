@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.thundering-herd
+name: 'Thundering Herd'
+category: anti-pattern
+problem: 'Many clients act at once after an event, overwhelming a shared dependency.'
+forces:
+  - 'Synchronised wake-ups'
+  - 'Shared expiry times'
+applicability_signals:
+  - { id: no-backoff, description: 'Retries are unbounded', predicate: { metric: retry.bounded, op: '==', value: 0 } }
+  - { id: high-fan-in, description: 'Many callers share one dependency', predicate: { metric: module.fan_in, op: '>=', value: 20 } }
+required_evidence: ['request traces', 'load profile']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: small-population, description: 'Few clients so synchronisation is harmless', predicate: { metric: module.consumers, op: '<=', value: 3 } }
+  - { id: capacity-sized, description: 'Dependency is sized for the full burst' }
+benefits:
+  - 'Smoother load'
+  - 'Fewer incidents'
+liabilities:
+  - 'Added latency from jitter'
+  - 'More configuration'
+introduced_complexity:
+  - 'Jitter and request coalescing'
+architecture_invariants:
+  - 'Spread does not break ordering guarantees'
+transformations:
+  - 'code.policy-object'
+  - 'code.decorator'
+proof_obligations: [unit, performance, integration]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

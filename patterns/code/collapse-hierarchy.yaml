@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.collapse-hierarchy
+name: 'Collapse Hierarchy'
+category: code
+problem: 'A base class and subclass are barely different, or a hierarchy has a single implementation.'
+forces:
+  - 'Hierarchy depth without variation'
+  - 'Speculative generality'
+applicability_signals:
+  - { id: single-impl, description: 'Abstraction has one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+  - { id: deep, description: 'Inheritance is deep', predicate: { metric: abstraction.layers, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: planned-variants, description: 'A second implementation is committed work' }
+  - { id: external-implementers, description: 'External code extends the type', predicate: { metric: module.consumers, op: '>=', value: 3 } }
+benefits:
+  - 'Fewer types'
+  - 'Easier navigation'
+liabilities:
+  - 'Loss of extension point'
+  - 'Merge may bloat the class'
+introduced_complexity:
+  - 'A wider merged class'
+architecture_invariants:
+  - 'Merged class keeps both contracts'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.inline-wrapper, code.replace-polymorphism-with-conditional]
+conflicts_with: [code.bridge, code.template-method]
+introduction_recipe:
+  - 'Split a type into base and subclass'
+  - 'Move members to the right level'
+  - 'Use the abstraction from clients'
+removal_recipe:
+  - 'Pull members of the subclass into the base'
+  - 'Update references to the merged type'
+  - 'Delete the empty class'
+version: 1.0.0

@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.cargo-cult-kubernetes
+name: 'Cargo-Cult Kubernetes'
+category: anti-pattern
+problem: 'A cluster platform is adopted for a workload that does not need it.'
+forces:
+  - 'Industry fashion'
+  - 'Platform overhead is hidden'
+applicability_signals:
+  - { id: few-services, description: 'Very few services run on the platform', predicate: { metric: service.count, op: '<=', value: 3 } }
+  - { id: single-team, description: 'One team operates it', predicate: { metric: team.count, op: '<=', value: 1 } }
+  - { id: no-scaling-need, description: 'No scaling divergence', predicate: { metric: service.scaling_divergence, op: '<', value: 0.2 } }
+required_evidence: ['workload inventory', 'cost report']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: portability-required, description: 'Multi-cloud portability is a funded requirement' }
+  - { id: platform-team, description: 'A platform team already operates clusters for many tenants', predicate: { metric: team.count, op: '>=', value: 5 } }
+benefits:
+  - 'Less operational load'
+  - 'Lower cost'
+liabilities:
+  - 'Migration effort'
+  - 'Loss of orchestration features'
+introduced_complexity:
+  - 'A simpler runtime to adopt'
+architecture_invariants:
+  - 'Workloads keep equivalent availability'
+transformations:
+  - 'infrastructure.namespace-tenancy'
+  - 'infrastructure.inline-one-use-wrapper-module'
+proof_obligations: [infra-plan, smoke, human-review]
+rollback_strategies: [revert, recreate]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

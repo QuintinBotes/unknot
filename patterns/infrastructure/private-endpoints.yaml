@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.private-endpoints
+name: 'Private Endpoints'
+category: infrastructure
+problem: 'Managed services are reachable over the public internet.'
+forces:
+  - 'Reduce public exposure'
+  - 'DNS and routing complexity'
+applicability_signals:
+  - { id: public, description: 'Public ingress to managed services', predicate: { metric: network.public_ingress, op: '==', value: 1 } }
+  - { id: wildcards, description: 'Broad access policies', predicate: { metric: iam.wildcards, op: '>', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: dns-plan, description: 'Private DNS resolution is planned' }
+contraindications:
+  - { id: public-clients, description: 'Legitimate public clients need access' }
+  - { id: plan-deletes, description: 'Plan deletes resources', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'No public path'
+  - 'Traffic stays private'
+liabilities:
+  - 'Extra cost per endpoint'
+  - 'Name-resolution failures'
+introduced_complexity:
+  - 'Private DNS zones and endpoint resources'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.network-segmentation, infrastructure.hub-and-spoke-network]
+conflicts_with: []
+version: 1.0.0

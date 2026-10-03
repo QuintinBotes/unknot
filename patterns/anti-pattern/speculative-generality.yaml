@@ -1,0 +1,38 @@
+schema_version: '1.0'
+id: anti-pattern.speculative-generality
+name: 'Speculative Generality'
+category: anti-pattern
+problem: 'Hooks, interfaces and parameters exist for futures that never arrived.'
+forces:
+  - 'Anticipating change'
+  - 'Abstraction is cheap to write'
+applicability_signals:
+  - { id: single-impl, description: 'Interface has exactly one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+  - { id: single-product, description: 'Factory yields one product', predicate: { metric: factory.products, op: '<=', value: 1 } }
+  - { id: unused-params, description: 'Symbols are unreferenced', predicate: { metric: symbol.references, op: '==', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: public-extension-point, description: 'It is a documented extension point for external users', predicate: { metric: module.consumers, op: '>=', value: 3 } }
+  - { id: committed-second-impl, description: 'A second implementation is committed work' }
+benefits:
+  - 'Less code'
+  - 'Honest design'
+liabilities:
+  - 'Re-adding the seam later costs effort'
+  - 'External users may depend on it'
+introduced_complexity:
+  - 'None; removal reduces complexity'
+architecture_invariants:
+  - 'Public contracts are unchanged'
+transformations:
+  - 'code.collapse-hierarchy'
+  - 'code.inline-wrapper'
+  - 'code.inline-function'
+  - 'code.remove-dead-code'
+proof_obligations: [characterization, typecheck, scope-check]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

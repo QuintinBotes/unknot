@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.cargo-cult-ddd
+name: 'Cargo-Cult DDD'
+category: anti-pattern
+problem: 'Tactical DDD ceremony (aggregates, repositories, factories) is applied to simple CRUD.'
+forces:
+  - 'Pattern vocabulary without a complex domain'
+  - 'Layers added by template'
+applicability_signals:
+  - { id: layers, description: 'Many layers for simple operations', predicate: { metric: abstraction.layers, op: '>=', value: 4 } }
+  - { id: passthrough, description: 'Repositories only forward', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: single-impl, description: 'Interfaces have one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: rich-domain, description: 'Genuine invariants and rules justify aggregates' }
+  - { id: multiple-teams, description: 'Bounded contexts align with team ownership', predicate: { metric: owners.count, op: '>=', value: 3 } }
+benefits:
+  - 'Less ceremony'
+  - 'Faster changes'
+liabilities:
+  - 'Loss of seams for tests'
+  - 'Rework'
+introduced_complexity:
+  - 'None'
+architecture_invariants:
+  - 'Invariants that exist are still enforced'
+transformations:
+  - 'code.collapse-hierarchy'
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, typecheck, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

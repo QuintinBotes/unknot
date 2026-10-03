@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.extract-function
+name: 'Extract Function'
+category: code
+problem: 'A long function mixes several steps and is hard to read, test or reuse.'
+forces:
+  - 'Functions exceed human working memory'
+  - 'Duplicated fragments need a name'
+applicability_signals:
+  - { id: long-function, description: 'Function is long', predicate: { metric: function.lines, op: '>', value: 60 } }
+  - { id: complex, description: 'Cyclomatic complexity is high', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: fragment-single-use, description: 'The fragment is short, single-use and clear in place', predicate: { metric: function.lines, op: '<=', value: 15 } }
+  - { id: shared-locals, description: 'The fragment mutates many locals, making extraction awkward', predicate: { metric: function.params, op: '>=', value: 6 } }
+benefits:
+  - 'Named intent'
+  - 'Reusable and testable pieces'
+liabilities:
+  - 'Jumping between small functions'
+  - 'Parameter lists can grow'
+introduced_complexity:
+  - 'More named functions to navigate'
+architecture_invariants:
+  - 'Extraction preserves observable behaviour exactly'
+transformations:
+  - 'code.inline-function'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.guard-clauses, code.introduce-parameter-object]
+conflicts_with: [code.inline-function]
+introduction_recipe:
+  - 'Select a cohesive fragment'
+  - 'Move it to a new function with explicit parameters and return'
+  - 'Replace the fragment with a call'
+removal_recipe:
+  - 'Inline the function body at each call site'
+  - 'Rename locals to avoid clashes'
+  - 'Delete the function'
+version: 1.0.0

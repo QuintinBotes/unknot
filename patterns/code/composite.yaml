@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.composite
+name: 'Composite'
+category: code
+problem: 'Clients must treat single objects and nested groups of objects uniformly.'
+forces:
+  - 'Tree structures are processed recursively'
+  - 'Clients should not special-case leaves'
+applicability_signals:
+  - { id: type-checks, description: 'Code branches on leaf versus container', predicate: { metric: function.cyclomatic, op: '>', value: 10 } }
+  - { id: recursion, description: 'Recursive traversal is duplicated', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: flat-data, description: 'The structure is a flat list' }
+  - { id: few-ops, description: 'Only one operation is ever performed on the tree' }
+benefits:
+  - 'Uniform treatment of trees'
+  - 'Removes leaf/container branching'
+liabilities:
+  - 'Interface can be over-general'
+  - 'Leaf and container responsibilities blur'
+introduced_complexity:
+  - 'A shared component interface across node kinds'
+architecture_invariants:
+  - 'Operations on a composite equal the fold of operations on children'
+transformations:
+  - 'code.visitor'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.visitor, code.iterator]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Define a common component interface'
+  - 'Implement leaf and container nodes'
+  - 'Replace branching code with polymorphic calls'
+removal_recipe:
+  - 'Replace the tree with plain data and a recursive function'
+  - 'Remove the shared component interface'
+  - 'Delete container types that hold one child'
+version: 1.0.0

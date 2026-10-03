@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.singleton
+name: 'Singleton'
+category: code
+problem: 'Exactly one shared instance is required by the domain, such as a hardware handle.'
+forces:
+  - 'Truly one instance may exist'
+  - 'Global access is convenient but hides dependencies'
+applicability_signals:
+  - { id: global-reads, description: 'Many modules read one global instance', predicate: { metric: module.consumers, op: '>=', value: 5 } }
+  - { id: test-hostile, description: 'Tests need resets of shared state', predicate: { metric: tests.present, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: multiple-valid, description: 'Nothing in the domain forbids a second instance' }
+  - { id: concurrent-state, description: 'The instance holds mutable state shared across threads' }
+benefits:
+  - 'Guarantees one instance'
+  - 'Lazy initialisation is simple'
+liabilities:
+  - 'Hidden global coupling'
+  - 'Hard to isolate in tests'
+introduced_complexity:
+  - 'Global access point and initialisation order'
+architecture_invariants:
+  - 'The domain constraint of one instance is enforced at the composition root, not by static access'
+transformations:
+  - 'code.dependency-injection'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.dependency-injection]
+conflicts_with: [code.prototype]
+introduction_recipe:
+  - 'Hide the constructor and expose a single accessor'
+  - 'Make initialisation thread safe'
+  - 'Document the lifecycle and teardown'
+removal_recipe:
+  - 'Create the instance once at the composition root'
+  - 'Inject it through constructors'
+  - 'Delete the static accessor and reset hooks'
+version: 1.0.0

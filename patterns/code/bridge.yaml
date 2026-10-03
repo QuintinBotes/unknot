@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.bridge
+name: 'Bridge'
+category: code
+problem: 'Two independent dimensions of variation would otherwise multiply into a class matrix.'
+forces:
+  - 'Abstraction and implementation vary independently'
+  - 'Subclass count grows as a product'
+applicability_signals:
+  - { id: two-axes, description: 'Both abstraction and implementation have several variants', predicate: { metric: interface.implementations, op: '>=', value: 2 } }
+  - { id: deep-hierarchy, description: 'Inheritance hierarchy is deep', predicate: { metric: abstraction.layers, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: one-axis, description: 'Only one dimension actually varies', predicate: { metric: interface.implementations, op: '<=', value: 1 } }
+  - { id: stable-impl, description: 'Implementation will never change' }
+benefits:
+  - 'Avoids a combinatorial class matrix'
+  - 'Both axes evolve independently'
+liabilities:
+  - 'Two hierarchies to understand'
+  - 'Overkill for one implementation'
+introduced_complexity:
+  - 'Abstraction hierarchy plus implementor interface'
+architecture_invariants:
+  - 'Abstractions depend only on the implementor interface'
+transformations:
+  - 'code.collapse-hierarchy'
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.strategy]
+conflicts_with: [code.collapse-hierarchy]
+introduction_recipe:
+  - 'Extract the implementor interface'
+  - 'Hold an implementor reference in the abstraction'
+  - 'Move variant behaviour into implementors'
+removal_recipe:
+  - 'Check that one implementor remains'
+  - 'Merge the abstraction and implementor'
+  - 'Delete the unused interface'
+version: 1.0.0

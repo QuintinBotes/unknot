@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.mediator
+name: 'Mediator'
+category: code
+problem: 'Many objects communicate in tangled many-to-many ways.'
+forces:
+  - 'Peer-to-peer coupling grows quadratically'
+  - 'Interaction rules change often'
+applicability_signals:
+  - { id: tangled-peers, description: 'Components reference many peers', predicate: { metric: module.fan_out, op: '>=', value: 8 } }
+  - { id: cycle, description: 'Peers form dependency cycles', predicate: { metric: cycle.size, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: two-parties, description: 'Only two parties interact' }
+  - { id: god-mediator, description: 'The mediator would absorb all logic and become a god object' }
+benefits:
+  - 'Centralised interaction rules'
+  - 'Peers become reusable'
+liabilities:
+  - 'Mediator can grow into a god object'
+  - 'Single point of complexity'
+introduced_complexity:
+  - 'A coordinator that knows every peer'
+architecture_invariants:
+  - 'Peers do not reference each other directly'
+transformations:
+  - 'code.observer'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.observer]
+conflicts_with: [code.observer]
+introduction_recipe:
+  - 'Identify the interaction rules'
+  - 'Route peer communication through a mediator'
+  - 'Remove direct peer references'
+removal_recipe:
+  - 'Reintroduce direct references for the single remaining interaction'
+  - 'Dissolve the mediator into the caller'
+  - 'Delete the mediator type'
+version: 1.0.0

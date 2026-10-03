@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.replace-primitive-with-value-object
+name: 'Replace Primitive with Value Object'
+category: code
+problem: 'Raw strings and numbers carry domain meaning and validation that is repeated.'
+forces:
+  - 'Primitive obsession'
+  - 'Validation duplicated at call sites'
+applicability_signals:
+  - { id: repeated-validation, description: 'The same validation is repeated', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: wide-params, description: 'Functions pass many primitives', predicate: { metric: function.params, op: '>=', value: 5 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: no-rules, description: 'The primitive has no invariants or behaviour' }
+  - { id: perf-sensitive, description: 'Allocation is measured as a hot-path cost' }
+benefits:
+  - 'Type-checked domain concepts'
+  - 'Validation in one place'
+liabilities:
+  - 'Wrapping at boundaries'
+  - 'More types'
+introduced_complexity:
+  - 'A small value type with equality'
+architecture_invariants:
+  - 'The value is valid on construction'
+transformations:
+  - 'code.immutable-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.immutable-object, code.introduce-parameter-object]
+conflicts_with: []
+introduction_recipe:
+  - 'Create a value type with validation'
+  - 'Convert at the boundary'
+  - 'Change signatures to the value type'
+removal_recipe:
+  - 'Unwrap to the primitive at the boundary'
+  - 'Move validation to the boundary function'
+  - 'Delete the value type'
+version: 1.0.0

@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.workload-identity
+name: 'Workload Identity'
+category: infrastructure
+problem: 'Long-lived credentials and wildcard roles grant too much access.'
+forces:
+  - 'Credential sprawl'
+  - 'Migration effort per workload'
+applicability_signals:
+  - { id: wildcards, description: 'Policies contain wildcards', predicate: { metric: iam.wildcards, op: '>', value: 0 } }
+  - { id: public, description: 'Public ingress exists', predicate: { metric: network.public_ingress, op: '==', value: 1 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: permissions-mapped, description: 'Actual permissions used are known' }
+contraindications:
+  - { id: plan-deletes, description: 'Plan deletes roles in use', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+  - { id: unknown-usage, description: 'Permission usage is unknown', predicate: { metric: metrics.available, op: '==', value: 0 } }
+benefits:
+  - 'No static secrets'
+  - 'Least privilege'
+liabilities:
+  - 'Federation setup complexity'
+  - 'Outages from missed permissions'
+introduced_complexity:
+  - 'Identity federation and role bindings'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.policy-as-code]
+conflicts_with: []
+version: 1.0.0

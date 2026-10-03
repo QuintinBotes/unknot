@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.proxy
+name: 'Proxy'
+category: code
+problem: 'Access to an object needs control such as laziness, caching, remote access or protection.'
+forces:
+  - 'Cross-cutting access control'
+  - 'Expensive or remote targets'
+applicability_signals:
+  - { id: access-control, description: 'Calls need guarding or lazy loading' }
+  - { id: remote-target, description: 'The target lives across a process boundary', predicate: { metric: boundary.interface_count, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: passthrough, description: 'The proxy adds no behaviour', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: cheap-target, description: 'Target is local and cheap' }
+benefits:
+  - 'Transparent control of access'
+  - 'Lazy initialisation'
+liabilities:
+  - 'Hidden latency'
+  - 'Another layer to debug'
+introduced_complexity:
+  - 'A stand-in class with the target interface'
+architecture_invariants:
+  - 'Proxy honours the target contract'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.decorator, code.adapter]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Extract the target interface'
+  - 'Implement a proxy that delegates with the added control'
+  - 'Inject the proxy'
+removal_recipe:
+  - 'Verify the proxy is a passthrough'
+  - 'Replace the proxy with the real target'
+  - 'Delete the proxy class'
+version: 1.0.0

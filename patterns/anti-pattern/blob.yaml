@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.blob
+name: 'Blob'
+category: anti-pattern
+problem: 'A single module or class holds most of the behaviour while others are passive data holders.'
+forces:
+  - 'Procedural style in an object language'
+  - 'Data-only classes surround one controller'
+applicability_signals:
+  - { id: dominant-class, description: 'One class dominates module size', predicate: { metric: class.lines, op: '>=', value: 1500 } }
+  - { id: anemic-peers, description: 'Peers have fields but few methods', predicate: { metric: class.methods, op: '<=', value: 3 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: small-script, description: 'The module is a small script' }
+  - { id: orchestrator, description: 'A thin orchestrator coordinates by design' }
+benefits:
+  - 'Behaviour sits with its data'
+  - 'Smaller units to test'
+liabilities:
+  - 'Large moves with many touch points'
+  - 'Naming and ownership decisions'
+introduced_complexity:
+  - 'Additional classes'
+architecture_invariants:
+  - 'Moves are behaviour-preserving'
+transformations:
+  - 'code.extract-function'
+  - 'code.introduce-parameter-object'
+proof_obligations: [characterization, unit, typecheck]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

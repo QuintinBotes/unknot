@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.policy-object
+name: 'Policy Object'
+category: code
+problem: 'Variable business decisions are buried in procedural code.'
+forces:
+  - 'Rules change per customer or time'
+  - 'Decision logic mixes with orchestration'
+applicability_signals:
+  - { id: branchy-rules, description: 'Decision logic branches heavily', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+  - { id: rule-churn, description: 'Rules change often', predicate: { metric: module.churn, op: '>=', value: 10 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: stable-rule, description: 'The rule never changes' }
+  - { id: single-site, description: 'One call site and no variants', predicate: { metric: symbol.references, op: '<=', value: 1 } }
+benefits:
+  - 'Rules isolated and testable'
+  - 'Policy swappable by configuration'
+liabilities:
+  - 'Another abstraction to learn'
+  - 'Policy proliferation'
+introduced_complexity:
+  - 'A policy interface plus implementations'
+architecture_invariants:
+  - 'Policy decisions are deterministic for the same inputs'
+transformations:
+  - 'code.extract-function'
+  - 'code.strategy'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.specification, code.strategy]
+conflicts_with: [code.inline-function]
+introduction_recipe:
+  - 'Extract the decision into a named function'
+  - 'Introduce a policy interface if variants exist'
+  - 'Inject the policy'
+removal_recipe:
+  - 'Inline the policy into the single caller'
+  - 'Replace the interface with the sole function'
+  - 'Delete the policy class'
+version: 1.0.0

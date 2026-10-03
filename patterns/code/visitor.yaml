@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.visitor
+name: 'Visitor'
+category: code
+problem: 'New operations must be added over a stable set of element types without editing them.'
+forces:
+  - 'Operations change more often than element types'
+  - 'Type switches are scattered'
+applicability_signals:
+  - { id: type-switches, description: 'Code switches on node type in many places', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: stable-elements, description: 'The element set rarely changes' }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: changing-elements, description: 'Element types change often, so each change touches every visitor' }
+  - { id: few-ops, description: 'Only one or two operations exist' }
+benefits:
+  - 'Operations added without editing elements'
+  - 'Groups related logic per operation'
+liabilities:
+  - 'Double dispatch is hard to read'
+  - 'Adding an element type touches all visitors'
+introduced_complexity:
+  - 'An accept method per element and a visitor interface'
+architecture_invariants:
+  - 'Every element type is handled by every visitor'
+transformations:
+  - 'code.inline-function'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.composite]
+conflicts_with: [code.replace-conditional-with-polymorphism]
+introduction_recipe:
+  - 'Add accept(visitor) to each element'
+  - 'Define a visitor with one method per element'
+  - 'Move operations into visitor implementations'
+removal_recipe:
+  - 'Replace visitors with a function using exhaustive pattern matching or a switch'
+  - 'Remove accept methods'
+  - 'Delete the visitor interface'
+version: 1.0.0

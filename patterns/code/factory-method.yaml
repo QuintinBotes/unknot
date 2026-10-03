@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.factory-method
+name: 'Factory Method'
+category: code
+problem: 'A class needs to defer which concrete type it instantiates to subclasses or callers.'
+forces:
+  - 'Creation varies by context'
+  - 'Callers should depend on an abstraction'
+applicability_signals:
+  - { id: multi-products, description: 'The factory method returns more than one concrete type', predicate: { metric: factory.products, op: '>=', value: 2 } }
+  - { id: multi-impl, description: 'The returned abstraction has several implementations', predicate: { metric: interface.implementations, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: one-product, description: 'The factory always returns the same concrete type', predicate: { metric: factory.products, op: '<=', value: 1 } }
+  - { id: trivial-wrapper, description: 'The factory only forwards to a constructor', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+benefits:
+  - 'Decouples callers from concrete types'
+  - 'Single place to change construction'
+liabilities:
+  - 'Extra indirection for one-product cases'
+  - 'Subclass-per-product explosion if overused'
+introduced_complexity:
+  - 'A creator hierarchy or factory function per product'
+architecture_invariants:
+  - 'Every product satisfies the declared interface'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.dependency-injection, code.abstract-factory]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Extract the product interface'
+  - 'Move construction into an overridable method or factory function'
+  - 'Call the factory from client code'
+removal_recipe:
+  - 'Verify only one product type is returned'
+  - 'Inline the factory body into callers'
+  - 'Delete the factory and unused interface'
+version: 1.0.0

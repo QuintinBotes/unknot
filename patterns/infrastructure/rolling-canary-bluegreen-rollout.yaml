@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.rolling-canary-bluegreen-rollout
+name: 'Rolling, Canary and Blue-Green Rollout'
+category: infrastructure
+problem: 'All-at-once deployments turn bad releases into outages.'
+forces:
+  - 'Risk versus speed'
+  - 'Needs health signals'
+applicability_signals:
+  - { id: lockstep, description: 'Releases deploy together', predicate: { metric: service.deploy_coupling, op: '>', value: 0.5 } }
+  - { id: no-pipeline, description: 'No per-unit pipeline', predicate: { metric: ci.per_unit_pipeline, op: '==', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: health-signals, description: 'Health signals exist', predicate: { metric: metrics.available, op: '==', value: 1 } }
+contraindications:
+  - { id: no-metrics, description: 'No health metrics to judge a canary', predicate: { metric: metrics.available, op: '==', value: 0 } }
+  - { id: plan-replaces, description: 'Plan replaces stateful resources', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Smaller blast radius'
+  - 'Fast rollback'
+liabilities:
+  - 'Mixed versions during rollout'
+  - 'Double capacity for blue-green'
+introduced_complexity:
+  - 'Traffic shifting and automated analysis'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.gitops-reconciliation, infrastructure.immutable-infrastructure]
+conflicts_with: []
+version: 1.0.0

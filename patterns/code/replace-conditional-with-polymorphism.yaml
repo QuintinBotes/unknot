@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.replace-conditional-with-polymorphism
+name: 'Replace Conditional with Polymorphism'
+category: code
+problem: 'Type-code switches are repeated across methods and each new case edits all of them.'
+forces:
+  - 'Open set of variants'
+  - 'Same switch repeated in several places'
+applicability_signals:
+  - { id: repeated-switch, description: 'The same type switch appears in several places', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: branchy, description: 'Method has many type-dependent branches', predicate: { metric: function.cyclomatic, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: closed-small-set, description: 'Two or three stable cases; a conditional is clearer', predicate: { metric: function.cyclomatic, op: '<=', value: 5 } }
+  - { id: data-like, description: 'Variants carry data and no behaviour' }
+benefits:
+  - 'New variants without editing switches'
+  - 'Behaviour lives with its type'
+liabilities:
+  - 'Logic scattered across classes'
+  - 'More types to navigate'
+introduced_complexity:
+  - 'A class hierarchy or interface per variant'
+architecture_invariants:
+  - 'Each variant preserves the original branch behaviour'
+transformations:
+  - 'code.strategy'
+  - 'code.state'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.strategy, code.state]
+conflicts_with: [code.replace-polymorphism-with-conditional]
+introduction_recipe:
+  - 'Create a variant type per case'
+  - 'Move each branch body into its variant'
+  - 'Replace the switch with a polymorphic call'
+removal_recipe:
+  - 'Apply replace-polymorphism-with-conditional'
+  - 'Fold variant methods into one switch'
+  - 'Delete the variant classes'
+version: 1.0.0

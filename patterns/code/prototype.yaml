@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.prototype
+name: 'Prototype'
+category: code
+problem: 'Creating objects by configuring from scratch is costly; cloning a configured instance is cheaper.'
+forces:
+  - 'Construction is expensive or configuration heavy'
+  - 'Runtime-defined variants must be copied'
+applicability_signals:
+  - { id: clone-heavy, description: 'Similar objects are built repeatedly with near-identical setup', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: costly-build, description: 'Construction is long and complex', predicate: { metric: function.lines, op: '>', value: 40 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: shared-mutable, description: 'Deep copy semantics are unclear for shared mutable state' }
+  - { id: language-copy, description: 'The language offers cheap value copy or spread, making the pattern redundant' }
+benefits:
+  - 'Avoids repeated configuration'
+  - 'Decouples from concrete classes'
+liabilities:
+  - 'Deep versus shallow copy bugs'
+  - 'Cloning cyclic graphs is subtle'
+introduced_complexity:
+  - 'A clone contract on every cloneable type'
+architecture_invariants:
+  - 'A clone is behaviourally independent of its source'
+transformations:
+  - 'code.immutable-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.immutable-object]
+conflicts_with: [code.singleton]
+introduction_recipe:
+  - 'Add a clone operation with explicit copy depth'
+  - 'Register prototypes where variants are chosen'
+  - 'Replace setup code with clone plus overrides'
+removal_recipe:
+  - 'Replace clones with constructor or factory calls'
+  - 'Prefer immutable values with copy-with-changes'
+  - 'Remove the clone contract'
+version: 1.0.0

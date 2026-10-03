@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.pin-artifact-digests
+name: 'Pin Artifact Digests'
+category: infrastructure
+problem: 'Mutable tags make deployments non-reproducible and open to supply-chain swaps.'
+forces:
+  - 'Reproducibility versus update toil'
+  - 'Digest updates must be automated'
+applicability_signals:
+  - { id: mutable-tags, description: 'Deployments reference mutable tags' }
+  - { id: no-ci, description: 'No CI promotes artifacts', predicate: { metric: ci.present, op: '==', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: update-bot, description: 'An automated updater is available' }
+contraindications:
+  - { id: plan-replaces, description: 'Plan replaces running workloads', predicate: { metric: plan.replaces, op: '>', value: 0 }, hard: true }
+  - { id: throwaway, description: 'Throwaway experiments' }
+benefits:
+  - 'Reproducible deployments'
+  - 'Tamper resistance'
+liabilities:
+  - 'Updates need tooling'
+  - 'Harder to read'
+introduced_complexity:
+  - 'Digest update automation'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, security-scan, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.immutable-infrastructure, infrastructure.gitops-reconciliation]
+conflicts_with: []
+version: 1.0.0

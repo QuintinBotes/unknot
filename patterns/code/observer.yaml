@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.observer
+name: 'Observer'
+category: code
+problem: 'Several objects must react to state changes without the source knowing them.'
+forces:
+  - 'One-to-many notification'
+  - 'Publisher should not know subscribers'
+applicability_signals:
+  - { id: hard-wired-calls, description: 'The source calls many dependents directly', predicate: { metric: module.fan_out, op: '>=', value: 6 } }
+  - { id: multiple-consumers, description: 'Several dependents react to the same change', predicate: { metric: module.consumers, op: '>=', value: 3 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: single-listener, description: 'One listener exists; a direct call is clearer', predicate: { metric: module.consumers, op: '<=', value: 1 } }
+  - { id: ordering-needed, description: 'Behaviour depends on subscriber order' }
+benefits:
+  - 'Loose coupling'
+  - 'Runtime subscription'
+liabilities:
+  - 'Implicit control flow'
+  - 'Leaked subscriptions and cascading updates'
+introduced_complexity:
+  - 'Subscription registry and callbacks'
+architecture_invariants:
+  - 'Notifications are delivered without mutating the subscriber list mid-dispatch'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.mediator]
+conflicts_with: [code.mediator]
+introduction_recipe:
+  - 'Define the event or listener contract'
+  - 'Add subscribe and unsubscribe'
+  - 'Replace direct dependent calls with notifications'
+removal_recipe:
+  - 'Replace the single subscription with a direct call'
+  - 'Remove the subscription registry'
+  - 'Delete the listener interface'
+version: 1.0.0

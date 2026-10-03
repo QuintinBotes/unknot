@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.iterator
+name: 'Iterator'
+category: code
+problem: 'Collections must be traversed without exposing their internal representation.'
+forces:
+  - 'Traversal logic is duplicated'
+  - 'Multiple traversal orders are needed'
+applicability_signals:
+  - { id: duplicate-loops, description: 'Traversal code is copied across callers', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+  - { id: exposed-internals, description: 'Callers index into internals', predicate: { metric: layer.violations, op: '>=', value: 1 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: native-iteration, description: 'The language already offers iteration protocols' }
+  - { id: one-order, description: 'A single simple order; a for loop suffices' }
+benefits:
+  - 'Hides representation'
+  - 'Supports lazy traversal'
+liabilities:
+  - 'Statefulness in the iterator'
+  - 'Concurrent modification hazards'
+introduced_complexity:
+  - 'An iterator type per collection'
+architecture_invariants:
+  - 'Traversal never mutates the collection unless documented'
+transformations:
+  - 'code.inline-wrapper'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.composite]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Define an iterator protocol'
+  - 'Implement it for the collection'
+  - 'Replace index loops with iteration'
+removal_recipe:
+  - 'Replace the custom iterator with the native protocol or a plain loop'
+  - 'Delete the iterator class'
+  - 'Update callers'
+version: 1.0.0

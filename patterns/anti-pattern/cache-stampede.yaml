@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.cache-stampede
+name: 'Cache Stampede'
+category: anti-pattern
+problem: 'Many requests recompute or refetch the same expired value at once.'
+forces:
+  - 'Synchronised expiry'
+  - 'Expensive recomputation'
+applicability_signals:
+  - { id: high-fan-in, description: 'Many callers share the cached source', predicate: { metric: module.fan_in, op: '>=', value: 20 } }
+  - { id: no-backoff, description: 'Retries are unbounded', predicate: { metric: retry.bounded, op: '==', value: 0 } }
+required_evidence: ['request traces', 'cache hit statistics']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: cheap-source, description: 'Recomputation is cheap' }
+  - { id: single-requester, description: 'Only one requester exists', predicate: { metric: module.consumers, op: '<=', value: 1 } }
+benefits:
+  - 'Source protected'
+  - 'Steadier latency'
+liabilities:
+  - 'Stale reads possible'
+  - 'Locking complexity'
+introduced_complexity:
+  - 'Request coalescing or soft expiry'
+architecture_invariants:
+  - 'Stale values stay within an agreed bound'
+transformations:
+  - 'code.decorator'
+  - 'code.policy-object'
+proof_obligations: [unit, performance, integration]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

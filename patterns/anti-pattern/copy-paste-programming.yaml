@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.copy-paste-programming
+name: 'Copy-Paste Programming'
+category: anti-pattern
+problem: 'Logic is duplicated instead of shared, so fixes must be applied repeatedly.'
+forces:
+  - 'Faster short-term delivery'
+  - 'Fear of coupling modules'
+applicability_signals:
+  - { id: clones, description: 'Many near-identical fragments exist', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: similar, description: 'Fragments are highly similar', predicate: { metric: duplication.similarity, op: '>', value: 0.85 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: intentional-divergence, description: 'Copies are expected to diverge by design' }
+  - { id: cross-boundary, description: 'Sharing would couple independently deployed services' }
+benefits:
+  - 'One place per fix'
+  - 'Smaller codebase'
+liabilities:
+  - 'Shared code couples consumers'
+  - 'Wrong abstraction is worse than duplication'
+introduced_complexity:
+  - 'A shared function or module with several consumers'
+architecture_invariants:
+  - 'Shared code preserves each caller original behaviour'
+transformations:
+  - 'code.extract-function'
+  - 'code.template-method'
+  - 'code.consolidate-duplicate-conditional'
+proof_obligations: [characterization, unit, typecheck]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

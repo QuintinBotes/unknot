@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: database.owned-interface-for-cross-service-writes
+name: 'Owned Interface for Cross-Service Writes'
+category: database
+problem: 'Several services write one owner table directly.'
+forces:
+  - 'Invariants enforced by nobody'
+  - 'Schema changes break writers'
+applicability_signals:
+  - { id: multi-writer, description: 'Table has several writers', predicate: { metric: table.writers, op: '>', value: 1 } }
+  - { id: shared-writes, description: 'Boundary shares table writers', predicate: { metric: boundary.shared_table_writers, op: '>', value: 0 } }
+required_evidence: ['query statistics across a full peak cycle', 'restore test record', 'reconciliation report']
+preconditions:
+  - { id: observation-window, description: 'Observation spans at least one full peak and batch cycle before contract' }
+  - { id: contract-defined, description: 'The owner exposes a versioned write contract', predicate: { metric: contracts.present, op: '==', value: 1 } }
+  - { id: idempotent, description: 'Write endpoint is idempotent', predicate: { metric: data.idempotency, op: '==', value: 1 } }
+contraindications:
+  - { id: restore-untested, description: 'A restore has not been tested, so destructive or data-moving steps are blocked', predicate: { metric: backup.restore_tested, op: '==', value: 0 }, hard: true }
+  - { id: single-writer, description: 'Only one writer exists', predicate: { metric: table.writers, op: '<=', value: 1 } }
+benefits:
+  - 'One place enforces invariants'
+  - 'Schema private to owner'
+liabilities:
+  - 'Extra network hop'
+  - 'Owner becomes a dependency'
+introduced_complexity:
+  - 'An API and its versioning'
+architecture_invariants:
+  - 'Phases run in order: expand, migrate, validate, switch, observe, contract; contract waits for the observation window'
+  - 'Unknot plans and rehearses on copies; execution happens only through the organisation delivery system'
+transformations:
+  - 'database.split-schema-by-ownership'
+proof_obligations: [migration-rehearsal, reconciliation, rollback-rehearsal, human-review]
+rollback_strategies: [restore, roll_forward]
+composes_with: [database.split-schema-by-ownership, database.dual-write-to-outbox]
+conflicts_with: []
+version: 1.0.0

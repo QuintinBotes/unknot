@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.immutable-object
+name: 'Immutable Object'
+category: code
+problem: 'Shared mutable state causes aliasing bugs and hard-to-reason concurrency.'
+forces:
+  - 'Values are shared across threads or callers'
+  - 'Mutation scatters across code'
+applicability_signals:
+  - { id: shared-mutation, description: 'Many callers mutate the same object', predicate: { metric: symbol.references, op: '>=', value: 10 } }
+  - { id: wide-class, description: 'Class has many mutable fields', predicate: { metric: class.fields, op: '>=', value: 8 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: hot-path-copy, description: 'Copying cost matters on a hot path' }
+  - { id: builder-heavy, description: 'Immutability needs a large builder for little gain' }
+benefits:
+  - 'Safe sharing'
+  - 'Easier reasoning and testing'
+liabilities:
+  - 'Allocation on every change'
+  - 'Deep updates are verbose'
+introduced_complexity:
+  - 'Copy-with-change helpers'
+architecture_invariants:
+  - 'An instance is never observably modified after construction'
+transformations:
+  - 'code.replace-primitive-with-value-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.builder, code.replace-primitive-with-value-object]
+conflicts_with: []
+introduction_recipe:
+  - 'Make fields read-only'
+  - 'Replace setters with copy-with-change methods'
+  - 'Update callers to use returned copies'
+removal_recipe:
+  - 'Reintroduce setters only where profiling shows copying cost'
+  - 'Replace copy helpers with in-place update'
+  - 'Keep mutation private to one owner'
+version: 1.0.0

@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.policy-as-code
+name: 'Policy as Code'
+category: infrastructure
+problem: 'Standards are documents that nobody enforces.'
+forces:
+  - 'Enforcement versus friction'
+  - 'Policy tests needed'
+applicability_signals:
+  - { id: wildcards, description: 'Wildcard permissions exist', predicate: { metric: iam.wildcards, op: '>', value: 0 } }
+  - { id: public, description: 'Public ingress exists', predicate: { metric: network.public_ingress, op: '==', value: 1 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: exceptions-process, description: 'An exception process exists' }
+contraindications:
+  - { id: plan-deletes, description: 'Policy would force deletions', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+  - { id: unclear-standards, description: 'Standards are not agreed' }
+benefits:
+  - 'Automated enforcement'
+  - 'Auditable decisions'
+liabilities:
+  - 'False positives block delivery'
+  - 'Policies need maintenance'
+introduced_complexity:
+  - 'A policy repository and CI gate'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.gitops-reconciliation, infrastructure.landing-zone-guardrails]
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.cargo-cult-cqrs
+name: 'Cargo-Cult CQRS'
+category: anti-pattern
+problem: 'Read and write models are split without divergent needs, doubling the model and the sync logic.'
+forces:
+  - 'Pattern adopted by fashion'
+  - 'Sync lag is underestimated'
+applicability_signals:
+  - { id: identical-shapes, description: 'Read and write models are nearly identical', predicate: { metric: duplication.similarity, op: '>', value: 0.8 } }
+  - { id: no-reconcile, description: 'Sync has no reconciliation', predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: divergent-load, description: 'Read and write loads or shapes differ materially', predicate: { metric: service.scaling_divergence, op: '>', value: 0.5 } }
+  - { id: multiple-read-models, description: 'Several distinct read models exist', predicate: { metric: boundary.interface_count, op: '>=', value: 3 } }
+benefits:
+  - 'One model to maintain'
+  - 'No sync lag'
+liabilities:
+  - 'Read performance may need indexes instead'
+  - 'Migration care for consumers'
+introduced_complexity:
+  - 'None; removal reduces moving parts'
+architecture_invariants:
+  - 'Read results match prior behaviour'
+transformations:
+  - 'database.remove-derived-store'
+  - 'database.merge-stores'
+proof_obligations: [reconciliation, integration, migration-rehearsal]
+rollback_strategies: [revert, restore]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

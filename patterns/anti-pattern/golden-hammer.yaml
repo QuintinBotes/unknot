@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.golden-hammer
+name: 'Golden Hammer'
+category: anti-pattern
+problem: 'One familiar technology or pattern is applied to every problem, including ill-fitting ones.'
+forces:
+  - 'Familiarity beats fit'
+  - 'Standardisation pressure'
+applicability_signals:
+  - { id: uniform-pattern, description: 'The same abstraction wraps unrelated problems', predicate: { metric: abstraction.layers, op: '>=', value: 3 } }
+  - { id: single-impl, description: 'Abstractions have one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: standard-justified, description: 'An organisational standard deliberately trades fit for operability' }
+  - { id: proven-fit, description: 'Measured fit shows the tool is adequate' }
+benefits:
+  - 'Simpler fitting solutions'
+  - 'Less accidental complexity'
+liabilities:
+  - 'Heterogeneity raises operational skill needs'
+  - 'Rewrites cost time'
+introduced_complexity:
+  - 'More than one technology to operate'
+architecture_invariants:
+  - 'A replacement is chosen by requirements, not preference'
+transformations:
+  - 'code.inline-wrapper'
+  - 'code.collapse-hierarchy'
+proof_obligations: [characterization, human-review]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

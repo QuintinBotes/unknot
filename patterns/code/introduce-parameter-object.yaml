@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.introduce-parameter-object
+name: 'Introduce Parameter Object'
+category: code
+problem: 'The same group of parameters travels together through many signatures.'
+forces:
+  - 'Long parameter lists'
+  - 'Data clumps recur'
+applicability_signals:
+  - { id: long-params, description: 'Function takes many parameters', predicate: { metric: function.params, op: '>=', value: 5 } }
+  - { id: clump, description: 'The same parameters repeat across functions', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: unrelated-params, description: 'Parameters are unrelated and only coincidentally grouped' }
+  - { id: one-function, description: 'Only one function uses the group', predicate: { metric: symbol.references, op: '<=', value: 1 } }
+benefits:
+  - 'Shorter signatures'
+  - 'A home for related behaviour'
+liabilities:
+  - 'New type to maintain'
+  - 'Callers must construct it'
+introduced_complexity:
+  - 'A small data class'
+architecture_invariants:
+  - 'The object carries no behaviour that hides coupling'
+transformations:
+  - 'code.replace-primitive-with-value-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.extract-function, code.replace-primitive-with-value-object]
+conflicts_with: [code.builder]
+introduction_recipe:
+  - 'Create a type for the parameter group'
+  - 'Add it as a parameter alongside the originals'
+  - 'Remove the old parameters from signatures'
+removal_recipe:
+  - 'Expand the object fields back into parameters'
+  - 'Update signatures and callers'
+  - 'Delete the parameter type'
+version: 1.0.0

@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.consolidate-duplicate-conditional
+name: 'Consolidate Duplicate Conditional'
+category: code
+problem: 'Branches repeat identical actions or conditions.'
+forces:
+  - 'Redundant branches inflate complexity'
+  - 'Same condition is tested repeatedly'
+applicability_signals:
+  - { id: duplicate-branches, description: 'Branches share identical bodies', predicate: { metric: duplication.similarity, op: '>', value: 0.9 } }
+  - { id: branchy, description: 'Function is branch heavy', predicate: { metric: function.cyclomatic, op: '>', value: 10 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: intent-distinct, description: 'Branches look alike but encode different rules' }
+  - { id: side-effects, description: 'Condition evaluation has side effects' }
+benefits:
+  - 'Smaller functions'
+  - 'One place per rule'
+liabilities:
+  - 'Combined conditions may be harder to read'
+  - 'Merging distinct rules by accident'
+introduced_complexity:
+  - 'Named combined predicates'
+architecture_invariants:
+  - 'Combined condition is logically equivalent'
+transformations:
+  - 'code.extract-function'
+  - 'code.guard-clauses'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.guard-clauses]
+conflicts_with: []
+introduction_recipe:
+  - 'Verify equivalence of the branches'
+  - 'Combine them with a boolean expression'
+  - 'Extract the combined test with a name'
+removal_recipe:
+  - 'Split the combined condition if rules diverge'
+  - 'Restore separate branches'
+  - 'Delete the combined predicate'
+version: 1.0.0

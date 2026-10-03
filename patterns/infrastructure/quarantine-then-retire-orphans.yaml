@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: infrastructure.quarantine-then-retire-orphans
+name: 'Quarantine then Retire Orphans'
+category: infrastructure
+problem: 'Orphaned resources cost money and widen attack surface but may be in use.'
+forces:
+  - 'Deletion risk'
+  - 'Unknown owners'
+applicability_signals:
+  - { id: unowned, description: 'Resources have no known owner', predicate: { metric: resource.owner_known, op: '==', value: 0 } }
+  - { id: unreferenced, description: 'Resources have no references', predicate: { metric: symbol.references, op: '==', value: 0 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: inventory, description: 'Resource inventory is complete' }
+  - { id: quarantine-window, description: 'Resource is isolated and observed for a full cycle before retirement' }
+contraindications:
+  - { id: owner-unknown, description: 'Owner unknown blocks retirement until identified', predicate: { metric: resource.owner_known, op: '==', value: 0 }, hard: true }
+  - { id: plan-deletes-unreviewed, description: 'Deletion plan lacks human sign-off', predicate: { metric: plan.deletes, op: '>', value: 0 } }
+benefits:
+  - 'Lower cost'
+  - 'Smaller attack surface'
+liabilities:
+  - 'Slow process'
+  - 'Quarantine can break hidden users'
+introduced_complexity:
+  - 'A quarantine stage and snapshots'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations: []
+proof_obligations: [infra-plan, human-review, rollback-rehearsal]
+rollback_strategies: [revert, recreate, restore]
+composes_with: [infrastructure.finops-ttl, infrastructure.import-manual-resources]
+conflicts_with: []
+version: 1.0.0

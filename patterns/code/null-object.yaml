@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.null-object
+name: 'Null Object'
+category: code
+problem: 'Repeated null checks guard optional collaborators.'
+forces:
+  - 'Null checks scatter across callers'
+  - 'A neutral behaviour exists'
+applicability_signals:
+  - { id: null-checks, description: 'Many callers check for absence', predicate: { metric: duplication.instances, op: '>=', value: 3 } }
+  - { id: branchy, description: 'Callers branch on a missing collaborator', predicate: { metric: function.cyclomatic, op: '>', value: 10 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: absence-meaningful, description: 'Absence must be distinguished from a neutral default' }
+  - { id: one-check, description: 'A single null check exists' }
+benefits:
+  - 'Removes null branching'
+  - 'Uniform call sites'
+liabilities:
+  - 'Can hide missing-data bugs'
+  - 'Extra class'
+introduced_complexity:
+  - 'A do-nothing implementation of the interface'
+architecture_invariants:
+  - 'Neutral behaviour is observably safe'
+transformations:
+  - 'code.option-type'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.option-type, code.strategy]
+conflicts_with: []
+introduction_recipe:
+  - 'Extract the collaborator interface'
+  - 'Implement a neutral do-nothing version'
+  - 'Return it instead of null'
+removal_recipe:
+  - 'Return an explicit option or optional at the boundary'
+  - 'Reintroduce the single presence check'
+  - 'Delete the null object'
+version: 1.0.0

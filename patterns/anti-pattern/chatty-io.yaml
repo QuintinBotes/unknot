@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.chatty-io
+name: 'Chatty I/O'
+category: anti-pattern
+problem: 'Many small remote calls per request add latency and failure points.'
+forces:
+  - 'Fine-grained APIs'
+  - 'N+1 access patterns'
+applicability_signals:
+  - { id: calls, description: 'Request makes many boundary calls', predicate: { metric: boundary.calls_per_request_p95, op: '>=', value: 20 } }
+  - { id: fan-out, description: 'Fan-out to many services', predicate: { metric: service.fan_out_p95, op: '>=', value: 5 } }
+required_evidence: ['request traces', 'metrics']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: streaming-by-design, description: 'Streaming or incremental protocols are deliberate' }
+  - { id: local-calls, description: 'Calls are in-process and cheap' }
+benefits:
+  - 'Lower latency'
+  - 'Fewer failure points'
+liabilities:
+  - 'Coarser APIs carry more data'
+  - 'Contract changes'
+introduced_complexity:
+  - 'Batch or aggregate endpoints'
+architecture_invariants:
+  - 'Batched calls match individual call semantics'
+transformations:
+  - 'code.facade'
+  - 'code.extract-function'
+proof_obligations: [contract, integration, performance]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,37 @@
+schema_version: '1.0'
+id: anti-pattern.god-object
+name: 'God Object'
+category: anti-pattern
+problem: 'One class knows and does too much, and most of the system depends on it.'
+forces:
+  - 'Convenient place for new logic'
+  - 'High coupling gravitates to one class'
+applicability_signals:
+  - { id: large-class, description: 'Class has very many methods', predicate: { metric: class.methods, op: '>=', value: 40 } }
+  - { id: high-fan-in, description: 'Many modules depend on it', predicate: { metric: module.fan_in, op: '>=', value: 20 } }
+  - { id: many-fields, description: 'Class holds many fields', predicate: { metric: class.fields, op: '>=', value: 25 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: facade-by-design, description: 'The class is a deliberate thin facade', predicate: { metric: wrapper.passthrough_ratio, op: '>', value: 0.8 } }
+  - { id: generated, description: 'The class is generated code' }
+benefits:
+  - 'Cohesive units'
+  - 'Parallel work becomes possible'
+liabilities:
+  - 'Many callers must change'
+  - 'Behaviour can shift in the split'
+introduced_complexity:
+  - 'More classes and wiring'
+architecture_invariants:
+  - 'Public behaviour of callers is preserved during the split'
+transformations:
+  - 'code.extract-function'
+  - 'code.introduce-parameter-object'
+  - 'code.facade'
+proof_obligations: [characterization, unit, api-compatibility]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

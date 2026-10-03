@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.memento
+name: 'Memento'
+category: code
+problem: 'An object state must be captured and restored without breaking encapsulation.'
+forces:
+  - 'Undo or checkpoint requirements'
+  - 'Internal state must remain private'
+applicability_signals:
+  - { id: undo-needed, description: 'Restore of earlier state is required' }
+  - { id: state-copying, description: 'Callers copy state fields by hand', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: immutable-state, description: 'With immutable values the old value is the snapshot' }
+  - { id: large-state, description: 'Snapshots are too large to keep' }
+benefits:
+  - 'Safe snapshots'
+  - 'Encapsulation preserved'
+liabilities:
+  - 'Memory cost per snapshot'
+  - 'Versioning of snapshot formats'
+introduced_complexity:
+  - 'A snapshot type and caretaker'
+architecture_invariants:
+  - 'Restore yields a state equal to the captured one'
+transformations:
+  - 'code.immutable-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.command, code.immutable-object]
+conflicts_with: [code.flyweight]
+introduction_recipe:
+  - 'Define an opaque snapshot type'
+  - 'Add save and restore to the originator'
+  - 'Store snapshots in a caretaker'
+removal_recipe:
+  - 'Switch to immutable values so history is a list of values'
+  - 'Remove snapshot classes'
+  - 'Delete the caretaker'
+version: 1.0.0

@@ -1,0 +1,44 @@
+schema_version: '1.0'
+id: code.abstract-factory
+name: 'Abstract Factory'
+category: code
+problem: 'Families of related objects must be created together without callers naming concrete classes.'
+forces:
+  - 'Several product families must vary together'
+  - 'Callers should not depend on concrete product types'
+applicability_signals:
+  - { id: multi-family, description: 'Two or more product families are produced by one factory interface', predicate: { metric: factory.products, op: '>=', value: 2 } }
+  - { id: multi-impl, description: 'The factory interface has several implementations', predicate: { metric: interface.implementations, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: single-family, description: 'Only one family exists; the factory is speculative generality', predicate: { metric: factory.products, op: '<=', value: 1 } }
+  - { id: single-impl, description: 'The factory interface has one implementation', predicate: { metric: interface.implementations, op: '==', value: 1 } }
+benefits:
+  - 'Swapping a whole family is one change'
+  - 'Keeps product families consistent'
+liabilities:
+  - 'Adding a product kind touches every factory'
+  - 'Many small classes for little behaviour'
+introduced_complexity:
+  - 'A factory interface plus one class per family'
+  - 'Indirection on every construction site'
+architecture_invariants:
+  - 'Products from one factory are never mixed with another family'
+transformations:
+  - 'code.inline-wrapper'
+  - 'code.dependency-injection'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.dependency-injection, code.factory-method]
+conflicts_with: [code.inline-wrapper]
+introduction_recipe:
+  - 'Declare the product interfaces and the factory interface'
+  - 'Implement one factory per family and inject it at the composition root'
+  - 'Replace direct constructor calls with factory calls'
+removal_recipe:
+  - 'Confirm only one family is ever constructed'
+  - 'Replace factory calls with direct constructor calls'
+  - 'Delete the factory interface and its implementation'
+version: 1.0.0

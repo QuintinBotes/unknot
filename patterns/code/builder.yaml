@@ -1,0 +1,43 @@
+schema_version: '1.0'
+id: code.builder
+name: 'Builder'
+category: code
+problem: 'Objects with many optional parameters or stepwise assembly are hard to construct correctly.'
+forces:
+  - 'Constructors with many optional arguments are error prone'
+  - 'Immutable results need staged assembly'
+applicability_signals:
+  - { id: many-params, description: 'Constructor or factory takes many parameters', predicate: { metric: function.params, op: '>=', value: 6 } }
+  - { id: few-callers, description: 'The type is built in several differently shaped ways', predicate: { metric: duplication.instances, op: '>=', value: 2 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: simple-object, description: 'Object has few fields and one construction form', predicate: { metric: class.fields, op: '<=', value: 3 } }
+  - { id: builder-single-use, description: 'The builder is used at exactly one call site', predicate: { metric: symbol.references, op: '<=', value: 1 } }
+benefits:
+  - 'Readable construction of complex objects'
+  - 'Validation can run at build time'
+liabilities:
+  - 'Duplicates the field list in a second class'
+  - 'Builder and target can drift apart'
+introduced_complexity:
+  - 'Parallel builder class mirroring the target fields'
+architecture_invariants:
+  - 'A built object is always fully valid'
+transformations:
+  - 'code.introduce-parameter-object'
+  - 'code.immutable-object'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.immutable-object]
+conflicts_with: [code.introduce-parameter-object]
+introduction_recipe:
+  - 'Create a builder with one setter per optional field'
+  - 'Move validation into build()'
+  - 'Replace long constructor calls with builder chains'
+removal_recipe:
+  - 'Replace the builder with a constructor, named arguments or an options object'
+  - 'Move validation into the constructor'
+  - 'Delete the builder class'
+version: 1.0.0

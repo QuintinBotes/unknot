@@ -1,0 +1,42 @@
+schema_version: '1.0'
+id: code.guard-clauses
+name: 'Guard Clauses'
+category: code
+problem: 'Deep nesting from precondition checks hides the main path.'
+forces:
+  - 'Nested conditionals obscure normal flow'
+  - 'Early exits are clearer'
+applicability_signals:
+  - { id: deep-nesting, description: 'Function nests deeply', predicate: { metric: function.max_nesting, op: '>=', value: 4 } }
+  - { id: complex, description: 'Cognitive complexity is high', predicate: { metric: function.cognitive, op: '>', value: 15 } }
+required_evidence: ['symbol reference graph', 'test coverage map']
+preconditions:
+  - { id: tests-characterized, description: 'Characterization tests pin current behaviour before the refactor', predicate: { metric: tests.characterization, op: '==', value: 1 } }
+contraindications:
+  - { id: single-exit-rule, description: 'Resource cleanup rules require single exit and no RAII is available' }
+  - { id: short-function, description: 'The function is short and flat', predicate: { metric: function.lines, op: '<=', value: 10 } }
+benefits:
+  - 'Flatter code'
+  - 'Preconditions stated first'
+liabilities:
+  - 'Multiple return points'
+  - 'Cleanup needs care'
+introduced_complexity:
+  - 'Several exits per function'
+architecture_invariants:
+  - 'Guards preserve the original branch outcomes'
+transformations:
+  - 'code.consolidate-duplicate-conditional'
+proof_obligations: [characterization, unit, typecheck, lint, diff-budget]
+rollback_strategies: [revert]
+composes_with: [code.extract-function, code.raii]
+conflicts_with: []
+introduction_recipe:
+  - 'Identify precondition branches'
+  - 'Return or throw early for each'
+  - 'Un-nest the remaining main path'
+removal_recipe:
+  - 'Re-nest guards into if/else for single-exit conventions'
+  - 'Keep the same conditions and order'
+  - 'Verify cleanup still runs'
+version: 1.0.0

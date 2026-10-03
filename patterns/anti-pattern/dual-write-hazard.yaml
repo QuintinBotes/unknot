@@ -1,0 +1,34 @@
+schema_version: '1.0'
+id: anti-pattern.dual-write-hazard
+name: 'Dual Write Hazard'
+category: anti-pattern
+problem: 'A request writes to two stores or a store and a broker without atomicity, risking divergence.'
+forces:
+  - 'No shared transaction'
+  - 'Partial failure between writes'
+applicability_signals:
+  - { id: cross-tx, description: 'A request writes across transaction boundaries', predicate: { metric: boundary.cross_transactions, op: '>', value: 0 } }
+  - { id: no-reconcile, description: 'No reconciliation tooling exists', predicate: { metric: data.reconciliation_tooling, op: '==', value: 0 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: idempotent-reconciled, description: 'Idempotent writes with reconciliation tolerate divergence', predicate: { metric: data.reconciliation_tooling, op: '==', value: 1 } }
+  - { id: best-effort-cache, description: 'The second write is a disposable cache' }
+benefits:
+  - 'Consistent state'
+  - 'Recoverable failures'
+liabilities:
+  - 'Outbox adds latency and infrastructure'
+  - 'Consumers must be idempotent'
+introduced_complexity:
+  - 'An outbox table and relay'
+architecture_invariants:
+  - 'No acknowledged write is lost'
+transformations:
+  - 'database.dual-write-to-outbox'
+proof_obligations: [reconciliation, integration, migration-rehearsal]
+rollback_strategies: [revert, compensate]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

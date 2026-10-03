@@ -1,0 +1,36 @@
+schema_version: '1.0'
+id: anti-pattern.nanoservices
+name: 'Nanoservices'
+category: anti-pattern
+problem: 'Services are so small that coordination and operational overhead outweigh their benefit.'
+forces:
+  - 'Granularity chosen by size, not boundaries'
+  - 'Per-service overhead is fixed'
+applicability_signals:
+  - { id: many-small, description: 'Many services exist for little code', predicate: { metric: service.count, op: '>=', value: 30 } }
+  - { id: tiny, description: 'Boundary is tiny', predicate: { metric: boundary.size, op: '<=', value: 500 } }
+  - { id: chatty, description: 'Requests traverse many services', predicate: { metric: service.fan_out_p95, op: '>=', value: 5 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: security-boundary, description: 'Isolation is a hard security or compliance requirement', predicate: { metric: driver.security_isolation, op: '==', value: 1 } }
+  - { id: independent-scaling, description: 'Load profile genuinely diverges', predicate: { metric: service.scaling_divergence, op: '>', value: 0.5 } }
+benefits:
+  - 'Lower operational overhead'
+  - 'Fewer network hops'
+liabilities:
+  - 'Merged services share blast radius'
+  - 'Team ownership changes'
+introduced_complexity:
+  - 'Larger services'
+architecture_invariants:
+  - 'Contracts of merged services stay compatible'
+transformations:
+  - 'infrastructure.merge-lockstep-stacks'
+  - 'database.merge-stores'
+proof_obligations: [contract, integration, rollback-rehearsal]
+rollback_strategies: [revert, roll_forward]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

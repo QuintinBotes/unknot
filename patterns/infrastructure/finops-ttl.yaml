@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.finops-ttl
+name: 'FinOps TTL'
+category: infrastructure
+problem: 'Temporary resources run forever and accrue cost.'
+forces:
+  - 'Cost control'
+  - 'Risk of deleting something needed'
+applicability_signals:
+  - { id: unowned, description: 'Resources lack owners', predicate: { metric: resource.owner_known, op: '==', value: 0 } }
+  - { id: small-workloads, description: 'Many small environments exist', predicate: { metric: service.count, op: '>=', value: 10 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: ttl-tags, description: 'Expiry tags are applied first' }
+contraindications:
+  - { id: owner-unknown, description: 'Owner is unknown, so deletion is blocked', predicate: { metric: resource.owner_known, op: '==', value: 0 }, hard: true }
+  - { id: plan-deletes, description: 'Plan deletes resources without notice', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Lower waste'
+  - 'Cleanup is routine'
+liabilities:
+  - 'Premature expiry'
+  - 'Notification overhead'
+introduced_complexity:
+  - 'TTL tags and a sweeper in delivery system'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.quarantine-then-retire-orphans'
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, recreate]
+composes_with: [infrastructure.quarantine-then-retire-orphans]
+conflicts_with: []
+version: 1.0.0

@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: anti-pattern.shotgun-surgery
+name: 'Shotgun Surgery'
+category: anti-pattern
+problem: 'One logical change requires small edits in many modules.'
+forces:
+  - 'A concern is scattered across modules'
+  - 'No single owner of the rule'
+applicability_signals:
+  - { id: co-change, description: 'Commits often touch many boundaries', predicate: { metric: module.co_change_leak, op: '>', value: 0.4 } }
+  - { id: wide-fan-out, description: 'Module changes ripple out', predicate: { metric: module.fan_out, op: '>=', value: 10 } }
+required_evidence: ['dependency graph', 'git history', 'owner map']
+preconditions:
+  - { id: evidence-collected, description: 'Detection signals come from measurement, not impression' }
+contraindications:
+  - { id: cross-cutting-by-nature, description: 'The concern is an intentional cross-cutting concern such as logging' }
+  - { id: rare-change, description: 'The concern almost never changes', predicate: { metric: module.churn, op: '<=', value: 1 } }
+benefits:
+  - 'Changes localised'
+  - 'Lower review cost'
+liabilities:
+  - 'Consolidation creates a coupling point'
+  - 'Moves touch many files at once'
+introduced_complexity:
+  - 'A module that owns the concern'
+architecture_invariants:
+  - 'The consolidated module keeps every call-site behaviour'
+transformations:
+  - 'code.module-pattern'
+  - 'code.strategy'
+proof_obligations: [characterization, architecture-fitness, no-new-cycles]
+rollback_strategies: [revert]
+composes_with: []
+conflicts_with: []
+version: 1.0.0

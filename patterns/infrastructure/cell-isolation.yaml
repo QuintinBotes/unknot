@@ -1,0 +1,35 @@
+schema_version: '1.0'
+id: infrastructure.cell-isolation
+name: 'Cell Isolation'
+category: infrastructure
+problem: 'A single shared deployment makes every failure global.'
+forces:
+  - 'Blast-radius containment'
+  - 'Duplicated capacity'
+applicability_signals:
+  - { id: availability-driver, description: 'Availability isolation is a recorded driver', predicate: { metric: driver.availability_isolation, op: '==', value: 1 } }
+  - { id: many-tenants, description: 'Many tenants share one stack', predicate: { metric: owners.count, op: '>=', value: 5 } }
+required_evidence: ['infrastructure plan output', 'resource inventory', 'ownership tags']
+preconditions:
+  - { id: owners-known, description: 'Every affected resource has a known owner', predicate: { metric: resource.owner_known, op: '==', value: 1 } }
+  - { id: routing-plan, description: 'A routing layer maps tenants to cells' }
+contraindications:
+  - { id: small-scale, description: 'Small scale makes cells wasteful', predicate: { metric: service.count, op: '<=', value: 3 } }
+  - { id: plan-deletes, description: 'Plan deletes resources', predicate: { metric: plan.deletes, op: '>', value: 0 }, hard: true }
+benefits:
+  - 'Failures confined to a cell'
+  - 'Gradual rollout by cell'
+liabilities:
+  - 'Higher cost'
+  - 'Cell routing and rebalancing'
+introduced_complexity:
+  - 'A cell router and per-cell stacks'
+architecture_invariants:
+  - 'Unknot analyses plans only; apply and destroy happen through the organisation delivery system'
+transformations:
+  - 'infrastructure.multi-zone'
+proof_obligations: [infra-plan, architecture-fitness, human-review]
+rollback_strategies: [revert, roll_forward]
+composes_with: [infrastructure.rolling-canary-bluegreen-rollout]
+conflicts_with: [infrastructure.namespace-tenancy, infrastructure.hub-and-spoke-network]
+version: 1.0.0
