@@ -15,7 +15,12 @@ const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function linkFacts(ctx) {
   const files = ctx.files;
-  const byFile = ctx.factsByFile;
+  // factsByFile holds every adapter's facts; this linker reasons only about its own.
+  const byFile = new Map();
+  for (const [path, facts] of ctx.factsByFile) {
+    const own = facts.filter((f) => String(f.provenance?.extractor ?? '').startsWith('javascript@'));
+    if (own.length) byFile.set(path, own);
+  }
   const paths = [...byFile.keys()].sort(cmp);
 
   const mods = new Map(); // path -> module attrs
