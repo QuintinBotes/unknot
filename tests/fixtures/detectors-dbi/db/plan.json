@@ -1,0 +1,1 @@
+[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public", "Plan Rows": 52000000, "Total Cost": 1200000.5, "Startup Cost": 0, "Filter": "(status = 'open'::text)"}}]
