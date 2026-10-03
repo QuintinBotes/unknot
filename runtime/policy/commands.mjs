@@ -38,7 +38,7 @@ const GIT_READ = new Set([
 
 // Unknot subcommands a model may run. Approval, key, config-acceptance and run-ending
 // commands are for humans (they also need a TTY); the hook denies them outright.
-export const HUMAN_ONLY_SUBCOMMANDS = new Set(['approve', 'keys', 'config', 'run', 'policy', 'audit', 'gc', 'shred', 'daemon', 'unlock']);
+export const HUMAN_ONLY_SUBCOMMANDS = new Set(['approve', 'attest', 'keys', 'config', 'run', 'policy', 'gc', 'shred', 'daemon', 'unlock']);
 
 const FIND_DANGEROUS = new Set(['-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls']);
 

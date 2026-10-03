@@ -28,6 +28,7 @@ export const COMMANDS = {
   graph: 'Query the graph (nodes|edges|node <id>|cycles|stats)',
   slice: 'Show a slice <id>',
   approve: 'Approve a slice (human, interactive) <slice> --role <role> --as <approver>',
+  attest: 'Attest a human-review obligation (human, interactive) <PO-id> --result pass|fail --note',
   keys: 'Manage approver keys (human, interactive): generate <name>',
   config: 'Show or accept configuration (show|diff|accept)',
   run: 'Run lifecycle (start <command>|end [id]|show)',
