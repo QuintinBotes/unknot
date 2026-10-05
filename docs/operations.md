@@ -30,6 +30,9 @@ A directory with `trusted-keys/` requires a valid signature, and a failing polic
 integrity error, not a warning. A directory with no trusted keys is accepted unsigned;
 `policy verify` warns about that.
 
+Runtime evidence (traces, metrics) exported from a hosted observability vendor: see
+[runtime-evidence.md](runtime-evidence.md).
+
 ## 2. Multi-repository workspaces
 
 List explicitly linked repositories in the workspace root's `.unknot/config.yaml`:

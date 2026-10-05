@@ -52,6 +52,38 @@ test('metrics: JSON counter rates feed request_rate_p95', async () => {
   assert.equal(find(facts, 'service:s').attrs.request_rate_p95, 20); // rates 10/s then 20/s
 });
 
+test('metrics: Prometheus HTTP API vector and matrix responses', () => {
+  const vector = {
+    status: 'success',
+    data: { resultType: 'vector', result: [
+      { metric: { __name__: 'http_requests_total', service: 'orders-api', code: '200' }, value: [1700000000, '100'] },
+      { metric: { __name__: 'http_requests_total', service: 'orders-api', code: '500' }, value: [1700000000, '5'] },
+    ] },
+  };
+  const v = parseMetrics(JSON.stringify(vector));
+  assert.equal(v.format, 'prometheus-api');
+  assert.equal(v.samples.length, 2);
+  assert.equal(v.samples[0].service, 'orders-api');
+  assert.equal(v.samples[0].ts, 1700000000000);
+
+  // Aggregations drop __name__: a top-level `metric` key names the series.
+  const matrix = {
+    status: 'success',
+    metric: 'request_rate',
+    data: { resultType: 'matrix', result: [
+      { metric: { service: 'catalog-api' }, values: [[1700000000, '2'], [1700000060, '4'], [1700000120, 'NaN']] },
+    ] },
+  };
+  const m = parseMetrics(JSON.stringify(matrix));
+  assert.equal(m.format, 'prometheus-api');
+  assert.deepEqual(m.samples.map((s) => [s.service, s.metric, s.value]),
+    [['catalog-api', 'request_rate', 2], ['catalog-api', 'request_rate', 4]]);
+
+  // No metric name anywhere: nothing is invented.
+  const unnamed = { status: 'success', data: { resultType: 'vector', result: [{ metric: { service: 'x' }, value: [1700000000, '1'] }] } };
+  assert.equal(parseMetrics(JSON.stringify(unnamed)).samples.length, 0);
+});
+
 test('profiles: collapsed stacks, top-50 cap, service_map names the node', async () => {
   const facts = await runFixtures({ profiles: ['checkout.collapsed.txt'] }, { service_map: { checkout: 'services/checkout' } });
   assert.equal(facts.length, 1);
