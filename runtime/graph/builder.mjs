@@ -25,6 +25,7 @@ import { pushAll } from '../core/arrays.mjs';
 
 const PARALLEL_THRESHOLD = 400;
 const MAX_FACTS_PER_FILE = 5000;
+const COMMIT_CHUNK = 5000;
 
 function optionsDigest(adapter, config) {
   return digest({ v: adapter.version, options: config.adapters?.[adapter.id] ?? {} });
@@ -46,12 +47,13 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null }) {
   const t0 = Date.now();
   const observedAt = nowISO();
   const cen = census(ctx.root, { config, scope });
   const commit = cen.commit;
-  const { loaded, unavailable } = await loadAdapters(config, only);
+  // `adapters` replaces the registry; tests use it to stand in a failing extractor.
+  const { loaded, unavailable } = adapters ? { loaded: adapters, unavailable: [] } : await loadAdapters(config, only);
   const workers = defaultWorkers(config.limits.workers);
   const perFile = new Map(); // path → facts (all adapters)
   const failures = [];
@@ -87,45 +89,52 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         stats.cached++;
       } else misses.push(f);
     }
-    let results = [];
     if (run) {
       charge(ctx, run, 'files_read', misses.length);
       charge(ctx, run, 'bytes_read', misses.reduce((n, f) => n + f.size, 0));
     }
-    if (adapter.extractBatch && misses.length) {
-      const items = misses.map((file) => ({ file, text: readEntry(ctx.root, file) }));
-      const exec = adapterExec(ctx, { run, config });
-      const out = await adapter.extractBatch(items, { commit, options, exec });
-      results = misses.map((f) => (out.has(f.path) ? { path: f.path, blob: f.blob, facts: out.get(f.path) } : { path: f.path, error: 'no output from batch extractor' }));
-    } else if (misses.length >= PARALLEL_THRESHOLD && workers > 1 && adapter.moduleURL) {
-      results = await extractParallel({ moduleURL: adapter.moduleURL, root: ctx.root, files: misses, commit, options, workers });
-    } else {
-      for (const f of misses) {
-        try {
-          const text = readEntry(ctx.root, f);
-          results.push({ path: f.path, blob: f.blob, facts: adapter.extract(f, text, { commit, options }) });
-        } catch (err) {
-          results.push({ path: f.path, error: String(err?.message ?? err) });
+    // Extract and commit in chunks, so an interrupted cold map resumes from the per-file
+    // cache instead of redoing a whole adapter pass (spec §28: resumable at 100k files).
+    let extracted = 0;
+    for (let at = 0; at < misses.length; at += COMMIT_CHUNK) {
+      const chunk = misses.slice(at, at + COMMIT_CHUNK);
+      let results = [];
+      if (adapter.extractBatch) {
+        const items = chunk.map((file) => ({ file, text: readEntry(ctx.root, file) }));
+        const exec = adapterExec(ctx, { run, config });
+        const out = await adapter.extractBatch(items, { commit, options, exec });
+        results = chunk.map((f) => (out.has(f.path) ? { path: f.path, blob: f.blob, facts: out.get(f.path) } : { path: f.path, error: 'no output from batch extractor' }));
+      } else if (chunk.length >= PARALLEL_THRESHOLD && workers > 1 && adapter.moduleURL) {
+        results = await extractParallel({ moduleURL: adapter.moduleURL, root: ctx.root, files: chunk, commit, options, workers });
+      } else {
+        for (const f of chunk) {
+          try {
+            const text = readEntry(ctx.root, f);
+            results.push({ path: f.path, blob: f.blob, facts: adapter.extract(f, text, { commit, options }) });
+          } catch (err) {
+            results.push({ path: f.path, error: String(err?.message ?? err) });
+          }
         }
       }
+      ctx.store.tx(() => {
+        for (const r of results) {
+          if (r.error) {
+            failures.push({ path: r.path, adapter: adapter.id, error: r.error });
+            continue;
+          }
+          let facts = r.facts ?? [];
+          if (facts.length > MAX_FACTS_PER_FILE) facts = facts.slice(0, MAX_FACTS_PER_FILE);
+          facts = facts.map((f) => redactDeep(assertFact(f)));
+          const entry = filesByPath.get(r.path);
+          if (entry && !entry.blob) entry.blob = r.blob;
+          putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
+          addFacts(r.path, facts);
+          stats.extracted++;
+          extracted++;
+        }
+      });
     }
-    ctx.store.tx(() => {
-      for (const r of results) {
-        if (r.error) {
-          failures.push({ path: r.path, adapter: adapter.id, error: r.error });
-          continue;
-        }
-        let facts = r.facts ?? [];
-        if (facts.length > MAX_FACTS_PER_FILE) facts = facts.slice(0, MAX_FACTS_PER_FILE);
-        facts = facts.map((f) => redactDeep(assertFact(f)));
-        const entry = filesByPath.get(r.path);
-        if (entry && !entry.blob) entry.blob = r.blob;
-        putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
-        addFacts(r.path, facts);
-        stats.extracted++;
-      }
-    });
-    stats.adapters[adapter.id] = { files: files.length, extracted: results.filter((r) => !r.error).length, cached: files.length - misses.length };
+    stats.adapters[adapter.id] = { files: files.length, extracted, cached: files.length - misses.length };
   }
 
   const fileFacts = [...perFile.values()].flat();
