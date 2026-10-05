@@ -4,6 +4,37 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.10] - 2026-10-05
+
+### Fixed
+
+- A project inside a hidden directory stays usable in the sandbox. Claude Code background
+  jobs clone into scratch space inside the Claude config directory; there, the project was
+  unreadable to every brokered command, so Python extraction fell back to lexical reading and
+  tests could not run. The project's working set is put back after the secret rules, and
+  secrets nested inside it stay hidden. A project at `$HOME` gets nothing back.
+- A degraded extraction batch (one that raised a notice) is no longer cached. Before, the next
+  map served the fallback facts from cache and reported `complete` with no notice.
+- Tools that search upward for a manifest work in a slice worktree: the main checkout's
+  tracked top-level files are readable from there (its untracked files, such as `.env`, stay
+  hidden). cargo failed the baseline of every crate without `[workspace]`, because the hidden
+  `Cargo.toml` above the worktree read as "not permitted" rather than "not found".
+- Staging a slice no longer fails when `.gitignore` lists `node_modules` without a trailing
+  slash (git refused the exclude pathspec for the linked dependency directory).
+- Data-line discount: values directly inside a call's parentheses (a log message, a toast
+  text) are arguments, not data. Titles mention data lines only when they are at least a
+  tenth of the size.
+- Apply: the slice is written only by the refactorer or the session, never handed to an
+  external agent (a standing instruction to delegate to another tool sent a live session
+  into a blocked call, and it stopped without patching). A hook denial means adapt, not stop.
+
+### Added
+
+- `scripts/live-suite.mjs` and the nightly `Live sessions` workflow: the plugin installed as a
+  user installs it, every read-only step on pinned public repositories (Python, JavaScript,
+  Rust), and the change workflow on one in rotation. Needs an `ANTHROPIC_API_KEY` secret.
+- `scripts/writepath-e2e.mjs --plugin-dir`: run the sessions on a checkout before a release.
+
 ## [0.1.9] - 2026-10-05
 
 ### Fixed

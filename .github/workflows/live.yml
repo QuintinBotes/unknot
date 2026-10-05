@@ -1,0 +1,67 @@
+name: Live sessions
+
+# Unknot installed as a user installs it, driven by real headless Claude Code sessions on
+# pinned public repositories (scripts/live-suite.json). Needs the ANTHROPIC_API_KEY secret;
+# without it the job says so and skips. Roughly $3 a night: every read-only step on every
+# repository, plus the change workflow on one repository in rotation.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      change:
+        description: 'Change workflow: rotate, all, none, or a repository name'
+        default: rotate
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: live-sessions
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: live sessions (ubuntu, bubblewrap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+      - name: Check for the API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::ANTHROPIC_API_KEY is not set; live sessions skipped"; fi
+      - name: Install bubblewrap and allow user namespaces
+        if: steps.key.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind / / --unshare-net true && echo bwrap-ok
+      - name: Install Claude Code
+        if: steps.key.outputs.present == 'true'
+        run: npm install -g @anthropic-ai/claude-code@2.1.289
+      - name: Live-session suite
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CHANGE: ${{ inputs.change || 'rotate' }}
+        run: node scripts/live-suite.mjs --install fresh --change "$CHANGE" --out live-report
+      - name: Upload transcripts and summary
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-report
+          path: live-report/
+          retention-days: 14

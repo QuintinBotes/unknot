@@ -92,6 +92,27 @@ It prints one summary line per repository and writes `<repo>.json` and `summary.
 
 What to do with it: look at the top findings of a repository you know and ask whether each is right. A finding you would reject is a bug report against a detector (or a threshold); a real problem it missed is a bug report against an adapter or a detector. Fixes that came out of earlier rounds are in the git history (messages beginning "Dogfood round"). Do not commit output from private repositories.
 
+## Live sessions
+
+Unit tests cannot show what happens when a model drives the plugin: a skill that steers it wrong, a hook that denies a legitimate step, a sandbox rule that breaks the installed layout, a silent fallback. Two scripts run real headless Claude Code sessions (they cost API usage).
+
+`scripts/writepath-e2e.mjs` runs the change workflow end to end on a disposable clone of one repository: map, diagnose, a slice planned from a real long or complex function, the plan approved with a throwaway test approver key, a live `/unknot:apply` session, a live `/unknot:verify` session, then the change approved and accepted. It passes when the slice is ACCEPTED, only the planned file is staged, the main checkout is untouched and the ledger verifies.
+
+```sh
+node scripts/writepath-e2e.mjs --repo <path> --test '<json argv>' [--setup '<shell>'] \
+  [--lang py|js|ts|rs|go] [--within <dir>] [--plugin-dir .] [--out report.json]
+```
+
+`--setup` runs outside Unknot, with network (install dependencies there; the sandbox has none). `--plugin-dir .` runs the sessions on your checkout instead of the installed plugin, which is how you test a skill or hook change before a release.
+
+`scripts/live-suite.mjs` installs the plugin as a user would and runs every read-only step (`init`, `map`, `diagnose`, `explain`, `decompose`) on the public repositories pinned in `scripts/live-suite.json`, plus the change workflow on one of them in rotation (`--change all` for every one). A session fails on a non-zero exit, a crash in a tool result or a degraded map (a notice); hook denials and Unknot errors are listed as warnings to read.
+
+```sh
+node scripts/live-suite.mjs --install local [--repos click] [--change all|none|<name>]
+```
+
+The `Live sessions` workflow runs it nightly with `--install fresh` (a new Claude config, the plugin added from this checkout as a marketplace) when the repository has an `ANTHROPIC_API_KEY` secret, and uploads the transcripts. Run it before a release; a failure there is a release blocker.
+
 ## Commits and pull requests
 
 - One logical change per commit. Commit subjects are short, sentence-case, imperative or descriptive, with no type prefix: `Brokered commands get a private TMPDIR outside the project`. Put the reason in the body when it is not obvious, and name the dogfood finding if one drove the change.

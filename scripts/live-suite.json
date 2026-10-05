@@ -1,0 +1,38 @@
+{
+  "comment": "Public repositories pinned to exact commits for the live-session suite (scripts/live-suite.mjs). Each runs the read-only workflow; `change` describes the change workflow (scripts/writepath-e2e.mjs). setup runs outside Unknot, with network, before any session.",
+  "repos": [
+    {
+      "name": "click",
+      "url": "https://github.com/pallets/click",
+      "commit": "2247b35ea1c47c727d7a06e51fa280e12a863ff6",
+      "change": {
+        "lang": "py",
+        "within": "src/click",
+        "setup": "python3 -m venv .venv && .venv/bin/pip install -q -e . pytest",
+        "test": [".venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+      }
+    },
+    {
+      "name": "picomatch",
+      "url": "https://github.com/micromatch/picomatch",
+      "commit": "9fab7bf61913ea334c4203ed321c426cfde44a42",
+      "change": {
+        "lang": "js",
+        "within": "lib",
+        "setup": "npm install --no-audit --no-fund --ignore-scripts --silent",
+        "test": ["node", "node_modules/mocha/bin/mocha.js"]
+      }
+    },
+    {
+      "name": "termcolor",
+      "url": "https://github.com/BurntSushi/termcolor",
+      "commit": "d672e7b09f3ac3e8c0c12e67a67c5d46265df88d",
+      "change": {
+        "lang": "rs",
+        "within": "src",
+        "setup": "cargo fetch --quiet",
+        "test": ["cargo", "test", "--offline", "--quiet"]
+      }
+    }
+  ]
+}
