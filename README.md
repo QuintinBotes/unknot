@@ -34,7 +34,13 @@ claude plugin marketplace add QuintinBotes/unknot
 claude plugin install unknot@unknot
 ```
 
-The plugin ships a `bin/unknot` CLI. While the plugin is enabled, Claude Code puts it on `PATH` for the Bash tool. To use it from your own terminal (you need to, for approvals), run it by its path inside the plugin directory, or put that directory on your `PATH`.
+The plugin ships a `bin/unknot` CLI. While the plugin is enabled, Claude Code puts it on `PATH` for the Bash tool only. Your own terminal needs it for approvals, and the installed path carries the plugin version, so it changes on upgrade. Install a small launcher once (it always runs the newest installed version):
+
+```sh
+node <plugin directory>/bin/unknot cli install     # writes ~/.local/bin/unknot; --dir to choose another
+```
+
+`/unknot:doctor` prints the full path to use for `<plugin directory>`. `unknot cli status` shows where the CLI and the launcher are and whether the directory is on your `PATH`.
 
 ### Requirements
 
@@ -52,21 +58,29 @@ Linux and macOS are supported and tested in CI. Windows is not tested; use WSL2.
 
 ## Quickstart
 
-Run these in your repository. Steps marked (human) must be done by you in a real terminal, not by Claude; the runtime refuses them from an agent.
+### Read-only assessment
 
-1. `/unknot:init`. Detects your build, test and lint commands and writes `.unknot/config.proposed.yaml`. Nothing else changes.
-2. (human) Review the proposal: `unknot config diff`.
-3. (human) Create an approver key: `unknot keys generate <name>`. It prompts for a passphrase and prints an `approvers:` block with your public key. Add that block to the proposed config, with the roles you hold (for example `code-owner`).
-4. (human) Set `mode: assist` in the proposal if you intend to apply patches (the default, `plan`, cannot). Then `unknot config accept`, and type the mode back to confirm. Until you do this, the config is not honoured beyond plan mode with no approvers. Do this before approving anything: approvals bind the configuration digest, so a later config change makes them stale.
-5. `/unknot:map`. Builds the graph.
-6. `/unknot:diagnose`. Ranked findings. Add `--objective "reduce deployment coupling"` to bias the ranking.
-7. `/unknot:explain F-0001`. Evidence, uncertainty, alternatives, pattern fit.
-8. `/unknot:decompose` if the question is whether to split a monolith. See [docs/decomposition.md](docs/decomposition.md).
-9. `/unknot:plan "<objective>" --findings F-0001,F-0002` (or `--from DEC-0003`). Creates a campaign of slices, each waiting for approval.
-10. (human) Approve the exact plan: `unknot approve UK-0001 --role code-owner --as <name>`. The approval is bound to the current `HEAD`, so do not commit before `apply`.
-11. `/unknot:apply UK-0001`. Edits happen only in the slice's worktree.
-12. `/unknot:verify UK-0001`. Runs the proof obligations and writes a proof bundle.
-13. (human) Read the bundle and the diff, then approve the change: `unknot approve UK-0001 --role code-owner --as <name>`. The slice becomes `ACCEPTED`. Unknot does not merge or push. You open the pull request from the slice branch.
+Nothing here changes code, and none of it needs `accept`, keys or approvers.
+
+1. `/unknot:init`. Detects your build, test and lint commands and writes only `.unknot/config.proposed.yaml` (plan mode, nothing activated). Claude can run it when you ask to use Unknot on a repository.
+2. `/unknot:map`. Builds the graph.
+3. `/unknot:diagnose`. Ranked findings. Add `--objective "reduce deployment coupling"` to bias the ranking.
+4. `/unknot:decompose` if the question is whether to split a monolith ([docs/decomposition.md](docs/decomposition.md)), and `/unknot:explain F-0001` for the evidence, uncertainty, alternatives and pattern fit behind a finding.
+
+`.unknot/` keeps config, decisions and records meant to be committed; local state is already ignored. To keep Unknot out of a shared repository, add `.unknot/` to `.git/info/exclude` (local only) or `.gitignore`.
+
+### Changing code
+
+The (human) steps need a separate terminal window: Claude Code's `!` prefix has no interactive terminal, and the runtime refuses them from an agent.
+
+1. (human) Review the proposal: `unknot config diff`.
+2. (human) Create an approver key: `unknot keys generate <name>`. It prompts for a passphrase and prints an `approvers:` block with your public key. Add that block to the proposed config, with the roles you hold (for example `code-owner`).
+3. (human) Set `mode: assist` in the proposal if you intend to apply patches (the default, `plan`, cannot). Then `unknot config accept`, and type the mode back to confirm. Do this before approving anything: approvals bind the configuration digest, so a later config change makes them stale.
+4. `/unknot:plan "<objective>" --findings F-0001,F-0002` (or `--from DEC-0003`). Creates a campaign of slices, each waiting for approval.
+5. (human) Approve the exact plan: `unknot approve UK-0001 --role code-owner --as <name>`. The approval is bound to the current `HEAD`, so do not commit before `apply`.
+6. `/unknot:apply UK-0001`. Edits happen only in the slice's worktree.
+7. `/unknot:verify UK-0001`. Runs the proof obligations and writes a proof bundle.
+8. (human) Read the bundle and the diff, then approve the change: `unknot approve UK-0001 --role code-owner --as <name>`. The slice becomes `ACCEPTED`. Unknot does not merge or push. You open the pull request from the slice branch.
 
 If an assumption in the plan turns out wrong, `/unknot:apply UK-0001 replan` returns the slice to planning. `/unknot:rollback UK-0001` discards an unaccepted slice, or prepares a revert branch for an accepted one.
 

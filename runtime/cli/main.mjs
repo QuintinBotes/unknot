@@ -22,6 +22,7 @@ export const COMMANDS = {
   rollback: 'Execute the recorded recovery for a slice <slice>',
   accept: 'Record acceptance of a finding <F-id> --rationale',
   reject: 'Record rejection and suppression of a finding <F-id> --rationale [--days]',
+  cli: 'Reach this CLI from a terminal (status|install|uninstall [--dir])',
   doctor: 'Validate adapters, policy, sandbox, ledger and dependencies',
   exec: 'Run a configured project command as evidence <name> [args]',
   pattern: 'List or show pattern cards (list|show <id>)',

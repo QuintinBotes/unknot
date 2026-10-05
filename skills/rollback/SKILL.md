@@ -30,7 +30,7 @@ example because verification failed; offer it instead.
 `unknot rollback $0`. Report the output verbatim.
 
 If it fails with `UK_APPROVAL_REQUIRED` (accepted slice, no rollback approval), stop and give
-the user the command for their own terminal:
+the user the command for a separate terminal window (not `!`):
 `unknot approve $0 --stage rollback --role <role> --as <approver>`. Never run it yourself and
 never retry around the gate.
 

@@ -1,15 +1,16 @@
 ---
 name: init
-description: Detect the project's toolchain and propose an Unknot configuration. Use when the user runs /unknot:init, or asks to set up or start using Unknot in a repository that has no accepted .unknot/config.yaml.
+description: Detect the project's toolchain and propose an Unknot configuration. Use when the user runs /unknot:init, or asks to use, set up or assess a repository with Unknot and the project has no .unknot directory.
 argument-hint: '(no arguments)'
-disable-model-invocation: true
 ---
 
 # Initialize Unknot
 
 `unknot init` detects build, test, lint and typecheck commands without running them and writes
 only `.unknot/config.proposed.yaml` (spec §4.1: config-only write). It changes no source and
-activates nothing: only configuration a human has accepted is honoured.
+activates nothing: only configuration a human has accepted is honoured, and an unaccepted
+proposal means plan mode with no approvers. That is enough for a read-only assessment, so run
+it yourself when the user asks to use or assess a repository with Unknot.
 
 ## 1. Run it
 
@@ -30,10 +31,16 @@ asking in chat and never inferred from your wording:
 - `governed`: commit or PR after exact-plan approval.
 - `campaign`: repeated, separately approved slices.
 
-## 3. Hand the human steps to the user
+## 3. Say what works now
 
-You cannot do these: configuration acceptance, key registration and approvals need a person
-in a terminal, and the runtime denies them to you. Give the user these exact steps:
+A read-only assessment needs nothing more: `/unknot:map`, `/unknot:diagnose`,
+`/unknot:decompose` and `/unknot:explain` work now. Suggest `/unknot:map` as the first step.
+Accepting the configuration, keys and approvals are only for changing code.
+
+If the user wants to change code, give them these steps for a separate terminal window (not
+Claude Code's `!` prefix, which has no interactive terminal). You cannot do them: they need a
+person, and the runtime denies them to you. If `unknot` is not found there, `/unknot:doctor`
+prints the full path and how to install the command.
 
 1. Review the proposal: `unknot config diff`
 2. Accept it: `unknot config accept`
@@ -42,7 +49,9 @@ in a terminal, and the runtime denies them to you. Give the user these exact ste
 4. Accept again: `unknot config accept` (an approver added after acceptance is not honoured
    until a person accepts it)
 
-Then suggest `/unknot:doctor` to check the setup and `/unknot:map` as the first real step.
+Mention what `.unknot/` is for, from the init output: config, decisions and records are meant
+to be committed; local state is already ignored. To keep Unknot out of a shared repository,
+add `.unknot/` to `.git/info/exclude` (local only) or `.gitignore`.
 
 ## Guardrails
 

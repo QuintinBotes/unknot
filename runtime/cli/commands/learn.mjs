@@ -9,7 +9,7 @@ import { detectorFeedback, thresholdProposals } from '../../learn/calibration.mj
 import { outcomeSnapshot, productMetrics } from '../../learn/metrics.mjs';
 import { parseYAML, stringifyYAML } from '../../core/yaml.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
-import { output, table } from '../util.mjs';
+import { humanCommand, output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
@@ -42,7 +42,7 @@ export async function run({ positional, flags }) {
     for (const p of proposals) base.detectors[p.detector] = { ...(base.detectors[p.detector] ?? {}), [p.option]: p.proposed };
     writeFileSync(ctx.paths.proposedConfig, stringifyYAML(base));
     appendEvent(ctx, { type: 'config.proposed', actor, payload: { source: 'learning', proposals } });
-    output([...proposals.map((p) => `${p.detector}.${p.option}: ${p.current} → ${p.proposed} — ${p.reason}`), '', 'Wrote .unknot/config.proposed.yaml. A person reviews it (unknot config diff) and accepts it (unknot config accept) in a terminal.'].join('\n'));
+    output([...proposals.map((p) => `${p.detector}.${p.option}: ${p.current} → ${p.proposed} — ${p.reason}`), '', 'Wrote .unknot/config.proposed.yaml. A person reviews it and accepts it in a separate terminal window:', `  ${humanCommand('config diff')}`, `  ${humanCommand('config accept')}`].join('\n'));
     return 0;
   }
   output('usage: unknot learn report|propose');

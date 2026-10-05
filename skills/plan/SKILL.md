@@ -40,7 +40,7 @@ Run with `--json` and show the campaign id, the selected approach, the alternati
 considered (always including retain) and, per slice: id, risk, objective, proof obligations
 and the roles who must approve (for example "UK-0042 is medium risk: code owner and affected
 owner"). Every slice starts AWAITING_APPROVAL. Give the exact command for a person to run in
-their own terminal: `unknot approve <slice> --role <role> --as <approver>`. Then `/unknot:next`.
+a separate terminal window (not `!`; `/unknot:doctor` prints the full path if `unknot` is not found): `unknot approve <slice> --role <role> --as <approver>`. Then `/unknot:next`.
 
 ## Guardrails
 

@@ -6,11 +6,11 @@ By default, nothing in your source. In `plan` mode (the default) it writes only 
 
 ### Why does it say my config "has never been accepted" and run in plan mode?
 
-A config file can raise Unknot's authority (mode, approvers, commands), so a file that just appeared in the repository is not trusted. Run `unknot config diff`, then `unknot config accept` in a terminal. If you edit `config.yaml` afterwards, or a merge changes it, the accepted version stays in force and only changes that tighten policy (lower mode, smaller limits, more protected paths) apply until you accept again. Details in [configuration.md](configuration.md#acceptance).
+A config file can raise Unknot's authority (mode, approvers, commands), so a file that just appeared in the repository is not trusted. Run `unknot config diff`, then `unknot config accept` in a separate terminal window (Claude Code's `!` prefix is not interactive; if `unknot` is not found there, see `unknot cli install`). If you edit `config.yaml` afterwards, or a merge changes it, the accepted version stays in force and only changes that tighten policy (lower mode, smaller limits, more protected paths) apply until you accept again. Details in [configuration.md](configuration.md#acceptance).
 
 ### Can Claude approve its own work?
 
-No. `unknot approve` needs an interactive terminal and the passphrase of your approver key, which it reads from `/dev/tty`. An agent's shell has no TTY, the command refuses when it detects Claude Code, and the hooks refuse the verb outright. An approval is an Ed25519 signature over the commit, the slice, the exact diff and the policy digest, so approving a plan does not approve a different diff. See [security-model.md](security-model.md#approvals).
+No. `unknot approve` needs an interactive terminal and the passphrase of your approver key, which it reads from `/dev/tty`. An agent's shell has no TTY, the command refuses when it detects Claude Code (the message says which: no terminal, or an agent session), and the hooks refuse the verb outright. An approval is an Ed25519 signature over the commit, the slice, the exact diff and the policy digest, so approving a plan does not approve a different diff. See [security-model.md](security-model.md#approvals).
 
 ### I lost my approver passphrase, or my key. What now?
 

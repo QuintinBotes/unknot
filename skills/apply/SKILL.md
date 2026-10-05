@@ -16,7 +16,7 @@ around them.
 Run `unknot apply $0` (the CLI is on PATH while the plugin is enabled). It:
 
 - refuses unless a human approved this exact plan (`UK_APPROVAL_REQUIRED` lists missing
-  roles; stop and tell the user who must run `unknot approve` in their own terminal);
+  roles; stop and tell the user who must run `unknot approve` in a separate terminal window, not `!`);
 - refuses a dirty main checkout or a failing baseline test run;
 - creates the worktree and prints its path, the allowed paths and the change budget.
 
