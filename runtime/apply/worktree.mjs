@@ -2,7 +2,7 @@
 // its own branch, created from the approved baseline commit. The main checkout is never
 // touched, so abandoning a slice is deleting a directory and a branch.
 
-import { existsSync, lstatSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { sha256 } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
@@ -134,4 +134,55 @@ export function stagePatch(path, baseCommit) {
 
 export function relToWorktree(ctx, sliceId, abs) {
   return relative(worktreePath(ctx, sliceId), abs);
+}
+
+/**
+ * Editable installs (uv workspaces, `pip install -e`) put absolute paths of the MAIN checkout
+ * into the linked virtualenv's .pth files, so tests run in a slice worktree would import the
+ * unchanged code (and, in the sandbox, code they cannot read). PYTHONPATH entries come before
+ * site-packages, so pointing them at the worktree's copies makes the worktree's code win.
+ * Found running the change workflow on a uv workspace.
+ * @returns {string[]} worktree paths to prepend to PYTHONPATH
+ */
+export function editablePathsFor(root, worktree) {
+  const out = [];
+  const realRoot = realpathSync(root);
+  for (const venv of ['.venv', 'venv']) {
+    let lib;
+    try {
+      lib = readdirSync(join(root, venv, 'lib')).filter((d) => d.startsWith('python'));
+    } catch {
+      continue;
+    }
+    for (const py of lib) {
+      const sp = join(root, venv, 'lib', py, 'site-packages');
+      let files = [];
+      try {
+        files = readdirSync(sp).filter((f) => f.endsWith('.pth'));
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        let text = '';
+        try {
+          text = readFileSync(join(sp, f), 'utf8');
+        } catch {
+          continue;
+        }
+        for (const line of text.split('\n').map((l) => l.trim())) {
+          if (!line || line.startsWith('#') || line.startsWith('import ')) continue;
+          const abs = line.startsWith('/') ? line : null;
+          if (!abs) continue;
+          for (const base of [root, realRoot]) {
+            if (abs === base || abs.startsWith(`${base}/`)) {
+              const rel = abs.slice(base.length + 1);
+              if (!rel.startsWith('.unknot/')) out.push(rel ? join(worktree, rel) : worktree);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return [...new Set(out)];
 }

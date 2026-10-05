@@ -16,3 +16,14 @@ test('a linked node_modules is never staged into the slice patch (write-path reg
   const staged = K.git(wt.path, 'diff', '--cached', '--name-only').split('\n').filter(Boolean);
   assert.deepEqual(staged, ['src/a.js']);
 });
+
+test('editable Python installs resolve to the worktree, not the main checkout (uv workspace regression)', async () => {
+  const { editablePathsFor } = await import('../../../runtime/apply/worktree.mjs');
+  const p = K.makeProject();
+  const sp = join(p.dir, '.venv/lib/python3.14/site-packages');
+  mkdirSync(sp, { recursive: true });
+  writeFileSync(join(sp, '_editable_impl_pkg.pth'), `${p.dir}/packages/pkg\n`);
+  writeFileSync(join(sp, 'distutils-precedence.pth'), "import os; var = 'x'\n");
+  const wt = join(p.dir, '.unknot/worktrees/UK-1');
+  assert.deepEqual(editablePathsFor(p.dir, wt), [join(wt, 'packages/pkg')]);
+});

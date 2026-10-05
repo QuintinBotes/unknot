@@ -8,7 +8,7 @@
 // installed. Nothing touches the original repository.
 //
 // Usage: node scripts/writepath-e2e.mjs --repo <path> --test '<json argv>' [--setup '<shell>']
-//   [--typecheck '<json argv>'] [--lang js|ts|py|rs|go] [--loopback] [--model sonnet]
+//   [--typecheck '<json argv>'] [--lang js|ts|py|rs|go] [--within <dir>] [--loopback] [--model sonnet]
 //   [--out <file.json>]
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -74,7 +74,8 @@ step('map', { status: m.status, files: m.files, failures: m.failure_count, notic
 const d = await diagnose(ctx, { config: cfg.config, run });
 // A tractable, real refactoring target: a long or complex function in a source file of the
 // requested language, the smallest one over its threshold.
-const inLang = (p) => !lang || p.endsWith(`.${lang}`) || (lang === 'ts' && /\.tsx?$/.test(p)) || (lang === 'js' && /\.[cm]?jsx?$/.test(p));
+const within = opt('--within');
+const inLang = (p) => (!within || p.startsWith(`${within.replace(/\/$/, '')}/`)) && (!lang || p.endsWith(`.${lang}`) || (lang === 'ts' && /\.tsx?$/.test(p)) || (lang === 'js' && /\.[cm]?jsx?$/.test(p)));
 const candidates = d.findings
   .filter((f) => ['code.long-function', 'code.complex-function'].includes(f.kind) && inLang(f.scope[0] ?? '') && !/(^|\/)(tests?|__tests__|e2e|scripts)\//.test(f.scope[0]))
   .sort((a, b) => (a.measurements?.['function.lines'] ?? 1e9) - (b.measurements?.['function.lines'] ?? 1e9));

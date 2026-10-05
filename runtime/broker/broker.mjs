@@ -14,6 +14,7 @@ import { UnknotError } from '../core/errors.mjs';
 import { isInside, realpathLenient } from '../core/paths.mjs';
 import { redact } from '../core/redact.mjs';
 import { charge } from '../policy/budget.mjs';
+import { editablePathsFor } from '../apply/worktree.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { detectSandbox, wrap } from './sandbox.mjs';
@@ -167,6 +168,12 @@ export async function brokerExec(ctx, req) {
   const sandboxKind = detectSandbox();
   const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false });
   const env = minimalEnv({ tmp });
+  // In a slice worktree, editable Python installs must resolve to the worktree's code.
+  const wt = /^(.*\/\.unknot\/worktrees\/[^/]+)(\/|$)/.exec(realCwd);
+  if (wt) {
+    const paths = editablePathsFor(ctx.root, wt[1]);
+    if (paths.length) env.PYTHONPATH = paths.join(delimiter);
+  }
   const execId = `ex-${randomId(6)}`;
   const startedAt = nowISO();
   const envDigest = digest({ keys: Object.keys(env).sort(), path: env.PATH, sandbox: wrapped.sandbox, network });

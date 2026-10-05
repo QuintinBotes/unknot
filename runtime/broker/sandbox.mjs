@@ -122,7 +122,10 @@ const isRealDir = (p) => {
  */
 export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, cwd = null, loopback = false } = {}) {
   const tmp = realpathLenient(tmpdir());
-  const allWritable = [...new Set([...writable, tmp, '/private/tmp', '/tmp'].map((p) => realpathLenient(p)))];
+  // System temp locations exist per platform (/private/tmp only on macOS); binding a path
+  // that does not exist makes bubblewrap refuse to start (caught by the Linux CI job).
+  const system = [tmp, '/private/tmp', '/tmp'].filter((p) => existsSync(p));
+  const allWritable = [...new Set([...writable, ...system].map((p) => realpathLenient(p)))];
   const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
     return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, cwd, loopback }), ...argv], sandbox: kind };
