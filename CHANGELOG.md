@@ -4,6 +4,48 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.13] - 2026-10-05
+
+Fixes from a second first-run review on 0.1.11.
+
+### Changed
+
+- `unknot graph cycles` lists every member of each strongly connected component, its
+  elementary cycles (shortest first), the edges whose removal breaks it, and a "declared only"
+  marker on an edge held only by an injected member nobody uses. `--json` returns
+  `{size, members, cycles, cycles_truncated, cut}` per component instead of a list of members.
+- Decomposition records carry the cycle detail of the candidate's internal component, and
+  `cycle.crossing_size` names what `cycle.size` measures (cycles crossing the boundary), next
+  to `boundary.internal_cycle_size`.
+- Rejected treatments lead with the predicates that failed (signal, value, threshold), then
+  the evidence that is missing; the same text in `--summary` and `show`.
+- A driver the chosen treatment does not serve is listed under `drivers_not_served` with the
+  reason, instead of being left out.
+- .NET test projects (`*.Tests`, `*.UnitTests`, a `.csproj` that references a test SDK) are
+  test code, so they are never candidate members; a same-folder module used only by a
+  candidate is folded into it rather than counted as a reverse dependency.
+- Records name the owners and their shares, de-duplicate evidence ids, say which clustering
+  run broke a boundary that is not robust, and name the decompose run that wrote them.
+- `init` does not propose a command that the repository's AGENTS.md, CLAUDE.md or
+  CONTRIBUTING.md says not to run (it quotes the sentence, and lists test projects instead of
+  `dotnet test` on the solution); nested checkouts and `.claude/` are not scanned; one note per
+  proposed pipeline path.
+- Until the stable `unknot` command is installed, hand-offs give the full
+  `node <path>/bin/unknot ...` command first and offer the install once.
+
+### Added
+
+- `unknot decompose prune [--dry-run]` removes superseded records (from an older version, or
+  from an older graph generation that a later run replaced) and keeps any record a campaign
+  or slice refers to. `decompose list` marks them.
+
+### Fixed
+
+- Declared-only detection in C# handles `nameof(...)`, `?? throw` guards in constructors and
+  `using` aliases.
+- A handoff from an agent started outside a run may carry `run_id: null` instead of a made-up
+  id.
+
 ## [0.1.12] - 2026-10-05
 
 Repository housekeeping for open-source contributions; no runtime changes.

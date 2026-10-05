@@ -61,6 +61,11 @@ each repository and writes one JSON report per repository plus a summary.
 | FB32 | 10 | First run: the model could not run `init`; the Quickstart did not say a read-only assessment needs no keys or approvals; a human-only step run through Claude Code's `!` prefix was refused as if an agent ran it; outside Claude Code `unknot` was not on PATH and the installed path changes with every version | `init` is model-invocable (it only writes a proposal); a read-only track in the Quickstart; the refusal names the missing terminal; hand-offs print how to reach the CLI, and `unknot cli install` adds a stable command that runs the newest installed version | unit tests for the messages and the shim |
 | FB33 | 10 | Even a two-line, test-covered deletion needed about six human actions | Lanes: a person signs one plan approval for a campaign's low-risk slices; the agent applies and verifies those whose patch only deletes code or only changes tests, within a cap; changes are still accepted by a person, together | an end-to-end test: an added line leaves the lane and is refused, a deletion is applied, verified and accepted with a person's signature |
 | FB34 | 10 | Runtime evidence kept in a hosted observability service had no route into Unknot, and a Prometheus HTTP API response parsed to nothing | The Prometheus HTTP API JSON format is accepted; `docs/runtime-evidence.md` gives export recipes | unit test; vendor commands not run against live accounts |
+| FB35 | 11 | `init` proposed `dotnet test` on the solution while the repository's AGENTS.md, which it quoted, says not to; it also scanned agent worktrees inside the checkout and repeated one note per pipeline folder | A command the guidance forbids is not proposed (the sentence is quoted, test projects are listed instead); nested checkouts and `.claude/` are skipped; one note per proposed path | unit tests |
+| FB36 | 11 | Once same-namespace references linked, a candidate became one large strongly connected component: the cycle that mattered was no longer named, members were cut after eight, the record said `cycle.size: 0` beside a large internal cycle, and the declared-only marker showed nowhere | Components broken into elementary cycles and edges to cut, every member listed, the marker shown on edges, cycle detail in the record; three declared-only forms that were missed are caught | nopCommerce: 7 components, the largest (6 modules) has 3 elementary cycles closed by 1 edge |
+| FB37 | 11 | Records from 0.1.10 stayed listed beside current ones; the one-line rejection of a treatment named only missing evidence while two predicates failed; a driver met for extraction was silently absent from the chosen treatment; test files were candidate members | Superseded records marked, `decompose prune`; failed predicates first; `drivers_not_served` with reasons; .NET test projects are test code; same-folder siblings used only by a candidate are folded in; owners, de-duplicated evidence and the run that broke a boundary are recorded | nopCommerce: 29 more test files recognised, none in a candidate |
+| FB38 | 11 | The first `unknot cli install` instruction always failed (`unknot` is not on PATH before the install), and the fallback repeated the same command twice | The full path comes first until the shim is installed; the install is offered once | unit tests |
+| FB39 | 11 | Recording which perturbation broke a boundary re-ran the whole clustering sweep for every fragile candidate: decompose on nopCommerce took 56 s instead of 5 s | The sweep records it while measuring stability | 3.8 s |
 
 ## Round summaries
 
@@ -156,6 +161,13 @@ three quarters and its cold map from 64 to 8.6 seconds, and removed most module 
 decomposition findings, which came from the false edges. Two requests were answered
 differently from how they were asked: the agent still cannot end a run during its turn (FB31),
 and lanes (FB33) never approve a change, only the plan.
+
+**Round 11, the same review on 0.1.11** — the fixes from round 10 held (agent-run `init`, stable
+records, the refusal of `cli install` from an agent), and the second pass found the next layer
+(FB35–FB39): guidance that forbids a command, cycles too big to act on once the C# graph was
+complete, and records that read wrong. Re-measuring found a regression the unit tests could not:
+the new robustness detail made decompose twelve times slower on a large repository (FB39),
+fixed before release.
 
 ## What the loop does not do
 
