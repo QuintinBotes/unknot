@@ -31,6 +31,34 @@ function envSecretDirs() {
 // The plugin's own directory (runtime/broker/ -> repository root), never secret.
 const PLUGIN_ROOT = realpathLenient(fileURLToPath(new URL('../../', import.meta.url))).replace(/\/$/, '');
 
+/**
+ * A project inside a hidden directory (a Claude Code background job clones into scratch space
+ * inside the Claude config directory) must stay usable: its working set is put back after the
+ * secret-directory rules, the directories leading to it become listable, and secrets nested
+ * inside it are hidden again. A project that merely contains a hidden directory (one at
+ * $HOME) gets nothing back. Found when the Python extractor and the tests of a clone in a
+ * job's scratch directory could not read the project.
+ */
+function reexposed(hiddenDirs, read, write) {
+  const inside = (p, h) => p.startsWith(`${h}/`);
+  const pick = (list) => [...new Set(list.filter(Boolean).map((p) => realpathLenient(p)))].filter((p) => hiddenDirs.some((h) => inside(p, h)));
+  const r = pick(read);
+  const w = pick(write);
+  const all = [...new Set([...r, ...w])];
+  const ancestors = new Set();
+  for (const p of all) {
+    const h = hiddenDirs.find((x) => inside(p, x));
+    for (let d = dirname(p); d.startsWith(h); d = dirname(d)) {
+      ancestors.add(d);
+      if (d === h) break;
+    }
+  }
+  const nested = hiddenDirs.filter((h) => all.some((p) => inside(h, p)));
+  return { read: r, write: w, ancestors: [...ancestors], nested };
+}
+
+const hiddenHomeDirs = (home) => [...SECRET_HOME_DIRS.map((d) => join(home, d)), ...envSecretDirs(), unknotHome()].map((p) => realpathLenient(p));
+
 function executable(path) {
   try {
     accessSync(path, constants.X_OK);
@@ -80,11 +108,13 @@ export function macosProfile({ writable, network, sockets = [], hideRoot = null,
   lines.push('(deny file-write*)');
   const w = [...writable, '/dev'].map((p) => `(subpath ${sbplString(realpathLenient(p))})`);
   lines.push(`(allow file-write* ${w.join(' ')})`);
+  let readSet = [cwd];
   if (hideRoot && cwd) {
     const root = realpathLenient(hideRoot);
     lines.push(`(deny file-read* (subpath ${sbplString(root)}))`);
     const keep = [realpathLenient(cwd), ...writable.map((p) => realpathLenient(p)).filter((p) => p.startsWith(`${root}/`)), ...MAIN_CHECKOUT_READABLE.map((d) => join(root, d))];
-    lines.push(`(allow file-read* ${[...new Set(keep)].map((p) => `(subpath ${sbplString(p)})`).join(' ')})`);
+    readSet = [...new Set(keep)];
+    lines.push(`(allow file-read* ${readSet.map((p) => `(subpath ${sbplString(p)})`).join(' ')})`);
     // getcwd and path resolution list the directories between the root and the working
     // directory: those directories themselves (names, never file contents) stay readable.
     const ancestors = [];
@@ -101,6 +131,14 @@ export function macosProfile({ writable, network, sockets = [], hideRoot = null,
     `(subpath ${sbplString(realpathLenient(unknotHome()))})`,
   ];
   lines.push(`(deny file-read* file-write* ${hidden.join(' ')})`);
+  const back = reexposed(hiddenHomeDirs(home), readSet, writable);
+  const sub = (list) => list.map((p) => `(subpath ${sbplString(p)})`).join(' ');
+  if (back.read.length || back.write.length) {
+    lines.push(`(allow file-read* ${sub([...new Set([...back.read, ...back.write])])})`);
+    if (back.write.length) lines.push(`(allow file-write* ${sub(back.write)})`);
+    lines.push(`(allow file-read* ${back.ancestors.map((d) => `(literal ${sbplString(d)})`).join(' ')})`);
+    if (back.nested.length) lines.push(`(deny file-read* file-write* ${sub(back.nested)})`);
+  }
   // Unknot's own files stay readable: an installed plugin lives inside the Claude config
   // directory hidden above, and its extractors (extract.py) run in this sandbox. Without
   // this, every Python file in a live session fell back to lexical reading.
@@ -153,6 +191,13 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     const present = (p) => (existsSync(p) ? realpathLenient(p) : null);
     const hiddenDirs = [...SECRET_HOME_DIRS.map((x) => join(home, x)), ...envSecretDirs(), unknotHome()].map(present).filter((p) => p && isRealDir(p));
     for (const d of new Set(hiddenDirs)) args.push('--tmpfs', d);
+    // Mount points inside a tmpfs are created on demand, so a project inside a hidden
+    // directory can be put back on top of it.
+    const readSet = hide ? [realpathLenient(cwd), ...MAIN_CHECKOUT_READABLE.map((d) => join(realpathLenient(hide), d)).filter((p) => existsSync(p))] : [cwd];
+    const back = reexposed(hiddenDirs, readSet, allWritable);
+    for (const p of back.read) if (!back.write.includes(p)) args.push('--ro-bind', p, p);
+    for (const p of back.write) args.push('--bind', p, p);
+    for (const d of back.nested) args.push('--tmpfs', d);
     for (const f of SECRET_HOME_FILES) {
       const real = present(join(home, f));
       if (real && !isRealDir(real)) args.push('--ro-bind', '/dev/null', real);

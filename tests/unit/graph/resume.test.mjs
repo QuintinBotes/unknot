@@ -49,3 +49,26 @@ test('a quiet repository reads at least history_min_commits recent commits and s
   const r2 = await mapRepository(p.ctx, { config, configDigest: 'd2' });
   assert.equal(r2.history.window, '30 days');
 });
+
+test('a degraded batch is not cached: the next map retries it and repeats the notice until it recovers', async () => {
+  const p = K.makeProject({ files: { 'src/a.js': 'export const a = 1;\n' } });
+  const config = K.cfg({ mode: 'plan' });
+  let degrade = true;
+  const fake = {
+    id: 'fake-js', kind: 'language', version: '1', capabilities: { files: ['**/*.js'] },
+    async extractBatch(items, { notes }) {
+      if (degrade) notes.push('fake extractor unavailable; read lexically');
+      return new Map(items.map(({ file }) => [file.path, []]));
+    },
+  };
+  const first = await mapRepository(p.ctx, { config, configDigest: 'd', adapters: [fake], history: false });
+  assert.deepEqual(first.notices, ['fake extractor unavailable; read lexically']);
+  const second = await mapRepository(p.ctx, { config, configDigest: 'd', adapters: [fake], history: false });
+  assert.deepEqual(second.notices, ['fake extractor unavailable; read lexically'], 'retried, not served from cache');
+  assert.equal(second.cache.hits, 0);
+  degrade = false;
+  const third = await mapRepository(p.ctx, { config, configDigest: 'd', adapters: [fake], history: false });
+  assert.equal(third.notices, undefined);
+  const fourth = await mapRepository(p.ctx, { config, configDigest: 'd', adapters: [fake], history: false });
+  assert.ok(fourth.cache.hits > 0, 'healthy results are cached');
+});

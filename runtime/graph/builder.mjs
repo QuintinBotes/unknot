@@ -100,10 +100,16 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     for (let at = 0; at < misses.length; at += COMMIT_CHUNK) {
       const chunk = misses.slice(at, at + COMMIT_CHUNK);
       let results = [];
+      // A batch that raised a notice ran degraded (e.g. a lexical fallback): its facts serve
+      // this map but are not cached, so the next map retries and recovers or says so again.
+      // Cached degraded facts hid the problem from every later map.
+      let degraded = false;
       if (adapter.extractBatch) {
         const items = chunk.map((file) => ({ file, text: readEntry(ctx.root, file) }));
         const exec = adapterExec(ctx, { run, config });
+        const before = notes.length;
         const out = await adapter.extractBatch(items, { commit, options, exec, notes });
+        degraded = notes.length > before;
         results = chunk.map((f) => (out.has(f.path) ? { path: f.path, blob: f.blob, facts: out.get(f.path) } : { path: f.path, error: 'no output from batch extractor' }));
       } else if (chunk.length >= PARALLEL_THRESHOLD && workers > 1 && adapter.moduleURL) {
         results = await extractParallel({ moduleURL: adapter.moduleURL, root: ctx.root, files: chunk, commit, options, workers });
@@ -128,7 +134,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           facts = facts.map((f) => redactDeep(assertFact(f)));
           const entry = filesByPath.get(r.path);
           if (entry && !entry.blob) entry.blob = r.blob;
-          putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
+          if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
           addFacts(r.path, facts);
           stats.extracted++;
           extracted++;

@@ -10,6 +10,10 @@ const SOURCE_NODE_TYPES = ['function', 'method'];
 const DI_DECORATORS = /^(Component|Injectable|Directive|Pipe|NgModule|Controller|Resolver|Module|Service|Repository|Entity|Gateway)$/;
 
 /** Option lookup: a configured number wins, anything else falls back to the default. */
+// Titles mention data lines only when they are a real share of the size (a couple of
+// literal lines in a long function are noise in the title; the measurement keeps them).
+const notableData = (data, total) => data > 0 && data >= 0.1 * total;
+
 export function opt(options, key, dflt) {
   const v = options?.[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : dflt;
@@ -143,7 +147,7 @@ const longFunction = define({
       if (lines <= limit) continue;
       // A team can choose not to flag long components that hold little logic.
       if (component && o.component_min_cyclomatic > 0 && typeof n.attrs.cyclomatic === 'number' && n.attrs.cyclomatic < o.component_min_cyclomatic) continue;
-      const dataNote = dataLines > 0 ? ` (${dataLines} of them data; threshold ${limit})` : ` (threshold ${limit})`;
+      const dataNote = notableData(dataLines, total) ? ` (${dataLines} of them data; threshold ${limit})` : ` (threshold ${limit})`;
       // An anonymous default export is named after its file, so the title says where it is.
       const label = nameOf(n) === 'default' ? `The default export of ${n.path}` : nameOf(n);
       const d = base(graph, n, {
@@ -319,7 +323,7 @@ const largeClass = define({
       const dataLines = Math.min(c.attrs.data_lines ?? 0, total);
       const lines = total - dataLines;
       if (methods <= o.methods && lines <= o.lines) continue;
-      const dataNote = dataLines > 0 ? `${total} lines, ${dataLines} of them data` : `${lines} lines`;
+      const dataNote = notableData(dataLines, total) ? `${total} lines, ${dataLines} of them data` : `${total} lines`;
       const d = base(graph, c, {
         kind: 'code.large-class',
         title: `${nameOf(c)} has ${methods} methods over ${dataNote} (thresholds ${o.methods} methods, ${o.lines} lines)`,
@@ -361,7 +365,7 @@ const largeModule = define({
       if (sloc <= o.sloc) continue;
       const d = base(graph, m, {
         kind: 'code.large-module',
-        title: `${m.path ?? m.name} has ${total} source lines${dataLines ? ` (${dataLines} of them data; threshold ${o.sloc})` : ` (threshold ${o.sloc})`}`,
+        title: `${m.path ?? m.name} has ${total} source lines${notableData(dataLines, total) ? ` (${dataLines} of them data; threshold ${o.sloc})` : ` (threshold ${o.sloc})`}`,
         summary: `${total} source lines of ${m.attrs.loc ?? '?'} total`,
         measurements: { 'module.loc': m.attrs.loc ?? total, ...(dataLines > 0 && { 'module.data_lines': dataLines }) },
         thresholds: { sloc: o.sloc, note: 'heuristic: file length is a convention, not a defect' },

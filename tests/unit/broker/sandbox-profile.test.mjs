@@ -196,3 +196,92 @@ test('bubblewrap only hides paths that exist (a tmpfs on a missing path fails in
     if (prev === undefined) delete process.env.UNKNOT_HOME; else process.env.UNKNOT_HOME = prev;
   }
 });
+
+// A project inside a hidden directory: Claude Code background jobs clone into scratch space
+// inside the Claude config directory. Found when a clone there lost its Python extraction.
+const withConfigDir = (dir, fn) => {
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
+  }
+};
+
+test('a project inside a hidden directory is put back after the secret rules; one that contains a hidden directory is not', () => {
+  withConfigDir('/cfg', () => {
+    const prof = macosProfile({ writable: ['/cfg/jobs/p'], network: false, cwd: '/cfg/jobs/p' });
+    const deny = prof.indexOf('(subpath "/cfg")');
+    assert.ok(deny > 0);
+    assert.ok(prof.indexOf('(allow file-read* (subpath "/cfg/jobs/p"))') > deny);
+    assert.ok(prof.indexOf('(allow file-write* (subpath "/cfg/jobs/p"))') > deny);
+    assert.ok(prof.includes('(literal "/cfg/jobs")') && prof.includes('(literal "/cfg")'));
+    const atHome = macosProfile({ writable: [homedir()], network: false, cwd: homedir() });
+    assert.ok(!atHome.includes(`(allow file-read* (subpath "${realpathSync(homedir())}"))`), 'a project at $HOME does not re-expose ~/.ssh');
+  });
+});
+
+test('secrets nested inside a re-exposed project stay hidden', () => {
+  const prev = process.env.UNKNOT_HOME;
+  process.env.UNKNOT_HOME = '/cfg/jobs/p/.uk-home';
+  try {
+    withConfigDir('/cfg', () => {
+      const prof = macosProfile({ writable: ['/cfg/jobs/p'], network: false, cwd: '/cfg/jobs/p' });
+      assert.ok(prof.lastIndexOf('(deny file-read* file-write* (subpath "/cfg/jobs/p/.uk-home"))') > prof.indexOf('(allow file-read* (subpath "/cfg/jobs/p"))'));
+    });
+  } finally {
+    if (prev === undefined) delete process.env.UNKNOT_HOME; else process.env.UNKNOT_HOME = prev;
+  }
+});
+
+test('bubblewrap mounts a project inside a hidden directory back on top of the tmpfs', () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-cfg-')));
+  try {
+    const p = join(base, 'jobs/p');
+    mkdirSync(p, { recursive: true });
+    withConfigDir(base, () => {
+      const a = wrap(['true'], { kind: 'linux-bwrap', writable: [p], cwd: p }).args;
+      const hidden = a.findIndex((x, i) => x === base && a[i - 1] === '--tmpfs');
+      const back = a.findIndex((x, i) => x === p && a[i - 1] === '--bind' && i > hidden);
+      assert.ok(hidden > 0 && back > hidden, a.join(' '));
+    });
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+const projectInHiddenDir = (base, run) => {
+  const cfg = join(base, 'cfg');
+  const p = join(cfg, 'jobs/p');
+  mkdirSync(p, { recursive: true });
+  writeFileSync(join(cfg, 'secret.txt'), 'config secret');
+  writeFileSync(join(p, 'file.txt'), 'project file');
+  return withConfigDir(cfg, () => run(['/bin/sh', '-c', 'cat file.txt; echo; /bin/pwd; echo out > out.txt; cat ../../secret.txt'], { writable: [p], cwd: p }, { cwd: p }));
+};
+
+test('macOS: a project inside a hidden directory is readable and writable; the rest of that directory is not', { skip: detectSandbox() !== 'macos-sandbox-exec' }, () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-cfg-')));
+  try {
+    const r = projectInHiddenDir(base, (argv, opts, spawn) => {
+      const w = wrap(argv, opts);
+      return spawnSync(w.file, w.args, { encoding: 'utf8', ...spawn });
+    });
+    assert.match(r.stdout, /project file/);
+    assert.match(r.stdout, /cfg\/jobs\/p/);
+    assert.ok(existsSync(join(base, 'cfg/jobs/p/out.txt')));
+    assert.ok(!r.stdout.includes('config secret'));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('Linux: a project inside a hidden directory is readable and writable; the rest of that directory is not', bwrapSkip, () => {
+  withHomeDir((base) => {
+    const r = projectInHiddenDir(base, bwrapRun);
+    assert.match(r.stdout, /project file/, r.stderr);
+    assert.match(r.stdout, /cfg\/jobs\/p/);
+    assert.ok(existsSync(join(base, 'cfg/jobs/p/out.txt')));
+    assert.ok(!r.stdout.includes('config secret'));
+  });
+});
