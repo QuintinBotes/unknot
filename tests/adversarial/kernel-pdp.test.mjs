@@ -92,6 +92,24 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   test('legitimate inspection of the project is not blocked', () => {
     for (const cmd of ['ls .unknot', 'cat .unknot/config.yaml', 'git status', `${U} status`, 'grep -r TODO src', 'sqlite3 --version']) assert.equal(bash(cmd), null, cmd);
   });
+
+  test('text that only mentions .unknot while writing elsewhere is not state access', () => {
+    for (const cmd of [
+      "cat >> notes.md <<'EOF'\nThe state lives in .unknot/config.yaml\nEOF",
+      'echo "see .unknot/decisions.jsonl" >> notes.md',
+      "printf '%s\\n' '.unknot is local state' > docs/x.md",
+    ]) assert.equal(bash(cmd), null, cmd);
+  });
+
+  const viaProgram = [
+    "cat <<'EOF' | python3\nopen('.unknot/config.yaml','w').write('mode: campaign')\nEOF",
+    "python3 <<'EOF'\nopen('.unknot/config.yaml','w').write('mode: campaign')\nEOF",
+    "cat > \"$(echo .unknot)/config.yaml\" <<'EOF'\nmode: campaign\nEOF",
+    "D=.unknot; cat > $D/config.yaml <<'EOF'\nmode: campaign\nEOF",
+    'echo .unknot/config.yaml | xargs rm',
+    "cat <<EOF > notes.md\n$(rm .unknot/config.yaml)\nEOF",
+  ];
+  for (const cmd of viaProgram) test(`denies ${JSON.stringify(cmd)}`, () => assert.equal(bash(cmd)?.decision, 'deny'));
 });
 
 describe('BUGS: shell writes to protected state that alwaysOn misses', () => {

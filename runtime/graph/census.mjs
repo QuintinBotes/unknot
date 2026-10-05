@@ -7,6 +7,7 @@ import { extname, join } from 'node:path';
 import { sha256 } from '../core/canonical.mjs';
 import { inScope, matchAny } from '../core/glob.mjs';
 import { isSecretPath } from '../core/paths.mjs';
+import { pathGlobs } from '../core/scope.mjs';
 import { blobIds, git, isRepo, listFiles } from '../apply/git.mjs';
 
 const LANGUAGES = {
@@ -127,7 +128,7 @@ export function census(root, { config, scope = [] } = {}) {
   const generatedGlobs = [...GENERATED, ...(config?.generated_paths ?? []), ...attrs.generated];
   const vendoredGlobs = [...VENDORED, ...attrs.vendored];
   const maxBytes = config?.limits?.max_file_bytes ?? 2 * 1024 * 1024;
-  const scopeGlobs = scope.map((s) => (/[*?[{]/.test(s) ? s : `${s.replace(/\/$/, '')}/**`));
+  const scopeGlobs = pathGlobs(scope) ?? [];
   const files = [];
   const byKind = {};
   for (const path of paths) {

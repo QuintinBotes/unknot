@@ -191,12 +191,15 @@ export async function onSubagentStop(event) {
     return null;
   };
   if (profile.name === 'foreign') return finish();
-  const { extractHandoff, lastAssistantText, recordHandoff, validateHandoff } = await import('../state/handoff.mjs');
+  const { bindToRun, extractHandoff, lastAssistantText, recordHandoff, validateHandoff } = await import('../state/handoff.mjs');
   const text = typeof event.last_assistant_message === 'string' ? event.last_assistant_message : event.agent_transcript_path ? lastAssistantText(event.agent_transcript_path) : null;
   const obj = extractHandoff(text ?? '');
-  const res = obj ? validateHandoff(obj, config.mode) : { ok: false, errors: [{ path: '', message: 'no handoff JSON block found' }] };
+  // An agent that already reported through the submit_handoff tool has handed back.
+  if (!obj && submittedThroughTool(ctx, run, event, profile.name)) return finish();
+  const bound = bindToRun(obj, run);
+  const res = obj ? validateHandoff(bound.handoff, config.mode) : { ok: false, errors: [{ path: '', message: 'no handoff JSON block found' }] };
   if (res.ok) {
-    recordHandoff(ctx, { run, handoff: res.handoff, agentId: event.agent_id, warnings: res.warnings });
+    recordHandoff(ctx, { run, handoff: res.handoff, agentId: event.agent_id, warnings: [...bound.warnings, ...res.warnings] });
     return finish();
   }
   const why = res.errors.slice(0, 5).map((e) => `${e.path || '/'} ${e.message}`).join('; ');
@@ -205,6 +208,11 @@ export async function onSubagentStop(event) {
     return finish();
   }
   return block(`Unknot: your handoff is missing or invalid (${why}). End with one \`\`\`json block: {"schema_version":"1.0","run_id":"${run.id}","slice_id":${JSON.stringify(run.slice_id)},"agent":"${profile.name}","status":"complete|partial|blocked|failed","facts":[],"proposals":[],"uncertainties":[],"conflicts":[],"artifacts":[],"recommended_next_state":"<STATE>"}`);
+}
+
+function submittedThroughTool(ctx, run, event, agent) {
+  const cap = ctx.store.get('SELECT issued_at FROM capabilities WHERE run_id = ? AND agent_id IS ? ORDER BY issued_at DESC LIMIT 1', run.id, event.agent_id ?? null);
+  return Boolean(ctx.store.get("SELECT 1 FROM events WHERE type = 'handoff.received' AND run_id = ? AND actor = ? AND at >= ? LIMIT 1", run.id, `model:${agent}`, cap?.issued_at ?? run.started_at ?? ''));
 }
 
 export async function onStop(event) {

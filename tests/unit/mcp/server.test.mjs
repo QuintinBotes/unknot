@@ -250,14 +250,26 @@ test('submit_handoff records a valid handoff and reports invalid ones', async ()
     schema_version: '1.0', run_id: 'run-abc', slice_id: null, agent: 'cartographer', status: 'complete',
     facts: [], proposals: [], uncertainties: [], conflicts: [], artifacts: [], recommended_next_state: 'MAPPED',
   };
+  const noRun = await c.call('submit_handoff', { handoff: good });
+  assert.equal(noRun.structuredContent.ok, false);
+  assert.match(noRun.structuredContent.errors[0].message, /no active Unknot run/);
+  const { startRun, endRun } = await import('../../../runtime/state/runs.mjs');
+  const { loadConfig } = await import('../../../runtime/policy/config.mjs');
+  const ctx = openProject(proj);
+  const run = startRun(ctx, { command: 'map', actor: 'human:test', config: loadConfig(ctx).config, configDigest: null });
   const ok = await c.call('submit_handoff', { handoff: good });
   assert.equal(ok.isError, undefined);
   assert.equal(ok.structuredContent.ok, true);
+  // The claimed run id is replaced by the active run, and the claim is kept as a warning.
+  assert.equal(ok.structuredContent.run_id, run.id);
+  assert.match(ok.structuredContent.warnings.join(' '), /run-abc/);
   const bad = await c.call('submit_handoff', { handoff: { ...good, agent: 'wizard' } });
   assert.equal(bad.structuredContent.ok, false);
   assert.ok(bad.structuredContent.errors.length > 0);
   const notObj = await c.request('tools/call', { name: 'submit_handoff', arguments: { handoff: 'x' } });
   assert.equal(notObj.error.code, -32602);
+  endRun(ctx, run.id, { outcome: 'completed', actor: 'human:test' });
+  ctx.store.close();
 });
 
 test('an uninitialised project yields an isError result pointing at /unknot:init', async () => {

@@ -412,6 +412,26 @@ describe('SubagentStop', () => {
     assert.ok(K.capability.capabilityForAgent(h.p.ctx, h.run.id, 'c1'), 'still live while the agent retries');
   });
 
+  test('a made-up run id is replaced by the active run, with a warning', async () => {
+    const h = hookProject();
+    const e = await started(h);
+    const res = await H.onSubagentStop({ ...e, last_assistant_message: fenced(handoff(h.run, { run_id: 'run-20260503-ab12' })) });
+    assert.equal(res, null);
+    const [ev] = types(h.p, 'handoff.received');
+    assert.equal(ev.run_id, h.run.id);
+    assert.match(ev.payload.warnings.join(' '), /run-20260503-ab12/);
+    assert.ok(K.cas.casGet(h.p.ctx, ev.payload.ref).toString().includes(h.run.id));
+  });
+
+  test('an agent that reported through submit_handoff is not blocked for a missing block', async () => {
+    const h = hookProject();
+    const e = await started(h);
+    const { recordHandoff } = await import('../../../runtime/state/handoff.mjs');
+    recordHandoff(h.p.ctx, { run: h.run, handoff: handoff(h.run), agentId: null });
+    assert.equal(await H.onSubagentStop({ ...e, last_assistant_message: 'Report delivered through the tool.' }), null);
+    assert.equal(K.capability.capabilityForAgent(h.p.ctx, h.run.id, 'c1'), null);
+  });
+
   test('with stop_hook_active the rejection is recorded and the capability revoked (no infinite loop)', async () => {
     const h = hookProject();
     const e = await started(h);

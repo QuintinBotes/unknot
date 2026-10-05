@@ -82,7 +82,7 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
     const shell = judgeShell(cmd, { pluginRoot });
     // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
     // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
-    if (/\.unknot(\/|\b)/i.test(cmd) && !shell.allow) {
+    if (mentionsState(cmd, shell) && !shell.allow) {
       return deny('state.protected', 'commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI');
     }
     const touched = [...shell.writes];
@@ -98,6 +98,32 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
     }
   }
   return null;
+}
+
+const STATE_MENTION = /\.unknot(\/|\b)/i;
+// Programs that only print what they are given. Their arguments and heredocs are text, not
+// paths they act on, as long as their output goes to a file or the terminal rather than into
+// another program (a pipe, a substitution, xargs or a wrapper).
+const PRINTERS = new Set(['cat', 'echo', 'printf', 'tee', 'wc', 'head', 'tail', 'grep', 'sort', 'uniq', 'cut', 'tr']);
+
+/**
+ * Whether a shell command mentions .unknot where a program could act on it. Text that is
+ * only printed into a file (`cat >> notes.md <<EOF` with .unknot in the body) does not count;
+ * redirect targets and assignments always do, and so does everything when the parse failed.
+ */
+function mentionsState(cmd, shell) {
+  if (!STATE_MENTION.test(cmd)) return false;
+  if (shell.commands.some((c) => c.argv[0]?.value === '<unparseable-shell>')) return true;
+  for (const c of shell.commands) {
+    const name = c.argv[0]?.value?.split('/').pop();
+    const ctx = c.context ?? {};
+    const printer = PRINTERS.has(name) && !ctx.pipeline && !ctx.substitution && !ctx.viaWrapper && !ctx.fromStdin;
+    const texts = [c.argv[0]?.value ?? '', ...c.assignments.map((a) => a.value.value), ...c.redirects.map((r) => r.target?.value ?? '')];
+    texts.push(...c.redirects.filter((r) => !printer || r.heredocDynamic).map((r) => r.heredoc ?? ''));
+    if (!printer) texts.push(...c.argv.slice(1).map((w) => w.value));
+    if (texts.some((t) => STATE_MENTION.test(t))) return true;
+  }
+  return false;
 }
 
 // Compared case-insensitively: on case-insensitive filesystems `.unknot/DECISIONS.jsonl`

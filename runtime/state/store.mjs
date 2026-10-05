@@ -153,8 +153,12 @@ export class Store {
     }
   }
 
+  /** Idempotent; a closed store leaves the cache so the next openStore reopens the file. */
   close() {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
+    for (const [k, s] of open) if (s === this) open.delete(k);
   }
 
   get(sql, ...params) {

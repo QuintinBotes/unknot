@@ -11,7 +11,7 @@ import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
 import { loadConfig } from '../policy/config.mjs';
-import { validateHandoff, recordHandoff } from '../state/handoff.mjs';
+import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
 import { activeRun } from '../state/runs.mjs';
 
 const str = (extra = {}) => ({ type: 'string', maxLength: 512, ...extra });
@@ -222,10 +222,14 @@ export const TOOLS = {
     needsWrite: true,
     run(ctx, a) {
       const { config } = loadConfig(ctx);
-      const res = validateHandoff(a.handoff, config.mode);
+      const run = activeRun(ctx.store);
+      if (!run) return { ok: false, errors: [{ path: '', message: 'no active Unknot run: a handoff is recorded only during a run that an /unknot command started; report in prose instead' }] };
+      const bound = bindToRun(a.handoff, run);
+      const res = validateHandoff(bound.handoff, config.mode);
       if (!res.ok) return { ok: false, errors: res.errors };
-      const ref = recordHandoff(ctx, { run: activeRun(ctx.store), handoff: res.handoff, agentId: null, warnings: res.warnings });
-      return { ok: true, warnings: res.warnings, ref };
+      const warnings = [...bound.warnings, ...res.warnings];
+      const ref = recordHandoff(ctx, { run, handoff: res.handoff, agentId: null, warnings });
+      return { ok: true, run_id: run.id, warnings, ref };
     },
   },
 };

@@ -71,6 +71,26 @@ export function validateHandoff(obj, mode) {
   return res.valid ? { ok: true, handoff: cleaned, warnings: ['unknown handoff fields were dropped'] } : { ok: false, errors: res.errors };
 }
 
+/**
+ * Bind a handoff to the run it is recorded under. The run id an agent writes is a claim (an
+ * agent started outside a run, or one copying an example, makes one up); the active run is the
+ * fact, so it is stamped in and a different claim is kept as a warning.
+ */
+export function bindToRun(obj, run) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj) || !run) return { handoff: obj, warnings: [] };
+  const handoff = { ...obj };
+  const warnings = [];
+  if (handoff.run_id !== run.id) {
+    if (handoff.run_id !== undefined) warnings.push(`run_id ${JSON.stringify(String(handoff.run_id).slice(0, 40))} replaced by the active run ${run.id}`);
+    handoff.run_id = run.id;
+  }
+  if (run.slice_id && handoff.slice_id !== run.slice_id) {
+    if (handoff.slice_id != null) warnings.push(`slice_id ${JSON.stringify(String(handoff.slice_id).slice(0, 40))} replaced by the run's slice ${run.slice_id}`);
+    handoff.slice_id = run.slice_id;
+  }
+  return { handoff, warnings };
+}
+
 const TOP = ['schema_version', 'run_id', 'slice_id', 'agent', 'status', 'facts', 'proposals', 'uncertainties', 'conflicts', 'artifacts', 'recommended_next_state'];
 function stripUnknown(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([k]) => TOP.includes(k)));
