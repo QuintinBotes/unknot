@@ -54,3 +54,19 @@ test('macOS: in a worktree, main-checkout files and the Docker socket are out of
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test('loopback is opt-in; when on, only loopback is opened', () => {
+  assert.ok(!/localhost/.test(macosProfile({ writable: ['/w'], network: false })));
+  const on = macosProfile({ writable: ['/w'], network: false, loopback: true });
+  assert.match(on, /\(allow network-outbound \(remote ip "localhost:\*"\)\)/);
+  assert.ok(!/network\* \(local ip/.test(on), 'network* with a local-ip filter opens every outbound connection');
+});
+
+test('macOS: with loopback on, a test can serve and reach 127.0.0.1 but not the internet', { skip: detectSandbox() !== 'macos-sandbox-exec' }, () => {
+  const run = (code, loopback) => { const w = wrap([process.execPath, '-e', code], { writable: [], loopback }); return spawnSync(w.file, w.args, { encoding: 'utf8', timeout: 15000 }).stdout; };
+  const own = "const s=require('net').createServer(c=>c.end()).listen(0,'127.0.0.1',()=>require('net').connect(s.address().port,'127.0.0.1').on('connect',()=>{console.log('ok');process.exit(0)}).on('error',e=>{console.log(e.code);process.exit(0)})).on('error',e=>{console.log(e.code);process.exit(0)})";
+  const remote = "const s=require('net').connect({host:'192.0.2.1',port:80});s.setTimeout(1500,()=>{console.log('TIMEOUT');process.exit(0)});s.on('error',(e)=>{console.log(e.code);process.exit(0)})";
+  assert.match(run(own, true), /ok/);
+  assert.match(run(own, false), /EPERM|EACCES/);
+  assert.match(run(remote, true), /EPERM|EACCES/);
+});

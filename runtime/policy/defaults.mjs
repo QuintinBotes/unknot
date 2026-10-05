@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     sast: 'required_for_high_risk',
     dependency_changes: 'approval_required',
     require_os_sandbox: false,
+    sandbox_loopback: false,
     redact_patterns: [],
   },
   database: { live_access: 'disabled', destructive_execution: 'forbidden', engines: [] },

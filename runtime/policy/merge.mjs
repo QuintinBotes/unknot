@@ -72,6 +72,7 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   }
   if (org.quality?.forbid_new_cycles) set('quality.forbid_new_cycles', true);
   if (org.security?.require_os_sandbox) set('security.require_os_sandbox', true);
+  if (org.security?.sandbox_loopback === false) set('security.sandbox_loopback', false);
   if (org.infrastructure?.require_saved_plan) set('infrastructure.require_saved_plan', true);
   if (org.quality?.max_complexity_increase != null) {
     set('quality.max_complexity_increase', minNum(c.quality.max_complexity_increase, org.quality.max_complexity_increase));

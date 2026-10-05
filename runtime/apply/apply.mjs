@@ -49,6 +49,22 @@ export function approvalStatus(ctx, slice, stage, { cfg, commit, diffHash }) {
   return evaluateApprovals(ctx, { config: cfg.config, slice, current, needed: neededApprovals(slice, cfg.config) });
 }
 
+/**
+ * Why a test run that passes outside Unknot can fail inside its sandbox, from the output.
+ * Only names the cause and the setting a human may choose; never relaxes anything itself.
+ */
+export function sandboxHint(output, config) {
+  const t = String(output);
+  const hints = [];
+  if (/(listen|connect) EPERM[^\n]*127\.0\.0\.1|EPERM[^\n]*(listen|connect)[^\n]*127\.0\.0\.1|address: '127\.0\.0\.1'/.test(t) && config?.security?.sandbox_loopback !== true) {
+    hints.push('The tests open local servers on 127.0.0.1, which the sandbox blocks; a human can set security.sandbox_loopback: true (on macOS that also reaches other local services)');
+  }
+  if (/spawn(Sync)? (ps|sudo|su|ping|top|login)\b[^\n]*EPERM|execvp\(\) of '[^']*' failed: Operation not permitted/.test(t)) {
+    hints.push('The tests run a setuid program (such as ps), which the macOS sandbox cannot execute; exclude those tests from the configured command or run them outside Unknot');
+  }
+  return hints.join('. ');
+}
+
 /** Start patching an approved slice. */
 async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   const config = cfg.config;
@@ -99,7 +115,8 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
     ctx.store.insert('evidence', { id: r.record.id, obligation_id: null, slice_id: sliceId, run_id: run.id, record: { ...r.record, kind: 'baseline' }, verdict: r.record.verdict, diff_hash: null, at: nowISO() });
     if (r.record.verdict !== 'pass') {
       removeWorktree(ctx, sliceId, { deleteBranch: !wt.reused });
-      throw new UnknotError('UK_BASELINE_INVALID', `baseline ${unit.join(' ')} does not pass before any change (exit ${r.record.exit_code}); fix the baseline first`, { slice_id: sliceId, details: { evidence: r.record.id, stderr: r.stderrTail.slice(-1500) } });
+      const hint = sandboxHint(`${r.stdoutTail}\n${r.stderrTail}`, config);
+      throw new UnknotError('UK_BASELINE_INVALID', `baseline ${unit.join(' ')} does not pass before any change (exit ${r.record.exit_code}); fix the baseline first${hint ? `. ${hint}` : ''}`, { slice_id: sliceId, details: { evidence: r.record.id, stderr: r.stderrTail.slice(-1500), ...(hint && { hint }) } });
     }
   }
   transitionSlice(ctx, {

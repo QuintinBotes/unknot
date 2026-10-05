@@ -243,6 +243,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "sandbox_loopback": {
+          "type": "boolean",
+          "description": "Let sandboxed commands use loopback (127.0.0.1), e.g. tests that start local servers. Default false. On macOS this also reaches any local TCP service; on Linux loopback is private to each command. The internet stays blocked either way."
         }
       }
     },

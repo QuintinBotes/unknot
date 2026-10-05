@@ -56,11 +56,18 @@ function sbplString(p) {
  * With `hideRoot` (the main checkout, when the command runs in a slice worktree) only the
  * working directory and MAIN_CHECKOUT_READABLE stay readable there.
  */
-export function macosProfile({ writable, network, sockets = [], hideRoot = null, cwd = null }) {
+export function macosProfile({ writable, network, sockets = [], hideRoot = null, cwd = null, loopback = false }) {
   const home = realpathLenient(homedir());
   const lines = ['(version 1)', '(allow default)'];
   if (!network) {
     lines.push('(deny network*)');
+    if (loopback) {
+      // Opt-in (security.sandbox_loopback): test suites that start servers on 127.0.0.1.
+      // macOS cannot isolate loopback per process, so this also reaches any local TCP
+      // service; the internet stays blocked. Not `network* (local ip ...)`: the local end of
+      // every socket is on this host, so that form allows every outbound connection.
+      lines.push('(allow network-bind (local ip "localhost:*"))', '(allow network-inbound (local ip "localhost:*"))', '(allow network-outbound (remote ip "localhost:*"))');
+    }
     if (sockets.length) {
       const sp = sockets.map((p) => `(subpath ${sbplString(realpathLenient(p))})`).join(' ');
       lines.push(`(allow network* (local unix-socket ${sp}))`, `(allow network* (remote unix-socket ${sp}))`);
@@ -105,12 +112,12 @@ const isRealDir = (p) => {
  * Wrap an argv for the sandbox.
  * @returns {{file: string, args: string[], sandbox: string}}
  */
-export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, cwd = null } = {}) {
+export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, cwd = null, loopback = false } = {}) {
   const tmp = realpathLenient(tmpdir());
   const allWritable = [...new Set([...writable, tmp, '/private/tmp', '/tmp'].map((p) => realpathLenient(p)))];
   const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
-    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, cwd }), ...argv], sandbox: kind };
+    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, cwd, loopback }), ...argv], sandbox: kind };
   }
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());

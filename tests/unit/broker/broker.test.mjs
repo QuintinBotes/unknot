@@ -404,29 +404,27 @@ describe('OS sandbox enforcement (macOS)', { skip: process.platform !== 'darwin'
     }
   });
 
+  // A remote destination is TEST-NET-1 (192.0.2.1, never routed): the sandbox refuses the connect at once (EPERM);
+  // with network allowed it times out or is unreachable instead, so no internet is needed.
+  const remoteProbe = `const s=require('net').connect({host:'192.0.2.1',port:80});s.setTimeout(1500,()=>{console.log('TIMEOUT');process.exit(0)});s.on('error',(e)=>{console.log(e.code);process.exit(0)});s.on('connect',()=>{console.log('CONNECTED');process.exit(0)})`;
+
   test('outbound network is blocked by default and open when network:true', async () => {
-    const server = createServer((req, res) => res.end('reachable'));
-    await new Promise((res) => server.listen(0, '127.0.0.1', res));
-    const { port } = server.address();
-    try {
-      const url = `http://127.0.0.1:${port}/`;
-      const blocked = await exec({ argv: ['/usr/bin/curl', '-sS', '--max-time', '5', url], cwd: p.dir, origin: 'configured', config: K.cfg({ limits: { max_network_requests: 5 } }) });
-      assert.notEqual(blocked.record.exit_code, 0, `curl should fail: ${blocked.stdout}`);
-      assert.ok(!blocked.stdout.toString().includes('reachable'));
-      const open = await exec({ argv: ['/usr/bin/curl', '-sS', '--max-time', '5', url], cwd: p.dir, origin: 'configured', network: true, config: K.cfg({ limits: { max_network_requests: 5 } }) });
-      assert.equal(open.stdout.toString(), 'reachable', open.stderr.toString());
-    } finally {
-      server.close();
-    }
+    const cfgNet = K.cfg({ limits: { max_network_requests: 5 } });
+    const blocked = await exec({ ...node(remoteProbe), config: cfgNet });
+    assert.match(blocked.stdout.toString(), /EPERM|EACCES/, blocked.stdout.toString());
+    const open = await exec({ ...node(remoteProbe), config: cfgNet, network: true });
+    assert.doesNotMatch(open.stdout.toString(), /EPERM|EACCES/, open.stdout.toString());
   });
 
-  test('node-level network is blocked too', async () => {
+  test('loopback is blocked unless a human sets sandbox_loopback: true', async () => {
     const server = createServer((req, res) => res.end('reachable'));
     await new Promise((res) => server.listen(0, '127.0.0.1', res));
     const { port } = server.address();
+    const probe = node(`fetch('http://127.0.0.1:${port}/').then((r) => r.text()).then((t) => console.log('GOT ' + t), (e) => console.log('ERR'))`);
     try {
-      const r = await exec(node(`fetch('http://127.0.0.1:${port}/').then((r) => r.text()).then((t) => console.log('GOT ' + t), (e) => console.log('ERR'))`));
-      assert.match(r.stdout.toString(), /ERR/);
+      assert.match((await exec(probe)).stdout.toString(), /ERR/);
+      const on = await exec({ ...probe, config: K.cfg({ security: { sandbox_loopback: true } }) });
+      assert.match(on.stdout.toString(), /GOT reachable/);
     } finally {
       server.close();
     }

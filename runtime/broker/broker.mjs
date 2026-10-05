@@ -165,7 +165,7 @@ export async function brokerExec(ctx, req) {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const tmp = mkdtempSync(join(tmpdir(), `unknot-${(run?.id ?? 'adhoc').replace(/[^a-z0-9-]/gi, '')}-`));
   const sandboxKind = detectSandbox();
-  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, cwd: realCwd, network, requireSandbox: config?.security?.require_os_sandbox ?? false });
+  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false });
   const env = minimalEnv({ tmp });
   const execId = `ex-${randomId(6)}`;
   const startedAt = nowISO();
