@@ -316,6 +316,18 @@ function ormTables(lx, an, lang) {
       const name = /^\s*@?"([^"]*)"/.exec(a.args ?? '')?.[1];
       if (name) { explicit.set(a.target.type.name, name); add(name, a.line, 'medium', 'efcore'); }
     }
+    // Fluent mappings: `Entity<T>().ToTable("x")` and `builder.ToTable("x")` inside
+    // `IEntityTypeConfiguration<T>.Configure`. The table belongs to T, which link() locates.
+    const addFluent = (entity, table, off) => {
+      const cls = entity.split('.').pop();
+      explicit.set(cls, table);
+      if (!out.some((t) => t.name === table)) out.push({ name: table, line: lx.lineOf(off), confidence: 'medium', orm: 'efcore', entity: cls });
+    };
+    for (const m of codeMatches(lx, /\.Entity<\s*([\w.]+)\s*>\s*\(\s*(?:\)|\w+\s*=>\s*\w+)\s*\.ToTable\(\s*@?"([^"]*)"/g)) addFluent(m[1], m[2], m.index);
+    for (const m of codeMatches(lx, /\bConfigure\s*\(\s*EntityTypeBuilder<\s*([\w.]+)\s*>\s+(\w+)\s*\)/g)) {
+      const tm = new RegExp(`\\b${m[2]}\\s*\\.ToTable\\(\\s*@?"([^"]*)"`).exec(lx.plain.slice(m.index, m.index + 4000));
+      if (tm) addFluent(m[1], tm[1], m.index + tm.index);
+    }
     for (const m of codeMatches(lx, /\bDbSet<\s*([\w.]+)\s*>\s+(\w+)/g)) {
       const cls = m[1].split('.').pop();
       if (explicit.has(cls)) continue;

@@ -10,9 +10,10 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo } from './frameworks.mjs';
+import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -147,6 +148,12 @@ function extract(file, text, ctx) {
     parse_quality: 'lexical',
   };
   if (an.impls.length) attrs.impls = an.impls;
+  // Link-only inputs for C# type resolution; link() removes them so they are never persisted.
+  if (lang === 'csharp') {
+    const r = csharpRefs(lx, an);
+    attrs.refs = r.refs;
+    if (Object.keys(r.declOnly).length) attrs.decl_only = r.declOnly;
+  }
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
   const mod = nodeFact('module', path, { name: path, path, attrs }, prov_(path, 1));
@@ -225,7 +232,9 @@ function extract(file, text, ctx) {
   for (const t of fw.tables) {
     const tid = `public.${t.name}`;
     body.push(nodeFact('table', tid, { name: t.name, attrs: { schema: 'public', orm: t.orm } }, prov_(path, t.line, t.confidence, 'inference')));
-    body.push(edgeFact('OWNS_DATA', modId, `table:${tid}`, { orm: t.orm }, prov_(path, t.line, t.confidence, 'inference')));
+    // A fluent mapping names an entity whose file may differ from this one: link() adds that owner.
+    if (t.entity) (attrs.ef_tables ??= []).push({ entity: t.entity, table: t.name, line: t.line });
+    else body.push(edgeFact('OWNS_DATA', modId, `table:${tid}`, { orm: t.orm }, prov_(path, t.line, t.confidence, 'inference')));
   }
 
   if (body.length + 1 > MAX_FACTS) {
@@ -284,7 +293,6 @@ function link(ctx) {
   // --- indexes ----------------------------------------------------------------------
   const fq = new Map();
   const pkgIndex = new Map();
-  const nsIndex = new Map();
   const dirGo = new Map();
   const phpFq = new Map();
   const add = (m, k, v) => {
@@ -300,7 +308,6 @@ function link(ctx) {
     const conv = /(?:^|\/)src\/(?:main|test)\/(?:java|kotlin|scala)\/(.+)\.(?:java|kt|scala)$/.exec(path);
     if (conv) add(fq, conv[1].replace(/\//g, '.'), path);
     for (const ns of a.namespaces ?? []) {
-      add(nsIndex, ns, path);
       if (a.language === 'php') for (const t of a.types) add(phpFq, `${ns}\\${t}`, path);
     }
     if (a.language === 'go' && !a.is_test) add(dirGo, dirname(path), path);
@@ -349,12 +356,6 @@ function link(ctx) {
           if (hit) return { paths: hit };
         }
         return { paths: [], external: JVM_SKIP.test(spec) ? null : parts.slice(0, 2).join('.') };
-      }
-      case 'csharp': {
-        const cands = [spec, spec.split('.').slice(0, -1).join('.')];
-        for (const c of cands) if (c && nsIndex.has(c)) return { paths: nsIndex.get(c), via: 'namespace', low: true };
-        const first = spec.split('.');
-        return { paths: [], external: first[0] === 'System' ? null : first[0] === 'Microsoft' ? first.slice(0, 2).join('.') : first[0] };
       }
       case 'rust': {
         const crate = crateOf(path);
@@ -422,11 +423,28 @@ function link(ctx) {
 
   // --- imports, tests -----------------------------------------------------------------
   const importsOf = new Map();
+  const csLink = csharpLinker(mods, sortedMods);
   for (const path of sortedMods) {
     const mod = mods.get(path);
     const a = mod.attrs;
     const resolved = new Set();
-    for (const imp of a.imports ?? []) {
+    if (a.language === 'csharp') {
+      const cs = csLink(path);
+      for (const e of cs.edges) {
+        resolved.add(e.to);
+        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
+          spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member }),
+        }, prov_(path, e.line)));
+      }
+      for (const imp of cs.externals) {
+        const first = imp.spec.split('.');
+        const ext = first[0] === 'System' ? null : first[0] === 'Microsoft' ? first.slice(0, 2).join('.') : first[0];
+        if (ext) push(edgeFact('IMPORTS', mod.id, dependency(ext, path, imp.line), { spec: imp.spec }, prov_(path, imp.line)));
+      }
+      delete a.refs;
+      delete a.decl_only;
+    }
+    for (const imp of a.language === 'csharp' ? [] : a.imports ?? []) {
       const r = resolve(path, a, imp);
       for (const p of r.paths) {
         if (p === path) continue;
@@ -458,6 +476,17 @@ function link(ctx) {
     const same = bySubject.get(`${mirror(path)}|${stem}`);
     if (same?.length === 1 && same[0] !== path && !importsOf.get(path).has(same[0])) {
       push(edgeFact('TESTS', mods.get(path).id, mods.get(same[0]).id, { by: 'name' }, prov_(path, 1, 'low')));
+    }
+  }
+
+  // Fluent EF mappings: the table is owned by the file declaring the entity (this file when it is not found).
+  for (const path of sortedMods) {
+    const m = mods.get(path);
+    for (const t of m.attrs.ef_tables ?? []) {
+      const own = (types.get(t.entity) ?? []).filter((c) => c.path === path);
+      const decl = own.length ? own : (types.get(t.entity) ?? []);
+      const owner = decl.length === 1 ? mods.get(decl[0].path).id : m.id;
+      push(edgeFact('OWNS_DATA', owner, `table:public.${t.table}`, { orm: 'efcore' }, prov_(path, t.line, 'medium', 'inference')));
     }
   }
 

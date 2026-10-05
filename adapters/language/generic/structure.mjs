@@ -498,7 +498,12 @@ function findImports(lx, lang, pm, types) {
       }
       break;
     case 'csharp':
-      for (const m of re(/^[ \t]*(?:global\s+)?using\s+(static\s+)?(?:\w+\s*=\s*)?([\w.]+)\s*;/gm)) add(m[2], m[1] ? 'static' : 'using', m.index);
+      for (const m of re(/^[ \t]*(global\s+)?using\s+(static\s+)?(?:(\w+)\s*=\s*)?([\w.]+)\s*;/gm)) {
+        add(m[4], m[2] ? 'static' : m[3] ? 'alias' : 'using', m.index);
+        const last = out[out.length - 1];
+        if (m[1]) last.global = true;
+        if (m[3]) last.alias = m[3];
+      }
       break;
     case 'go':
       for (const m of re(/^[ \t]*import\b[ \t]*/gm)) {

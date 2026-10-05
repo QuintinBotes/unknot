@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import adapter from '../../../../adapters/language/generic/index.mjs';
 import { lineOf, loadFixture } from './helpers.mjs';
 
-const EXTRACTOR = 'generic@0.1.1';
+const EXTRACTOR = 'generic@0.1.2';
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'generic');
-  assert.equal(adapter.version, '0.1.1');
+  assert.equal(adapter.version, '0.1.2');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -127,7 +127,7 @@ test('Java: Spring controller, JPA entity, pom.xml, resolution by package', () =
   assert.ok(fx.hasEdge('TESTS', `module:${test}`, `module:${svc}`), 'mirrored src/test -> src/main by name');
 });
 
-test('C#: ASP.NET controller, EF DbSet, csproj, namespace imports are low confidence', () => {
+test('C#: ASP.NET controller, EF DbSet, csproj, type-level imports', () => {
   const fx = loadFixture('dotnet');
   const ctl = 'Controllers/OrdersController.cs';
   const text = fx.text(ctl);
@@ -154,8 +154,10 @@ test('C#: ASP.NET controller, EF DbSet, csproj, namespace imports are low confid
   assert.ok(fx.hasEdge('OWNS_DATA', 'module:Data/ShopContext.cs', 'table:public.orders'));
   assert.equal(fx.node('table:public.orders').provenance.confidence, 'low');
   const imp = fx.edges('IMPORTS', `module:${ctl}`, 'module:Models/Order.cs')[0];
-  assert.equal(imp.attrs.via, 'namespace');
-  assert.equal(imp.provenance.confidence, 'low');
+  assert.equal(imp.attrs.via, 'type');
+  assert.equal(imp.attrs.spec, 'Shop.Models.Order');
+  assert.equal(imp.provenance.confidence, 'medium');
+  assert.ok(!imp.attrs.declared_only);
   assert.ok(fx.hasEdge('TESTS', 'module:Tests/OrdersTests.cs', 'module:Models/Order.cs'));
   assert.equal(fx.node('module:Tests/OrdersTests.cs').attrs.is_test, true);
 });
