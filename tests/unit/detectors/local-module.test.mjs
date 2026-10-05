@@ -38,7 +38,7 @@ const keys = (drafts) => drafts.map((d) => d.key).sort();
 // ---------------------------------------------------------------------------------------
 
 test('every detector declares id, version, category and kinds', () => {
-  const localIds = ['long-function', 'complex-function', 'deep-nesting', 'long-parameter-list', 'large-class', 'large-module', 'dead-code', 'one-implementation-interface', 'duplicated-code', 'speculative-generality'];
+  const localIds = ['long-function', 'complex-function', 'deep-nesting', 'long-parameter-list', 'large-class', 'large-module', 'dead-code', 'unreachable-code', 'one-implementation-interface', 'duplicated-code', 'speculative-generality'];
   const moduleIds = ['dependency-cycle', 'unstable-dependency', 'hub-module', 'shotgun-surgery', 'implementation-leakage', 'oversized-api', 'low-cohesion-package', 'layer-bypass'];
   assert.deepEqual(local.map((d) => d.id), localIds.map((n) => `local.${n}`));
   assert.deepEqual(module_.map((d) => d.id), moduleIds.map((n) => `module.${n}`));

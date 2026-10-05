@@ -127,6 +127,7 @@ export function analyze(tokens, n, match, { ts = false } = {}) {
       parent: o.parent ?? null,
       cls: o.cls ?? null,
       _seen: new Set(),
+      _bodyStart: o.bodyStart,
     };
     rec.lines = rec.end_line - rec.start_line + 1;
     out.functions.push(rec);

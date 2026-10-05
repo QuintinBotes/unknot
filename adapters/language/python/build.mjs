@@ -94,6 +94,8 @@ export function buildFacts(path, raw, text, quality) {
         ...common, kind: r.kind, params: r.params.length, param_names: r.params, cyclomatic: r.cyclomatic,
         cognitive: r.cognitive, max_nesting: r.max_nesting, async: r.async, returns: r.returns, calls: r.calls,
         class: sym.type === 'method' ? r.parent : null,
+        // Lexical reader does not track control flow, so it reports none.
+        unreachable: r.unreachable ?? [],
       };
     facts.push(nodeFact(sym.type, `${path}#${qual}`, { name: qual, path, attrs }, pv(r.start_line)));
     const parentId = r.parent && symbols.has(r.parent) ? symbols.get(r.parent).id : moduleId;

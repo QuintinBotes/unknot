@@ -6,6 +6,7 @@ import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } fro
 import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
 import { analyze } from './structure.mjs';
 import { tokenize } from './tokenizer.mjs';
+import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
 
 const CODE_FILE_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
@@ -71,6 +72,14 @@ function codeFacts(file, text) {
       envReads: new Set(), sql: [], directives: [],
     };
   }
+  let unreachable = new Map();
+  if (!failed) {
+    try {
+      unreachable = findUnreachable(tokens, n, match, analysis.functions);
+    } catch {
+      // Optional signal: a failure here only costs the unreachable-code attribute.
+    }
+  }
   analysis.functions.sort((a, b) => a.start_line - b.start_line || (a.qname < b.qname ? -1 : a.qname > b.qname ? 1 : 0));
   const degraded = tk.issues.length > 0 || bad > 0 || failed;
   const p = mk(path, degraded);
@@ -115,6 +124,7 @@ function codeFacts(file, text) {
         cyclomatic: f.cyclomatic, cognitive: f.cognitive, max_nesting: f.max_nesting, exported: f.exported, async: f.async,
         kind: f.kind, returns: f.returns, return_type: f.return_type, calls: f.calls, class: f.cls,
         decorators: f.decorators.map((d) => d.name), visibility: f.visibility ?? null,
+        unreachable: unreachable.get(f) ?? [],
       },
     }, p(f.start_line));
     fnByQ.set(f.qname, id);

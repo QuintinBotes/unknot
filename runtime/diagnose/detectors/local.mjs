@@ -735,6 +735,47 @@ const speculativeGenerality = define({
   },
 });
 
+// ---------------------------------------------------------------------------------------
+// Statements after an unconditional jump
+// ---------------------------------------------------------------------------------------
+
+const unreachableCode = define({
+  name: 'unreachable-code',
+  kinds: ['code.unreachable-code'],
+  run(graph) {
+    const out = [];
+    for (const n of codeSymbols(graph)) {
+      const spots = Array.isArray(n.attrs.unreachable) ? n.attrs.unreachable.filter((u) => Number.isFinite(u?.line)) : [];
+      if (!spots.length) continue;
+      const first = spots[0];
+      const d = base(graph, n, {
+        kind: 'code.unreachable-code',
+        title: `${nameOf(n)} has ${spots.length === 1 ? 'unreachable code' : `${spots.length} unreachable statements`} after ${first.after} at line ${first.line}`,
+        summary: `${spots.length} statement(s) follow an unconditional ${first.after} in the same block and can never run`,
+        measurements: { 'symbol.references': 0 },
+        thresholds: { note: 'syntactic: statements after return/throw/raise/break/continue in the same block' },
+        benefit: 1 + Math.min(1, spots.length / 3),
+        cost: 1,
+        evidence: 0.9,
+      });
+      out.push({
+        ...d,
+        evidence: [{ ...d.evidence[0], summary: d.evidence[0].summary, source_ref: `${n.path}:${first.line}` }],
+        why_accidental: 'Code that can never run misleads readers about what the function does and hides a likely logic slip.',
+        essential_considerations: ['It may mark a branch the author meant to guard with a condition; check intent before deleting.'],
+        smallest_simplification: `Delete the statements from line ${first.line} in ${nameOf(n)}, or fix the jump above them if they were meant to run.`,
+        risks: ['The jump above may be the mistake, in which case the dead code holds the intended behaviour.'],
+        alternatives: [
+          { id: 'retain', summary: 'Keep it only if it documents intent; then turn it into a comment.' },
+          { id: 'remove', summary: 'Delete the unreachable statements; version control keeps the history.' },
+        ],
+        patterns: ['code.remove-dead-code'],
+      });
+    }
+    return out;
+  },
+});
+
 export default [
   longFunction,
   complexFunction,
@@ -743,6 +784,7 @@ export default [
   largeClass,
   largeModule,
   deadCode,
+  unreachableCode,
   oneImplementationInterface,
   duplicatedCode,
   speculativeGenerality,

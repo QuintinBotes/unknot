@@ -102,6 +102,49 @@ def decorator_record(d):
     return {'name': dotted(d) or unparse(d, 80), 'args': [], 'kwargs': {}, 'line': d.lineno}
 
 
+JUMPS = ((ast.Return, 'return'), (ast.Raise, 'raise'), (ast.Continue, 'continue'), (ast.Break, 'break'))
+MAX_UNREACHABLE = 20
+
+
+def unreachable_in(fn):
+    """Statements that follow return/raise/continue/break in the same body list.
+
+    Only the first statement after the jump is recorded per list. Nested defs and classes
+    are separate functions and are not entered; sibling bodies (else, except, case) are
+    different lists, so a raise in one never makes another dead.
+    """
+    out = []
+
+    def lists(node):
+        for field in ('body', 'orelse', 'finalbody'):
+            val = getattr(node, field, None)
+            if isinstance(val, list) and val and isinstance(val[0], ast.stmt):
+                yield val
+        for h in getattr(node, 'handlers', None) or []:
+            yield h.body
+        for c in getattr(node, 'cases', None) or []:
+            yield c.body
+
+    def walk(stmts):
+        for i, st in enumerate(stmts):
+            if len(out) >= MAX_UNREACHABLE:
+                return
+            for typ, name in JUMPS:
+                if isinstance(st, typ):
+                    if i + 1 < len(stmts):
+                        out.append({'line': stmts[i + 1].lineno, 'after': name})
+                    break
+            else:
+                if not isinstance(st, FUNC_TYPES + (ast.ClassDef,)):
+                    for sub in lists(st):
+                        walk(sub)
+                continue
+            return
+
+    walk(fn.body)
+    return out
+
+
 class Metrics(object):
     """McCabe, Sonar-style cognitive complexity and max nesting for one function body."""
 
@@ -326,7 +369,8 @@ class Analyzer(object):
         rec = {'name': n.name, 'qual': qual, 'parent': parent, 'in_class': in_class, 'kind': kind,
                'start_line': n.lineno, 'end_line': end, 'params': params, 'cyclomatic': cc, 'cognitive': cog,
                'max_nesting': depth, 'decorators': decs, 'async': isinstance(n, ast.AsyncFunctionDef),
-               'returns': unparse(n.returns, 120) if n.returns is not None else None, 'calls': []}
+               'returns': unparse(n.returns, 120) if n.returns is not None else None, 'calls': [],
+               'unreachable': unreachable_in(n)}
         self.functions.append(rec)
         self.fn_calls[qual] = (rec, set())
         for d in n.decorator_list:
