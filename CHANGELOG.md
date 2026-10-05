@@ -4,6 +4,20 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.6] - 2026-10-05
+
+### Fixed
+
+- A slice worktree's linked dependency directories (`node_modules` and similar, symlinks to
+  the main checkout's) were staged into the patch when `.gitignore` names them with a
+  trailing slash, which matches directories but not symlinks. Found by running the full
+  write path on a real TypeScript repository.
+
+### Added
+
+- `unknot slice <id> diff`: the slice's patch, read-only, for agents that cannot run shell
+  commands inside `.unknot/`.
+
 ## [0.1.5] - 2026-10-05
 
 Precision release from a measured audit of five further repositories: 100 sampled findings

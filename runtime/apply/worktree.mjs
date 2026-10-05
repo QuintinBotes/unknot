@@ -38,10 +38,13 @@ function findDependencyDirs(root, dir = '', depth = 0, out = []) {
     return out;
   }
   for (const e of entries) {
-    if (!e.isDirectory() || e.name.startsWith('.git') || e.name === '.unknot' || e.name === '.claude') continue;
+    if (e.name.startsWith('.git') || e.name === '.unknot' || e.name === '.claude') continue;
     const rel = dir ? `${dir}/${e.name}` : e.name;
-    if (LINKED.includes(e.name) || LINKED.includes(rel)) out.push(rel);
-    else if (!['dist', 'build', 'target', 'coverage'].includes(e.name)) findDependencyDirs(root, rel, depth + 1, out);
+    const linkedName = LINKED.includes(e.name) || LINKED.includes(rel);
+    // In a slice worktree the dependency directories are symlinks to the main checkout's;
+    // missing them here staged `node_modules` into the patch (write-path test on a real repo).
+    if (linkedName && (e.isDirectory() || e.isSymbolicLink())) out.push(rel);
+    else if (e.isDirectory() && !['dist', 'build', 'target', 'coverage'].includes(e.name)) findDependencyDirs(root, rel, depth + 1, out);
   }
   return out;
 }

@@ -57,3 +57,5 @@ that, and approval is a human decision.
 
 Subcommands: `unknot apply $0 replan --reason "..."` (back to planning), `unknot apply $0
 abandon` (discard the worktree and branch).
+
+To inspect the patch, run `unknot slice <id> diff` (read-only). Shell commands into `.unknot/` are denied, including git inside the worktree path.
