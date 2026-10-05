@@ -24,6 +24,13 @@
       "type": "string",
       "minLength": 1
     },
+    "related_kinds": {
+      "description": "Kinds of same-function findings folded into this one (long, complex, deeply nested); the finding's own kind and fingerprint are those of the primary.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "title": {
       "type": "string",
       "minLength": 1
