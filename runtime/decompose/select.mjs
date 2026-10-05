@@ -3,7 +3,7 @@
 // reasons; treatments that do not serve a recorded driver are discarded (except the
 // driver-free ones); the least invasive survivor wins; retain wins when nothing fits.
 
-import { card, evaluate, index } from '../patterns/engine.mjs';
+import { card, evaluate, index, test } from '../patterns/engine.mjs';
 
 // Lower is less invasive (spec §15A.6 step 4).
 export const INVASIVENESS = Object.freeze({ T0: 0, T1: 1, T2: 2, T4: 2, T5: 2, T6: 3, T8: 4, T9: 4, T7: 5, T3: 6 });
@@ -47,6 +47,48 @@ function treatmentCards(target) {
   return byTreatment;
 }
 
+export const SEAM_REASON = 'no routable seam (HTTP route or queue entry) visible in this repository';
+
+// What would measure a signal the graph does not have (named in the readiness table).
+const EVIDENCE_FOR = {
+  'traces.available': 'import runtime traces (evidence.traces)',
+  'boundary.calls_per_request_p95': 'import runtime traces with per-request call counts (evidence.traces)',
+  'ownership.alignment': 'CODEOWNERS or a service catalog (evidence.catalogs)',
+  'boundary.cross_transactions': 'transaction-boundary facts (SQL or ORM adapters)',
+  'boundary.shared_table_writers': 'table access facts (SQL or ORM adapters)',
+  'boundary.cross_joins': 'table access facts (SQL or ORM adapters)',
+  'module.co_change_leak': 'commit history with enough co-changing commits',
+  'ci.per_unit_pipeline': 'CI workflow facts with path filters',
+  'contracts.present': 'contract files (OpenAPI, pact) or a catalog naming the endpoints',
+  'requests.interceptable': 'traces or a catalog naming the endpoints (evidence.traces, evidence.catalogs)',
+  'tests.present': 'tests that cover the scope',
+};
+
+/**
+ * Per-predicate readiness of the given treatments: each applicability signal, precondition
+ * and contraindication with its measured value, threshold and whether it holds. An
+ * unmeasured signal has `value: null`, `met: null` and the evidence that would measure it.
+ */
+export function readinessFor({ target, signals, thresholds = {}, treatments }) {
+  const rows = [];
+  const cards = treatmentCards(target);
+  for (const t of [...new Set(treatments)].sort()) {
+    const c0 = cards.get(t);
+    if (!c0) continue;
+    const c = withThresholds(c0, thresholds);
+    for (const [kind, list] of [['applicability', c.applicability_signals], ['precondition', c.preconditions], ['contraindication', c.contraindications]]) {
+      for (const item of list ?? []) {
+        if (!item.predicate) continue;
+        const { metric, op, value: threshold } = item.predicate;
+        const r = test(item.predicate, signals);
+        const value = signals[metric] ?? null;
+        rows.push({ treatment: t, kind, id: item.id, signal: metric, value, op, threshold, met: r === 'unknown' ? null : r === 'true', missing_evidence: r === 'unknown' ? EVIDENCE_FOR[metric] ?? `a measurement of ${metric}` : null });
+      }
+    }
+  }
+  return rows;
+}
+
 /**
  * @param {object} p
  * @param {'backend'|'frontend'} p.target
@@ -78,7 +120,9 @@ export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
   for (const e of evaluations) {
     if (e.treatment === 'T0') continue;
     if (e.fit === 'contraindicated') {
-      rejected.push({ treatment: e.treatment, reason: e.reasons.filter((r) => r.startsWith('contraindicated') || r.startsWith('precondition')).join('; ') || 'contraindicated' });
+      const seam = e.checked.find((x) => x.kind === 'precondition' && x.id === 'requests-interceptable' && x.result === 'false');
+      const reasons = e.reasons.filter((r) => r.startsWith('contraindicated') || r.startsWith('precondition')).map((r) => (seam && r.startsWith('precondition') && /routable seam/.test(r) ? SEAM_REASON : r));
+      rejected.push({ treatment: e.treatment, reason: reasons.join('; ') || 'contraindicated' });
       continue;
     }
     if (e.fit === 'not_applicable') {
@@ -142,6 +186,14 @@ export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
     confidence,
     evaluations: evaluations.map(({ treatment: t, fit, reasons }) => ({ treatment: t, fit, reasons })),
     prepare,
+    selection_reason: chosen ? selectionReason({ treatment, chosen, favouring, drivers }) : null,
     retain_reason: chosen ? null : prepare.length ? `retain until the evidence exists: ${prepare.join(', ')} come first, then decomposition is re-evaluated` : 'no treatment both fits the measured evidence and serves a recorded driver; retaining is the least risky correct answer until that changes',
   };
+}
+
+function selectionReason({ treatment, chosen, favouring, drivers }) {
+  const names = favouring.map((c) => c.predicate.metric).join(', ');
+  const why = `${treatment} is the least invasive treatment that fits the measured evidence${chosen.serves.length ? ` and serves ${chosen.serves.join(', ')}` : ''}${names ? ` (favouring: ${names})` : ''}`;
+  const notRetain = chosen.serves.length ? `retaining does not serve the recorded driver(s) ${chosen.serves.join(', ')}` : drivers.length ? 'retaining leaves the structural cost this treatment removes in place' : 'a treatment that needs no driver fits, so documenting alone would leave the measured coupling unaddressed';
+  return `${why}; not retained because ${notRetain}`;
 }

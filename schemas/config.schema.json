@@ -624,6 +624,14 @@
               },
               "owner": {
                 "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "description": "Where the driver was stated (a URL or document)"
+              },
+              "quote": {
+                "type": "string",
+                "description": "The sentence in which the person stated the driver"
               }
             },
             "required": [

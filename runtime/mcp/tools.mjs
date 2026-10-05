@@ -208,7 +208,9 @@ export const TOOLS = {
       // Checked again here: the id becomes part of a path, so never rely on the schema alone.
       if (!/^DEC-\d{4,}$/.test(a.id)) throw new UnknotError('UK_SCHEMA_INVALID', 'decomposition id must match ^DEC-\\d{4,}$');
       try {
-        return JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8'));
+        const rec = JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8'));
+        // Stale when the graph was rebuilt since the record was written.
+        return rec.graph_generation === undefined ? rec : { ...rec, stale: rec.graph_generation !== Number(ctx.store.meta('generation') ?? 0) };
       } catch (err) {
         if (err.code === 'ENOENT') throw notFound('decomposition', a.id);
         throw err;

@@ -27,7 +27,7 @@ preconditions:
     description: "At least one driver is recorded: independent_deploy, independent_scale, availability_isolation, security_isolation, team_autonomy, technology_divergence or build_time (checklist across driver.* metrics)."
     predicate: { metric: driver.any, op: '==', value: 1 }
   - id: requests-interceptable
-    description: Requests for the capability pass a routable seam (HTTP or queue entry).
+    description: "A routable seam (HTTP route or queue entry) is visible in this repository; when none is, a caller in another repository or a gateway would show an existing seam, so import its traces (evidence.traces) or a catalog that names the endpoints (evidence.catalogs)."
     predicate: { metric: requests.interceptable, op: '==', value: 1 }
   - id: traces-available
     description: Runtime traces are imported.
