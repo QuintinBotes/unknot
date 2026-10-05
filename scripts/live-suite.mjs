@@ -21,7 +21,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '');
@@ -61,6 +61,9 @@ if (install === 'fresh') {
   must(sh('claude', ['plugin', 'install', 'unknot@unknot'], { env }), 'plugin install');
 } else if (install === 'local') {
   pluginArgs = ['--plugin-dir', ROOT, '--settings', JSON.stringify({ enabledPlugins: { 'unknot@quintinbotes': false } })];
+  // A parent Claude Code session with the plugin enabled puts the installed copy's bin/ on
+  // PATH; the hooks rightly refuse a bare `unknot` that is not this checkout's CLI.
+  env.PATH = (env.PATH ?? '').split(delimiter).filter((d) => !d || resolve(d) === join(ROOT, 'bin') || !existsSync(join(d, 'unknot'))).join(delimiter);
 } else if (install !== 'installed') {
   log(`unknown --install ${install}`);
   process.exit(2);
