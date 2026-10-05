@@ -9,7 +9,7 @@ import { linkFacts } from './link.mjs';
 
 export default {
   id: 'javascript',
-  version: '0.1.10',
+  version: '0.1.11',
   kind: 'language',
   capabilities: {
     files: [

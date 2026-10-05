@@ -142,3 +142,15 @@ test('large-class and large-module discount data lines', () => {
   assert.equal(g.length, 1);
   assert.match(g[0].title, /2400 source lines \(900 of them data; threshold 1000\)/);
 });
+
+test('arguments of a multi-line call are code, not data; literal elements and keyed lines stay data (real-repo spot check)', () => {
+  const count = (text, lang) => dataLinePrefix(text, lang).at(-1);
+  // A log call and a toast helper: their string arguments are not a table.
+  assert.equal(count('logger.info(\n    "Incoming request",\n    extra=meta,\n)\n', 'py'), 0);
+  assert.equal(count("this.presentToast(\n  'The property could not be saved.',\n  'danger',\n);\n"), 0);
+  // An array literal passed to a call, and an object literal's keyed lines, are still data
+  // (the closing line of a bracket opened on a code line is code).
+  assert.equal(count("register([\n  'en',\n  'af',\n]);\n"), 2);
+  assert.equal(count("const t = {\n  hello: 'Hallo',\n  bye: 'Totsiens',\n};\n"), 2);
+  assert.equal(count('seed(\n    {\n        "name": "Ann",\n        "role": "admin",\n    },\n)\n', 'py'), 4);
+});

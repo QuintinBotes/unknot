@@ -60,6 +60,9 @@ export function dataLinePrefix(text, lang = 'js') {
         data = true;
         // A lone opener is data only when it plainly starts a literal.
         if (toks.length === 1 && (toks[0] === '{' || toks[0] === '[') && !(stack[stack.length - 1] === 'data' || /[=:,[({]$/.test(prev))) data = false;
+        // Values directly inside a call's parentheses are arguments (a log message, a toast
+        // text), not a table: `logger.info(\n "Incoming request",\n ...)` is code.
+        if (stack[stack.length - 1] === 'code(' && toks.includes('v') && !toks.includes(':')) data = false;
         const opened = [];
         for (const t of toks) {
           if (t === '{' || t === '[') opened.push('data');
@@ -71,7 +74,7 @@ export function dataLinePrefix(text, lang = 'js') {
         stack.push(...opened.map(() => (data ? 'data' : 'code')));
       } else {
         for (const b of codeBrackets(line, comment)) {
-          if (b === '{' || b === '[' || b === '(') stack.push('code');
+          if (b === '{' || b === '[' || b === '(') stack.push(`code${b}`);
           else stack.pop();
         }
       }
