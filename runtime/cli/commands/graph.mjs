@@ -1,12 +1,53 @@
-import { rankHubs, stronglyConnected } from '../../graph/algorithms.mjs';
+import { UnknotError } from '../../core/errors.mjs';
+import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
+import { neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
+import { EDGE_TYPES } from '../../graph/facts.mjs';
 import { Graph } from '../../graph/graph.mjs';
 import { output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+const usage = (message) => new UnknotError('UK_SCHEMA_INVALID', message);
+
+/** A whole-number flag; a flag given without a value is an error, never NaN. */
+function intFlag(flags, name, fallback, max = Infinity) {
+  const v = flags[name];
+  if (v === undefined) return fallback;
+  if (v === true || !/^\d+$/.test(String(v)) || Number(v) < 1) throw usage(`--${name} needs a whole number of at least 1`);
+  return Math.min(max, Number(v));
+}
+
+function listFlag(flags, name) {
+  const v = flags[name];
+  if (v === undefined) return [];
+  if (v === true || !String(v).trim()) throw usage(`--${name} needs a value`);
+  return String(v).split(',').map((t) => t.trim()).filter(Boolean);
+}
+
+/** Edge types from an optional positional and --type, checked against the vocabulary. */
+function edgeTypesOf(arg, flags) {
+  const types = [...(arg ? [arg] : []), ...listFlag(flags, 'type')];
+  const bad = types.filter((t) => !EDGE_TYPES.has(t));
+  if (bad.length) throw usage(`unknown edge type ${bad.join(', ')} (known: ${[...EDGE_TYPES].join(', ')})`);
+  return [...new Set(types)];
+}
+
+/** Ids a reference names (an id, a module path or a declared type); an error when none. */
+function refIds(g, flag, ref) {
+  if (ref === true || !ref) throw usage(`--${flag} needs a node id or path`);
+  const ids = resolveRef(g, ref);
+  if (!ids.length) throw usage(`--${flag} ${ref}: no node, module path or type by that name`);
+  return ids;
+}
+
+/** `--within` may swallow the next scope entry as its value; give it back. */
+function scopeOf(rest, flags) {
+  return typeof flags.within === 'string' ? [flags.within, ...rest] : rest;
+}
+
 export async function run({ positional, flags }) {
   const [sub = 'stats', arg] = positional;
   const { ctx } = open(flags);
-  const limit = Number(flags.limit ?? 50);
+  const limit = intFlag(flags, 'limit', 50);
   if (sub === 'stats') {
     const nodes = ctx.store.all('SELECT type, COUNT(*) AS n FROM nodes GROUP BY type ORDER BY n DESC');
     const edges = ctx.store.all('SELECT type, COUNT(*) AS n FROM edges GROUP BY type ORDER BY n DESC');
@@ -25,21 +66,64 @@ export async function run({ positional, flags }) {
     return output({ ...n, attrs: JSON.parse(n.attrs), out, in: inn, provenance: facts }, { json: true });
   }
   if (sub === 'edges') {
-    const rows = ctx.store.all(`SELECT type, src, dst, label FROM edges ${arg ? 'WHERE type = ?' : ''} LIMIT ?`, ...(arg ? [arg, limit] : [limit]));
+    const types = edgeTypesOf(arg, flags);
+    const where = [];
+    const params = [];
+    const addIn = (col, values) => {
+      where.push(`${col} IN (${values.map(() => '?').join(',')})`);
+      params.push(...values);
+    };
+    if (types.length) addIn('type', types);
+    if (flags.from !== undefined || flags.to !== undefined) {
+      const g = Graph.fromStore(ctx.store);
+      if (flags.from !== undefined) addIn('src', refIds(g, 'from', flags.from));
+      if (flags.to !== undefined) addIn('dst', refIds(g, 'to', flags.to));
+    }
+    const rows = ctx.store.all(`SELECT type, src, dst, label FROM edges ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY src, dst, type LIMIT ?`, ...params, limit);
     return output(flags.json ? rows : table(rows, ['type', 'src', 'dst', 'label']), { json: flags.json });
   }
   if (sub === 'cycles') {
     const g = Graph.fromStore(ctx.store);
-    const comps = stronglyConnected(g, { edgeTypes: [arg ?? 'IMPORTS'] });
-    return output(flags.json ? comps : comps.length ? comps.map((c, i) => `cycle ${i + 1} (${c.length}): ${c.slice(0, 8).join(' → ')}${c.length > 8 ? ' …' : ''}`).join('\n') : 'no cycles', { json: flags.json });
+    const edgeArg = positional[1] && EDGE_TYPES.has(positional[1]) ? positional[1] : null;
+    const types = edgeTypesOf(edgeArg, flags);
+    const edgeTypes = types.length ? types : ['IMPORTS'];
+    const pred = scopePredicate(g, positional.slice(edgeArg ? 2 : 1), { edgeTypes });
+    const warn = emptyScopeWarning(pred.scope);
+    if (warn) process.stderr.write(`unknot: ${warn}\n`);
+    const all = stronglyConnected(g, { edgeTypes, nodeFilter: pred.scope.all ? undefined : pred });
+    const comps = all.slice(0, limit);
+    const note = all.length > comps.length ? `\n(${comps.length} of ${all.length} cycles; raise --limit)` : '';
+    return output(flags.json ? comps : comps.length ? comps.map((c, i) => `cycle ${i + 1} (${c.length}): ${c.slice(0, 8).join(' → ')}${c.length > 8 ? ' …' : ''}`).join('\n') + note : 'no cycles', { json: flags.json });
   }
   if (sub === 'hubs') {
-    const h = rankHubs(Graph.fromStore(ctx.store), { edgeType: arg ?? 'IMPORTS', limit: Math.min(limit, 200) });
+    const g = Graph.fromStore(ctx.store);
+    const edgeArg = positional[1] && EDGE_TYPES.has(positional[1]) ? positional[1] : null;
+    const types = edgeTypesOf(edgeArg, flags);
+    const scope = scopeOf(positional.slice(edgeArg ? 2 : 1), flags);
+    const within = flags.within !== undefined;
+    const pred = scopePredicate(g, scope, { edgeTypes: types.length ? types : ['IMPORTS'] });
+    const warn = emptyScopeWarning(pred.scope);
+    if (warn) process.stderr.write(`unknot: ${warn}\n`);
+    const h = rankHubs(g, { edgeTypes: types.length ? types : ['IMPORTS'], limit: Math.min(limit, 200), nodeFilter: pred.scope.all ? undefined : pred, within });
     if (flags.json) return output(h, { json: true });
     // Full ids: the tail of a path is what tells two modules apart.
     const lines = (list) => (list.length ? list.map((x) => `${String(x.n).padStart(6)}  ${x.id}`) : ['     (none)']);
-    return output([`fan-in (${h.edge_type}, distinct importers):`, ...lines(h.fan_in), '', `fan-out (${h.edge_type}, distinct imports):`, ...lines(h.fan_out)].join('\n'));
+    return output([`fan-in (${h.edge_type}, distinct sources${within ? ', in scope' : ''}):`, ...lines(h.fan_in), '', `fan-out (${h.edge_type}, distinct targets${within ? ', in scope' : ''}):`, ...lines(h.fan_out)].join('\n'));
   }
-  output('usage: unknot graph stats|nodes [type]|node <id>|edges [type]|cycles [EDGE_TYPE]|hubs [EDGE_TYPE] [--limit N]');
+  if (sub === 'neighbourhood') {
+    if (!arg) throw usage('graph neighbourhood needs a node id, module path or type name');
+    const g = Graph.fromStore(ctx.store);
+    const roots = resolveRef(g, arg);
+    if (!roots.length) throw usage(`no node, module path or type named ${arg}`);
+    const depth = intFlag(flags, 'depth', 1);
+    if (depth > 3) throw usage('--depth is at most 3');
+    const types = edgeTypesOf(null, flags);
+    const hood = neighbourhood(g, roots, { depth, edgeTypes: types.length ? types : undefined });
+    const rows = hood.edges.map((e) => ({ type: e.type, from: e.from, to: e.to }));
+    if (flags.json) return output({ roots, depth, nodes: hood.nodes.map((n) => ({ id: n.id, type: n.type })), edges: rows.slice(0, limit), edge_count: rows.length, capped: hood.capped }, { json: true });
+    const head = `${roots.join(', ')}: ${hood.nodes.length} nodes, ${rows.length} edges within ${depth} hop${depth > 1 ? 's' : ''}${hood.capped ? ' (node cap reached)' : ''}`;
+    return output(`${head}\n${table(rows.slice(0, limit), ['type', 'from', 'to'])}${rows.length > limit ? `\n(${limit} of ${rows.length} edges; raise --limit or narrow with --type)` : ''}`);
+  }
+  output('usage: unknot graph stats|nodes [type]|node <id>|edges [TYPE] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
   return 2;
 }

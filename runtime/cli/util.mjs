@@ -126,11 +126,18 @@ export function output(value, { json = false, redactPatterns = [] } = {}) {
   process.stdout.write(redact(text, { extraPatterns: redactPatterns }).text);
 }
 
+const ID_COLUMNS = new Set(['id', 'from', 'to', 'src', 'dst']);
+const NODE_ID = /^[a-z][a-z_]*:\S+$/;
+
+/** Rows as aligned columns. Cells cap at 60 characters, except ids: the tail of an id is what tells two apart. */
 export function table(rows, columns) {
   if (!rows.length) return '(none)';
-  const widths = columns.map((c) => Math.min(60, Math.max(c.length, ...rows.map((r) => String(r[c] ?? '').length))));
-  const fmt = (vals) => vals.map((v, i) => String(v ?? '').slice(0, 60).padEnd(widths[i])).join('  ').trimEnd();
-  return [fmt(columns), fmt(widths.map((w) => '-'.repeat(w))), ...rows.map((r) => fmt(columns.map((c) => r[c])))].join('\n');
+  const text = (v) => String(v ?? '');
+  const whole = (c, v) => ID_COLUMNS.has(c) || NODE_ID.test(text(v));
+  const cell = (c, v) => (whole(c, v) ? text(v) : text(v).slice(0, 60));
+  const widths = columns.map((c) => Math.max(c.length, ...rows.map((r) => cell(c, r[c]).length)));
+  const fmt = (vals) => vals.map((v, i) => v.padEnd(widths[i])).join('  ').trimEnd();
+  return [fmt(columns), fmt(widths.map((w) => '-'.repeat(w))), ...rows.map((r) => fmt(columns.map((c) => cell(c, r[c]))))].join('\n');
 }
 
 /**

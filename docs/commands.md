@@ -156,9 +156,18 @@ Writes C4-style views, a style classification and (if the graph has one) a Struc
 
 Read-only reports built from the graph. `database`: engines, migrations by framework, tables and writers, shared-writer tables, hazardous migrations with lock forecasts, catalog evidence age, and required invariants (listed as declared or missing; Unknot never invents one). `infrastructure`: declared resources, state backends, imported plans, drift, public exposure, IAM wildcards, and which layers of the state hierarchy are present. `security`: the threat checklist from spec §16.1 with evidence or "none in graph", secret findings (kind and location only), privilege paths, trust boundaries; given a slice id, also that slice's security delta. All accept `--json`.
 
-### `unknot graph stats | nodes [type] | node <id> | edges [type] | cycles [EDGE_TYPE]`
+### `unknot graph stats | nodes [type] | node <id> | edges | cycles | hubs | neighbourhood`
 
-Queries the graph. `cycles` defaults to `IMPORTS`. Flag `--limit N` (default 50), `--json` for `nodes`, `edges`, `cycles`. `node` includes provenance of each fact.
+Queries the graph. Flag `--limit N` (default 50) applies to every listing; a flag that needs a value and has none is an error. `--json` for all but `stats` and `node`, which always print JSON. `node` includes provenance of each fact. Wherever an id is expected a module path works (`src/x.cs` for `module:src/x.cs`).
+
+- `edges [TYPE] [--type T[,T2]] [--from <id|path>] [--to <id|path>]`: edges filtered by type, source and target.
+- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph.
+- `hubs [EDGE] [--type T1,T2] [--within] [scope...]`: top fan-in and fan-out over the union of the edge types (default `IMPORTS`). Only in-scope modules are ranked; fan-in counts sources anywhere, or only in-scope ones with `--within`.
+- `neighbourhood <id|path|TypeName> [--depth N] [--type T,...]`: the subgraph around a node, depth 1 to 3 (default 1).
+
+Scope entries are the same everywhere: a path prefix, a glob, `ns:Namespace` or `seed:Name~N`. A scope that matches nothing prints a warning. Table cells cap at 60 characters, ids are never cut.
+
+The MCP tools take the same filters: `graph_query` lists nodes by `type`, edges by `edge_type`, or one node's edges with `id` plus `edge_type`/`direction`; results are compact unless `full: true`, default limit 50 (at most 200), and a result over about 40 KB is cut with `truncated: true` and a hint. `graph_hubs` takes `edge_types`, `scope` and `within`; `graph_neighbourhood` takes the same byte cap.
 
 ### `unknot pattern list [--category c] [--treatment T] | show <id> | fit <id> --signals '<json>'`
 
