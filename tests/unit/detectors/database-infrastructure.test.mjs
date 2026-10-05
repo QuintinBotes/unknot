@@ -790,3 +790,23 @@ test('floating-versions: registry prefix is normalised, and an open-ended constr
   const child = runInfra('floating-versions', [N('iac_module', 'm', { kind: 'module', child_module: true, locked_providers: locked }), prov('m', 'random', '>= 3.0.0', 'hashicorp/random')]);
   assert.equal(child.length, 0, 'child modules keep minimum-only constraints');
 });
+
+test('destructive-migration: the contract step of an expand/backfill sequence is recognised, worded as such and ranked lower (dogfood audit)', () => {
+  const mig = (file, statements) => N('migration', `app/migrations/${file}`, { order_key: file.slice(0, 4), framework: 'django', statements }, `app/migrations/${file}`, file);
+  const st = (kind, table = 'public.org') => ({ kind, table, line: 3, forecast: {} });
+  const seq = [
+    mig('0004_add.py', [st('alter_table.add_column')]),
+    mig('0005_backfill.py', [st('run_python', null)]),
+    mig('0006_finalize.py', [st('alter_table.drop_column'), st('alter_table.rename_column')]),
+  ];
+  const [f] = runDb('destructive-migration', seq);
+  assert.match(f.title, /contract step after 0004_add\.py \(expand\) and 0005_backfill\.py \(backfill\)/);
+  assert.match(f.smallest_simplification, /already split into expand, backfill and contract/);
+  assert.ok(f.evidence.some((e) => e.ref === 'migration:app/migrations/0004_add.py'));
+  // Without the backfill, or with the add on another table, it is a plain destructive migration.
+  const [plain] = runDb('destructive-migration', [seq[0], seq[2]]);
+  assert.match(plain.smallest_simplification, /^Split into expand\/contract/);
+  const [other] = runDb('destructive-migration', [mig('0004_add.py', [st('alter_table.add_column', 'public.other')]), seq[1], seq[2]]);
+  assert.match(other.smallest_simplification, /^Split into expand\/contract/);
+  assert.ok(f.factors.benefit < plain.factors.benefit && f.factors.blast < plain.factors.blast, 'a recognised contract step ranks below an unplanned drop');
+});

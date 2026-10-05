@@ -164,14 +164,20 @@ for (const [i, r] of repos.entries()) {
     log(`${r.name} ${step}: ${a.result ?? 'no result'}, ${a.failures.length} failures, ${a.warnings.length} warnings, $${a.cost.toFixed(2)}`);
   }
   // The map the sessions left behind, as the installed CLI reports it now.
-  const m = sh(process.execPath, [BIN, 'map', '--json'], { cwd: work, env: { ...env, UNKNOT_HOME: home } });
-  try {
-    const j = JSON.parse(m.stdout);
-    entry.map = { status: j.status, files: j.files, failure_count: j.failure_count, notices: j.notices ?? [] };
-    if (j.status !== 'complete' || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
-    if (j.notices?.length) entry.failures.push(`map notices: ${j.notices.join(' | ').slice(0, 300)}`);
-  } catch {
-    entry.failures.push(`map --json did not return JSON (${m.status}): ${(m.stderr ?? '').slice(-200)}`);
+  if (steps.includes('map')) {
+    const m = sh(process.execPath, [BIN, 'map', '--json'], { cwd: work, env: { ...env, UNKNOT_HOME: home } });
+    let j = null;
+    try {
+      j = JSON.parse(m.stdout);
+    } catch {
+      entry.failures.push(`map --json did not return JSON (${m.status}): ${(m.stderr ?? '').slice(-200)}`);
+    }
+    if (j?.error) entry.failures.push(`map --json: ${j.error.code}: ${j.error.message}`);
+    else if (j) {
+      entry.map = { status: j.status, files: j.files, failure_count: j.failure_count, notices: j.notices ?? [] };
+      if (j.status !== 'complete' || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
+      if (j.notices?.length) entry.failures.push(`map notices: ${j.notices.join(' | ').slice(0, 300)}`);
+    }
   }
   if (changeFor(r, i)) {
     const c = r.change;

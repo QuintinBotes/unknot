@@ -251,6 +251,32 @@ const hazardousMigration = detector('hazardous-migration', ({ graph }) => {
   return out;
 });
 
+// The contract step of an expand/backfill/contract sequence: every table it drops or renames
+// on had a column added in one of the few preceding migrations of the same directory, followed
+// by a data step (RunPython, or an UPDATE of that table). Advising "split into expand/contract"
+// there is wrong (dogfood audit: a finalize migration after add and backfill steps).
+const CONTRACT_WINDOW = 5;
+function contractStep(graph, mig, stmts) {
+  const dir = (mig.path ?? '').replace(/\/[^/]*$/, '');
+  if (!dir || !mig.attrs.order_key || !stmts.length) return null;
+  const earlier = graph.nodes('migration')
+    .filter((m) => m.path?.replace(/\/[^/]*$/, '') === dir && m.attrs.order_key && String(m.attrs.order_key) < String(mig.attrs.order_key))
+    .sort((a, b) => String(a.attrs.order_key).localeCompare(String(b.attrs.order_key)))
+    .slice(-CONTRACT_WINDOW);
+  let expand = null;
+  let backfill = null;
+  for (const table of new Set(stmts.map((s) => s.table))) {
+    if (!table) return null;
+    const at = earlier.findLastIndex((m) => (m.attrs.statements ?? []).some((s) => /add_column$/.test(s.kind) && s.table === table));
+    if (at < 0) return null;
+    const data = earlier.slice(at).find((m) => (m.attrs.statements ?? []).some((s) => s.kind === 'run_python' || (s.kind === 'update' && s.table === table)));
+    if (!data) return null;
+    expand ??= earlier[at];
+    backfill ??= data;
+  }
+  return { expand, backfill };
+}
+
 const destructiveMigration = detector('destructive-migration', ({ graph }) => {
   const out = [];
   for (const mig of graph.nodes('migration')) {
@@ -258,28 +284,34 @@ const destructiveMigration = detector('destructive-migration', ({ graph }) => {
     if (!stmts.length && !mig.attrs.destructive) continue;
     const noDown = mig.attrs.has_down === false;
     const adapterFindings = graph.nodes('finding').filter((f) => f.attrs?.migration === mig.id).map((f) => f.id);
+    const contract = contractStep(graph, mig, stmts);
     out.push(draft({
       kind: 'database.destructive-migration',
-      title: `${mig.name} drops or renames data-bearing objects${noDown ? ' and has no down/undo' : ''}`,
+      title: contract
+        ? `${mig.name} drops or renames columns as the contract step after ${contract.expand.name} (expand) and ${contract.backfill.name} (backfill)${noDown ? '; it has no down/undo' : ''}`
+        : `${mig.name} drops or renames data-bearing objects${noDown ? ' and has no down/undo' : ''}`,
       scope: scopeOf(mig),
       key: mig.id,
       evidence: [
         ...stmts.map((s) => evidence(mig.id, `line ${s.line}: ${s.kind} on ${s.table}`, 'observed', `${mig.path}:${s.line}`)),
         ...adapterFindings.map((id) => evidence(id, 'adapter reports a missing down migration', 'observed')),
+        ...(contract ? [evidence(contract.expand.id, 'expand step: adds the replacement column', 'observed', contract.expand.path), evidence(contract.backfill.id, 'backfill step: data migration between expand and contract', 'observed', contract.backfill.path)] : []),
       ],
       measurements: { 'migration.irreversible': mig.attrs.irreversible || noDown ? 1 : 0, 'backup.restore_tested': restoreTested(graph) },
       thresholds: { ...THRESHOLDS, flagged_when: 'DROP COLUMN/TABLE, RENAME or TRUNCATE (destructive per forecast); a missing down alone is not flagged because Flyway-style projects have none' },
       why_accidental: 'Dropping or renaming in the same release that stops using the object removes the only way back and breaks any old reader still deployed.',
       essential_considerations: ['The object may be genuinely dead, confirmed by usage statistics and a retired reader.', 'Regulatory deletion may require destruction.'],
-      smallest_simplification: 'Split into expand/contract: stop all reads and writes first, keep the object renamed-out-of-the-way for a release cycle and backup window, and drop only when usage is zero and recovery obligations have expired.',
+      smallest_simplification: contract
+        ? 'The change is already split into expand, backfill and contract. Deploy this step only after every running version (N-1 included) has stopped reading the old column, with a restorable backup that covers the drop.'
+        : 'Split into expand/contract: stop all reads and writes first, keep the object renamed-out-of-the-way for a release cycle and backup window, and drop only when usage is zero and recovery obligations have expired.',
       invariants: [INV.compat, INV.recovery, INV.abort, INV.tenant],
       risks: ['Dropped data is recoverable only from backup or point-in-time recovery; replicas replay the drop immediately.', 'DROP and RENAME take ACCESS EXCLUSIVE locks and invalidate prepared statements and views of old readers.', 'Rolling deploys mean N-1 pods still query the old name during the release.'],
       verification: ['Prove zero reads/writes of the object over a full business cycle.', 'Verify N and N-1 compatibility against the schema after the change.', 'Take a backup and restore it in isolation; for critical stores rehearse point-in-time recovery.', 'Check retention and deletion-propagation requirements for copies of the data.', NO_LIVE],
       recovery: { type: 'restore', procedure: 'Restore the dropped object from a verified backup or PITR into an isolated instance and copy back.', notes: 'Without a tested restore this step is irreversible.' },
       blast_radius: 'high',
       quality_impacts: { changeability: 'medium', reliability: 'high', security: 'low' },
-      factors: { benefit: 3, evidence: 0.85, reversibility: 0.15, blast: 4, cost: 3, uncertainty: 2 },
-      uncertainties: ['Whether old readers are retired is not visible in the graph.'],
+      factors: contract ? { benefit: 2, evidence: 0.85, reversibility: 0.15, blast: 3, cost: 2, uncertainty: 2 } : { benefit: 3, evidence: 0.85, reversibility: 0.15, blast: 4, cost: 3, uncertainty: 2 },
+      uncertainties: ['Whether old readers are retired is not visible in the graph.', ...(contract ? ['The sequence is matched by table, not by column: confirm the dropped column is the one the backfill replaced.'] : [])],
       alternatives: [SAFE_ALT],
       patterns: ['migration.expand-migrate-contract', 'migration.parallel-change'],
     }));
