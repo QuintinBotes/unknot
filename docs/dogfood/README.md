@@ -40,6 +40,8 @@ each repository and writes one JSON report per repository plus a summary.
 | FB12 | 3 | Worktree paths printed as `/private/var/…` for clones under `/var` on macOS | Kept by design: Unknot prints the realpath it uses for containment checks, so what is shown is what is enforced | — |
 | FB13 | live | In a real Claude Code session `unknot diagnose` was denied: hooks resolved `unknot` on their own PATH, which lacks plugin `bin/` directories | Bare `unknot` resolves to the plugin CLI unless another `unknot` shadows it on PATH | live session runs `/unknot:diagnose` |
 | FB14 | 4 | Most long-parameter-list findings on forge were keyword-only, defaulted Python parameters (injection seams, client settings) | Python adapter reports required parameters; the detector measures positional plus required keyword-only parameters, and still flags very long lists | default settings: forge 107 → 35, fullstack-app 11 → 0 |
+| FB15 | 6 | Eleven functions in a dispatch table (`COMMANDS.check`, called as `COMMANDS[name](…)`) reported as having no callers | The JS/TS adapter records how often an object-literal member's owner is used; a used owner makes its members reachable | circuit-breaker 1 → 0 such findings |
+| FB16 | 6 | Entry points reported as "imported by nothing": Claude Code hook scripts named in `hooks.json`, shell scripts, a CI-run Python checker, a k6 load script | A wiring adapter links files that configuration names by path (`REFERENCES` edges); scripts and empty modules are exempt | dead-code findings: circuit-breaker 12 → 0, forge 27 → 13, tervin 13 → 3; every removed one checked by hand as a false positive |
 
 ## Round summaries
 
@@ -74,6 +76,11 @@ visible. The pattern behind the rejections became FB14, a detector fix for every
 **Round 5** — re-measured after FB11 and FB14 with default settings: forge 418 open
 findings (from 1,999 in round 1), fullstack-app 113 (from 329), circuit-breaker 31 (from 55),
 zero detector errors, cold map of forge 9.5 s and re-map 2.6 s.
+
+**Round 6** — after the security-review fixes, on five repositories: every map complete with
+no extraction failures and no detector errors; open findings forge 366, tervin 470, warden
+139, fullstack-app 111, circuit-breaker 18. The round found FB15 and FB16, fixed in the same
+round and re-measured.
 
 ## What the loop does not do
 

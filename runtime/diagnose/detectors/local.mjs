@@ -379,6 +379,8 @@ function collectStrings(v, out = []) {
 }
 
 /** Paths declared as entry points by package manifests (main, bin, exports, ...). */
+const SCRIPT_LANGUAGES = new Set(['shell', 'bash', 'powershell', 'batch']);
+
 function declaredEntries(graph) {
   const entries = new Set();
   for (const p of graph.nodes('package')) {
@@ -402,7 +404,7 @@ function moduleEntryReason(graph, m, entries) {
   if (CONFIG_RE.test(path)) return 'config file';
   for (const e of graph.out(m.id)) if (['EXPOSES', 'ROUTES_TO', 'BUILDS'].includes(e.type)) return 'exposes endpoints';
   for (const c of graph.children(m.id)) if (['endpoint', 'route', 'command', 'job', 'workflow', 'component'].includes(c.type)) return 'contains endpoints';
-  for (const e of graph.in(m.id)) if (['BUILDS', 'DEPENDS_ON', 'ROUTES_TO', 'DEPLOYS', 'RENDERS'].includes(e.type)) return 'referenced by build or runtime wiring';
+  for (const e of graph.in(m.id)) if (['BUILDS', 'DEPENDS_ON', 'ROUTES_TO', 'DEPLOYS', 'RENDERS', 'REFERENCES'].includes(e.type)) return 'referenced by build or runtime wiring';
   return null;
 }
 
@@ -469,6 +471,7 @@ const deadCode = define({
       if (called.get(n.path)?.has(short) || called.get(n.path)?.has(nameOf(n)) || anywhere.has(short)) continue;
       // Referenced by value in its own module (callback, map(fn), registry): JS counts the
       // declaration among the occurrences, Python does not.
+      if (Number.isInteger(n.attrs.owner_occurrences) && n.attrs.owner_occurrences > 1) continue;
       const occ = n.attrs.name_occurrences;
       if (Number.isInteger(occ) && occ > (mod.attrs?.language === 'python' ? 0 : 1)) continue;
       if (!perModule.has(mod.id)) perModule.set(mod.id, { mod, symbols: [] });
@@ -513,6 +516,8 @@ const deadCode = define({
         if (isTestModule(m)) continue;
         if (lexicalOnly(m)) continue;
         if (graph.in(m.id, 'IMPORTS').length) continue;
+        // Scripts are run, not imported, and an empty module has nothing to remove.
+        if (SCRIPT_LANGUAGES.has(m.attrs?.language) || /\.(sh|bash|zsh|ps1|bat|cmd)$/i.test(m.path ?? '') || (m.attrs?.sloc ?? 1) === 0) continue;
         const reason = moduleEntryReason(graph, m, entries);
         if (reason) continue;
         const sloc = m.attrs.sloc ?? 0;

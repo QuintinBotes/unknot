@@ -134,6 +134,9 @@ function codeFacts(file, text) {
         decorators: f.decorators.map((d) => d.name), visibility: f.visibility ?? null,
         unreachable: unreachable.get(f) ?? [],
         name_occurrences: nameCount.get(f.qname.split('.').pop()) ?? 0,
+        // Members of an object literal (`COMMANDS.check`) are reached by dispatch
+        // (`COMMANDS[name]()`), which records no call: how often the owner is used stands in.
+        ...(!f.cls && f.qname.includes('.') && { owner_occurrences: nameCount.get(f.qname.split('.')[0]) ?? 0 }),
       },
     }, p(f.start_line));
     fnByQ.set(f.qname, id);

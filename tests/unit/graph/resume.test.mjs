@@ -3,9 +3,9 @@ import { after, test } from 'node:test';
 import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
 
-// Committing thousands of files triggers git's background auto-gc, which would still be
-// writing into .git while cleanup removes it.
-Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'gc.auto', GIT_CONFIG_VALUE_0: '0' });
+// Committing thousands of files triggers git's background auto-gc and maintenance, which
+// would still be writing into .git while cleanup removes it.
+Object.assign(process.env, { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'gc.auto', GIT_CONFIG_VALUE_0: '0', GIT_CONFIG_KEY_1: 'maintenance.auto', GIT_CONFIG_VALUE_1: 'false' });
 after(() => K.cleanup());
 
 test('an interrupted cold map resumes from the chunks already committed (spec §28)', async () => {

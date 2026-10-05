@@ -11,6 +11,7 @@ export const ADAPTERS = Object.freeze([
   { id: 'iac', module: './infrastructure/iac/index.mjs' },
   { id: 'k8s', module: './infrastructure/k8s/index.mjs' },
   { id: 'delivery', module: './delivery/index.mjs' },
+  { id: 'wiring', module: './delivery/wiring.mjs' },
   { id: 'contracts', module: './contracts/index.mjs' },
   { id: 'ownership', module: './ownership/index.mjs' },
   { id: 'runtime', module: './runtime/index.mjs' },

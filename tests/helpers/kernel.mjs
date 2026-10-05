@@ -118,7 +118,7 @@ export function cleanup() {
   store.closeAllStores();
   clock.resetClock();
   for (const p of made.splice(0)) {
-    rmSync(p.dir, { recursive: true, force: true });
+    rmSync(p.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
   rmSync(HOME, { recursive: true, force: true });
 }

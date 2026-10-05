@@ -37,21 +37,31 @@ Machine: Apple M1 Max, 10 cores, 32 GB RAM, darwin arm64, Node v22.18.0.
 
 | Fixture | Files | Cold map | Peak RSS (cold) | Incremental map (5 files changed) | Peak RSS (after incremental) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1k | 1,000 | 1.6 s | 225 MB | 0.9 s | 225 MB |
-| 10k | 10,000 | 29.1 s | 569 MB | 7.1 s | 726 MB |
+| 1k | 1,000 | 1.8 s | 228 MB | 0.9 s | 228 MB |
+| 10k | 10,000 | 12.8 s | 566 MB | 6.0 s | 569 MB |
+| 100k | 100,000 | 329 s | 3,259 MB | 79 s | 3,808 MB |
 
-The 1k run produced 3,752 nodes and 13,253 edges; the 10k run 37,902 nodes and 126,671 edges. The
-incremental runs re-extracted 10 adapter-file pairs (5 files) and reused the rest.
+Graph sizes: 1k 3,753 nodes and 13,253 edges; 10k 37,903 and 126,671; 100k 375,103 and
+1,309,413. The incremental runs re-extracted 15 adapter-file pairs (5 files) and reused the rest.
 
 ## Reading the results against the targets
 
-- Incremental map after a small commit: 7.1 s at 10,000 files, well under the two-minute target.
-  Most of that time is fixed per-map work (census, linking, projection), not extraction, so it grows
-  with repository size even when little changed.
-- Cold map at 100,000 files and its memory bound have **not** been measured here. Run with
-  `--large` on the machine you care about before relying on the target; this document will be
-  updated when that run is recorded.
-- Interactive finding explanation (target under five seconds when evidence is cached) is not
-  covered by this benchmark.
-- Cold-map time scales roughly 18x from 1k to 10k files in this run, which is worse than linear;
-  that is worth profiling before the 100k run.
+- **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and
+  3.3 GB peak on this machine. Extraction runs in at most `limits.workers` threads (default: cores
+  minus one, at most 8) and commits to the per-file cache every 5,000 files, so an interrupted map
+  continues from the last committed chunk (`tests/unit/graph/resume.test.mjs`). Chunked commits
+  cost about 15% of cold-map time at 100k files (287 s without them).
+- **Incremental map after a small commit, under two minutes:** 6.0 s at 10,000 files and 79 s at
+  100,000. Most of that is fixed per-map work (census, linking, projection), not extraction, so
+  it grows with repository size even when little changed; at 100k files it is inside the target
+  but not by a wide margin.
+- **Interactive finding explanation, under five seconds with cached evidence:** not part of this
+  synthetic benchmark. On a real 1,987-file repository (17,065 nodes) `unknot explain` took
+  1.8–2.1 s over three runs.
+- **Scaling:** cold map is close to linear from 1k to 10k (7x for 10x the files) and grows
+  faster from 10k to 100k (26x), where SQLite writes and memory pressure dominate.
+- **A defect this benchmark found:** before the 100k run, cross-file linking passed its results
+  through `Array.prototype.push(...facts)`, which throws past roughly 100k arguments. The builder
+  recorded it as a link failure and continued, so the first 100k run reported exactly 300,000
+  edges (containment only). Spreads that grow with the repository now go through
+  `runtime/core/arrays.mjs`.
