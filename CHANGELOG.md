@@ -4,6 +4,32 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.9] - 2026-10-05
+
+### Fixed
+
+- Linux sandbox, now exercised on real bubblewrap in CI: system temp paths are bound only
+  where they exist (bubblewrap refused `/private/tmp`), hidden paths are mounted over only
+  when they exist, a project under `/tmp` stays visible, and a child killed by a signal is
+  reported as killed (bubblewrap returns 128+N).
+- Editable Python installs (uv workspaces, `pip install -e`) resolve to the slice worktree's
+  code during verification, through PYTHONPATH; before, tests imported the main checkout's
+  unchanged code (and, in the sandbox, could not read it).
+
+### Changed
+
+- One finding per function: long, complex and deeply nested findings for the same function
+  merge into the highest-priority one, which keeps its fingerprint and decisions.
+- Size findings discount data literals (translation tables, seed data, mock scenarios), and
+  say so in the title; `component_min_cyclomatic` lets a team skip long but simple UI
+  components.
+- Rust inline `#[cfg(test)]` modules no longer count toward module size.
+
+### Added
+
+- `scripts/writepath-e2e.mjs`: the change workflow end to end on a disposable clone of a real
+  repository, with live sessions doing the patch and a test approver playing the human.
+
 ## [0.1.8] - 2026-10-05
 
 ### Fixed
