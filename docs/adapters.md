@@ -25,7 +25,8 @@ The tables below give the usual level. The per-fact `confidence` is authoritativ
 | `generic` | Go, Java, Kotlin, C#, Rust, Ruby, PHP, Scala, Swift, C, C++ and their build manifests (`go.mod`, `Cargo.toml`, Maven, Gradle, .NET, Bundler, Composer, SwiftPM, CMake) | Lexical: strips comments and strings, matches braces. No real parser. | Declarations and imports medium; per-function metrics and ORM guesses low |
 | `quality` | Duplicated code, in any language | Token fingerprints with identifiers and literals collapsed, winnowed, compared across files | Medium (near-misses are included) |
 
-If the language isn't in the table it is census-counted and ignored. The same is true of any file an adapter cannot read: extraction failures are listed in the `map` summary (`PARTIAL`), never swallowed.
+If the language isn't in the table it is census-counted and ignored. The same is true of any file an adapter cannot read: extraction failures are listed in the `map` summary (`PARTIAL`), never swallowed. Coverage is reported too: the summary's `coverage` lists, per language, the source files, the adapter and the parse quality (`syntax_tree`, `degraded`, `lexical`); when the language with most source files is only read lexically the map is `partial` with an `unavailable` entry `language:<name>`, and other lexical languages get a notice.
+An adapter may declare `capabilities.context_files`: repository-level files (the ownership adapter's `CODEOWNERS` locations) that are read even when the scope excludes them, and are never counted as in-scope files.
 
 ### Frameworks and web conventions
 

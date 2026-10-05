@@ -178,8 +178,11 @@ for (const [i, r] of repos.entries()) {
     if (j?.error) entry.failures.push(`map --json: ${j.error.code}: ${j.error.message}`);
     else if (j) {
       entry.map = { status: j.status, files: j.files, failure_count: j.failure_count, notices: j.notices ?? [] };
-      if (j.status !== 'complete' || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
-      if (j.notices?.length) entry.failures.push(`map notices: ${j.notices.join(' | ').slice(0, 300)}`);
+      // Partial only because a language has no dedicated adapter is expected, not a failure.
+      const lexicalOnly = j.status === 'partial' && !j.failure_count && (j.unavailable ?? []).every((u) => String(u.id ?? u.adapter).startsWith('language:'));
+      if ((j.status !== 'complete' && !lexicalOnly) || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
+      const notices = (j.notices ?? []).filter((n) => !n.startsWith('language coverage:'));
+      if (notices.length) entry.failures.push(`map notices: ${notices.join(' | ').slice(0, 300)}`);
     }
   }
   if (changeFor(r, i)) {
