@@ -149,6 +149,8 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       id: id === 'new' ? 'DEC-0000' : id,
       fingerprint,
       graph_generation: gen,
+      // The run that wrote it, so an agent explaining the record can cite a real run.
+      run_id: run?.id ?? null,
       scope: { entries: scope, matched: res.matched, total: res.total },
       target: t,
       driver: allDrivers,

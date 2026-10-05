@@ -8,6 +8,13 @@
     "schema_version": {
       "const": "1.0"
     },
+    "run_id": {
+      "description": "The decompose run that wrote this record.",
+      "oneOf": [
+        { "type": "string", "pattern": "^run-[a-z0-9-]+$" },
+        { "type": "null" }
+      ]
+    },
     "id": {
       "type": "string",
       "pattern": "^DEC-\\d{4,}$"
