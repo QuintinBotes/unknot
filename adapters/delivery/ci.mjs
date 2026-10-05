@@ -57,6 +57,10 @@ function targetFromManifest(p) {
 
 const HELM_VALUE_FLAGS = new Set(['-n', '--namespace', '-f', '--values', '--set', '--set-string', '--version', '--timeout', '--kube-context', '--create-namespace=false', '-o']);
 
+/** An actual deployment step: deploy commands or an action whose reference says deploy. */
+const DEPLOY_CMD_RE = /\b(kubectl\s+(apply|set\s+image|rollout)|helm\s+(upgrade|install)|terraform\s+apply|tofu\s+apply|cdk\s+deploy|(serverless|sls)\s+deploy|docker\s+push|(fly|flyctl)\s+deploy|gcloud\b[^\n]*\bdeploy|aws\s+(ecs\s+update-service|deploy)|az\s+(webapp|containerapp)\b[^\n]*\b(deploy|up)|ssh\s|scp\s|rsync\s|git\s+push\s+(heroku|dokku))/i;
+export const hasDeployStep = (steps) => steps.some((s) => (s.run && (DEPLOY_CMD_RE.test(String(s.run)) || DEPLOY_RE.test(String(s.run)))) || (s.uses && DEPLOY_RE.test(String(s.uses))));
+
 /** Service names named in deploy commands. Heuristic; callers record confidence low. */
 export function commandTargets(run) {
   const out = new Set();
@@ -104,8 +108,8 @@ function targetFromJobName(id) {
     .toLowerCase()
     // Letters and digits only: emoji and punctuation in job names (`🚀 deploy`) are decoration,
     // not a target (an unknown-repository test found deployables named `🚀`).
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w && !/^(deploy|deployment|release|publish|to|prod|production|staging|stage|dev|job|ci|cd|push|and|all|ship|apply|run|go|live|matrix|terraform|build|review|preview|test|tests|qa|uat|canary|rollout|update|upload)$/.test(w))
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w && !/^(deploy|deployment|release|publish|to|prod|production|staging|stage|dev|job|ci|cd|push|and|all|ship|apply|run|go|live|matrix|terraform|build|review|preview|test|tests|qa|uat|canary)$/.test(w))
     .join('-');
   return rest && literal(rest) ? rest : null;
 }
@@ -208,6 +212,7 @@ export function emitPipeline(m) {
         needs: job.needs?.length ? uniqSorted(job.needs) : undefined,
         conditional: job.conditional || undefined,
         deploy_signal: deploySignal,
+        deploy_step: deploySignal ? (!job.steps.length || hasDeployStep(job.steps)) : undefined,
         deploys: inferred.targets.length ? inferred.targets : undefined,
         deploy_evidence: inferred.evidence.length ? inferred.evidence : undefined,
         path_filters: job.pathFilters?.length ? uniqSorted(job.pathFilters) : undefined,

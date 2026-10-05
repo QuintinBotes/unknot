@@ -254,7 +254,7 @@ const hazardousMigration = detector('hazardous-migration', ({ graph }) => {
 const destructiveMigration = detector('destructive-migration', ({ graph }) => {
   const out = [];
   for (const mig of graph.nodes('migration')) {
-    const stmts = (mig.attrs.statements ?? []).filter((s) => DESTRUCTIVE_KINDS.test(s.kind) || s.forecast?.destructive || s.forecast?.breaks_old_readers);
+    const stmts = (mig.attrs.statements ?? []).filter((s) => !s.recreated && (DESTRUCTIVE_KINDS.test(s.kind) || s.forecast?.destructive || s.forecast?.breaks_old_readers));
     if (!stmts.length && !mig.attrs.destructive) continue;
     const noDown = mig.attrs.has_down === false;
     const adapterFindings = graph.nodes('finding').filter((f) => f.attrs?.migration === mig.id).map((f) => f.id);

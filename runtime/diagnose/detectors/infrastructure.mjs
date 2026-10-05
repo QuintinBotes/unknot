@@ -146,19 +146,26 @@ const floatingVersions = detector('floating-versions', ({ graph }) => {
   const out = [];
   // IaC: providers and remote modules per consuming stack.
   const stacks = new Map();
+  const normSource = (x) => String(x ?? '').toLowerCase().replace(/^registry\.(?:terraform\.io|opentofu\.org)\//, '');
   const slot = (stackId) => {
-    if (!stacks.has(stackId)) stacks.set(stackId, { providers: [], modules: [] });
+    if (!stacks.has(stackId)) stacks.set(stackId, { providers: [], modules: [], pinnedOpen: [] });
     return stacks.get(stackId);
   };
   for (const dep of graph.nodes('dependency')) {
     if (dep.attrs.kind !== 'provider' || dep.attrs.pinned !== 'unpinned') continue;
     const stackId = `iac_module:${dep.attrs.dir ?? '.'}`;
     const stack = graph.node(stackId);
-    const src = String(dep.attrs.source ?? '').toLowerCase();
-    // Pinned by a committed lock file of this root module.
-    if ((stack?.attrs?.locked_providers ?? []).some((l) => String(l.source).toLowerCase() === src)) continue;
+    const src = normSource(dep.attrs.source);
+    const openEnded = /^\s*>=?\s*\d/.test(dep.attrs.constraint ?? '');
+    const locked = (stack?.attrs?.locked_providers ?? []).some((l) => normSource(l.source) === src);
     // A reusable module states a minimum version; pinning belongs to the root's lock file.
-    if (stack?.attrs?.child_module && /^\s*>=?\s*\d/.test(dep.attrs.constraint ?? '')) continue;
+    if (stack?.attrs?.child_module && openEnded) continue;
+    if (locked) {
+      // A root module with an open-ended constraint is reproducible through its lock file,
+      // but HashiCorp recommends ~> there: `init -upgrade` can jump a major version.
+      if (openEnded) slot(stackId).pinnedOpen.push(dep);
+      continue;
+    }
     slot(stackId).providers.push(dep);
   }
   for (const e of graph.edges('DEPENDS_ON')) {
@@ -167,6 +174,27 @@ const floatingVersions = detector('floating-versions', ({ graph }) => {
   }
   for (const [stackId, s] of stacks) {
     const stack = graph.node(stackId);
+    if (s.pinnedOpen.length) {
+      out.push(draft({
+        kind: 'infrastructure.floating-versions',
+        title: `${stack?.name ?? stackId} has ${s.pinnedOpen.length} provider(s) with an open-ended >= constraint; the lock file pins the exact version, the risk is a major-version jump on terraform init -upgrade`,
+        scope: scopeOf(stack, ...s.pinnedOpen),
+        key: `${stackId}:iac-open-constraint`,
+        evidence: s.pinnedOpen.map((p) => evidence(p.id, `provider ${p.attrs.provider} constraint ${p.attrs.constraint} (pinned by the committed lock file)`, 'observed', p.path)).slice(0, 20),
+        measurements: { 'resource.owner_known': stack ? ownerKnown(graph, stack.id) : undefined },
+        why_accidental: 'The committed lock file keeps ordinary init reproducible, but a root module with >= lets terraform init -upgrade select a new major version.',
+        essential_considerations: ['Reusable (child) modules should keep minimum-only constraints.', 'The lock file already pins the exact version for ordinary init.'],
+        smallest_simplification: 'Use a pessimistic (~>) constraint in the root module and keep committing the lock file.',
+        invariants: [INV.state],
+        risks: ['A ~> constraint blocks major upgrades until the constraint is raised deliberately.'],
+        verification: ['terraform init -lockfile=readonly in CI.', 'Plan after tightening must equal the plan before for the same state.', NO_APPLY],
+        recovery: { type: 'revert', notes: 'Version constraints revert with the commit.' },
+        quality_impacts: { changeability: 'low', reliability: 'low', security: 'low' },
+        factors: { benefit: 1, evidence: 0.8, reversibility: 0.95, blast: 1, cost: 1, uncertainty: 1 },
+        patterns: ['infrastructure.pin-artifact-digests'],
+      }));
+    }
+    if (!s.providers.length && !s.modules.length) continue;
     const refs = [...s.providers.map((p) => p.id), ...s.modules.map((m) => m.target.id)];
     out.push(draft({
       kind: 'infrastructure.floating-versions',

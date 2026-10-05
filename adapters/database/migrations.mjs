@@ -744,6 +744,16 @@ function describe(st) {
   return st.kind;
 }
 
+const nm = (x) => String(x?.name ?? x ?? '').toLowerCase();
+/** [objectClass, lowercase name] pairs a statement drops or creates, for recreate detection. */
+function objectNames(st, mode) {
+  const cls = { index: 'index', view: 'view', trigger: 'trigger', function: 'function' };
+  const m = /^(drop|create)_(index|view|trigger|function)$/.exec(st.kind ?? '');
+  if (!m || m[1] !== mode) return [];
+  const list = m[2] === 'index' && mode === 'drop' ? st.indexes : m[2] === 'view' && mode === 'drop' ? st.views : [st.name];
+  return (list ?? []).map((x) => `${cls[m[2]]}:${nm(x)}`).filter((k) => !k.endsWith(':'));
+}
+
 /**
  * Analyse one migration file.
  * @param {string} path
@@ -802,18 +812,24 @@ export function analyzeMigration(path, text, opts = {}) {
   const engine = engineHint;
   const statements = [];
   let destructive = false;
+  // A DROP of a function, trigger, view, procedure or index that the same file re-creates is a
+  // replacement, not a loss of data.
+  const created = new Set(parsed.flatMap((st) => objectNames(st, 'create')));
   for (const st of parsed) {
     if (['transaction', 'set', 'comment', 'unknown'].includes(st.kind) && st.kind !== 'unknown') continue;
     const table = st.table ? tableKeyOf(st.table, engine)
       : st.tables?.[0] ? tableKeyOf(st.tables[0], engine) : st.kind === 'create_index' || st.kind === 'create_trigger' ? tableKeyOf(st.table, engine) : null;
     let fc = null;
     if (st.kind !== 'run_python') fc = forecast(st, { engine: engine ?? opts.engine, version: opts.version, table: opts.table });
-    const isDestructive = Boolean(fc?.destructive) || (st.kind === 'delete' && !st.has_where);
+    const names = objectNames(st, 'drop');
+    const recreated = names.length > 0 && names.every((k) => created.has(k));
+    const isDestructive = (!recreated && Boolean(fc?.destructive)) || (st.kind === 'delete' && !st.has_where);
     if (isDestructive) destructive = true;
     statements.push({
       kind: st.kind === 'run_python' ? 'run_python' : describe(st),
       table,
       line: st.line ?? null,
+      ...(recreated ? { recreated: true } : {}),
       forecast: fc ? { lock_mode: fc.lock_mode, rewrite: fc.rewrite, scan: fc.scan, transactional: fc.transactional, safer_alternative: fc.safer_alternative, rule_id: fc.rule_id, confidence: fc.confidence } : null,
     });
   }
