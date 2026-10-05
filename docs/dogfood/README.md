@@ -42,6 +42,12 @@ each repository and writes one JSON report per repository plus a summary.
 | FB14 | 4 | Most long-parameter-list findings on forge were keyword-only, defaulted Python parameters (injection seams, client settings) | Python adapter reports required parameters; the detector measures positional plus required keyword-only parameters, and still flags very long lists | default settings: forge 107 → 35, fullstack-app 11 → 0 |
 | FB15 | 6 | Eleven functions in a dispatch table (`COMMANDS.check`, called as `COMMANDS[name](…)`) reported as having no callers | The JS/TS adapter records how often an object-literal member's owner is used; a used owner makes its members reachable | circuit-breaker 1 → 0 such findings |
 | FB16 | 6 | Entry points reported as "imported by nothing": Claude Code hook scripts named in `hooks.json`, shell scripts, a CI-run Python checker, a k6 load script | A wiring adapter links files that configuration names by path (`REFERENCES` edges); scripts and empty modules are exempt | dead-code findings: circuit-breaker 12 → 0, forge 27 → 13, tervin 13 → 3; every removed one checked by hand as a false positive |
+| FB17 | 9 | Spot check of the functions the new data-line discount stopped flagging: log messages and toast texts passed to multi-line calls counted as data | Values directly inside a call's parentheses are arguments, not data | 433 per-function findings on five repositories became 322: 111 duplicates merged into one finding per function, 14 functions no longer flagged, each checked by hand (seeders, mock scenarios, translation tables, config and response literals) |
+| FB18 | 9 | Change workflow on a uv workspace: editable installs pointed the slice worktree's tests at the main checkout's unchanged code, which the sandbox hides | Editable install paths are remapped to the worktree through PYTHONPATH | forge's Python package: ACCEPTED, 201 tests passing in the sandbox |
+| FB19 | 9 | A live apply session followed a standing instruction to delegate reviews to an external agent; the hook refused the shell call and the session stopped without patching | The slice is written only by the refactorer or the session; a hook denial means adapt, not stop | tervin's Rust crate: ACCEPTED with the refactorer agent |
+| FB20 | 9 | A project inside the Claude config directory (a background job's scratch space) was unreadable in the sandbox: Python extraction fell back to lexical reading, and the cached fallback hid the notice from later maps | The project's working set is put back after the secret rules (nested secrets stay hidden); a degraded batch is not cached | click cloned into job scratch: AST extraction, no notice, 46 findings instead of 42 |
+| FB21 | 9 | Live-session suite on public repositories: cargo failed the baseline in every crate without `[workspace]` (the hidden `Cargo.toml` above the worktree read as "not permitted"); staging failed where `.gitignore` lists `node_modules` without a slash | The main checkout's tracked top-level files are readable from a worktree; linked directories git ignores get no exclude pathspec | termcolor and picomatch: ACCEPTED |
+| FB22 | 9 | A finalize migration that drops the old column after add and backfill migrations was told to split into expand/contract | The contract step of an expand/backfill sequence is recognised and advised as such, ranked lower | the audited finding reworded, priority 0.02 |
 
 ## Round summaries
 
@@ -113,6 +119,18 @@ boilerplate that looks alike (Redux slices, ORM models), data-heavy functions an
 values just over a threshold; an earlier audit judged some of the same components the other
 way, so these are left as they are. Live sessions with the installed plugin turned up one more
 crash (a Python extractor exiting early), fixed in 0.1.7.
+
+**Round 9, live sessions and the change workflow across languages** — the precision work from
+round 8 landed (one finding per function, a data-literal discount, Rust inline test modules
+excluded), and a spot check of everything it stopped flagging found one more over-eager rule
+(FB17). The Linux sandbox ran on real bubblewrap in CI for the first time and turned up four
+faults the macOS-only runs could not: a bind of `/private/tmp`, hidden paths that did not exist,
+projects under `/tmp`, and signal exits reported as codes. The change workflow then ran end to
+end through live sessions on a uv workspace (FB18), a Rust crate (FB19) and, with a new
+live-session suite that installs the plugin as a user would, on three pinned public
+repositories in Python, JavaScript and Rust (FB20, FB21). The final suite run before 0.1.10:
+fifteen read-only sessions and three change workflows, all passing, every slice ACCEPTED with
+only its planned file staged, for $3.45 of model usage. The suite now runs nightly in CI.
 
 ## What the loop does not do
 

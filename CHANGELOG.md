@@ -28,6 +28,13 @@ All notable changes are documented here. The format follows
   external agent (a standing instruction to delegate to another tool sent a live session
   into a blocked call, and it stopped without patching). A hook denial means adapt, not stop.
 
+### Changed
+
+- A destructive migration that is the contract step of an expand/backfill/contract sequence
+  (a column added and backfilled in the few preceding migrations of the same directory) is
+  recognised: the finding says so, no longer advises splitting it, and ranks lower. The drop
+  itself is still reported, because it is still irreversible without a backup.
+
 ### Added
 
 - `scripts/live-suite.mjs` and the nightly `Live sessions` workflow: the plugin installed as a
