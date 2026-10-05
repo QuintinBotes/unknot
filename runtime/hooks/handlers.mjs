@@ -27,10 +27,14 @@ async function projectFor(event) {
   return openProject(root);
 }
 
-async function loadRunState(ctx) {
+// A run governs the session that started it. Another conversation in the same repository is
+// not inside that command, so only the always-on protections apply to it.
+const otherSession = (run, event) => Boolean(run?.session_id && event?.session_id && run.session_id !== event.session_id);
+
+async function loadRunState(ctx, event) {
   const { activeRun } = await import('../state/runs.mjs');
   const run = activeRun(ctx.store);
-  if (!run) return { run: null };
+  if (!run || otherSession(run, event)) return { run: null };
   const { loadConfig } = await import('../policy/config.mjs');
   const { config } = loadConfig(ctx);
   let slice = null;
@@ -89,7 +93,7 @@ export async function onPreToolUse(event) {
     recordDecision(ctx, null, op, always, actorOf(event));
     return preToolDeny(`Unknot: ${always.reasons.join('; ')}`);
   }
-  const { run, config, slice } = await loadRunState(ctx);
+  const { run, config, slice } = await loadRunState(ctx, event);
   if (!run) return null;
   const capability = event.agent_id ? capabilityForAgent(ctx, run.id, event.agent_id) : null;
   const d = decide({ ctx, config, run, slice, actor: { agent_id: event.agent_id, agent_type: event.agent_type }, capability, op, pluginRoot: PLUGIN_ROOT });
@@ -103,8 +107,15 @@ export async function onPreToolUse(event) {
     return preToolDeny(`Unknot: ${err.message}. The run is over budget; stop and report what was completed.`);
   }
   recordDecision(ctx, run, op, d, actorOf(event));
-  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${d.reasons.join('; ')}`);
+  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${d.reasons.join('; ')}${await runScopeNote(run)}`);
   return null;
+}
+
+/** How long a denial lasts: a read-only command's run ends with the turn. */
+async function runScopeNote(run) {
+  const { isReadOnlyRun } = await import('../state/runs.mjs');
+  if (run.actor !== 'human:prompt' || !isReadOnlyRun(run)) return '';
+  return `. This applies while run ${run.id} (/unknot:${run.command}) is open: it ends when this turn ends, or with the user's next message. Finish the ${run.command} work and report; other work belongs in a later turn`;
 }
 
 export async function onPermissionRequest(event) {
@@ -119,7 +130,7 @@ export async function onPermissionRequest(event) {
 export async function onPostToolUse(event) {
   const ctx = await projectFor(event);
   if (!ctx) return null;
-  const { run, config, slice } = await loadRunState(ctx);
+  const { run, config, slice } = await loadRunState(ctx, event);
   if (!run) return null;
   const response = event.tool_response ?? event.tool_output ?? event.tool_result ?? null;
   const text = typeof response === 'string' ? response : JSON.stringify(response ?? '');
@@ -163,7 +174,7 @@ export async function onPostToolUse(event) {
 export async function onSubagentStart(event) {
   const ctx = await projectFor(event);
   if (!ctx) return null;
-  const { run, slice } = await loadRunState(ctx);
+  const { run, slice } = await loadRunState(ctx, event);
   if (!run) return null;
   const profile = profileFor(event.agent_type);
   let write = [];
@@ -183,7 +194,7 @@ export async function onSubagentStart(event) {
 export async function onSubagentStop(event) {
   const ctx = await projectFor(event);
   if (!ctx) return null;
-  const { run, config } = await loadRunState(ctx);
+  const { run, config } = await loadRunState(ctx, event);
   if (!run) return null;
   const profile = profileFor(event.agent_type);
   const finish = () => {
@@ -191,12 +202,15 @@ export async function onSubagentStop(event) {
     return null;
   };
   if (profile.name === 'foreign') return finish();
-  const { extractHandoff, lastAssistantText, recordHandoff, validateHandoff } = await import('../state/handoff.mjs');
+  const { bindToRun, extractHandoff, lastAssistantText, recordHandoff, validateHandoff } = await import('../state/handoff.mjs');
   const text = typeof event.last_assistant_message === 'string' ? event.last_assistant_message : event.agent_transcript_path ? lastAssistantText(event.agent_transcript_path) : null;
   const obj = extractHandoff(text ?? '');
-  const res = obj ? validateHandoff(obj, config.mode) : { ok: false, errors: [{ path: '', message: 'no handoff JSON block found' }] };
+  // An agent that already reported through the submit_handoff tool has handed back.
+  if (!obj && submittedThroughTool(ctx, run, event, profile.name)) return finish();
+  const bound = bindToRun(obj, run);
+  const res = obj ? validateHandoff(bound.handoff, config.mode) : { ok: false, errors: [{ path: '', message: 'no handoff JSON block found' }] };
   if (res.ok) {
-    recordHandoff(ctx, { run, handoff: res.handoff, agentId: event.agent_id, warnings: res.warnings });
+    recordHandoff(ctx, { run, handoff: res.handoff, agentId: event.agent_id, warnings: [...bound.warnings, ...res.warnings] });
     return finish();
   }
   const why = res.errors.slice(0, 5).map((e) => `${e.path || '/'} ${e.message}`).join('; ');
@@ -207,10 +221,15 @@ export async function onSubagentStop(event) {
   return block(`Unknot: your handoff is missing or invalid (${why}). End with one \`\`\`json block: {"schema_version":"1.0","run_id":"${run.id}","slice_id":${JSON.stringify(run.slice_id)},"agent":"${profile.name}","status":"complete|partial|blocked|failed","facts":[],"proposals":[],"uncertainties":[],"conflicts":[],"artifacts":[],"recommended_next_state":"<STATE>"}`);
 }
 
+function submittedThroughTool(ctx, run, event, agent) {
+  const cap = ctx.store.get('SELECT issued_at FROM capabilities WHERE run_id = ? AND agent_id IS ? ORDER BY issued_at DESC LIMIT 1', run.id, event.agent_id ?? null);
+  return Boolean(ctx.store.get("SELECT 1 FROM events WHERE type = 'handoff.received' AND run_id = ? AND actor = ? AND at >= ? LIMIT 1", run.id, `model:${agent}`, cap?.issued_at ?? run.started_at ?? ''));
+}
+
 export async function onStop(event) {
   const ctx = await projectFor(event);
   if (!ctx) return null;
-  const { run, slice } = await loadRunState(ctx);
+  const { run, slice } = await loadRunState(ctx, event);
   if (!run) return null;
   const { endRun } = await import('../state/runs.mjs');
   const open = slice ? ctx.store.all("SELECT id, kind FROM proof_obligations WHERE slice_id = ? AND status IN ('open', 'inconclusive')", slice.id) : [];
@@ -223,9 +242,26 @@ export async function onStop(event) {
   return null;
 }
 
+/**
+ * A new message starts a new turn, so a read-only command's run from an earlier turn of this
+ * session is over even if its Stop hook never ran (the turn was interrupted). Runs that can
+ * write (apply, rollback) stay until they are finished or a person ends them.
+ */
+async function closeInterruptedRun(event) {
+  const ctx = await projectFor(event);
+  if (!ctx) return null;
+  const { activeRun, endRun, isReadOnlyRun } = await import('../state/runs.mjs');
+  const run = activeRun(ctx.store);
+  if (!run || run.actor !== 'human:prompt' || otherSession(run, event) || !isReadOnlyRun(run) || run.slice_id) return null;
+  endRun(ctx, run.id, { outcome: 'interrupted', actor: 'hook:UserPromptSubmit' });
+  return run;
+}
+
 export async function onUserPromptSubmit(event) {
   const m = /^\s*\/unknot:([a-z]+)\b(.*)$/s.exec(event.prompt ?? '');
-  if (!m) return null;
+  // A new /unknot command supersedes the open run itself.
+  const closed = m ? null : await closeInterruptedRun(event);
+  if (!m) return closed ? context('UserPromptSubmit', `Unknot run ${closed.id} (/unknot:${closed.command}) from an earlier turn was still open and has been ended; Unknot enforces nothing in this turn beyond its always-on protections.`) : null;
   const command = m[1];
   const root = findProjectRoot(event.cwd ?? process.cwd());
   if (!isInitialized(root) && command !== 'init') return null;
@@ -237,7 +273,7 @@ export async function onUserPromptSubmit(event) {
   const sliceArg = /\b(UK-(?:DB-|INFRA-)?\d{4,})\b/.exec(m[2])?.[1] ?? null;
   // The ids the person typed become the run scope. Commands that record human decisions
   // (accept, reject) check it, so an agent can only act on what the person named.
-  const ids = [...new Set(m[2].match(/\b(?:F-\d{4,}|UK-(?:DB-|INFRA-)?\d{4,}|CMP-\d+|DEC-\d{4,})\b/g) ?? [])];
+  const ids = [...new Set(m[2].match(/\b(?:F-\d{4,}|UK-(?:DB-|INFRA-)?\d{4,}|CMP-\d+|DEC-\d{4,}|LN-[a-z0-9]+)\b/g) ?? [])];
   const run = startRun(ctx, { command, actor: 'human:prompt', session_id: event.session_id ?? null, slice_id: ['apply', 'verify', 'rollback'].includes(command) ? sliceArg : null, config, configDigest: cfgDigest, supersede: true, scope: ids });
   return context('UserPromptSubmit', `Unknot run ${run.id} started for /unknot:${command} in mode ${config.mode}. Policy is enforced by hooks for the rest of this turn.`);
 }
@@ -245,12 +281,13 @@ export async function onUserPromptSubmit(event) {
 export async function onSessionStart(event) {
   const ctx = await projectFor(event);
   if (!ctx) return null;
-  const { activeRun } = await import('../state/runs.mjs');
+  const { activeRun, isReadOnlyRun } = await import('../state/runs.mjs');
   const run = activeRun(ctx.store);
   const waiting = ctx.store.get("SELECT COUNT(*) AS n FROM slices WHERE state = 'AWAITING_APPROVAL'").n;
   const patching = ctx.store.all("SELECT id, state FROM slices WHERE state IN ('PATCHING','VERIFYING','VERIFICATION_FAILED','NEEDS_REPLAN','BLOCKED_POLICY','BLOCKED_UNCERTAINTY')");
   const lines = [];
-  if (run) lines.push(`Unknot: run ${run.id} (${run.command}) from ${run.started_at} was not ended (interrupted). It is still enforced; resume it or end it with \`unknot run end ${run.id}\` in a terminal.`);
+  if (run && otherSession(run, event)) lines.push(`Unknot: run ${run.id} (/unknot:${run.command}) is open in another session; it does not apply to this one.`);
+  else if (run) lines.push(`Unknot: run ${run.id} (${run.command}) from ${run.started_at} was not ended (interrupted). It is still enforced in this session${isReadOnlyRun(run) ? ' until the next message' : `; resume it or a person ends it with \`unknot run end ${run.id}\` in a separate terminal window`}.`);
   if (patching.length) lines.push(`Unknot: slices needing attention: ${patching.map((s) => `${s.id} ${s.state}`).join(', ')}.`);
   if (waiting) lines.push(`Unknot: ${waiting} slice(s) awaiting human approval.`);
   return lines.length ? context('SessionStart', lines.join('\n')) : null;

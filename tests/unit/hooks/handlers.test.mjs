@@ -412,6 +412,26 @@ describe('SubagentStop', () => {
     assert.ok(K.capability.capabilityForAgent(h.p.ctx, h.run.id, 'c1'), 'still live while the agent retries');
   });
 
+  test('a made-up run id is replaced by the active run, with a warning', async () => {
+    const h = hookProject();
+    const e = await started(h);
+    const res = await H.onSubagentStop({ ...e, last_assistant_message: fenced(handoff(h.run, { run_id: 'run-20260503-ab12' })) });
+    assert.equal(res, null);
+    const [ev] = types(h.p, 'handoff.received');
+    assert.equal(ev.run_id, h.run.id);
+    assert.match(ev.payload.warnings.join(' '), /run-20260503-ab12/);
+    assert.ok(K.cas.casGet(h.p.ctx, ev.payload.ref).toString().includes(h.run.id));
+  });
+
+  test('an agent that reported through submit_handoff is not blocked for a missing block', async () => {
+    const h = hookProject();
+    const e = await started(h);
+    const { recordHandoff } = await import('../../../runtime/state/handoff.mjs');
+    recordHandoff(h.p.ctx, { run: h.run, handoff: handoff(h.run), agentId: null });
+    assert.equal(await H.onSubagentStop({ ...e, last_assistant_message: 'Report delivered through the tool.' }), null);
+    assert.equal(K.capability.capabilityForAgent(h.p.ctx, h.run.id, 'c1'), null);
+  });
+
   test('with stop_hook_active the rejection is recorded and the capability revoked (no infinite loop)', async () => {
     const h = hookProject();
     const e = await started(h);
@@ -540,6 +560,36 @@ describe('UserPromptSubmit', () => {
     assert.equal(await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') }), null, 'not enforced before the run');
     await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:diagnose' });
     assert.ok(denies(await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') })));
+  });
+
+  test('a read-only run left open by an interrupted turn ends with the next message; a writing run does not', async () => {
+    const h = hookProject({ run: false });
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:map' });
+    const first = K.runs.activeRun(h.p.ctx.store).id;
+    // No Stop hook ran (the turn was interrupted); the next message is not an Unknot command.
+    const a = await H.onUserPromptSubmit({ ...h.base, prompt: 'now update docs/notes.md' });
+    assert.match(a.hookSpecificOutput.additionalContext, new RegExp(`${first}.*has been ended`));
+    assert.equal(K.runs.activeRun(h.p.ctx.store), null);
+    assert.equal(K.runs.getRun(h.p.ctx.store, first).outcome, 'interrupted');
+    assert.equal(await pre(h, 'Edit', { file_path: join(h.p.dir, 'docs/notes.md') }), null);
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:apply UK-0042' });
+    assert.equal(await H.onUserPromptSubmit({ ...h.base, prompt: 'carry on' }), null);
+    assert.equal(K.runs.activeRun(h.p.ctx.store).command, 'apply');
+  });
+
+  test('a run applies only to the session that started it', async () => {
+    const h = hookProject({ run: false });
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:diagnose' });
+    const other = { ...h.base, session_id: 's2' };
+    assert.equal(await H.onPreToolUse({ ...other, tool_name: 'Edit', tool_input: { file_path: join(h.p.dir, 'src/a.js') } }), null);
+    assert.equal(await H.onUserPromptSubmit({ ...other, prompt: 'unrelated work' }), null);
+    assert.equal(await H.onStop({ ...other }), null);
+    assert.ok(K.runs.activeRun(h.p.ctx.store), 'another session neither ends nor inherits the run');
+    const denied = await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') });
+    assert.ok(denies(denied));
+    assert.match(denied.hookSpecificOutput.permissionDecisionReason, /ends when this turn ends, or with the user's next message/);
+    // The always-on protections still apply everywhere.
+    assert.ok(denies(await H.onPreToolUse({ ...other, tool_name: 'Write', tool_input: { file_path: join(h.p.dir, '.unknot/config.yaml'), content: 'mode: campaign' } })));
   });
 
   test('a new command supersedes the previous run', async () => {

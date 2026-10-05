@@ -38,6 +38,8 @@ export default {
       'CODEOWNERS', '.github/CODEOWNERS', 'docs/CODEOWNERS', '.gitlab/CODEOWNERS', '**/catalog-info.{yaml,yml}', '**/OWNERS',
       'docs/adr/**', 'docs/decisions/**', 'doc/adr/**', 'doc/architecture/decisions/**', 'adr/**', '**/*.adr.md',
     ],
+    // Read even when the scope excludes them (see census CONTEXT_FILES).
+    context_files: CODEOWNERS_PATHS,
     executes: [],
     network: false,
   },

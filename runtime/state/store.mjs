@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS approvals (
   binding_hash TEXT NOT NULL, signature TEXT NOT NULL, expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL, revoked_at TEXT, revoked_reason TEXT);
 CREATE INDEX IF NOT EXISTS approvals_slice ON approvals(slice_id);
+CREATE TABLE IF NOT EXISTS lanes (
+  id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, body TEXT NOT NULL, approver TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL, signature TEXT NOT NULL, expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL, revoked_at TEXT, revoked_reason TEXT);
+CREATE INDEX IF NOT EXISTS lanes_campaign ON lanes(campaign_id);
 CREATE TABLE IF NOT EXISTS decisions (
   id TEXT PRIMARY KEY, finding_id TEXT, fingerprint TEXT NOT NULL, decision TEXT NOT NULL,
   rationale TEXT NOT NULL, actor TEXT NOT NULL, suppress_until TEXT, at TEXT NOT NULL);
@@ -153,8 +158,12 @@ export class Store {
     }
   }
 
+  /** Idempotent; a closed store leaves the cache so the next openStore reopens the file. */
   close() {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
+    for (const [k, s] of open) if (s === this) open.delete(k);
   }
 
   get(sql, ...params) {

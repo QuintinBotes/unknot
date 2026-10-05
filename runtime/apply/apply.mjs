@@ -12,13 +12,14 @@ import { matchAny } from '../core/glob.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/approvals.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
+import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
 import { modeRank } from '../policy/defaults.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { head } from './git.mjs';
-import { assertCleanBaseline, createWorktree, diffStat, removeWorktree, stagePatch } from './worktree.mjs';
+import { assertCleanBaseline, createWorktree, diffStat, removeWorktree, stagePatch, stagedStat } from './worktree.mjs';
 
 export function loadSlice(ctx, id) {
   const row = ctx.store.get('SELECT * FROM slices WHERE id = ?', id);
@@ -92,13 +93,15 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   assertCleanBaseline(ctx.root);
   const commit = head(ctx.root);
   const approvals = approvalStatus(ctx, slice, 'plan', { cfg, commit });
+  // A person's signed lane can stand in for the plan approval of a slice it covers.
+  const lane = approvals.satisfied ? { lane: null, reasons: [] } : laneFor(ctx, { cfg, slice });
   const guard = () => ({
-    ok: approvals.satisfied,
+    ok: approvals.satisfied || Boolean(lane.lane),
     id: 'approval.plan',
-    detail: approvals.satisfied ? 'plan approved' : `plan approval missing: roles ${approvals.missing_roles.join(', ') || '—'}; approvers ${approvals.approvers}/${approvals.needed.min_approvers}${approvals.stale.length ? `; stale: ${approvals.stale.map((s) => `${s.id} (${s.reasons.join(', ')})`).join('; ')}` : ''}`,
+    detail: approvals.satisfied ? 'plan approved' : lane.lane ? `plan approved within lane ${lane.lane.id}` : `plan approval missing: roles ${approvals.missing_roles.join(', ') || '—'}; approvers ${approvals.approvers}/${approvals.needed.min_approvers}${approvals.stale.length ? `; stale: ${approvals.stale.map((s) => `${s.id} (${s.reasons.join(', ')})`).join('; ')}` : ''}${slice.campaign_id && !/^no lane/.test(lane.reasons[0] ?? '') ? `; lanes: ${lane.reasons.join('; ')}` : ''}`,
   });
-  if (!approvals.satisfied) {
-    throw new UnknotError('UK_APPROVAL_REQUIRED', guard().detail, { slice_id: sliceId, details: { missing_roles: approvals.missing_roles, stale: approvals.stale, needed: approvals.needed } });
+  if (!guard().ok) {
+    throw new UnknotError('UK_APPROVAL_REQUIRED', guard().detail, { slice_id: sliceId, details: { missing_roles: approvals.missing_roles, stale: approvals.stale, needed: approvals.needed, lanes: lane.reasons } });
   }
   const protectedTouched = slice.body.scope.include.filter((g) => matchAny(g.replace(/\*+/g, 'x'), config.protected_paths, { nocase: true }));
   if (protectedTouched.length && !['high', 'critical'].includes(slice.risk)) {
@@ -129,6 +132,8 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
     extra: { worktree: wt.path, branch: wt.branch, baseline_commit: commit },
   });
   appendEvent(ctx, { type: 'apply.started', run_id: run.id, slice_id: sliceId, actor, payload: { worktree: wt.path, branch: wt.branch, baseline: commit, linked_dependencies: wt.linked, baseline_check: baseline?.verdict ?? 'no test_unit configured' } });
+  // Recorded even when null, so a later lane never outlives a person's own approval.
+  appendEvent(ctx, { type: 'lane.applied', run_id: run.id, slice_id: sliceId, campaign_id: slice.campaign_id, actor, payload: { lane_id: lane.lane?.id ?? null } });
   return { slice: loadSlice(ctx, sliceId), worktree: wt, baseline };
 }
 
@@ -136,10 +141,20 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
 export function finishApply(ctx, { cfg, run, sliceId, actor }) {
   const slice = loadSlice(ctx, sliceId);
   if (slice.state !== 'PATCHING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}, not PATCHING`, { slice_id: sliceId });
-  const stat = diffStat(slice.worktree);
-  if (stat.files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
-  const budget = checkDiffBudget({ ...cfg.config.limits, ...slice.body.budgets }, stat);
+  if (diffStat(slice.worktree).files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
   const { patch, diff_hash, files } = stagePatch(slice.worktree, slice.baseline_commit);
+  // Budget and lane fit are measured on what was staged against the baseline: that is what is
+  // hashed and approved, whatever the worktree's own history says.
+  const stat = stagedStat(slice.worktree, slice.baseline_commit);
+  const budget = checkDiffBudget({ ...cfg.config.limits, ...slice.body.budgets }, stat);
+  // Under a lane the patch itself must fit: only deletions or only tests, within its caps.
+  const lane = laneOfSlice(ctx, sliceId);
+  if (lane) {
+    const fit = checkLaneDiff(lane, stat);
+    if (!fit.ok) {
+      throw new UnknotError('UK_POLICY_DENIED', `the patch leaves lane ${lane.id}: ${fit.problems.join('; ')}. Shrink it to fit, run \`unknot apply ${sliceId} replan --reason "..."\`, or a person approves this slice's plan (unknot approve ${sliceId} --stage plan)`, { slice_id: sliceId, details: { policy: 'lane.fit', lane: lane.id, problems: fit.problems } });
+    }
+  }
   const dir = join(ctx.paths.runs, run.id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'diff.patch'), patch);

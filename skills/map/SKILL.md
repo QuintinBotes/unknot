@@ -20,7 +20,13 @@ Report honestly:
 - how many nodes and edges were produced, and the mapped commit;
 - adapters that were unavailable or failed, and what is therefore missing;
 - whether the map is partial (scope limit, budget, failed adapter). A partial map is stated as
-  partial, never as the architecture.
+  partial, never as the architecture. `partial` also means the dominant language has no
+  dedicated adapter (see `unavailable` entries named `language:<name>` and the `coverage` list):
+  its files are read lexically, so imports and type references are matched by name and most
+  calls are not seen. Say which language, how many files, and that its dependency edges are
+  approximate; the map is still usable;
+- ownership files (`CODEOWNERS`) are read even when the scope excludes them; `ns:` and `seed:`
+  scope entries do not narrow a map, only path entries do (the command prints a notice).
 
 ## 2. Summarize
 

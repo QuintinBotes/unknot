@@ -126,3 +126,49 @@ test('rankHubs ranks modules by distinct importers and imports', async () => {
   assert.deepEqual(h.fan_in[0], { id: 'module:u', n: 3 });
   assert.deepEqual(h.fan_out[0], { id: 'module:a', n: 2 });
 });
+
+test('rankHubs: several edge types are a union, a node filter ranks accepted nodes, within counts only accepted neighbours', async () => {
+  const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const g = new Graph();
+  for (const id of ['a', 'b', 'c', 'u']) g.addNode(`module:${id}`, 'module', { name: id });
+  g.addEdge('IMPORTS', 'module:a', 'module:u');
+  g.addEdge('CALLS', 'module:a', 'module:u');
+  g.addEdge('CALLS', 'module:b', 'module:u');
+  g.addEdge('IMPORTS', 'module:c', 'module:u');
+  g.addEdge('IMPORTS', 'module:u', 'module:a');
+  assert.equal(rankHubs(g, {}).fan_in[0].n, 2);
+  const union = rankHubs(g, { edgeTypes: ['IMPORTS', 'CALLS'] });
+  assert.deepEqual(union.fan_in[0], { id: 'module:u', n: 3 });
+  assert.equal(union.edge_type, 'IMPORTS,CALLS');
+  const inScope = (n) => ['module:u', 'module:a'].includes(n.id);
+  const scoped = rankHubs(g, { edgeTypes: ['IMPORTS', 'CALLS'], nodeFilter: inScope });
+  assert.deepEqual(scoped.fan_in.map((x) => x.id), ['module:u', 'module:a']);
+  assert.equal(scoped.fan_in[0].n, 3);
+  assert.deepEqual(rankHubs(g, { edgeTypes: ['IMPORTS', 'CALLS'], nodeFilter: inScope, within: true }).fan_in[0], { id: 'module:a', n: 1 });
+});
+
+test('stronglyConnected: a node filter finds cycles of the subgraph only', () => {
+  const g = graphOf([['a', 'b'], ['b', 'a'], ['b', 'c'], ['c', 'b'], ['x', 'y'], ['y', 'x']]);
+  assert.deepEqual(stronglyConnected(g, { nodeFilter: (n) => n.id !== 'c' }), [['a', 'b'], ['x', 'y']]);
+  assert.deepEqual(stronglyConnected(g, { nodeFilter: (n) => ['a', 'c'].includes(n.id) }), []);
+});
+
+test('resolveRef and neighbourhood: ids, module paths, declared types and bounded breadth-first walks', async () => {
+  const { resolveRef, neighbourhood } = await import('../../../runtime/graph/algorithms.mjs');
+  const g = new Graph();
+  g.addNode('module:src/x.cs', 'module', { path: 'src/x.cs', attrs: { types: ['Widget'] } });
+  g.addNode('module:src/y.cs', 'module', { path: 'src/y.cs' });
+  g.addNode('module:src/z.cs', 'module', { path: 'src/z.cs' });
+  g.addEdge('IMPORTS', 'module:src/x.cs', 'module:src/y.cs');
+  g.addEdge('CALLS', 'module:src/y.cs', 'module:src/z.cs');
+  assert.deepEqual(resolveRef(g, 'module:src/x.cs'), ['module:src/x.cs']);
+  assert.deepEqual(resolveRef(g, 'src/x.cs'), ['module:src/x.cs']);
+  assert.deepEqual(resolveRef(g, 'Widget'), ['module:src/x.cs']);
+  assert.deepEqual(resolveRef(g, 'y'), ['module:src/y.cs']);
+  assert.deepEqual(resolveRef(g, 'Nope'), []);
+  assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 1 }).nodes.length, 2);
+  assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2 }).nodes.length, 3);
+  assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2, edgeTypes: ['CALLS'] }).nodes.length, 1);
+  assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2, nodeCap: 2 }).capped, true);
+});

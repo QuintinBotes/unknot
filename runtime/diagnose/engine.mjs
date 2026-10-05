@@ -8,6 +8,7 @@ import { canonicalJSON, digest } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { validateArtifact } from '../core/schema.mjs';
+import { pathInScope, scopePredicate } from '../core/scope.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { evaluateAll } from '../patterns/engine.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
@@ -198,7 +199,8 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
       errors.push({ detector: d.id, error: String(err?.message ?? err) });
     }
   }
-  const inScope = (f) => !scope.length || f.scope.some((p) => scope.some((s) => p === s || p.startsWith(`${s.replace(/\/$/, '')}/`)));
+  const scoped = scopePredicate(g, scope);
+  const inScope = (f) => scoped.scope.all || f.scope.some((p) => pathInScope(p, scoped));
   const findings = [];
   for (const { draft, detector } of drafts) {
     const subject = draft.evidence?.map((e) => e.ref).filter((r) => g.node(r)) ?? [];

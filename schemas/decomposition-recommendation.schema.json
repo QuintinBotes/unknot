@@ -47,6 +47,42 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "name_basis": {
+          "enum": [
+            "namespace",
+            "directory",
+            "route"
+          ],
+          "description": "How the name was chosen"
+        },
+        "top_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5,
+          "description": "Members with the highest fan-in"
+        },
+        "reverse_dependency_targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "module": {
+                "type": "string"
+              },
+              "edges": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "module",
+              "edges"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 10
         }
       },
       "required": [
@@ -73,6 +109,14 @@
           "source": {
             "type": "string",
             "minLength": 1
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "description": "Module or edge ids the signal was measured on"
           }
         },
         "required": [
@@ -178,6 +222,126 @@
       "items": {
         "type": "string"
       }
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of target, sorted drivers and sorted candidate module ids; a rerun with the same fingerprint reuses the id"
+    },
+    "graph_generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matched": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "matched",
+        "total"
+      ],
+      "additionalProperties": false
+    },
+    "driver_provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "driver": {
+            "$ref": "#/$defs/driver"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "driver",
+          "source",
+          "quote"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "readiness": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "treatment": {
+            "$ref": "#/$defs/treatment"
+          },
+          "kind": {
+            "enum": [
+              "applicability",
+              "precondition",
+              "contraindication"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "signal": {
+            "type": "string"
+          },
+          "value": {},
+          "op": {
+            "type": "string"
+          },
+          "threshold": {},
+          "met": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "missing_evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "treatment",
+          "signal",
+          "value",
+          "op",
+          "threshold",
+          "met",
+          "missing_evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "selection_reason": {
+      "type": "string",
+      "description": "Why this treatment was chosen and why retaining was not (non-retain records)"
+    },
+    "retain_reason": {
+      "type": "string",
+      "description": "Why the boundary is retained (T0 records only)"
     }
   },
   "required": [

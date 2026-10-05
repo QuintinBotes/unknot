@@ -17,7 +17,7 @@ A configuration can raise Unknot's authority: a higher mode, registered approver
 
 For `changed`, Unknot keeps the accepted text in force. It applies the new file as if it were organization policy (see "Tighten-only merge" below), after removing `approvers`, `commands`, `adapters`, `detectors` and `evidence`. So an edit that lowers the mode, shrinks a limit, adds a protected path or requires a stricter scan takes effect at once. An edit that raises the mode, loosens a limit, adds an approver or changes a command waits. Keys with no tighten rule for a changed repository file (for example `daemon`, `workspace`, `database.engines`, `infrastructure.plans`, `suppression`, `decomposition`) are ignored until accepted. Commands print a notice on stderr when the file is `unaccepted` or `changed`, and `unknot doctor` and `unknot status` show it.
 
-`unknot config accept` requires a human at an interactive terminal. It shows the proposal (or the current file if there is no proposal), and you must type the mode back. It then records the digest and text of what you accepted and writes a `config.accepted` ledger event. `unknot config diff` shows current versus proposed and is safe for anyone to run.
+`unknot config accept` requires a human at an interactive terminal (a separate window, not Claude Code's `!` prefix). It shows the proposal (or the current file if there is no proposal), and you must type the mode back. It then records the digest and text of what you accepted and writes a `config.accepted` ledger event. `unknot config diff` shows current versus proposed and is safe for anyone to run.
 
 The effective configuration digest is part of every approval's binding. Any change to the effective configuration, including a tightening, invalidates existing approvals, and they have to be given again.
 
@@ -90,7 +90,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `mode` | `observe`, `plan`, `assist`, `governed`, `campaign` | `plan` | Authority level. See below. |
 | `scope.include` | list of globs | `[]` | Repository paths in scope. Empty means everything. |
 | `scope.exclude` | list of globs | `vendor/**`, `node_modules/**`, `dist/**`, `build/**`, `generated/**`, `**/node_modules/**`, `.git/**`, `.unknot/**` | Paths never mapped or edited. |
-| `protected_paths` | list of globs | `.github/workflows/**`, `**/auth/**`, `**/crypto/**`, `**/migrations/**` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. |
+| `protected_paths` | list of globs | `.github/workflows/**`, `**/auth/**`, `**/crypto/**`, `**/migrations/**` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. `unknot init` also proposes Azure DevOps pipeline directories (found up to depth 4, with the templates they reference) and, for .NET repositories, `Directory.Build.*`, `Directory.Packages.props`, `global.json` and `NuGet.config`. |
 | `generated_paths` | list of globs | `[]` | Treated as generated: never edited as source. `**/vendor/**`, `**/node_modules/**` and `**/dist/**` are always treated this way inside a worktree. |
 | `commands` | map of name to argument list | `{}` | Project commands run through the broker. See below. |
 | `limits` | map | see below | Budgets. |

@@ -80,7 +80,7 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   const U = `${K.REPO_ROOT}/bin/unknot`;
   const denied = [
     `${U} approve UK-1`, `node ${U} approve UK-1`, `unknot approve UK-1`, `bin/unknot approve UK-1`, `${U} keys generate me`, `${U} config accept`, `${U} run end run-1`,
-    `${U} policy sign x`, `${U} shred`, `${U} unlock`, `cd /tmp && ${U} approve UK-1`, `ls; ${U} approve UK-1`, `echo ok | ${U} approve UK-1`, `env X=1 ${U} approve UK-1`,
+    `${U} policy sign x`, `${U} shred`, `${U} unlock`, `${U} lane approve CMP-1 --as alice`, `unknot lane revoke LN-1`, `${U} approve --lane LN-1 --as alice`, `cd /tmp && ${U} approve UK-1`, `ls; ${U} approve UK-1`, `echo ok | ${U} approve UK-1`, `env X=1 ${U} approve UK-1`,
     `bash -c '${U} approve UK-1'`, `UNKNOT_HOME=/tmp/h ${U} status`, `sqlite3 .unknot/state/unknot.db "delete from events"`, `python3 -c "import sqlite3; sqlite3.connect('.unknot/state/unknot.db')"`,
     'cat ~/.config/unknot/approvers/alice.pem', 'cp ~/.config/unknot/approvers/alice.pem /tmp/k',
     'echo x > .unknot/config.yaml', 'echo x >> .unknot/state/unknot.db', 'rm -rf .unknot/state', 'mv .unknot/config.yaml /tmp/', 'cp /tmp/evil .unknot/config.yaml', 'tee .unknot/config.yaml < /tmp/evil', 'touch .unknot/decisions.jsonl', 'truncate -s 0 .unknot/state/unknot.db', 'chmod 777 .unknot/config.yaml', 'ln -sf /tmp/evil .unknot/config.yaml', 'install /tmp/evil .unknot/config.yaml', 'rsync /tmp/evil .unknot/config.yaml',
@@ -90,8 +90,37 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   }
 
   test('legitimate inspection of the project is not blocked', () => {
-    for (const cmd of ['ls .unknot', 'cat .unknot/config.yaml', 'git status', `${U} status`, 'grep -r TODO src', 'sqlite3 --version']) assert.equal(bash(cmd), null, cmd);
+    for (const cmd of ['ls .unknot', 'cat .unknot/config.yaml', 'git status', `${U} status`, 'grep -r TODO src', 'sqlite3 --version', `${U} lane status`, `${U} lane review LN-1`]) assert.equal(bash(cmd), null, cmd);
   });
+
+  test('text that only mentions .unknot while writing elsewhere is not state access', () => {
+    for (const cmd of [
+      "cat >> notes.md <<'EOF'\nThe state lives in .unknot/config.yaml\nEOF",
+      'echo "see .unknot/decisions.jsonl" >> notes.md',
+      "printf '%s\\n' '.unknot is local state' > docs/x.md",
+    ]) assert.equal(bash(cmd), null, cmd);
+  });
+
+  const viaProgram = [
+    "cat <<'EOF' | python3\nopen('.unknot/config.yaml','w').write('mode: campaign')\nEOF",
+    "python3 <<'EOF'\nopen('.unknot/config.yaml','w').write('mode: campaign')\nEOF",
+    "cat > \"$(echo .unknot)/config.yaml\" <<'EOF'\nmode: campaign\nEOF",
+    "D=.unknot; cat > $D/config.yaml <<'EOF'\nmode: campaign\nEOF",
+    'echo .unknot/config.yaml | xargs rm',
+    "cat <<EOF > notes.md\n$(rm .unknot/config.yaml)\nEOF",
+    // Found by the adversarial review of the narrower rule: programs that write through their
+    // arguments, variables filled by printf -v, loop words, globs and split quoting.
+    'uniq /tmp/x .unknot/config.yaml',
+    'sort -o .unknot/decisions.jsonl a b',
+    'tee .unknot/conf*.yaml </tmp/x',
+    'tee .unknot/{config,x}.yaml </tmp/x',
+    'printf -v p %s .unknot/config.yaml; cp /tmp/x "$p"',
+    'for p in .unknot/config.yaml; do cp /tmp/x "$p"; done',
+    'for x in .unknot/config.yaml; do echo hi > $x; done',
+    "sed -i s/plan/campaign/ .unk''not/config.yaml",
+    'echo hi | tee -a .unknot/decisions.jsonl',
+  ];
+  for (const cmd of viaProgram) test(`denies ${JSON.stringify(cmd)}`, () => assert.equal(bash(cmd)?.decision, 'deny'));
 });
 
 describe('BUGS: shell writes to protected state that alwaysOn misses', () => {

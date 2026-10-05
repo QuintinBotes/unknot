@@ -80,6 +80,9 @@ before(() => {
       nodeFact('service', 'leaky', { name: `svc ${SECRET}` }, p),
       edgeFact('IMPORTS', 'module:src/a.ts', 'module:src/b.ts', {}, p),
       edgeFact('IMPORTS', 'module:src/b.ts', 'module:src/c.ts', {}, p),
+      // Bulk: long paths and wide attrs, so a broad query overflows the byte cap.
+      ...Array.from({ length: 250 }, (_, i) => nodeFact('file', `bulk/${'d'.repeat(180)}/f${i}.cs`, { name: `f${i}`, path: `bulk/${'d'.repeat(180)}/f${i}.cs`, attrs: { language: 'csharp', loc: i, blob: 'x'.repeat(200) } }, p)),
+      edgeFact('TESTS', `file:bulk/${'d'.repeat(180)}/f0.cs`, `file:bulk/${'d'.repeat(180)}/f1.cs`, { via: 'name', confidence: 'medium', blob: 'y'.repeat(50) }, p),
     ],
     { commit: 'abc123', observedAt: '2026-01-01T00:00:00Z' },
   );
@@ -250,14 +253,26 @@ test('submit_handoff records a valid handoff and reports invalid ones', async ()
     schema_version: '1.0', run_id: 'run-abc', slice_id: null, agent: 'cartographer', status: 'complete',
     facts: [], proposals: [], uncertainties: [], conflicts: [], artifacts: [], recommended_next_state: 'MAPPED',
   };
+  const noRun = await c.call('submit_handoff', { handoff: good });
+  assert.equal(noRun.structuredContent.ok, false);
+  assert.match(noRun.structuredContent.errors[0].message, /no active Unknot run/);
+  const { startRun, endRun } = await import('../../../runtime/state/runs.mjs');
+  const { loadConfig } = await import('../../../runtime/policy/config.mjs');
+  const ctx = openProject(proj);
+  const run = startRun(ctx, { command: 'map', actor: 'human:test', config: loadConfig(ctx).config, configDigest: null });
   const ok = await c.call('submit_handoff', { handoff: good });
   assert.equal(ok.isError, undefined);
   assert.equal(ok.structuredContent.ok, true);
+  // The claimed run id is replaced by the active run, and the claim is kept as a warning.
+  assert.equal(ok.structuredContent.run_id, run.id);
+  assert.match(ok.structuredContent.warnings.join(' '), /run-abc/);
   const bad = await c.call('submit_handoff', { handoff: { ...good, agent: 'wizard' } });
   assert.equal(bad.structuredContent.ok, false);
   assert.ok(bad.structuredContent.errors.length > 0);
   const notObj = await c.request('tools/call', { name: 'submit_handoff', arguments: { handoff: 'x' } });
   assert.equal(notObj.error.code, -32602);
+  endRun(ctx, run.id, { outcome: 'completed', actor: 'human:test' });
+  ctx.store.close();
 });
 
 test('an uninitialised project yields an isError result pointing at /unknot:init', async () => {
@@ -275,4 +290,68 @@ test('oversized results are truncated and say so', async () => {
   assert.ok(r.content[0].text.length <= MAX_RESULT_TEXT);
   assert.match(r.structuredContent._truncated, /200 KB/);
   assert.ok(r.structuredContent.items.length < 20000);
+});
+
+const BULK = (i) => `file:bulk/${'d'.repeat(180)}/f${i}.cs`;
+
+test('graph_query: edges without an id, direction with an id, compact by default, full on request', async () => {
+  const edges = await c.call('graph_query', { edge_type: 'TESTS' });
+  assert.equal(edges.structuredContent.total, 1);
+  assert.deepEqual(edges.structuredContent.edges[0], { id: edges.structuredContent.edges[0].id, type: 'TESTS', from: BULK(0), to: BULK(1), via: 'name', confidence: 'medium', count: 1 });
+  const fullEdges = await c.call('graph_query', { edge_type: 'TESTS', full: true });
+  assert.equal(fullEdges.structuredContent.edges[0].attrs.blob.length, 50);
+  const inOnly = await c.call('graph_query', { id: 'module:src/b.ts', direction: 'in' });
+  assert.deepEqual(inOnly.structuredContent.edges.map((e) => e.from), ['module:src/a.ts']);
+  const byPath = await c.call('graph_query', { id: 'src/b.ts', direction: 'out' });
+  assert.equal(byPath.structuredContent.node.id, 'module:src/b.ts');
+  const both = await c.call('graph_query', { type: 'module', edge_type: 'IMPORTS' });
+  assert.equal(both.isError, true);
+
+  const compact = await c.call('graph_query', { type: 'file', limit: 1 });
+  assert.deepEqual(Object.keys(compact.structuredContent.nodes[0]).sort(), ['attrs', 'id', 'name', 'path', 'type']);
+  assert.deepEqual(compact.structuredContent.nodes[0].attrs, { language: 'csharp', loc: 0 });
+  const full = await c.call('graph_query', { type: 'file', limit: 1, full: true });
+  assert.ok(full.structuredContent.nodes[0].fact_ids);
+  assert.equal(full.structuredContent.nodes[0].attrs.blob.length, 200);
+});
+
+test('graph_query: default limit 50, byte cap marks truncation and says how to narrow', async () => {
+  const dflt = await c.call('graph_query', { type: 'file' });
+  assert.equal(dflt.structuredContent.total, 250);
+  assert.ok(dflt.structuredContent.nodes.length <= 50);
+  const broad = await c.call('graph_query', { type: 'file', limit: 200, full: true });
+  const s = broad.structuredContent;
+  assert.equal(s.truncated, true);
+  assert.equal(s.total, 250);
+  assert.equal(s.total_before_cut.nodes, 200);
+  assert.ok(s.returned.nodes < 200);
+  assert.match(s.hint, /limit/);
+  assert.ok(Buffer.byteLength(JSON.stringify(s)) <= 42_000);
+  const small = await c.call('graph_query', { type: 'module' });
+  assert.equal(small.structuredContent.truncated, undefined);
+});
+
+test('graph_hubs: edge_types union, scope, within and a consistent limit; graph_neighbourhood compact nodes', async () => {
+  const one = await c.call('graph_hubs', { edge_type: 'IMPORTS' });
+  assert.equal(one.structuredContent.edge_type, 'IMPORTS');
+  const union = await c.call('graph_hubs', { edge_types: ['IMPORTS', 'TESTS'], scope: ['bulk'] });
+  assert.deepEqual(union.structuredContent.edge_types, ['IMPORTS', 'TESTS']);
+  const files = await c.call('graph_hubs', { edge_types: ['IMPORTS'], scope: ['src/b.ts', 'src/c.ts'] });
+  assert.deepEqual(files.structuredContent.fan_in.map((x) => x.id).sort(), ['module:src/b.ts', 'module:src/c.ts']);
+  const within = await c.call('graph_hubs', { scope: ['src/b.ts', 'src/c.ts'], within: true });
+  assert.deepEqual(within.structuredContent.fan_in, [{ id: 'module:src/c.ts', n: 1 }]);
+  const none = await c.call('graph_hubs', { scope: ['src/nothing'] });
+  assert.match(none.structuredContent.warning, /matched 0/);
+  const bad = await c.call('graph_hubs', { edge_type: 'NOPE' });
+  assert.equal(bad.isError, true);
+  assert.equal((await c.call('graph_hubs', { limit: 200 })).isError, undefined);
+  assert.equal((await c.request('tools/call', { name: 'graph_hubs', arguments: { limit: 201 } })).error?.code, -32602);
+  assert.equal((await c.request('tools/call', { name: 'graph_hubs', arguments: { scope: 'src' } })).error?.code, -32602);
+  assert.equal((await c.request('tools/call', { name: 'graph_hubs', arguments: { bogus: 1 } })).error?.code, -32602);
+
+  const hood = await c.call('graph_neighbourhood', { id: 'src/a.ts' });
+  assert.deepEqual(Object.keys(hood.structuredContent.nodes[0]).sort(), ['id', 'name', 'path', 'type']);
+  const hoodFull = await c.call('graph_neighbourhood', { id: 'module:src/a.ts', full: true });
+  assert.ok(hoodFull.structuredContent.nodes[0].fact_ids);
+  assert.equal((await c.request('tools/call', { name: 'graph_neighbourhood', arguments: { id: 'x', full: 'yes' } })).error?.code, -32602);
 });

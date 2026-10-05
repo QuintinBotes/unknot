@@ -21,7 +21,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '');
@@ -61,6 +61,9 @@ if (install === 'fresh') {
   must(sh('claude', ['plugin', 'install', 'unknot@unknot'], { env }), 'plugin install');
 } else if (install === 'local') {
   pluginArgs = ['--plugin-dir', ROOT, '--settings', JSON.stringify({ enabledPlugins: { 'unknot@quintinbotes': false } })];
+  // A parent Claude Code session with the plugin enabled puts the installed copy's bin/ on
+  // PATH; the hooks rightly refuse a bare `unknot` that is not this checkout's CLI.
+  env.PATH = (env.PATH ?? '').split(delimiter).filter((d) => !d || resolve(d) === join(ROOT, 'bin') || !existsSync(join(d, 'unknot'))).join(delimiter);
 } else if (install !== 'installed') {
   log(`unknown --install ${install}`);
   process.exit(2);
@@ -178,8 +181,11 @@ for (const [i, r] of repos.entries()) {
     if (j?.error) entry.failures.push(`map --json: ${j.error.code}: ${j.error.message}`);
     else if (j) {
       entry.map = { status: j.status, files: j.files, failure_count: j.failure_count, notices: j.notices ?? [] };
-      if (j.status !== 'complete' || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
-      if (j.notices?.length) entry.failures.push(`map notices: ${j.notices.join(' | ').slice(0, 300)}`);
+      // Partial only because a language has no dedicated adapter is expected, not a failure.
+      const lexicalOnly = j.status === 'partial' && !j.failure_count && (j.unavailable ?? []).every((u) => String(u.id ?? u.adapter).startsWith('language:'));
+      if ((j.status !== 'complete' && !lexicalOnly) || j.failure_count) entry.failures.push(`map: ${j.status}, ${j.failure_count} failures`);
+      const notices = (j.notices ?? []).filter((n) => !n.startsWith('language coverage:'));
+      if (notices.length) entry.failures.push(`map notices: ${notices.join(' | ').slice(0, 300)}`);
     }
   }
   if (changeFor(r, i)) {

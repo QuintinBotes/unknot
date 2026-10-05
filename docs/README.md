@@ -12,6 +12,7 @@ Start with the [top-level README](../README.md) for what Unknot is, how to insta
 | [decomposition.md](decomposition.md) | Decide whether and how to split a backend or frontend monolith; read a recommendation |
 | [learning.md](learning.md) | See how accept and reject decisions tune ranking and thresholds |
 | [adapters.md](adapters.md) | See what Unknot can read, at what confidence, and how to write an adapter |
+| [runtime-evidence.md](runtime-evidence.md) | Export traces and metrics from a hosted observability vendor into `evidence.*` files |
 | [faq.md](faq.md) | Find a quick answer |
 
 ## For security review

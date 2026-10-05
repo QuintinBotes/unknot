@@ -39,7 +39,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
 
-1. *TTY check inside the command.* `approve`, `attest`, `keys generate`, `config accept`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
+1. *TTY check inside the command.* `approve`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
 2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
 
 ## Command summary
@@ -63,6 +63,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | `rollback` | Removes a worktree, or creates a revert branch | no | `/unknot:rollback` |
 | `accept`, `reject` | Appends to `.unknot/decisions.jsonl` | only via a person's prompt | `/unknot:accept`, `/unknot:reject` |
 | `doctor` | Read-only | no | `/unknot:doctor` |
+| `cli` | `install` and `uninstall` write or remove a launcher outside the project | install/uninstall yes (TTY check) | none |
 | `learn` | `propose` writes `config.proposed.yaml` | no | `/unknot:learn` |
 | `exec` | Runs a configured command in the sandbox | no | none |
 | `pattern`, `graph`, `slice` | Read-only | no | none |
@@ -82,7 +83,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 ### `unknot init`
 
-Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Maven, Gradle and Makefile projects (it reads files and runs nothing), creates `.unknot/`, and writes `.unknot/config.proposed.yaml` with `mode: plan`. Records a `config.proposed` ledger event. Flag: `--json` (proposal and detected commands).
+Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Maven, Gradle and Makefile projects (it reads files and runs nothing), creates `.unknot/`, and writes `.unknot/config.proposed.yaml` with `mode: plan` (nothing is activated; a read-only assessment needs nothing more). Records a `config.proposed` ledger event. It says what `.unknot/` is for and whether git already ignores it. Flag: `--json` (proposal, detected commands and `state_dir: { path, ignored, exclude_line }`).
 
 ### `unknot config show | diff | accept`
 
@@ -98,9 +99,13 @@ Prompts for a passphrase twice (minimum 8 characters), writes an Ed25519 key pai
 
 Organization policy bundles. `keygen` and `sign` are human-only (passphrase at least 12 characters). `verify` exits 1 if the signature or content is invalid. `effective` prints the effective config and what org policy changed; accepts `--json`. See [configuration.md](configuration.md#organization-policy).
 
+### `unknot cli status | install | uninstall [--dir <dir>]`
+
+Reaches the CLI from a normal terminal. `status` prints the CLI path, the launcher location and whether its directory is on `PATH`. `install` (human) writes a small launcher (default `~/.local/bin/unknot`) that runs the newest installed plugin version, or the checkout it was installed from, with the same arguments, stdio and exit code; it refuses to overwrite a file it did not write. `uninstall` (human) removes it only if unknot wrote it. On Windows both print instructions instead.
+
 ### `unknot doctor`
 
-Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, registered approvers, adapters and the hook error log. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
+Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
 
 ## Understanding the system
 
@@ -133,14 +138,17 @@ Detector problems are listed, not hidden.
 
 Prints a finding as JSON keyed by the ten questions: `1_what`, `2_evidence` (each item with its provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
 
-### `unknot decompose [scope...]`
+### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`
 
-See [decomposition.md](decomposition.md).
+See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since); `show` prints one with its metrics, evidence, rejections and readiness table.
 
 | Flag | Meaning |
 |---|---|
 | `--target backend\|frontend\|auto` | Default `auto`: backend if there are at least two non-frontend modules, frontend if at least two frontend modules. |
 | `--driver <id>` | Record a driver for this run. Repeatable. Drivers in `decomposition.drivers` are always included. |
+| `--driver-source <url or document>`, `--driver-quote "<sentence>"` | Where the person's driver comes from, recorded as `driver_provenance`. |
+| `--summary` | One line per candidate: id, name, size, treatment, confidence, and why the next more invasive treatment was rejected. |
+| `--dry-run` | Compute and print; write no records and allocate no ids. |
 | `--json`, `--full` | JSON summary; `--full` adds per-recommendation details. |
 
 ### `unknot architecture [scope...]`
@@ -151,9 +159,18 @@ Writes C4-style views, a style classification and (if the graph has one) a Struc
 
 Read-only reports built from the graph. `database`: engines, migrations by framework, tables and writers, shared-writer tables, hazardous migrations with lock forecasts, catalog evidence age, and required invariants (listed as declared or missing; Unknot never invents one). `infrastructure`: declared resources, state backends, imported plans, drift, public exposure, IAM wildcards, and which layers of the state hierarchy are present. `security`: the threat checklist from spec §16.1 with evidence or "none in graph", secret findings (kind and location only), privilege paths, trust boundaries; given a slice id, also that slice's security delta. All accept `--json`.
 
-### `unknot graph stats | nodes [type] | node <id> | edges [type] | cycles [EDGE_TYPE]`
+### `unknot graph stats | nodes [type] | node <id> | edges | cycles | hubs | neighbourhood`
 
-Queries the graph. `cycles` defaults to `IMPORTS`. Flag `--limit N` (default 50), `--json` for `nodes`, `edges`, `cycles`. `node` includes provenance of each fact.
+Queries the graph. Flag `--limit N` (default 50) applies to every listing; a flag that needs a value and has none is an error. `--json` for all but `stats` and `node`, which always print JSON. `node` includes provenance of each fact. Wherever an id is expected a module path works (`src/x.cs` for `module:src/x.cs`).
+
+- `edges [TYPE] [--type T[,T2]] [--from <id|path>] [--to <id|path>]`: edges filtered by type, source and target.
+- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph.
+- `hubs [EDGE] [--type T1,T2] [--within] [scope...]`: top fan-in and fan-out over the union of the edge types (default `IMPORTS`). Only in-scope modules are ranked; fan-in counts sources anywhere, or only in-scope ones with `--within`.
+- `neighbourhood <id|path|TypeName> [--depth N] [--type T,...]`: the subgraph around a node, depth 1 to 3 (default 1).
+
+Scope entries are the same everywhere: a path prefix, a glob, `ns:Namespace` or `seed:Name~N`. A scope that matches nothing prints a warning. Table cells cap at 60 characters, ids are never cut.
+
+The MCP tools take the same filters: `graph_query` lists nodes by `type`, edges by `edge_type`, or one node's edges with `id` plus `edge_type`/`direction`; results are compact unless `full: true`, default limit 50 (at most 200), and a result over about 40 KB is cut with `truncated: true` and a hint. `graph_hubs` takes `edge_types`, `scope` and `within`; `graph_neighbourhood` takes the same byte cap.
 
 ### `unknot pattern list [--category c] [--treatment T] | show <id> | fit <id> --signals '<json>'`
 
@@ -191,6 +208,14 @@ A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
 
 Shows the objective, risk, required roles, scope, commit or diff hash, policy digest and expiry. You type the slice id to confirm, then the approver key's passphrase. Records an Ed25519 signature over that binding. Stage defaults from the slice state: `plan` while awaiting approval, `change` when `REVIEW_READY`, `rollback` when `ACCEPTED`. When the `change` stage is fully approved the slice becomes `ACCEPTED`; in `governed` or `campaign` mode Unknot also commits in the slice worktree. It never pushes or merges. A high or critical slice cannot be approved by the person who proposed it.
 
+### `unknot approve --lane <LN-id> --as <approver> [--role <role>]` (human)
+
+Approves the changes of every slice of a lane that is `REVIEW_READY`, one change approval per slice bound to its own diff, with one confirmation and one passphrase. Read `unknot lane review <LN-id>` first.
+
+### `unknot lane approve <CMP-id> --as <approver> [--kinds deletion,tests] [--max-files N] [--max-lines N] [--expires 72h]` (human), `lane status [LN-id | CMP-id]`, `lane review <LN-id>`, `lane revoke <LN-id> [--reason "..."]` (human)
+
+A lane is one signed plan approval for the low-risk slices of a campaign: low risk, one required role, no protected paths. `approve` lists what it covers and what it leaves out, then signs it; inside it the agent applies and verifies covered slices without asking per slice (`/unknot:lane`), and `apply finish` refuses a patch that is not deletion-only or test-only within the caps (defaults: both kinds, 5 files, 60 lines, never above the configured limits). `status` shows each lane, whether it is still valid and the state of its slices; `review` prints the diffs of its slices that are ready for review. A replanned slice, a configuration change, expiry or `revoke` ends coverage. See [security-model.md](security-model.md#approvals).
+
 ### `unknot apply <slice> [start | finish | replan | abandon] [--reason "..."]`
 
 - `start` (default): needs mode `assist` or higher, no uncommitted changes to tracked files in the main checkout (untracked files and `.unknot/` are ignored), satisfied preconditions, and a fully approved plan. A plan approval is bound to the commit at `HEAD` when you approved, so a new commit between `approve` and `apply` makes it stale and you approve again. Creates the worktree and branch from the approved commit, runs `commands.test_unit` there as a baseline (it must pass; with none configured, behaviour preservation will need human attestation), and moves the slice to `PATCHING`. Edits are then confined to that worktree and the slice scope by the hooks.
@@ -218,7 +243,7 @@ For a slice in `PATCHING`, `VERIFICATION_FAILED` or `REVIEW_READY`: marks it `RO
 
 ### `unknot run start <command> | end [id] | show [id]`
 
-Run lifecycle. Hooks enforce policy only while a run is active. Normally `/unknot:` commands start and end runs for you. `end` is human-only because ending a run lifts enforcement; `start` and `show` are blocked from an agent's shell too. Flags: `--slice <id>`, `--supersede`, `--outcome <text>`, `--json`.
+Run lifecycle. Hooks enforce policy only while a run is active, and only in the session that started it. Normally `/unknot:` commands start and end runs for you; a read-only command's run left open by an interrupted turn ends with your next message. `end` is human-only because ending a run lifts enforcement; `start` and `show` are blocked from an agent's shell too. Flags: `--slice <id>`, `--supersede`, `--outcome <text>`, `--json`.
 
 ## Learning
 

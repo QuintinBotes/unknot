@@ -288,6 +288,22 @@ test('dependency-cycle: one finding per component with the shortest cycle, none 
   assert.deepEqual(run('module.dependency-cycle', [...files, imp('src/d.js', 'src/e.js'), imp('src/a.js', 'src/b.js')]), []);
 });
 
+test('dependency-cycle: a cycle closed only by an unused member says so and ranks lower; a surviving cycle lists unused links', () => {
+  const files = ['a', 'b', 'c'].map((n) => mod(`src/${n}.cs`));
+  const unused = { declared_only: true, unused_member: '_orders' };
+  const only = run('module.dependency-cycle', [...files, imp('src/a.cs', 'src/b.cs'), imp('src/b.cs', 'src/a.cs', unused)]).filter((d) => d.kind === 'module.dependency-cycle');
+  assert.equal(only.length, 1);
+  assert.match(only[0].title, /closes only through src\/b\.cs's unused member _orders/);
+  assert.match(only[0].smallest_simplification, /remove the unused member/);
+  const normal = run('module.dependency-cycle', [...files, imp('src/a.cs', 'src/b.cs'), imp('src/b.cs', 'src/a.cs')]).filter((d) => d.kind === 'module.dependency-cycle');
+  assert.ok(only[0].factors.benefit < normal[0].factors.benefit);
+  // Two independent routes back: the declared-only link is not what closes the cycle.
+  const survive = run('module.dependency-cycle', [...files, imp('src/a.cs', 'src/b.cs'), imp('src/b.cs', 'src/a.cs'), imp('src/b.cs', 'src/c.cs'), imp('src/c.cs', 'src/b.cs', unused)]).filter((d) => d.kind === 'module.dependency-cycle');
+  assert.equal(survive.length, 1);
+  assert.doesNotMatch(survive[0].title, /unused member/);
+  assert.ok(survive[0].evidence.some((e) => /unused link/.test(e.summary)));
+});
+
 test('dependency-cycle: package-level cycles through condensation, none when imports are acyclic', () => {
   const m = (p) => mod(`src/${p}.js`);
   const facts = [m('ui/a'), m('ui/b'), m('core/x'), m('core/y'), m('db/z'), imp('src/ui/a.js', 'src/core/x.js'), imp('src/core/y.js', 'src/ui/b.js'), imp('src/core/x.js', 'src/db/z.js')];

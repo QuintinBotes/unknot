@@ -25,6 +25,13 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
     .map((cl, i) => {
       const members = new Set(cl.members);
       const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
+      const touching = cl.internal + cl.external;
+      const named = describeName(cl.members, graph);
+      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(m) ? partition.get(m) : null), self: partition.get(cl.members[0]) });
+      // Share of the affinity weight touching the candidate that stays inside, and that leaves it.
+      metrics.metrics['boundary.cohesion'] = +cl.cohesion.toFixed(3);
+      if (touching > 0) metrics.metrics['boundary.coupling'] = +(cl.external / touching).toFixed(3);
+      metrics.metrics['boundary.stability'] = +stab.toFixed(3);
       return {
         id: `C-${i + 1}`,
         modules: cl.members,
@@ -33,8 +40,10 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
         cohesion: +cl.cohesion.toFixed(3),
         stability: +stab.toFixed(3),
         robust: stab >= threshold,
-        metrics: boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(m) ? partition.get(m) : null), self: partition.get(cl.members[0]) }),
-        name: nameFor(cl.members),
+        metrics: { ...metrics.metrics, gaps: metrics.gaps },
+        details: metrics.details,
+        name: named.name,
+        name_basis: named.basis,
       };
     });
   return {
@@ -46,8 +55,41 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   };
 }
 
-/** Name a candidate after its longest common directory prefix (or most common dir). */
-export function nameFor(modules) {
+/** Fan-in of a module: modules importing it. */
+const fanIn = (graph, id) => new Set(graph.in(id, 'IMPORTS').map((e) => e.from)).size;
+
+/** Up to `n` members by fan-in (then path), as repository paths. */
+export function topFiles(graph, modules, n = 5) {
+  return modules.map((m) => ({ path: m.replace(/^module:/, ''), fan: graph ? fanIn(graph, m) : 0 }))
+    .sort((a, b) => b.fan - a.fan || a.path.localeCompare(b.path)).slice(0, n).map((x) => x.path);
+}
+
+const namespaceOf = (graph, id) => {
+  const a = graph?.node(id)?.attrs ?? {};
+  return [a.namespace, a.package].find((v) => typeof v === 'string' && v) ?? null;
+};
+
+/**
+ * Name a candidate: the longest namespace prefix shared by at least half of its members;
+ * otherwise the dominant directory below their common directory prefix.
+ * @returns {{name: string, basis: 'namespace'|'directory'}}
+ */
+export function describeName(modules, graph = null) {
+  const counts = new Map();
+  for (const m of modules) {
+    const ns = namespaceOf(graph, m);
+    if (!ns) continue;
+    const seg = ns.split('.');
+    for (let i = 1; i <= seg.length; i++) {
+      const pre = seg.slice(0, i).join('.');
+      counts.set(pre, (counts.get(pre) ?? 0) + 1);
+    }
+  }
+  const shared = [...counts].filter(([, c]) => c * 2 >= modules.length);
+  if (shared.length) {
+    shared.sort((a, b) => b[0].split('.').length - a[0].split('.').length || b[1] - a[1] || a[0].localeCompare(b[0]));
+    return { name: shared[0][0], basis: 'namespace' };
+  }
   const parts = modules.map((m) => m.replace(/^module:/, '').split('/').slice(0, -1));
   let prefix = parts[0] ?? [];
   for (const p of parts) {
@@ -55,13 +97,34 @@ export function nameFor(modules) {
     while (i < prefix.length && prefix[i] === p[i]) i++;
     prefix = prefix.slice(0, i);
   }
-  if (prefix.length) return prefix.join('/');
-  const counts = new Map();
+  const below = new Map();
   for (const p of parts) {
-    const k = p.slice(0, 2).join('/') || '.';
-    counts.set(k, (counts.get(k) ?? 0) + 1);
+    const k = p[prefix.length];
+    if (k !== undefined) below.set(k, (below.get(k) ?? 0) + 1);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? '.';
+  const top = [...below].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+  return { name: [...prefix, ...(top ? [top] : [])].join('/') || '.', basis: 'directory' };
+}
+
+/** Kept for callers that name a module list without a graph. */
+export const nameFor = (modules, graph = null) => describeName(modules, graph).name;
+
+/** Names unique within a run: a shared name gets the candidate's hub file appended. */
+export function disambiguate(candidates) {
+  const byName = new Map();
+  for (const c of candidates) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+  const used = new Set();
+  for (const [name, list] of byName) {
+    if (list.length < 2) continue;
+    for (const c of list) c.name = `${name} (hub ${(c.top_files?.[0] ?? c.modules[0]).split('/').pop()})`;
+  }
+  for (const c of candidates) {
+    let n = c.name;
+    for (let i = 2; used.has(n); i++) n = `${c.name} #${i}`;
+    c.name = n;
+    used.add(n);
+  }
+  return candidates;
 }
 
 function ownersOfTables(graph, cache) {
@@ -87,24 +150,47 @@ function ownersOfTables(graph, cache) {
 export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners, sccs, candidateOf, self }) {
   const m = {};
   const gaps = [];
+  // `details` carries the ids each metric was measured on, for the record's evidence.
+  const details = {};
   // IFN: members used from outside; reverse deps: imports from members into the rest.
+  // An import resolved only by namespace (or marked low confidence) is a guess, so it is
+  // not counted; imports into test modules are counted apart.
   const ifn = new Set();
-  let reverse = 0;
   let internalImports = 0;
+  let lowReverse = 0;
+  const reverseEdges = [];
+  const reverseTest = [];
+  const reverseTargets = new Map();
   for (const id of members) {
     for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') ifn.add(id);
     for (const e of graph.out(id, 'IMPORTS')) {
       const t = graph.node(e.to);
       if (t?.type !== 'module') continue;
       if (members.has(e.to)) internalImports++;
-      else reverse++;
+      else if (e.attrs?.via === 'namespace' || e.attrs?.confidence === 'low' || e.attrs?.low) lowReverse++;
+      else if (t.attrs?.is_test) reverseTest.push(e.id);
+      else {
+        reverseEdges.push(e.id);
+        reverseTargets.set(e.to, (reverseTargets.get(e.to) ?? 0) + 1);
+      }
     }
   }
   m['boundary.interface_count'] = ifn.size;
-  m['boundary.reverse_deps'] = reverse;
+  m['boundary.reverse_deps'] = reverseEdges.length;
+  m['boundary.reverse_deps_test'] = reverseTest.length;
+  if (lowReverse) {
+    m['boundary.reverse_deps_low_confidence'] = lowReverse;
+    gaps.push(`${lowReverse} import(s) from the candidate into the rest were resolved only by namespace (low confidence) and are not counted in reverse_deps`);
+  }
+  details.reverse_targets = [...reverseTargets].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([module, edges]) => ({ module, edges }));
+  details.evidence = {
+    'boundary.reverse_deps': reverseEdges,
+    'boundary.interface_count': [...ifn].sort(),
+  };
   m['boundary.size'] = members.size;
   // SW and CBJ from table ownership: a table is owned by whoever writes it most.
   let shared = 0;
+  const sharedTables = [];
   const ownedHere = new Set();
   let anyTables = false;
   for (const [table, users] of tableOwners) {
@@ -113,7 +199,10 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     anyTables = true;
     const here = writers.some((w) => members.has(w));
     const elsewhere = writers.some((w) => !members.has(w));
-    if (here && elsewhere) shared++;
+    if (here && elsewhere) {
+      shared++;
+      sharedTables.push(table);
+    }
     const counts = new Map();
     for (const w of writers) {
       const c = members.has(w) ? self : candidateOf(w);
@@ -124,6 +213,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   }
   if (anyTables) {
     m['boundary.shared_table_writers'] = shared;
+    details.evidence['boundary.shared_table_writers'] = sharedTables;
     let cbj = 0;
     for (const t of ownedHere) for (const e of [...graph.out(t, 'JOINS_WITH'), ...graph.in(t, 'JOINS_WITH')]) if (!ownedHere.has(e.from === t ? e.to : e.from)) cbj++;
     m['boundary.cross_joins'] = cbj;
@@ -135,13 +225,18 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   // CCL: share of co-change weight that crosses the boundary.
   let inside = 0;
   let crossing = 0;
+  const leaks = [];
   for (const id of members) {
     for (const e of [...graph.out(id, 'CO_CHANGES'), ...graph.in(id, 'CO_CHANGES')]) {
       const other = e.from === id ? e.to : e.from;
       if (members.has(other)) inside += e.attrs.degree ?? 0;
-      else crossing += e.attrs.degree ?? 0;
+      else {
+        crossing += e.attrs.degree ?? 0;
+        leaks.push(e.id);
+      }
     }
   }
+  details.evidence['module.co_change_leak'] = leaks;
   if (inside + crossing > 0) m['module.co_change_leak'] = +(crossing / (inside + crossing)).toFixed(3);
   else gaps.push('no co-change history in the window: co_change_leak unknown');
   // OA: largest single-owner share.
@@ -155,19 +250,36 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     }
   }
   if (owned) {
+    const top = [...owners].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+    details.evidence['ownership.alignment'] = [...members].filter((id) => graph.out(id, 'OWNED_BY')[0]?.to === top).sort();
     m['ownership.alignment'] = +(maxOf(owners.values()) / members.size).toFixed(3);
     m['owners.count'] = owners.size;
   } else gaps.push('no ownership facts (CODEOWNERS/catalog): ownership alignment unknown');
   // Requests interceptable: the candidate exposes routable entry points.
-  let endpoints = 0;
+  // The seam may also be inbound runtime evidence: a traced service or endpoint whose code
+  // root maps into the candidate shows that requests reach it.
+  const seams = [];
   for (const id of members) {
-    endpoints += graph.out(id, 'EXPOSES').length;
-    for (const c of graph.children(id)) endpoints += graph.out(c.id, 'EXPOSES').length;
+    for (const e of graph.out(id, 'EXPOSES')) seams.push(e.id);
+    for (const c of graph.children(id)) for (const e of graph.out(c.id, 'EXPOSES')) seams.push(e.id);
   }
-  m['requests.interceptable'] = endpoints > 0 ? 1 : 0;
+  const memberPaths = [...members].map((id) => graph.node(id)?.path ?? id.slice(7));
+  const traced = (n) => n.attrs?.span_count > 0 || n.attrs?.calls > 0 || n.attrs?.request_count > 0 || graph.in(n.id, 'RUNTIME_CALLS').length > 0;
+  for (const n of [...graph.nodes('service'), ...graph.nodes('endpoint')]) {
+    const root = typeof n.attrs?.code_root === 'string' ? n.attrs.code_root.replace(/^\.\//, '').replace(/\/$/, '') : '';
+    if (root && root !== '.' && traced(n) && memberPaths.some((p) => p.startsWith(`${root}/`))) seams.push(n.id);
+  }
+  m['requests.interceptable'] = seams.length > 0 ? 1 : 0;
+  details.evidence['requests.interceptable'] = seams;
+  if (!seams.length) gaps.push('no routable seam (HTTP route or queue entry) visible in this repository: a caller in another repository or a gateway would show an existing seam; import its traces (evidence.traces) or a catalog that names the endpoints (evidence.catalogs)');
   // Cycles touching the candidate.
   let tests = 0;
-  for (const id of members) tests += graph.in(id, 'TESTS').length;
+  const testEdges = [];
+  for (const id of members) {
+    tests += graph.in(id, 'TESTS').length;
+    for (const e of graph.in(id, 'TESTS')) testEdges.push(e.id);
+  }
+  details.evidence['tests.present'] = testEdges;
   m['tests.present'] = tests;
   m['boundary.internal_imports'] = internalImports;
   // A cycle that crosses the boundary blocks extraction; one wholly inside it does not
@@ -175,6 +287,10 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const touching = (sccs ?? stronglyConnected(graph, { edgeTypes: ['IMPORTS'] })).filter((c) => c.some((x) => members.has(x)));
   const crossingCycles = touching.filter((c) => c.some((x) => !members.has(x)));
   m['cycle.size'] = crossingCycles.length ? Math.max(...crossingCycles.map((c) => c.length)) : 0;
+  const worst = crossingCycles.slice().sort((a, b) => b.length - a.length)[0] ?? [];
+  const inCycle = new Set(worst);
+  const closing = worst.flatMap((x) => graph.out(x, 'IMPORTS').filter((e) => inCycle.has(e.to) && members.has(x) !== members.has(e.to)).map((e) => e.id));
+  details.evidence['cycle.size'] = [...worst, ...closing];
   m['boundary.internal_cycle_size'] = touching.length ? Math.max(...touching.filter((c) => c.every((x) => members.has(x))).map((c) => c.length), 0) : 0;
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
   const consumers = new Set();
@@ -187,6 +303,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     contracts += eps.filter((e) => graph.node(e.to)?.attrs?.contract).length;
   }
   m['module.consumers'] = consumers.size;
+  details.evidence['module.consumers'] = [...consumers].sort();
   if (endpointsTotal) m['contracts.present'] = contracts > 0 ? 1 : 0;
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
   const common = dirs.reduce((a, b) => {
@@ -204,5 +321,5 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const perRequest = services.flatMap((sv) => graph.out(sv.id, 'RUNTIME_CALLS').map((e) => e.attrs.per_request_p95 ?? 0));
   if (perRequest.length) m['boundary.calls_per_request_p95'] = Math.max(...perRequest);
   else if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
-  return { ...m, gaps };
+  return { metrics: m, gaps, details };
 }

@@ -27,7 +27,7 @@ export function openProject(cwd = process.cwd(), { create = false, readOnly = fa
   const paths = projectPaths(root);
   if (!isInitialized(root)) {
     if (!create) {
-      throw new UnknotError('UK_NOT_INITIALIZED', `no .unknot directory at ${root}; run /unknot:init first`, {
+      throw new UnknotError('UK_NOT_INITIALIZED', `no .unknot directory at ${root}; run /unknot:init. It writes only a proposal, and a read-only assessment (map, diagnose, decompose, explain) needs nothing else`, {
         details: { root },
       });
     }

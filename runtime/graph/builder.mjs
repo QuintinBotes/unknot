@@ -10,6 +10,7 @@ import { canonicalJSON, digest } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { matchAny } from '../core/glob.mjs';
+import { parseScope } from '../core/scope.mjs';
 import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
@@ -58,12 +59,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const workers = defaultWorkers(config.limits.workers);
   const perFile = new Map(); // path → facts (all adapters)
   const failures = [];
-  const stats = { files: cen.files.length, by_kind: cen.byKind, cached: 0, extracted: 0, adapters: {} };
+  const stats = { files: cen.files.filter((f) => !f.context).length, by_kind: cen.byKind, cached: 0, extracted: 0, adapters: {} };
   const filesByPath = new Map(cen.files.map((f) => [f.path, f]));
   const getIndex = ctx.store.db.prepare('SELECT blob, adapter_version, config_digest, facts FROM file_index WHERE path = ? AND adapter = ?');
   const putIndex = ctx.store.db.prepare('INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, ?, ?, ?, ?)');
 
-  const addFacts = (path, facts) => {
+  const moduleBy = new Map(); // path → adapter id that produced its module fact
+  const addFacts = (path, facts, adapterId) => {
+    if (adapterId && !moduleBy.has(path) && facts.some((f) => f.kind === 'node' && f.type === 'module')) moduleBy.set(path, adapterId);
     let list = perFile.get(path);
     if (!list) perFile.set(path, (list = []));
     list.push(...facts);
@@ -73,7 +76,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     if (!adapter.extract && !adapter.extractBatch) continue;
     const od = optionsDigest(adapter, config);
     const options = config.adapters?.[adapter.id] ?? {};
-    const files = cen.files.filter((f) => analysable(f) && matchAny(f.path, adapter.capabilities?.files ?? []));
+    // Repository-level context files (kept outside the scope) go only to adapters that declare them.
+    const files = cen.files.filter((f) => analysable(f) && matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []));
     const misses = [];
     for (const f of files) {
       if (!f.blob) {
@@ -86,7 +90,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       }
       const hit = getIndex.get(f.path, adapter.id);
       if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === od) {
-        addFacts(f.path, JSON.parse(hit.facts));
+        addFacts(f.path, JSON.parse(hit.facts), adapter.id);
         stats.cached++;
       } else misses.push(f);
     }
@@ -135,7 +139,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           const entry = filesByPath.get(r.path);
           if (entry && !entry.blob) entry.blob = r.blob;
           if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
-          addFacts(r.path, facts);
+          addFacts(r.path, facts, adapter.id);
           stats.extracted++;
           extracted++;
         }
@@ -235,6 +239,18 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     }
   }
 
+  const ps = parseScope(scope);
+  if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
+  const coverage = languageCoverage(cen.files, perFile, moduleBy);
+  const totalSource = coverage.reduce((n, c) => n + c.files, 0);
+  coverage.forEach((c, i) => {
+    if (c.quality !== 'lexical') return;
+    const dominant = i === 0;
+    const reason = `no dedicated adapter for ${c.language} (${c.files} of ${totalSource} source files): lexical extraction; imports and type references are matched by name, not resolved by a compiler, and most calls are not seen`;
+    if (dominant) unavailable.push({ id: `language:${c.language}`, adapter: `language:${c.language}`, reason });
+    else notes.push(`language coverage: ${c.language} (${c.files} source files) is read lexically, without a dedicated adapter`);
+  });
+
   const all = [...fileFacts, ...global];
   const projection = project(ctx, all, { commit, observedAt });
   const summary = {
@@ -246,6 +262,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     cache: { hits: stats.cached, extracted: stats.extracted, hit_rate: stats.cached + stats.extracted ? +(stats.cached / (stats.cached + stats.extracted)).toFixed(3) : null },
     adapters: stats.adapters,
     unavailable,
+    coverage,
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
@@ -258,6 +275,28 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   };
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
   return summary;
+}
+
+/**
+ * Source files per language with the adapter that handled them and how: `syntax_tree`
+ * (parsed), `degraded` (parsed with fallbacks) or `lexical` (name matching only). Most files first.
+ */
+export function languageCoverage(files, perFile, moduleBy) {
+  const by = new Map();
+  for (const f of files) {
+    if (f.kind !== 'source' || f.context) continue;
+    const mod = (perFile.get(f.path) ?? []).find((x) => x.kind === 'node' && x.type === 'module');
+    const pq = mod?.attrs?.parse_quality;
+    const quality = !mod ? 'none' : pq === 'lexical' ? 'lexical' : pq === 'degraded' ? 'degraded' : 'syntax_tree';
+    const g = by.get(f.language) ?? { language: f.language, files: 0, adapters: new Map(), quals: new Map() };
+    g.files++;
+    const a = moduleBy.get(f.path) ?? 'none';
+    g.adapters.set(a, (g.adapters.get(a) ?? 0) + 1);
+    g.quals.set(quality, (g.quals.get(quality) ?? 0) + 1);
+    by.set(f.language, g);
+  }
+  const top = (m) => [...m].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1))[0][0];
+  return [...by.values()].sort((a, b) => b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals) }));
 }
 
 function historyFacts(root, config, sourcePaths) {

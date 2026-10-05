@@ -7,14 +7,16 @@ import { join } from 'node:path';
 import { canonicalJSON } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { assertArtifact } from '../core/schema.mjs';
+import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { globalSignals } from '../diagnose/signals.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { buildAffinity } from './affinity.mjs';
-import { findCandidates, nameFor } from './candidates.mjs';
+import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
-import { selectTreatment } from './select.mjs';
+import { fingerprintIndex, fingerprintOf, currentGeneration } from './records.mjs';
+import { readinessFor, selectTreatment } from './select.mjs';
 
 const OBLIGATION_KINDS = new Set(['characterization', 'parse', 'lint', 'typecheck', 'unit', 'integration', 'contract', 'architecture-fitness', 'security-scan', 'secrets-scan', 'migration-rehearsal', 'reconciliation', 'infra-plan', 'performance', 'smoke', 'rollback-rehearsal', 'human-review', 'api-compatibility', 'no-new-cycles', 'diff-budget', 'scope-check']);
 
@@ -40,7 +42,9 @@ function firstSlice(treatment, cand, sel) {
       objective: `Establish ${sel.prepare.join(', ')} for ${where} so the decomposition decision can be made on evidence`,
       change_shape: 'tests, instrumentation and ownership records only; no structural change and no data moves',
       pattern_step: 'Gather the missing evidence before choosing a treatment',
-      scope: { include: cand.modules.slice(0, 50).map((m) => m.slice(7)), exclude: [] },
+      scope: { include: cand.modules.map((m) => m.slice(7)), exclude: [] },
+      include_total: cand.modules.length,
+      truncated: false,
       sequence: sel.sequence,
       prerequisite: null,
     };
@@ -50,7 +54,9 @@ function firstSlice(treatment, cand, sel) {
     objective: templates[treatment].objective,
     change_shape: templates[treatment].changes,
     pattern_step: step,
-    scope: { include: cand.modules.slice(0, 50).map((m) => m.slice(7)), exclude: [] },
+    scope: { include: cand.modules.map((m) => m.slice(7)), exclude: [] },
+      include_total: cand.modules.length,
+      truncated: false,
     sequence: sel.sequence,
     prerequisite: sel.sequence[0] === 'characterization' ? 'Add characterization tests that pin current behaviour of the scope before any structural change' : null,
   };
@@ -64,23 +70,47 @@ function obligationsFor(sel) {
   return [...new Set(kinds)];
 }
 
+
+const MEMBER_SIGNAL = /^(boundary|module|ownership|owners|requests|cycle|tests|layer|frontend)\./;
+const EVIDENCE_CAP = 20;
+
+/** Ids a favouring signal was measured on: its own evidence, else the candidate's members. */
+function evidenceFor(signal, cand) {
+  const own = cand.details?.evidence?.[signal];
+  if (own?.length) return own.slice(0, EVIDENCE_CAP);
+  return MEMBER_SIGNAL.test(signal) ? cand.modules.slice(0, EVIDENCE_CAP) : [];
+}
+
+function provenanceFor(config, cliDrivers, allDrivers, given) {
+  const byId = new Map((config.decomposition.drivers ?? []).map((d) => [d.id, { source: d.source ?? null, quote: d.quote ?? null }]));
+  if (given?.source || given?.quote) for (const id of cliDrivers) byId.set(id, { source: given.source ?? null, quote: given.quote ?? null });
+  return allDrivers.map((driver) => ({ driver, source: byId.get(driver)?.source ?? null, quote: byId.get(driver)?.quote ?? null }));
+}
+
 /**
  * @param {object} ctx
- * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[]}} opts
+ * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[], driverProvenance?: {source?: string, quote?: string}, dryRun?: boolean}} opts
  */
-export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [] }) {
+export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false }) {
   const graph = Graph.fromStore(ctx.store);
   if (!graph.size.nodes) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
   const allDrivers = [...new Set([...(config.decomposition.drivers ?? []).map((d) => d.id), ...drivers])];
   const effective = { ...config, decomposition: { ...config.decomposition, drivers: allDrivers.map((id) => ({ id })) } };
-  const inScope = (n) => !scope.length || scope.some((s) => (n.path ?? n.id.slice(7)).startsWith(s.replace(/\/$/, '')));
+  const inScope = scopePredicate(graph, scope);
+  const res = inScope.scope;
+  const scopeInfo = { entries: scope, matched: res.matched, total: res.total, unresolved: res.unresolved };
+  const warning = emptyScopeWarning(res);
+  // A scope that selects nothing (or names a seed that is not there) records nothing.
+  if (!res.all && (res.matched === 0 || res.unresolved.length)) return { targets: [], drivers: allDrivers, analyses: {}, recommendations: [], scope: scopeInfo, warning, dry_run: dryRun, details: [] };
   const source = graph.nodes('module').filter((n) => !n.attrs.is_test && !n.attrs.placeholder && inScope(n));
   const front = source.filter((n) => isFrontendModule(graph, n));
   const targets = target === 'auto' ? [source.length - front.length >= 2 ? 'backend' : null, front.length >= 2 ? 'frontend' : null].filter(Boolean) : [target];
   const global = globalSignals(graph, effective);
   const d = config.decomposition;
+  const gen = currentGeneration(ctx);
   const heuristics = [`weights structural=${d.weights.structural} data=${d.weights.data} evolutionary=${d.weights.evolutionary} semantic=${d.weights.semantic}`, `ownership_alignment>=${d.thresholds.ownership_alignment}`, `co_change_leak<=${d.thresholds.co_change_leak}`, `chatty_calls_p95<=${d.thresholds.chatty_calls_p95}`, `robustness>=${d.thresholds.robustness}`, `size_band=${d.size_band.join('-')}`];
-  const recommendations = [];
+  const provenance = allDrivers.length ? provenanceFor(config, drivers, allDrivers, driverProvenance) : [];
+  const work = [];
   const analyses = {};
   for (const t of targets) {
     const modules = (t === 'frontend' ? front : source.filter((n) => !isFrontendModule(graph, n))).map((n) => n.id);
@@ -90,42 +120,77 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
     analyses[t] = { modules: modules.length, affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
     const candidates = t === 'frontend' && fe?.groups.length >= 2
-      ? fe.groups.map((g, i) => ({ id: `R-${i + 1}`, name: `routes:/${g.name}`, modules: g.modules, size: g.modules.length, robust: true, stability: 1, cohesion: null, metrics: { 'boundary.size': g.modules.length, gaps: [] }, teams: g.teams }))
+      ? fe.groups.map((g, i) => ({ id: `R-${i + 1}`, name: `routes:/${g.name}`, name_basis: 'route', modules: g.modules, size: g.modules.length, robust: true, stability: 1, cohesion: null, metrics: { 'boundary.size': g.modules.length, gaps: [] }, teams: g.teams }))
       : found.candidates;
     for (const cand of candidates) {
-      const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, ...(fe?.signals ?? {}) };
-      if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
-      delete signals.gaps;
-      const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
-      const id = ctx.store.nextId('DEC', 4);
-      const card0 = card(sel.card);
-      const rec = {
-        schema_version: '1.0',
-        id,
-        target: t,
-        driver: allDrivers,
-        candidate: { id: cand.id, name: cand.name ?? nameFor(cand.modules), modules: cand.modules, robust: Boolean(cand.robust), metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))) },
-        treatment: sel.treatment,
-        favoring_signals: sel.favoring_signals,
-        contraindications_checked: sel.contraindications_checked,
-        rejected_treatments: sel.rejected_treatments.map(({ treatment, reason }) => ({ treatment, reason })),
-        evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`)])],
-        confidence: cand.robust ? sel.confidence : 'low',
-        first_slice: firstSlice(sel.treatment, { ...cand, name: cand.name ?? nameFor(cand.modules) }, sel),
-        proof_obligations: obligationsFor(sel),
-        recovery: { type: (card0.rollback_strategies ?? ['revert'])[0] ?? 'revert' },
-        irreversible: false,
-        retain_score: sel.treatment === 'T0' ? 1 : +Math.max(0, 1 - 0.25 * sel.favoring_signals.length).toFixed(2),
-        heuristics_used: heuristics,
-      };
-      assertArtifact('decomposition-recommendation', rec);
-      recommendations.push({ ...rec, evaluations: sel.evaluations, sequence: sel.sequence, serves: sel.serves, retain_reason: sel.retain_reason });
+      cand.top_files = topFiles(graph, cand.modules);
+      work.push({ t, cand, fe });
     }
   }
-  const dir = join(ctx.paths.base, 'decompositions');
-  mkdirSync(dir, { recursive: true });
-  for (const r of recommendations) writeFileSync(join(dir, `${r.id}.json`), `${JSON.stringify(JSON.parse(canonicalJSON(r)), null, 2)}\n`);
-  const summary = { targets, drivers: allDrivers, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence })) };
-  appendEvent(ctx, { type: 'decomposition.recommended', run_id: run?.id, actor: 'runtime:decompose', payload: summary });
+  disambiguate(work.map((w) => w.cand));
+  const known = fingerprintIndex(ctx);
+  const recommendations = [];
+  for (const { t, cand, fe } of work) {
+    const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, ...(fe?.signals ?? {}) };
+    if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
+    delete signals.gaps;
+    const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
+    const fingerprint = fingerprintOf({ target: t, drivers: allDrivers, modules: cand.modules });
+    const existing = known.get(fingerprint) ?? null;
+    // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
+    const id = existing ?? (dryRun ? 'new' : ctx.store.nextId('DEC', 4));
+    const card0 = card(sel.card);
+    const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason }) => ({ treatment, reason }));
+    const rec = {
+      schema_version: '1.0',
+      id: id === 'new' ? 'DEC-0000' : id,
+      fingerprint,
+      graph_generation: gen,
+      scope: { entries: scope, matched: res.matched, total: res.total },
+      target: t,
+      driver: allDrivers,
+      ...(provenance.length ? { driver_provenance: provenance } : {}),
+      candidate: {
+        id: cand.id,
+        name: cand.name,
+        name_basis: cand.name_basis,
+        top_files: cand.top_files,
+        modules: cand.modules,
+        robust: Boolean(cand.robust),
+        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))),
+        ...(cand.details?.reverse_targets ? { reverse_dependency_targets: cand.details.reverse_targets } : {}),
+      },
+      treatment: sel.treatment,
+      favoring_signals: sel.favoring_signals.map((f) => ({
+        ...f,
+        evidence: evidenceFor(f.signal, cand),
+        source: f.signal.startsWith('driver.') ? 'recorded driver (configuration or --driver)' : `measured: ${f.signal}, graph generation ${gen}`,
+      })),
+      contraindications_checked: sel.contraindications_checked,
+      rejected_treatments: rejectedTreatments,
+      readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
+      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`)])],
+      confidence: cand.robust ? sel.confidence : 'low',
+      ...(sel.treatment === 'T0' ? { retain_reason: sel.retain_reason } : { selection_reason: sel.selection_reason }),
+      first_slice: firstSlice(sel.treatment, cand, sel),
+      proof_obligations: obligationsFor(sel),
+      recovery: { type: (card0.rollback_strategies ?? ['revert'])[0] ?? 'revert' },
+      irreversible: false,
+      retain_score: sel.treatment === 'T0' ? 1 : +Math.max(0, 1 - 0.25 * sel.favoring_signals.length).toFixed(2),
+      heuristics_used: heuristics,
+    };
+    assertArtifact('decomposition-recommendation', rec);
+    recommendations.push({ ...rec, id, reused: Boolean(existing), evaluations: sel.evaluations, sequence: sel.sequence, serves: sel.serves });
+  }
+  if (!dryRun) {
+    const dir = join(ctx.paths.base, 'decompositions');
+    mkdirSync(dir, { recursive: true });
+    for (const r of recommendations) {
+      const { reused, ...body } = r;
+      writeFileSync(join(dir, `${r.id}.json`), `${JSON.stringify(JSON.parse(canonicalJSON(body)), null, 2)}\n`);
+    }
+  }
+  const summary = { targets, drivers: allDrivers, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
+  if (!dryRun) appendEvent(ctx, { type: 'decomposition.recommended', run_id: run?.id, actor: 'runtime:decompose', payload: summary });
   return { ...summary, details: recommendations };
 }

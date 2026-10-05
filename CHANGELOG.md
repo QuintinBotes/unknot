@@ -4,6 +4,75 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.11] - 2026-10-05
+
+### Added
+
+- Lanes: one signed plan approval for the low-risk slices of a campaign
+  (`unknot lane approve <CMP-id>`, human only). Inside a lane the agent applies and verifies
+  covered slices itself (`/unknot:lane`); each patch must only delete code or only change
+  tests, within a size cap. A replanned slice, a config change, expiry or `unknot lane revoke`
+  ends coverage. Changes are still accepted by a person: `unknot lane review`, then
+  `unknot approve --lane <LN-id>`.
+- One scope language for every command (`runtime/core/scope.mjs`): paths, globs,
+  `ns:<namespace>` and `seed:<module or type>~N` (a module and its import neighbourhood).
+- `unknot decompose list | show <DEC-id>`, `--dry-run`, `--summary`, `--driver-source` and
+  `--driver-quote` (recorded as driver provenance), and a per-candidate readiness table
+  (signal, value, threshold, missing evidence) for the treatments that were rejected.
+- `unknot graph neighbourhood <id|path|Type>`; `graph edges --type --from --to`; hubs over
+  several edge types; scoped hubs and cycles.
+- `unknot cli install | status | uninstall`: a stable `unknot` command for a normal terminal
+  that runs the newest installed version, so it survives upgrades. Doctor reports it.
+- Runtime metrics accept the Prometheus HTTP API JSON response; `docs/runtime-evidence.md`
+  explains how to export runtime evidence from hosted observability vendors.
+- `unknot init` detects .NET solutions below the root, proposes protection for Azure DevOps
+  pipelines anywhere and for central .NET build files, lists commands named in AGENTS.md,
+  CLAUDE.md or CONTRIBUTING.md as hints (never as commands), and says why when it detects
+  nothing. NuGet manifests count as dependency changes.
+
+### Changed
+
+- C# dependencies resolve at type level: a `using` links a file only to the files declaring
+  types it mentions, and same-namespace references now link too. Before, every `using` linked
+  to every file of the namespace. A dependency held only by an injected member that is never
+  used is marked, and a cycle that closes only through one says so and ranks lower. Fluent
+  Entity Framework mappings (`ToTable`) are recognised.
+- `map` reports per-language coverage and is `partial`, with the reason under `unavailable`,
+  when the dominant language is read lexically. Root CODEOWNERS files are read under any scope.
+- `decompose`: the scope matches the way `map` does and warns when it matches nothing;
+  record ids are stable across runs (fingerprint of target, drivers and members); candidates
+  are named by namespace or directory, with the hub file when names collide, and list their
+  top files; cohesion, coupling and stability are in the record; favouring signals cite the
+  ids they were measured on; `selection_reason` explains non-retain treatments; the first
+  slice lists every module; reverse dependencies leave out low-confidence imports and count
+  test targets separately; the strangler seam check says "visible in this repository" and
+  counts traced inbound calls.
+- Graph tools honour their filters, return compact results by default, and cap MCP results at
+  about 40 KB with a hint on how to narrow; table output never cuts ids.
+- The model may run `/unknot:init` (it only writes a proposal). The README Quickstart has a
+  read-only track that needs no accept, keys or approvers.
+- Human-only commands refused for lack of a terminal say so (Claude Code's `!` prefix is not
+  interactive) instead of blaming an agent, and hand-offs print how to reach the CLI.
+- A run governs only the session that started it, and a read-only command's run left open by
+  an interrupted turn ends with the next message.
+
+### Fixed
+
+- A slice starts only from its approved baseline: an existing `unknot/<slice>` branch at another
+  commit is refused instead of reused, and the diff budget (and a lane's shape check) is
+  measured on the staged patch against the baseline, which is what gets hashed and approved.
+  Accepting a change re-stages the worktree and refuses if it no longer matches the approved
+  diff. Found by an adversarial review of the lane design.
+- During a run, commands cannot be left running in the background, and wake-ups, monitors,
+  cron and remote triggers are refused: they would let work continue after the run's turn.
+- A shell command that only writes text mentioning `.unknot` into another file (a heredoc
+  appended to notes, a plain `cat`, `echo` or `printf` to a literal file) is no longer refused;
+  any other command that mentions `.unknot`, including one split by quotes, still is.
+- Hand-backs are bound to the active run: a made-up run id is replaced and kept as a warning,
+  `submit_handoff` outside a run is refused, and an agent that reported through
+  `submit_handoff` is not blocked for a missing block. Agent examples no longer carry a literal
+  run id.
+
 ## [0.1.10] - 2026-10-05
 
 ### Fixed

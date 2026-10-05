@@ -1,8 +1,10 @@
 // CLI plumbing shared by every command: argument parsing, who is acting, run lifecycle,
 // output (always redacted), and TTY-only prompts for human decisions.
 
-import { openSync, readSync, closeSync, writeSync } from 'node:fs';
+import { openSync, readSync, closeSync, writeSync, existsSync, realpathSync } from 'node:fs';
 import { userInfo } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
 import { redact } from '../core/redact.mjs';
 
@@ -47,12 +49,51 @@ export function currentActor() {
 
 export const isHuman = (actor) => actor.startsWith('human:');
 
-export function requireHumanTTY(what) {
-  if (process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT || !process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new UnknotError('UK_POLICY_DENIED', `${what} must be done by a human in an interactive terminal, not by an agent`, {
-      details: { policy: 'approval.human_only' },
-    });
+/** Absolute path of this plugin's `bin/unknot`. */
+export const cliPath = () => fileURLToPath(new URL('../../bin/unknot', import.meta.url));
+
+/** The `unknot` executable on PATH, or null. Inside Claude Code this is the versioned plugin bin. */
+export function unknotOnPath(env = process.env) {
+  for (const d of (env.PATH ?? '').split(delimiter)) {
+    const f = d && join(d, 'unknot');
+    if (f && existsSync(f)) return f;
   }
+  return null;
+}
+
+/** The `unknot` on PATH when it is a stable command: not a plugin checkout's or version's own bin/ (those move on upgrade). */
+export function stableUnknot(env = process.env) {
+  const found = unknotOnPath(env);
+  try {
+    return found && !existsSync(join(dirname(realpathSync(found)), '..', 'runtime', 'cli', 'main.mjs')) ? found : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The command a person should run in a terminal, plus how to reach the CLI when `unknot`
+ * is not a stable command there: the plugin's bin/ is on PATH only inside Claude Code and
+ * its installed path changes with every version.
+ */
+export function humanCommand(args = '') {
+  const a = Array.isArray(args) ? args.join(' ') : String(args);
+  const cmd = `unknot${a ? ` ${a}` : ''}`;
+  if (stableUnknot()) return cmd;
+  const abs = cliPath();
+  return `${cmd}\nIf unknot is not found in your terminal: node ${abs}${a ? ` ${a}` : ''}, or install it once: node ${abs} cli install`;
+}
+
+export function requireHumanTTY(what, { args = process.argv.slice(2) } = {}) {
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const agent = Boolean(process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT);
+  if (tty && !agent) return;
+  const [cmd, ...rest] = humanCommand(args).split('\n');
+  const why = !tty
+    ? 'no interactive terminal detected'
+    : 'this looks like an agent session (CLAUDECODE or CLAUDE_CODE_ENTRYPOINT is set), and approvals are for a person';
+  const message = `${what} must be done by a human in an interactive terminal: ${why}. Run \`${cmd}\` in a separate terminal window${tty ? '' : " (Claude Code's `!` prefix is not interactive)"}.`;
+  throw new UnknotError('UK_POLICY_DENIED', [message, ...rest].join('\n'), { details: { policy: 'approval.human_only' } });
 }
 
 /** Read a line from the controlling terminal, optionally without echo. */
@@ -85,11 +126,18 @@ export function output(value, { json = false, redactPatterns = [] } = {}) {
   process.stdout.write(redact(text, { extraPatterns: redactPatterns }).text);
 }
 
+const ID_COLUMNS = new Set(['id', 'from', 'to', 'src', 'dst']);
+const NODE_ID = /^[a-z][a-z_]*:\S+$/;
+
+/** Rows as aligned columns. Cells cap at 60 characters, except ids: the tail of an id is what tells two apart. */
 export function table(rows, columns) {
   if (!rows.length) return '(none)';
-  const widths = columns.map((c) => Math.min(60, Math.max(c.length, ...rows.map((r) => String(r[c] ?? '').length))));
-  const fmt = (vals) => vals.map((v, i) => String(v ?? '').slice(0, 60).padEnd(widths[i])).join('  ').trimEnd();
-  return [fmt(columns), fmt(widths.map((w) => '-'.repeat(w))), ...rows.map((r) => fmt(columns.map((c) => r[c])))].join('\n');
+  const text = (v) => String(v ?? '');
+  const whole = (c, v) => ID_COLUMNS.has(c) || NODE_ID.test(text(v));
+  const cell = (c, v) => (whole(c, v) ? text(v) : text(v).slice(0, 60));
+  const widths = columns.map((c) => Math.max(c.length, ...rows.map((r) => cell(c, r[c]).length)));
+  const fmt = (vals) => vals.map((v, i) => v.padEnd(widths[i])).join('  ').trimEnd();
+  return [fmt(columns), fmt(widths.map((w) => '-'.repeat(w))), ...rows.map((r) => fmt(columns.map((c) => cell(c, r[c]))))].join('\n');
 }
 
 /**

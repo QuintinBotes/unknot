@@ -18,8 +18,11 @@ export const DOC_PATHS = Object.freeze(['docs/architecture/**', 'docs/adr/**', '
 // Tools that neither read project content nor change anything outside the conversation.
 const INERT_TOOLS = new Set([
   'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop', 'AskUserQuestion',
-  'ToolSearch', 'Skill', 'EnterPlanMode', 'ExitPlanMode', 'ListMcpResourcesTool', 'ScheduleWakeup', 'Monitor',
+  'ToolSearch', 'Skill', 'EnterPlanMode', 'ExitPlanMode', 'ListMcpResourcesTool',
 ]);
+// Scheduling a later turn (wake-ups, monitors, cron, remote triggers) or leaving a command
+// running in the background would let work continue after the run's turn ends, where the run
+// no longer applies. These are unknown tools during a run, so they are denied by default.
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead']);
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const NET_TOOLS = new Set(['WebFetch', 'WebSearch']);
@@ -33,7 +36,7 @@ export function toOperation(toolName, input = {}, cwd) {
   const at = (p) => (p ? (isAbsolute(p) ? p : resolve(cwd ?? process.cwd(), p)) : null);
   if (READ_TOOLS.has(toolName)) return { op: 'fs.read', tool: toolName, paths: [at(input.file_path ?? input.path ?? input.notebook_path ?? '.')] };
   if (WRITE_TOOLS.has(toolName)) return { op: 'fs.write', tool: toolName, paths: [at(input.file_path ?? input.notebook_path)] };
-  if (toolName === 'Bash') return { op: 'exec', tool: toolName, command: String(input.command ?? '') };
+  if (toolName === 'Bash') return { op: 'exec', tool: toolName, command: String(input.command ?? ''), ...(input.run_in_background === true && { background: true }) };
   if (NET_TOOLS.has(toolName)) {
     let domain = 'web-search';
     if (toolName === 'WebFetch') {
@@ -73,8 +76,8 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
   }
   if (op.op === 'exec') {
     const cmd = op.command;
-    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock)\b/.test(cmd)) {
-      return deny('approval.human_only', 'approvals, keys, config acceptance and ending runs are done by a human in their own terminal');
+    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b/.test(cmd)) {
+      return deny('approval.human_only', "approvals, lanes, keys, config acceptance and ending runs are done by a person in a separate terminal window (Claude Code's ! prefix is not interactive); hand the exact command to the user");
     }
     if (/(^|[\s;|&])(sqlite3?|python3?|node|perl|ruby)\b[^\n]*\.unknot\/state/.test(cmd) || /\.config\/unknot|UNKNOT_HOME=/.test(cmd)) {
       return deny('state.protected', 'direct access to Unknot state or key material is not allowed');
@@ -82,7 +85,7 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
     const shell = judgeShell(cmd, { pluginRoot });
     // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
     // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
-    if (/\.unknot(\/|\b)/i.test(cmd) && !shell.allow) {
+    if (mentionsState(cmd, shell) && !shell.allow) {
       return deny('state.protected', 'commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI');
     }
     const touched = [...shell.writes];
@@ -98,6 +101,33 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
     }
   }
   return null;
+}
+
+const STATE_MENTION = /\.unknot(\/|\b)/i;
+// Programs that only print what they are given (no option of theirs writes a file).
+const PRINTERS = new Set(['cat', 'echo', 'printf']);
+
+/**
+ * Whether a shell command mentions .unknot where a program could act on it. A command line made
+ * only of plain printers writing to literal files (`cat >> notes.md <<EOF` with .unknot in the
+ * body) just prints text, so only its redirect targets count. Anything else counts every
+ * mention, in the raw text or in any parsed word (quotes removed, so `.unk''not` is seen).
+ */
+function mentionsState(cmd, shell) {
+  const parsed = !shell.commands.some((c) => c.argv[0]?.value === '<unparseable-shell>');
+  const words = (c) => [...c.argv.map((w) => w.value), ...c.assignments.map((a) => a.value.value), ...c.redirects.map((r) => r.target?.value ?? ''), ...c.redirects.map((r) => r.heredoc ?? '')];
+  const mentioned = STATE_MENTION.test(cmd) || (parsed && shell.commands.some((c) => words(c).some((t) => STATE_MENTION.test(t))));
+  if (!mentioned) return false;
+  if (!parsed || !shell.commands.length) return true;
+  const printOnly = shell.commands.every((c) => {
+    const name = c.argv[0]?.value?.split('/').pop();
+    const ctx = c.context ?? {};
+    if (!PRINTERS.has(name) || ctx.pipeline || ctx.substitution || ctx.viaWrapper || ctx.fromStdin || c.assignments.length) return false;
+    if (name === 'printf' && c.argv.some((w) => /^-v/.test(w.value))) return false;
+    return c.redirects.every((r) => (r.heredoc !== undefined ? !r.heredocDynamic : !r.target?.dynamic && !r.target?.glob));
+  });
+  if (!printOnly) return true;
+  return shell.commands.some((c) => [c.argv[0]?.value ?? '', ...c.redirects.filter((r) => r.heredoc === undefined).map((r) => r.target?.value ?? '')].some((t) => STATE_MENTION.test(t)));
 }
 
 // Compared case-insensitively: on case-insensitive filesystems `.unknot/DECISIONS.jsonl`
@@ -156,6 +186,7 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
     case 'fs.write':
       return decideWrite({ ctx, config, run, slice, profile, capability, op, base });
     case 'exec': {
+      if (op.background) return deny('exec.background', 'commands run in the foreground during an Unknot run: a background command would outlive the run that governs it', base);
       const verdict = judgeShell(op.command, { pluginRoot });
       if (!verdict.allow) return deny('exec.shell', verdict.reasons.join('; '), base);
       const home = realpathLenient(unknotHome());
@@ -200,7 +231,7 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
 }
 
 function mainProfile(command) {
-  if (command === 'apply') return { name: 'main:apply', ops: ['fs.read', 'fs.write', 'unknot.cli'] };
+  if (command === 'apply' || command === 'lane') return { name: `main:${command}`, ops: ['fs.read', 'fs.write', 'unknot.cli'] };
   if (command === 'plan' || command === 'architecture') return { name: `main:${command}`, ops: ['fs.read', 'fs.write.docs', 'unknot.cli'] };
   return { name: `main:${command}`, ops: ['fs.read', 'unknot.cli'] };
 }

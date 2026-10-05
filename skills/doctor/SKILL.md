@@ -20,7 +20,7 @@ For every warn or fail give a concrete fix tied to the check, not generic advice
 cases:
 
 - Configuration not accepted or changed since acceptance: a person runs `unknot config diff`
-  then `unknot config accept` in their own terminal.
+  then `unknot config accept` in a separate terminal window (not `!`). The `unknot cli` check prints the CLI path and how to install the `unknot` command.
 - No approver registered: a person runs `unknot keys generate <name>`, pastes the printed
   block into `approvers` in `.unknot/config.yaml`, then accepts the config again.
 - Adapter unavailable: name the missing tool and what is lost (for example "no migrations

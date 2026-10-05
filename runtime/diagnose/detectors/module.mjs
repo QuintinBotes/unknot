@@ -92,6 +92,25 @@ const verifyStructural = (tests) => [
 // dependency-cycle (module level and package level)
 // ---------------------------------------------------------------------------------------
 
+/** Does the subgraph of `members` over `edgesOf(id)` still contain a cycle? (Kahn peeling: nodes left over are on or behind one.) */
+function hasCycle(members, edgesOf) {
+  const set = new Set(members);
+  const indeg = new Map(members.map((id) => [id, 0]));
+  const succ = new Map(members.map((id) => [id, edgesOf(id).map((e) => e.to).filter((t) => set.has(t) && t !== id)]));
+  for (const list of succ.values()) for (const t of list) indeg.set(t, indeg.get(t) + 1);
+  const queue = members.filter((id) => indeg.get(id) === 0);
+  let removed = 0;
+  while (queue.length) {
+    const id = queue.pop();
+    removed++;
+    for (const t of succ.get(id)) {
+      indeg.set(t, indeg.get(t) - 1);
+      if (indeg.get(t) === 0) queue.push(t);
+    }
+  }
+  return removed < members.length;
+}
+
 const dependencyCycle = define({
   name: 'dependency-cycle',
   kinds: ['module.dependency-cycle', 'module.package-cycle'],
@@ -110,9 +129,24 @@ const dependencyCycle = define({
       const cycle = shortestCycle(strict, members, IMPORT) ?? members.slice(0, 2);
       const paths = cycle.map((id) => pathOf(graph, id));
       const tests = testsOn(graph, members);
+      // Links that only declare a field or property nobody uses (attrs.declared_only).
+      const inComp = new Set(members);
+      const unusedLinks = [];
+      for (const id of members) for (const e of strict.out(id, IMPORT)) if (e.attrs?.declared_only && inComp.has(e.to)) unusedLinks.push(e);
+      const survives = !unusedLinks.length || hasCycle(members, (id) => strict.out(id, IMPORT).filter((e) => !e.attrs?.declared_only));
+      const cycleLink = !survives && cycle.map((id, i) => strict.out(id, IMPORT).find((e) => e.to === cycle[(i + 1) % cycle.length] && e.attrs?.declared_only)).find(Boolean);
+      const unusedOnly = cycleLink ? { file: pathOf(graph, cycleLink.from), member: cycleLink.attrs.unused_member } : null;
+      const unusedEvidence = unusedLinks.slice(0, 10).map((e) => ({
+        ref: e.from,
+        label: 'observed',
+        summary: `unused link: ${pathOf(graph, e.from)} only declares ${e.attrs.unused_member ?? 'a member'} of type ${pathOf(graph, e.to)}`,
+        source_ref: `${pathOf(graph, e.from)}:${e.attrs?.line ?? 1}`,
+      }));
       out.push(draft({
         kind: 'module.dependency-cycle',
-        title: `${members.length} modules form an import cycle: ${[...paths, paths[0]].join(' -> ')}`,
+        title: unusedOnly
+          ? `${members.length} modules form an import cycle that closes only through ${unusedOnly.file}'s unused member ${unusedOnly.member}: ${[...paths, paths[0]].join(' -> ')}`
+          : `${members.length} modules form an import cycle: ${[...paths, paths[0]].join(' -> ')}`,
         scope: members.map((id) => pathOf(graph, id)).slice(0, 50),
         key: `cycle:${members[0]}`,
         evidence: cycle.map((id, i) => ({
@@ -120,18 +154,22 @@ const dependencyCycle = define({
           label: 'observed',
           summary: `imports ${pathOf(graph, cycle[(i + 1) % cycle.length])}`,
           source_ref: `${pathOf(graph, id)}:${graph.out(id, IMPORT).find((e) => e.to === cycle[(i + 1) % cycle.length])?.attrs?.line ?? 1}`,
-        })),
-        measurements: { 'cycle.size': members.length, 'tests.present': tests },
+        })).concat(unusedEvidence),
+        measurements: { 'cycle.size': members.length, 'tests.present': tests, ...(unusedLinks.length && { 'cycle.unused_links': unusedLinks.length }) },
         thresholds: { min_size: o.min_size, 'min_size.note': 'a cycle of two or more modules is a defect in the acyclic-dependencies sense; no heuristic threshold' },
         why_accidental: 'Modules in a cycle cannot be understood, tested, versioned or released independently; the cycle is rarely a design choice.',
         essential_considerations: ['A cycle can be intentional in tightly coupled mutual recursion (parser and AST visitor) where splitting would be artificial.', 'Type-only or lazily evaluated imports may not form a runtime cycle.'],
-        smallest_simplification: `Break the cycle at its weakest edge: move the shared definitions that ${paths[paths.length - 1]} needs from ${paths[0]} into a third module both import, or invert one edge behind an interface.`,
+        smallest_simplification: unusedOnly
+          ? `The cycle closes only through ${unusedOnly.file}'s unused member ${unusedOnly.member}: remove the unused member (and its injection, if any) and the cycle is gone.`
+          : `Break the cycle at its weakest edge: move the shared definitions that ${paths[paths.length - 1]} needs from ${paths[0]} into a third module both import, or invert one edge behind an interface.`,
         invariants: ['Exported names and their behaviour are unchanged.', 'Import-time side effects keep their order.'],
         risks: ['Moving a definition changes import order and can expose initialisation-order bugs.', 'Public import paths change unless the old module re-exports.'],
         verification: verifyStructural(tests),
         quality_impacts: { changeability: 'high', reliability: 'medium', security: 'low' },
         blast_radius: members.length > 5 ? 'moderate' : 'bounded',
-        factors: { benefit: clamp(Math.round(2 + Math.log2(members.length)), 1, 5), evidence: 0.9, reversibility: 0.9, blast: members.length > 5 ? 3 : 2, cost: clamp(Math.ceil(members.length / 3) + 1, 2, 5), uncertainty: 1 },
+        factors: unusedOnly
+          ? { benefit: 1, evidence: 0.7, reversibility: 0.95, blast: 1, cost: 1, uncertainty: 1 }
+          : { benefit: clamp(Math.round(2 + Math.log2(members.length)), 1, 5), evidence: 0.9, reversibility: 0.9, blast: members.length > 5 ? 3 : 2, cost: clamp(Math.ceil(members.length / 3) + 1, 2, 5), uncertainty: 1 },
         uncertainties: ['Type-only imports are counted as edges when the adapter does not label them, which may overstate a cycle.'],
         alternatives: [
           { id: 'retain', summary: 'Keep the cycle if the modules are one conceptual unit; then merge them or document the grouping so it is treated as a single component.' },

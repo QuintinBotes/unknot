@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { UnknotError } from '../../core/errors.mjs';
 import { modeRank } from '../../policy/defaults.mjs';
 import { createCampaign } from '../../plan/campaign.mjs';
-import { output, table, withRun } from '../util.mjs';
+import { humanCommand, output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
@@ -30,8 +30,8 @@ export async function run({ positional, flags }) {
     '',
     table(res.slices.map((s) => ({ id: s.id, risk: s.risk, approvals: s.approvals.join('+'), obligations: s.proof_obligations.length, objective: s.objective })), ['id', 'risk', 'approvals', 'obligations', 'objective']),
     '',
-    'Every slice is AWAITING_APPROVAL. A human approves the exact plan in a terminal:',
-    `  unknot approve ${res.slices[0].id} --role <role> --as <approver>`,
+    'Every slice is AWAITING_APPROVAL. A human approves the exact plan in a separate terminal window:',
+    `  ${humanCommand(`approve ${res.slices[0].id} --role <role> --as <approver>`)}`,
     'Then: /unknot:next, /unknot:apply <slice>, /unknot:verify <slice>.',
   ].join('\n'));
 }

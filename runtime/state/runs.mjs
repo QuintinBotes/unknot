@@ -33,6 +33,7 @@ export const COMMANDS = Object.freeze({
   apply: { min_mode: 'assist', writes: 'worktree' },
   verify: { min_mode: 'assist', writes: 'none' },
   rollback: { min_mode: 'assist', writes: 'worktree' },
+  lane: { min_mode: 'assist', writes: 'worktree' },
 });
 
 export function gitHead(root) {
@@ -43,6 +44,9 @@ export function gitHead(root) {
 export function getRun(store, id) {
   return parseJSONColumns(store.get('SELECT * FROM runs WHERE id = ?', id), JSON_COLS);
 }
+
+/** A run whose command writes nothing (map, diagnose, decompose, ...). */
+export const isReadOnlyRun = (run) => COMMANDS[run?.command]?.writes === 'none';
 
 /** The run hooks should enforce, or null. Interrupted runs stay active until ended. */
 export function activeRun(store) {
@@ -113,10 +117,18 @@ export function setRunState(ctx, runId, state, reason, actor = 'runtime:unknot')
 }
 
 /** Bind a slice to an active run (hooks read the slice through the run). */
-const SLICE_COMMANDS = new Set(['apply', 'verify', 'rollback']);
+const SLICE_COMMANDS = new Set(['apply', 'verify', 'rollback', 'lane']);
 
 // A slice is out of flight when it can no longer be patched in this run.
 const SETTLED = new Set(['REVIEW_READY', 'ACCEPTED', 'ABANDONED', 'ROLLED_BACK']);
+
+/** A slice the person named, or (for a lane run) one in the campaign of a lane or campaign they named. */
+function inRunScope(ctx, run, sliceId) {
+  if (run.scope.includes(sliceId)) return true;
+  if (run.command !== 'lane') return false;
+  const campaign = ctx.store.get('SELECT campaign_id FROM slices WHERE id = ?', sliceId)?.campaign_id;
+  return Boolean(campaign) && run.scope.some((id) => id === campaign || (id.startsWith('LN-') && ctx.store.get('SELECT campaign_id FROM lanes WHERE id = ?', id)?.campaign_id === campaign));
+}
 
 /**
  * Bind a slice to an active run (hooks read the slice through the run). Outside campaign
@@ -132,13 +144,16 @@ export function setRunSlice(ctx, runId, sliceId, actor = 'runtime:unknot', { mod
     // person named when they named any (security review: during /unknot:map the model
     // could otherwise bind any slice to the run and start patching it).
     if (!SLICE_COMMANDS.has(run.command)) throw new UnknotError('UK_POLICY_DENIED', `a ${run.command} run cannot take on slice ${sliceId}; the person starts /unknot:apply ${sliceId}`, { details: { policy: 'run.slice_binding' } });
-    if ((run.scope ?? []).length && !run.scope.includes(sliceId)) throw new UnknotError('UK_POLICY_DENIED', `this run is scoped to ${run.scope.join(', ')}, not ${sliceId}`, { details: { policy: 'run.slice_binding' } });
+    if ((run.scope ?? []).length && !inRunScope(ctx, run, sliceId)) throw new UnknotError('UK_POLICY_DENIED', `this run is scoped to ${run.scope.join(', ')}, not ${sliceId}`, { details: { policy: 'run.slice_binding' } });
   }
   if (run.slice_id) {
-    if (mode !== 'campaign') throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}; outside campaign mode a run handles one slice`);
+    // A lane run works through the slices of its lane one after another, like a campaign run.
+    const lane = run.command === 'lane';
+    if (mode !== 'campaign' && !lane) throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}; outside campaign mode a run handles one slice`);
+    if (lane && (run.scope ?? []).length && !inRunScope(ctx, run, sliceId)) throw new UnknotError('UK_POLICY_DENIED', `this run is scoped to ${run.scope.join(', ')}, not ${sliceId}`, { details: { policy: 'run.slice_binding' } });
     const prev = ctx.store.get('SELECT state, campaign_id FROM slices WHERE id = ?', run.slice_id);
     const next = ctx.store.get('SELECT campaign_id FROM slices WHERE id = ?', sliceId);
-    if (prev && !SETTLED.has(prev.state)) throw new UnknotError('UK_STATE_CONFLICT', `finish ${run.slice_id} (${prev.state}) before moving to ${sliceId}`);
+    if (prev && !SETTLED.has(prev.state) && !(lane && prev.state === 'NEEDS_REPLAN')) throw new UnknotError('UK_STATE_CONFLICT', `finish ${run.slice_id} (${prev.state}) before moving to ${sliceId}`);
     if (prev && next && prev.campaign_id !== next.campaign_id) throw new UnknotError('UK_POLICY_DENIED', `a campaign run stays within campaign ${prev.campaign_id}`);
   }
   ctx.store.update('runs', runId, run.version, { slice_id: sliceId });

@@ -117,11 +117,37 @@ export function parseCsv(text) {
   return rowsToSamples(rows);
 }
 
+/**
+ * Prometheus HTTP API response (`/api/v1/query` vector or `/api/v1/query_range` matrix) ->
+ * rows. The metric name is the series' `__name__` label, else its `metric` label, else a
+ * top-level `metric` key added to the saved file (aggregations such as `sum by (service)`
+ * drop `__name__`).
+ */
+function promApiRows(doc) {
+  const data = doc.data;
+  if (!data || !Array.isArray(data.result)) return [];
+  const rows = [];
+  for (const r of data.result) {
+    if (!r || typeof r !== 'object') continue;
+    const labels = r.metric && typeof r.metric === 'object' ? r.metric : {};
+    const metric = labels.__name__ ?? labels.metric ?? doc.metric;
+    const points = Array.isArray(r.values) ? r.values : (Array.isArray(r.value) ? [r.value] : []);
+    for (const p of points) {
+      if (Array.isArray(p)) rows.push({ metric, value: p[1], timestamp: p[0], labels });
+      if (rows.length >= MAX_SAMPLES) return rows;
+    }
+  }
+  return rows;
+}
+
 /** Detect the format: JSON document, CSV with a header, else Prometheus text. */
 export function parseMetrics(text) {
   const first = text.trimStart()[0];
   if (first === '[' || first === '{') {
     const doc = JSON.parse(text);
+    if (!Array.isArray(doc) && doc.status === 'success' && doc.data && 'resultType' in doc.data) {
+      return { format: 'prometheus-api', samples: rowsToSamples(promApiRows(doc)) };
+    }
     const rows = Array.isArray(doc) ? doc : (doc.samples ?? doc.series ?? doc.metrics ?? []);
     return { format: 'json', samples: rowsToSamples(rows) };
   }
