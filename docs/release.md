@@ -7,8 +7,8 @@ telemetry is emitted (spec §27, §16.5).
 
 1. Update `CHANGELOG.md` (migration notes included) and `COMPATIBILITY.md` if the matrix changed.
 2. Bump `version` in `package.json` and `.claude-plugin/plugin.json`; they must agree.
-3. Merge to `main` with CI green (`npm test`, benchmark smoke, `plugin validate --strict`).
-4. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
+3. Merge to `main` through a pull request with CI green (`npm test`, benchmark smoke, `plugin validate --strict`). `main` is protected: it accepts no direct or force pushes, and the required checks must pass on a branch that is up to date with it.
+4. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Release tags (`v*`) are immutable: a ruleset refuses moving or deleting them, so check the commit before you push the tag.
 5. `.github/workflows/release.yml` then, in a single job:
    - checks the tag equals `v<package.json version>`;
    - runs `npm test`;

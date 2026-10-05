@@ -4,6 +4,23 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.12] - 2026-10-05
+
+Repository housekeeping for open-source contributions; no runtime changes.
+
+### Added
+
+- A code of conduct (Contributor Covenant 2.1), issue forms for bugs and feature requests (security
+  reports go to private vulnerability reporting, now enabled), a pull request template, CODEOWNERS,
+  Dependabot updates for the SHA-pinned GitHub Actions, and an `.editorconfig`.
+
+### Changed
+
+- `main` is protected (pull requests with passing CI only, no force pushes or deletion, for
+  maintainers too) and release tags are immutable; `CONTRIBUTING.md` and `docs/release.md` say so.
+- Package metadata (keywords, homepage, issue tracker), README badges, and the supported-versions
+  note in `SECURITY.md`.
+
 ## [0.1.11] - 2026-10-05
 
 ### Added
