@@ -28,6 +28,18 @@ export const SATISFIES = Object.freeze({
 const BACKEND = ['T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T9'];
 const FRONTEND = ['T0', 'T7', 'T8', 'T9', 'T2'];
 
+// Card predicates on these metrics take their threshold from config, so a team that sets
+// `decomposition.thresholds` gets the selection it configured (the cards carry defaults).
+const THRESHOLD_METRICS = { 'ownership.alignment': 'ownership_alignment', 'module.co_change_leak': 'co_change_leak', 'boundary.calls_per_request_p95': 'chatty_calls_p95' };
+
+export function withThresholds(card, thresholds = {}) {
+  const fix = (list) => (list ?? []).map((item) => {
+    const key = item.predicate && THRESHOLD_METRICS[item.predicate.metric];
+    return key && typeof thresholds[key] === 'number' ? { ...item, predicate: { ...item.predicate, value: thresholds[key] } } : item;
+  });
+  return { ...card, applicability_signals: fix(card.applicability_signals), preconditions: fix(card.preconditions), contraindications: fix(card.contraindications) };
+}
+
 function treatmentCards(target) {
   const allowed = new Set(target === 'frontend' ? FRONTEND : BACKEND);
   const byTreatment = new Map();
@@ -42,8 +54,8 @@ function treatmentCards(target) {
  * @param {string[]} p.drivers recorded driver ids
  * @returns recommendation core (treatment, evaluations, rejected, gaps, confidence)
  */
-export function selectTreatment({ target, signals, drivers }) {
-  const cards = treatmentCards(target);
+export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
+  const cards = new Map([...treatmentCards(target)].map(([t, c]) => [t, withThresholds(c, thresholds)]));
   // Missing tests do not rule out a behaviour-preserving treatment; they put a
   // characterization slice in front of it (spec §32 Scenario A). Evaluate as if tests
   // existed, and remember which treatments needed that.

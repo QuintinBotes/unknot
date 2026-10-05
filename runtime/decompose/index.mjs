@@ -96,7 +96,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, ...(fe?.signals ?? {}) };
       if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
       delete signals.gaps;
-      const sel = selectTreatment({ target: t, signals, drivers: allDrivers });
+      const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
       const id = ctx.store.nextId('DEC', 4);
       const card0 = card(sel.card);
       const rec = {

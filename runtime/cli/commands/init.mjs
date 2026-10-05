@@ -84,7 +84,9 @@ export async function run({ flags }) {
     security: { secrets_scan: 'required', sast: 'required_for_high_risk', dependency_changes: 'approval_required' },
     database: { live_access: 'disabled', destructive_execution: 'forbidden' },
     infrastructure: { apply: 'forbidden', destroy: 'forbidden', require_saved_plan: true },
-    approvals: { medium: ['code-owner'], high: ['code-owner', 'security-owner'], expiry: '72h' },
+    // Approval roles are left to the built-in defaults (spec §20); a proposal never
+    // starts looser than them.
+    approvals: { expiry: '72h' },
     telemetry: { enabled: false },
   };
   writeFileSync(ctx.paths.proposedConfig, stringifyYAML(proposed));

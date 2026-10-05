@@ -6,6 +6,7 @@ import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } fro
 import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
 import { analyze } from './structure.mjs';
 import { tokenize } from './tokenizer.mjs';
+import { detectMicroFrontends } from './mfe.mjs';
 import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
 
@@ -107,6 +108,8 @@ function codeFacts(file, text) {
     return id;
   };
   const modId = `module:${path}`;
+  const mfe = /(webpack|rspack|rsbuild|vite|next)\.config|root-config|single-spa|federation/i.test(path) || /registerApplication|ModuleFederationPlugin|@module-federation/.test(text) ? detectMicroFrontends(text) : null;
+  if (mfe) facts.push(nodeFact('module', path, { path, attrs: { mfe } }, p(1, 'medium')));
 
   const classByQ = new Map();
   const fnByQ = new Map();

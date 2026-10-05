@@ -15,6 +15,7 @@ import { stronglyConnected } from '../graph/algorithms.mjs';
 import { languageOf } from '../graph/census.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
+import { DEP_MANIFESTS } from '../policy/risk.mjs';
 
 /** Paths changed between the baseline and the staged worktree, with their status. */
 export function changedPaths(worktree, base) {
@@ -111,6 +112,12 @@ export const CHECKS = {
       else if (matchAny(c.path, config.generated_paths ?? []) || matchAny(c.path, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) bad.push(`${c.path}: generated or vendored`);
       else if (matchAny(c.path, config.protected_paths ?? [], { nocase: true }) && !['high', 'critical'].includes(slice.risk)) bad.push(`${c.path}: protected path in a ${slice.risk}-risk slice`);
       if (isSecretPath(c.path)) bad.push(`${c.path}: credential path`);
+      if (matchAny(c.path, DEP_MANIFESTS)) {
+        if (config.security.dependency_changes === 'forbidden') bad.push(`${c.path}: dependency changes are forbidden (security.dependency_changes)`);
+        else if (config.security.dependency_changes === 'approval_required' && !slice.body.changes.some((x) => matchAny(x.path, DEP_MANIFESTS))) {
+          bad.push(`${c.path}: dependency change not declared in the approved plan`);
+        }
+      }
     }
     return bad.length ? { verdict: 'fail', detail: bad.join('; '), data: { violations: bad } } : { verdict: 'pass', detail: `${changes.length} changed path(s) within scope`, data: { paths: changes.map((c) => c.path) } };
   },

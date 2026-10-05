@@ -175,6 +175,33 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const crossingCycles = touching.filter((c) => c.some((x) => !members.has(x)));
   m['cycle.size'] = crossingCycles.length ? Math.max(...crossingCycles.map((c) => c.length)) : 0;
   m['boundary.internal_cycle_size'] = touching.length ? Math.max(...touching.filter((c) => c.every((x) => members.has(x))).map((c) => c.length), 0) : 0;
-  if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
+  // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
+  const consumers = new Set();
+  let contracts = 0;
+  let endpointsTotal = 0;
+  for (const id of members) {
+    for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') consumers.add(e.from);
+    const eps = [...graph.out(id, 'EXPOSES'), ...graph.children(id).flatMap((c) => graph.out(c.id, 'EXPOSES'))];
+    endpointsTotal += eps.length;
+    contracts += eps.filter((e) => graph.node(e.to)?.attrs?.contract).length;
+  }
+  m['module.consumers'] = consumers.size;
+  if (endpointsTotal) m['contracts.present'] = contracts > 0 ? 1 : 0;
+  const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
+  const common = dirs.reduce((a, b) => {
+    const x = a.split('/');
+    const y = b.split('/');
+    let i = 0;
+    while (i < x.length && x[i] === y[i]) i++;
+    return x.slice(0, i).join('/');
+  }, dirs[0] ?? '');
+  const workflows = graph.nodes('workflow');
+  if (workflows.length) {
+    m['ci.per_unit_pipeline'] = common && workflows.some((w) => (w.attrs?.paths ?? w.attrs?.path_filters ?? []).length && (w.attrs.paths ?? w.attrs.path_filters).every((p) => String(p).startsWith(common))) ? 1 : 0;
+  }
+  const services = graph.nodes('service').filter((sv) => sv.attrs?.code_root && common && (sv.attrs.code_root.startsWith(common) || common.startsWith(sv.attrs.code_root)));
+  const perRequest = services.flatMap((sv) => graph.out(sv.id, 'RUNTIME_CALLS').map((e) => e.attrs.per_request_p95 ?? 0));
+  if (perRequest.length) m['boundary.calls_per_request_p95'] = Math.max(...perRequest);
+  else if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
   return { ...m, gaps };
 }

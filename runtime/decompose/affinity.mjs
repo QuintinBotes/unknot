@@ -91,18 +91,37 @@ export function buildAffinity(graph, { modules, weights }) {
     const j = inter / (ta.size + tb.size - inter);
     if (j > 0) comp.M.set(k, j);
   }
+  // R: runtime coupling from traces. Services carry a code root; a traced call between
+  // two services couples their entry modules (those exposing endpoints, or a sample).
+  comp.R = new Map();
+  if ((weights.runtime ?? 0) > 0) {
+    const entry = new Map();
+    for (const svc of graph.nodes('service')) {
+      const root = svc.attrs?.code_root;
+      if (!root) continue;
+      const mods = modules.filter((m) => m.slice(7).startsWith(`${root.replace(/\/$/, '')}/`));
+      const exposing = mods.filter((m) => graph.out(m, 'EXPOSES').length || graph.children(m).some((c) => graph.out(c.id, 'EXPOSES').length));
+      entry.set(svc.id, (exposing.length ? exposing : mods).slice(0, 20));
+    }
+    for (const e of graph.edges('RUNTIME_CALLS')) {
+      const a = entry.get(e.from) ?? [];
+      const b = entry.get(e.to) ?? [];
+      const w = Math.log1p(e.attrs.calls ?? 1);
+      for (const x of a) for (const y of b) add(comp.R, x, y, w);
+    }
+  }
   const norm = (m) => {
     let max = 0;
     for (const v of m.values()) max = Math.max(max, v);
     return max ? new Map([...m].map(([k, v]) => [k, v / max])) : m;
   };
-  const N = { S: norm(comp.S), D: norm(comp.D), E: norm(comp.E), M: norm(comp.M) };
-  const w = { S: weights.structural, D: weights.data, E: weights.evolutionary, M: weights.semantic };
-  const keys = new Set([...N.S.keys(), ...N.D.keys(), ...N.E.keys(), ...N.M.keys()]);
+  const N = { S: norm(comp.S), D: norm(comp.D), E: norm(comp.E), M: norm(comp.M), R: norm(comp.R) };
+  const w = { S: weights.structural, D: weights.data, E: weights.evolutionary, M: weights.semantic, R: comp.R.size ? weights.runtime ?? 0 : 0 };
+  const keys = new Set([...N.S.keys(), ...N.D.keys(), ...N.E.keys(), ...N.M.keys(), ...N.R.keys()]);
   const edges = [];
   for (const k of [...keys].sort()) {
-    const parts = { S: N.S.get(k) ?? 0, D: N.D.get(k) ?? 0, E: N.E.get(k) ?? 0, M: N.M.get(k) ?? 0 };
-    const total = w.S * parts.S + w.D * parts.D + w.E * parts.E + w.M * parts.M;
+    const parts = { S: N.S.get(k) ?? 0, D: N.D.get(k) ?? 0, E: N.E.get(k) ?? 0, M: N.M.get(k) ?? 0, R: N.R.get(k) ?? 0 };
+    const total = w.S * parts.S + w.D * parts.D + w.E * parts.E + w.M * parts.M + w.R * parts.R;
     if (total <= 0) continue;
     const [a, b] = k.split('\u0000');
     edges.push({ a, b, w: +total.toFixed(6), parts });
@@ -110,7 +129,7 @@ export function buildAffinity(graph, { modules, weights }) {
   return {
     nodes: [...modules].sort(),
     edges,
-    components: { structural: comp.S.size, data: comp.D.size, evolutionary: comp.E.size, semantic: comp.M.size },
+    components: { structural: comp.S.size, data: comp.D.size, evolutionary: comp.E.size, semantic: comp.M.size, runtime: comp.R.size },
     weights: { ...weights, heuristic: true },
   };
 }

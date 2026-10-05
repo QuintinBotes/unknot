@@ -7,7 +7,13 @@ import { analyzeFrontend, featureOf } from '../../decompose/frontend.mjs';
 const UI_DEPS = /^dependency:(react|react-dom|vue|@angular\/core|svelte|solid-js|preact|next|nuxt|@remix-run\/react)$/;
 
 function frontendApps(graph) {
-  return graph.nodes('package').filter((p) => graph.out(p.id, 'DEPENDS_ON').some((e) => UI_DEPS.test(e.to)));
+  const apps = graph.nodes('package').filter((p) => graph.out(p.id, 'DEPENDS_ON').some((e) => UI_DEPS.test(e.to)));
+  // Module Federation remotes and single-spa applications are micro-frontends even when
+  // they share one package.json.
+  const mfe = graph.nodes('module').filter((m) => m.attrs?.mfe);
+  const seen = new Set(apps.map((a) => a.id));
+  for (const m of mfe) if (!seen.has(m.id)) apps.push({ ...m, name: m.attrs.mfe.name ?? m.path });
+  return apps;
 }
 
 const common = {

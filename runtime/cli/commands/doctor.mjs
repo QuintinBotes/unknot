@@ -43,7 +43,14 @@ export async function run({ flags }) {
       add('config', true, `mode ${cfg.config.mode}, digest ${cfg.digest.slice(0, 19)}…, sources ${cfg.sources.join(', ') || 'defaults'}`);
       for (const b of cfg.org) add('org policy', true, `${b.file} (${b.signed ? 'signed' : 'unsigned'})`, b.signed ? 'ok' : 'warn');
       if (cfg.adjustments.length) add('org adjustments', true, `${cfg.adjustments.length} repo value(s) tightened by org policy`, 'info');
-      const pub = ctx.store.meta('audit_public_key');
+      const dbKey = ctx.store.meta('audit_public_key');
+      let pub = dbKey;
+      try {
+        pub = (await import('../../core/keys.mjs')).auditPublicKeyPem(ctx.projectId);
+        if (dbKey && dbKey !== pub) add('audit key', false, 'the audit public key in the database differs from the key in UNKNOT_HOME');
+      } catch {
+        add('audit key', false, 'no audit key in UNKNOT_HOME for this project; ledger verified against the database copy only', 'warn');
+      }
       const ledger = verifyLedger(ctx.store, pub);
       add('ledger', ledger.ok, ledger.ok ? `${ledger.count} events, chain and signatures valid` : `broken at ${ledger.broken_at}: ${ledger.reason}`);
       const approvers = Object.keys(cfg.config.approvers ?? {});

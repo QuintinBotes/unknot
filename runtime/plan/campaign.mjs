@@ -14,7 +14,8 @@ import { getFinding } from '../diagnose/engine.mjs';
 import { topoOrder } from '../graph/algorithms.mjs';
 import { sliceDigest } from '../policy/approvals.mjs';
 import { riskRank } from '../policy/defaults.mjs';
-import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
+import { classifyRisk, DEP_MANIFESTS, requiredApprovals } from '../policy/risk.mjs';
+import { matchAny } from '../core/glob.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { gitHead } from '../state/runs.mjs';
@@ -75,6 +76,9 @@ export function createSlice(ctx, { config, campaignId, draft, actor }) {
     ...(draft.rationale ? { rationale: draft.rationale } : {}),
   };
   if (body.scope.include.length === 0) throw new UnknotError('UK_SCHEMA_INVALID', `slice "${draft.objective}" has no included scope; every slice declares what it may touch`);
+  if (config.security.dependency_changes === 'forbidden' && body.changes.some((c) => matchAny(c.path, DEP_MANIFESTS))) {
+    throw new UnknotError('UK_POLICY_DENIED', `slice "${draft.objective}" changes dependency manifests, which security.dependency_changes forbids`, { details: { policy: 'security.dependency_changes' } });
+  }
   const risk = classifyRisk(body, { config, surfaces: body.surfaces ?? {} });
   body.risk = risk.risk;
   if (body.irreversible && riskRank(body.risk) < riskRank('critical')) body.risk = 'critical';

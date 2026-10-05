@@ -1,16 +1,31 @@
 import { writeFileSync } from 'node:fs';
 import { canonicalJSON } from '../../core/canonical.mjs';
 import { readEvents, verifyLedger } from '../../state/ledger.mjs';
+import { auditPublicKeyPem } from '../../core/keys.mjs';
 import { output } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
   const sub = positional[0] ?? 'verify';
   const { ctx } = open(flags);
-  const pub = ctx.store.meta('audit_public_key');
+  // The trust anchor is the key in the user's Unknot home, not the copy in the database
+  // being verified: a forger with write access to the database could replace both.
+  const dbKey = ctx.store.meta('audit_public_key');
+  let pub = dbKey;
+  let anchor = 'database copy (no key in UNKNOT_HOME)';
+  try {
+    pub = auditPublicKeyPem(ctx.projectId);
+    anchor = 'UNKNOT_HOME key';
+  } catch {
+    // Key directory missing (e.g. a restored backup on another machine): say so below.
+  }
   if (sub === 'verify') {
-    const r = verifyLedger(ctx.store, pub);
-    output(flags.json ? r : r.ok ? `ledger intact: ${r.count} events, head ${r.head}` : `LEDGER BROKEN at event ${r.broken_at}: ${r.reason}`, { json: flags.json });
+    if (dbKey && pub !== dbKey) {
+      output(flags.json ? { ok: false, reason: 'audit public key in the database differs from the key in UNKNOT_HOME' } : 'LEDGER UNTRUSTED: the audit public key stored in the database differs from the key in UNKNOT_HOME', { json: flags.json });
+      return 4;
+    }
+    const r = { ...verifyLedger(ctx.store, pub), anchor };
+    output(flags.json ? r : r.ok ? `ledger intact: ${r.count} events, head ${r.head} (verified against the ${anchor})` : `LEDGER BROKEN at event ${r.broken_at}: ${r.reason}`, { json: flags.json });
     return r.ok ? 0 : 4;
   }
   if (sub === 'export') {

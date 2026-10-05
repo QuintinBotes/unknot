@@ -7,6 +7,9 @@ import { LADDERS, MODES, modeRank } from './defaults.mjs';
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
+// Top-level keys with an explicit tighten-only rule below (or org-only metadata).
+const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
+
 /** Deep-merge `over` onto `base` (plain override). Used for repo-over-defaults. */
 export function overlay(base, over) {
   if (!isObj(over)) return over === undefined ? base : over;
@@ -85,5 +88,11 @@ export function applyOrgPolicy(repo, org) {
   if (org.telemetry?.enabled === false) set('telemetry.enabled', false);
   for (const k of ['runs', 'cache']) if (org.retention?.[k]) set(`retention.${k}`, minDuration(c.retention[k], org.retention[k]));
   if (org.forbid_executables) set('forbid_executables', union(c.forbid_executables, org.forbid_executables));
+  // Any other key the organization sets is organization-controlled: the repository value
+  // is replaced, never merged, because there is no rule saying which direction is tighter.
+  for (const [k, v] of Object.entries(org)) {
+    if (HANDLED.has(k) || v === undefined) continue;
+    set(k, structuredClone(v));
+  }
   return { config: c, adjustments };
 }

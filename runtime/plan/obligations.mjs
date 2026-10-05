@@ -3,6 +3,11 @@
 // add to it. Executed obligations name a configured command or a built-in runtime check;
 // the rest require a human attestation and say so.
 
+import { matchAny } from '../core/glob.mjs';
+import { DEP_MANIFESTS } from '../policy/risk.mjs';
+
+export const touchesDependencies = (slice) => [...(slice.changes ?? []).map((c) => c.path), ...(slice.scope?.include ?? [])].some((p) => matchAny(p, DEP_MANIFESTS));
+
 const ob = (kind, description, { command = null, builtin = null, requires_human = false } = {}) => ({ kind, description, command, builtin, requires_human });
 
 /**
@@ -53,6 +58,9 @@ export function generateObligations(slice, { config, risk }) {
   if (['T3', 'T6', 'T7'].includes(slice.treatment)) {
     out.push(ob('rollback-rehearsal', 'Flipping the route/flag back was rehearsed outside production', { requires_human: true }));
     out.push(ob('performance', 'Latency and error budgets are unchanged within the agreed window', { command: c.performance ?? null, requires_human: !c.performance }));
+  }
+  if (touchesDependencies(slice) && config.security.dependency_changes === 'approval_required') {
+    out.push(ob('human-review', 'Dependency change reviewed: new or changed packages, versions, licences and their provenance (security.dependency_changes)', { requires_human: true }));
   }
   if (risk.specialists.includes('security-owner')) out.push(ob('human-review', 'Security owner reviews the authorization and secrets delta', { requires_human: true }));
   if (slice.irreversible) out.push(ob('human-review', 'Irreversible step: two people confirm the restore plan and the observation window has passed', { requires_human: true }));
