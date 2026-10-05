@@ -82,6 +82,7 @@ function finalize(draft, detector, signals, config) {
     title: draft.title,
     scope,
     fingerprint,
+    key,
     evidence: (draft.evidence ?? []).map((e) => ({ ref: e.ref, label: e.label ?? 'observed', summary: e.summary ?? '', source_ref: e.source_ref ?? null })),
     measurements: draft.measurements ?? {},
     thresholds: draft.thresholds ?? {},
@@ -103,6 +104,53 @@ function finalize(draft, detector, signals, config) {
     detector: { id: detector.id, version: detector.version },
     status: 'open',
   };
+}
+
+const FUNCTION_KINDS = ['code.long-function', 'code.complex-function', 'code.deep-nesting'];
+
+/**
+ * One function can trip the long-function, complex-function and deep-nesting detectors; that
+ * is one thing to fix, so those findings (same single-symbol `key`) collapse into one. The
+ * highest-priority kind is the primary and keeps its own kind, key and fingerprint, so a
+ * decision recorded against it still applies and calibration still counts it under its
+ * detector. Measurements and evidence of the others are folded in, their kinds listed in
+ * `related_kinds`, and the title names every aspect. Mutates `findings` in place.
+ */
+export function mergeFunctionFindings(findings) {
+  const groups = new Map();
+  for (const f of findings) {
+    if (!FUNCTION_KINDS.includes(f.kind) || !f.key) continue;
+    if (!groups.has(f.key)) groups.set(f.key, []);
+    groups.get(f.key).push(f);
+  }
+  const drop = new Set();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => b.priority.score - a.priority.score || FUNCTION_KINDS.indexOf(a.kind) - FUNCTION_KINDS.indexOf(b.kind));
+    const [primary, ...rest] = group;
+    const m = { ...primary.measurements };
+    const seen = new Set(primary.evidence.map((e) => `${e.ref}|${e.summary}`));
+    for (const o of rest) {
+      for (const [k, v] of Object.entries(o.measurements)) if (!(k in m)) m[k] = v;
+      for (const [k, v] of Object.entries(o.thresholds)) if (!(k in primary.thresholds)) primary.thresholds[k] = v;
+      for (const e of o.evidence) {
+        const id = `${e.ref}|${e.summary}`;
+        if (!seen.has(id)) { seen.add(id); primary.evidence.push(e); }
+      }
+      for (const p of o.patterns ?? []) if (!primary.patterns.some((x) => x.id === p.id)) primary.patterns.push(p);
+      drop.add(o);
+    }
+    primary.measurements = m;
+    primary.related_kinds = rest.map((o) => o.kind).sort();
+    const name = primary.key.replace(/^[a-z]+:/, '').split('#').pop();
+    const has = (k) => group.some((g) => g.kind === k);
+    const aspects = [];
+    if (has('code.long-function') && m['function.lines'] != null) aspects.push(`${m['function.lines']} lines long`);
+    if (has('code.complex-function') && m['function.cyclomatic'] != null) aspects.push(`cyclomatic ${m['function.cyclomatic']}`);
+    if (has('code.deep-nesting') && m['function.max_nesting'] != null) aspects.push(`nested ${m['function.max_nesting']} deep`);
+    if (aspects.length > 1) primary.title = `${name} is ${aspects.slice(0, -1).join(', ')} and ${aspects.at(-1)}`;
+  }
+  for (let i = findings.length - 1; i >= 0; i--) if (drop.has(findings[i])) findings.splice(i, 1);
 }
 
 async function loadDetectors(config, only) {
@@ -163,6 +211,7 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
     }
     findings.push(f);
   }
+  mergeFunctionFindings(findings);
   // De-duplicate by fingerprint (two detectors may see the same thing): keep the stronger.
   const byFp = new Map();
   for (const f of findings) if (!byFp.has(f.fingerprint) || byFp.get(f.fingerprint).priority.score < f.priority.score) byFp.set(f.fingerprint, f);

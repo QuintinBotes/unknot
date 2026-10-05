@@ -12,7 +12,7 @@ import { analyze } from './structure.mjs';
 import { frameworkInfo } from './frameworks.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -83,6 +83,29 @@ function callTargets(f, byName) {
   return out;
 }
 
+/**
+ * 0-based line indexes inside `#[cfg(test)] mod name { ... }` blocks of Rust code (comments
+ * and string contents are already blanked by the lexer, so braces can be counted plainly).
+ */
+function rustTestLines(code) {
+  const lines = new Set();
+  const re = /#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{/g;
+  let m;
+  while ((m = re.exec(code))) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < code.length && depth > 0; i++) {
+      if (code[i] === '{') depth++;
+      else if (code[i] === '}') depth--;
+    }
+    const first = code.slice(0, m.index).split('\n').length - 1;
+    const last = code.slice(0, i).split('\n').length - 1;
+    for (let l = first; l <= last; l++) lines.add(l);
+    re.lastIndex = i;
+  }
+  return lines;
+}
+
 function extract(file, text, ctx) {
   void ctx;
   const path = file.path;
@@ -104,13 +127,17 @@ function extract(file, text, ctx) {
     return k;
   };
   const lines = lx.lineStarts.length - (text.endsWith('\n') ? 1 : 0);
-  const sloc = lx.code.split('\n').filter((l) => /\S/.test(l)).length;
+  const codeLines = lx.code.split('\n');
+  const testRange = lang === 'rust' ? rustTestLines(lx.code) : new Set();
+  const sloc = codeLines.filter((l, i) => /\S/.test(l) && !testRange.has(i)).length;
+  const testSloc = codeLines.filter((l, i) => /\S/.test(l) && testRange.has(i)).length;
   const typeNames = [...new Set(an.types.map((t) => t.name))].sort();
 
   const attrs = {
     language: lang,
     loc: lines,
     sloc,
+    ...(lang === 'rust' && { test_sloc: testSloc }),
     is_test: isTestPath(path, lang) || file.kind === 'test',
     imports: an.imports,
     package: an.pkg,
