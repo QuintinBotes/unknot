@@ -168,7 +168,7 @@ const missingRollback = {
   kinds: ['delivery.missing-rollback-path'],
   detect({ graph: g }) {
     const out = [];
-    for (const j of g.nodes('job').filter((n) => n.attrs.deploy_signal && n.attrs.deploys?.length).sort(byId)) {
+    for (const j of g.nodes('job').filter((n) => n.attrs.deploy_signal && n.attrs.deploys?.length && n.attrs.deploy_step !== false).sort(byId)) {
       const wf = g.node(j.attrs.workflow);
       const siblings = (g.out(j.attrs.workflow, 'CONTAINS') ?? []).map((e) => g.node(e.to)).filter(Boolean);
       const text = [

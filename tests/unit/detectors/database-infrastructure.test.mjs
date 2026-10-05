@@ -770,7 +770,23 @@ test('floating-versions: providers pinned by a committed lock file, and minimum 
     prov('envs/prod', 'random', '>= 3.0.0'),
   ]);
   const titles = out.map((d) => d.title).sort();
-  assert.equal(out.length, 2, titles.join(' | '));
+  assert.equal(out.length, 3, titles.join(' | '));
+  assert.ok(titles.some((t) => t.startsWith('envs/dev') && /lock file pins/.test(t)), 'locked root with >= is reported at low priority');
   assert.ok(titles.some((t) => t.startsWith('envs/prod')), 'a root module without a lock file is still flagged');
   assert.ok(titles.some((t) => t.startsWith('modules/net') && /1 unpinned provider/.test(t)), 'a child module with no constraint at all is still flagged');
+});
+
+test('floating-versions: registry prefix is normalised, and an open-ended constraint in a locked root module is reported at low priority', () => {
+  const prov = (dir, name, constraint, source) => N('dependency', `provider ${dir} ${name}`, { kind: 'provider', provider: name, source, constraint, pinned: 'unpinned', dir });
+  const stack = (dir, extra) => N('iac_module', dir, { kind: 'stack', root: true, child_module: false, ...extra });
+  const locked = [{ source: 'hashicorp/random', version: '3.6.0' }];
+  assert.equal(runInfra('floating-versions', [stack('a', { locked_providers: locked }), prov('a', 'random', null, 'registry.terraform.io/HashiCorp/random')]).length, 0, 'prefix and case normalised');
+  const out = runInfra('floating-versions', [stack('b', { locked_providers: locked }), prov('b', 'random', '>= 3.0.0', 'registry.opentofu.org/hashicorp/random')]);
+  assert.equal(out.length, 1);
+  assert.match(out[0].title, /lock file pins the exact version/);
+  assert.match(out[0].title, /init -upgrade/);
+  assert.match(out[0].smallest_simplification, /~>/);
+  assert.equal(out[0].factors.benefit, 1);
+  const child = runInfra('floating-versions', [N('iac_module', 'm', { kind: 'module', child_module: true, locked_providers: locked }), prov('m', 'random', '>= 3.0.0', 'hashicorp/random')]);
+  assert.equal(child.length, 0, 'child modules keep minimum-only constraints');
 });

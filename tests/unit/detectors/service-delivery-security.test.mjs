@@ -444,3 +444,14 @@ test('detectors report no findings on an empty-ish graph', () => {
   const g = Graph.fromFacts([mod('src/a.ts'), mod('src/b.ts')]);
   for (const d of all) assert.deepEqual(d.detect({ graph: g, options: {}, config: {}, scope: [] }), [], d.id);
 });
+
+test('missing-rollback-path: a backup/restore drill that deploys nothing is not a deploy job', () => {
+  const wfId = 'workflow:.github/workflows/drill.yml';
+  const g = (deploy_step) => [
+    N('workflow', '.github/workflows/drill.yml', { step_signatures: ['run:python manage.py migrate'] }, { name: 'Restore drill', path: '.github/workflows/drill.yml' }),
+    N('job', '.github/workflows/drill.yml#restore', { workflow: wfId, deploy_signal: true, deploys: ['restore'], deploy_step }, { name: 'restore', path: '.github/workflows/drill.yml' }),
+    E('CONTAINS', wfId, 'job:.github/workflows/drill.yml#restore'),
+  ];
+  assert.equal(run('delivery.missing-rollback-path', g(false)).length, 0);
+  assert.equal(run('delivery.missing-rollback-path', g(true)).length, 1);
+});

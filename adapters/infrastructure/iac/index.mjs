@@ -72,7 +72,7 @@ function shortOf(address) {
  */
 function lockFacts(file, text) {
   const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
-  const locked = [...text.matchAll(/provider\s+"([^"]+)"\s*\{[^}]*?\bversion\s*=\s*"([^"]+)"/g)].map((m) => ({ source: m[1].replace(/^registry\.(terraform|opentofu)\.io\//, ''), version: m[2] }));
+  const locked = [...text.matchAll(/provider\s+"([^"]+)"\s*\{[^}]*?\bversion\s*=\s*"([^"]+)"/g)].map((m) => ({ source: m[1].replace(/^registry\.(?:terraform\.io|opentofu\.org)\//, ''), version: m[2] }));
   if (!locked.length) return [];
   const label = dir || '.';
   return [nodeFact('iac_module', label, { name: label, path: dir || null, attrs: { lock_file: file.path, locked_providers: locked } }, prov({ source_type: 'config', source_ref: `${file.path}:1`, extractor: EXTRACTOR, confidence: 'high' }))];

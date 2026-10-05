@@ -224,3 +224,14 @@ test('unknown engine yields low-confidence forecasts', () => {
   const m = analyzeMigration('db/migrate/20240101000000_x.rb', 'class X < ActiveRecord::Migration[7.1]\n  def change\n    add_column :t, :c, :integer\n  end\nend\n', {});
   assert.equal(m.statements[0].forecast.confidence, 'low');
 });
+
+test('a DROP of a function, trigger, view or index that the same file re-creates is not destructive', () => {
+  const sql = (t) => analyzeMigration('db/migration/V9__x.sql', t, PG);
+  const re = sql('DROP FUNCTION IF EXISTS public.f(int);\nCREATE OR REPLACE FUNCTION F(a int) RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;\nDROP TRIGGER t1 ON a;\nCREATE TRIGGER T1 BEFORE INSERT ON a FOR EACH ROW EXECUTE FUNCTION f();\nDROP VIEW v;\nCREATE VIEW public.v AS SELECT 1;\nDROP INDEX idx_a;\nCREATE INDEX idx_a ON a (x);\n');
+  assert.equal(re.destructive, false);
+  assert.ok(re.statements.filter((s) => s.kind.startsWith('drop_')).every((s) => s.recreated));
+  const gone = sql('DROP FUNCTION f(int);\nCREATE FUNCTION g() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;\n');
+  assert.equal(gone.destructive, true);
+  assert.equal(sql('DROP TABLE a;\nCREATE TABLE a (id int);\n').destructive, true);
+  assert.equal(sql('TRUNCATE a;\n').destructive, true);
+});
