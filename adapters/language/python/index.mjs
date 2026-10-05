@@ -32,10 +32,16 @@ async function runPython(items, ctx) {
       input: JSON.stringify(items.map(({ file, text }) => ({ path: file.path, text }))),
       timeoutMs: EXEC_TIMEOUT_MS,
     });
-  } catch {
-    return records; // UK_ADAPTER_UNSUPPORTED, timeout or spawn failure: the lexical reader covers it
+  } catch (err) {
+    // UK_ADAPTER_UNSUPPORTED, timeout or spawn failure: the lexical reader covers it, and the
+    // map says so (a silent fallback hid degraded analysis in live sessions).
+    ctx.notes?.push(`python AST extractor unavailable (${String(err?.message ?? err).slice(0, 200)}); Python files were read lexically, with lower confidence`);
+    return records;
   }
-  if (!res || res.exitCode !== 0) return records;
+  if (!res || res.exitCode !== 0) {
+    ctx.notes?.push(`python AST extractor exited ${res?.exitCode ?? '?'}: ${String(res?.stderr ?? '').trim().split('\n').slice(-3).join(' | ').slice(0, 300)}; Python files were read lexically, with lower confidence`);
+    return records;
+  }
   for (const line of String(res.stdout).split('\n')) {
     if (!line.trim()) continue;
     try {

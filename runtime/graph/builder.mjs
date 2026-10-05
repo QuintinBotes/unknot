@@ -54,6 +54,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const commit = cen.commit;
   // `adapters` replaces the registry; tests use it to stand in a failing extractor.
   const { loaded, unavailable } = adapters ? { loaded: adapters, unavailable: [] } : await loadAdapters(config, only);
+  const notes = []; // degraded-but-working conditions the person should know about
   const workers = defaultWorkers(config.limits.workers);
   const perFile = new Map(); // path → facts (all adapters)
   const failures = [];
@@ -102,7 +103,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       if (adapter.extractBatch) {
         const items = chunk.map((file) => ({ file, text: readEntry(ctx.root, file) }));
         const exec = adapterExec(ctx, { run, config });
-        const out = await adapter.extractBatch(items, { commit, options, exec });
+        const out = await adapter.extractBatch(items, { commit, options, exec, notes });
         results = chunk.map((f) => (out.has(f.path) ? { path: f.path, blob: f.blob, facts: out.get(f.path) } : { path: f.path, error: 'no output from batch extractor' }));
       } else if (chunk.length >= PARALLEL_THRESHOLD && workers > 1 && adapter.moduleURL) {
         results = await extractParallel({ moduleURL: adapter.moduleURL, root: ctx.root, files: chunk, commit, options, workers });
@@ -239,6 +240,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     cache: { hits: stats.cached, extracted: stats.extracted, hit_rate: stats.cached + stats.extracted ? +(stats.cached / (stats.cached + stats.extracted)).toFixed(3) : null },
     adapters: stats.adapters,
     unavailable,
+    ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
     facts: all.length,

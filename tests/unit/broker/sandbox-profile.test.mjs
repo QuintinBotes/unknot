@@ -70,3 +70,17 @@ test('macOS: with loopback on, a test can serve and reach 127.0.0.1 but not the 
   assert.match(run(own, false), /EPERM|EACCES/);
   assert.match(run(remote, true), /EPERM|EACCES/);
 });
+
+test('the plugin directory stays readable even when it sits inside a hidden directory (live-session regression)', { skip: detectSandbox() !== 'macos-sandbox-exec' }, () => {
+  const plugin = realpathSync(new URL('../../../', import.meta.url).pathname).replace(/\/$/, '');
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(plugin, '..'); // hide the plugin's parent, as an installed plugin's is
+  try {
+    const w = wrap(['/bin/cat', join(plugin, 'package.json')], { writable: [] });
+    const r = spawnSync(w.file, w.args, { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /"name": "unknot"/);
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
+  }
+});

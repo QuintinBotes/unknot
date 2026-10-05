@@ -8,6 +8,7 @@
 import { accessSync, constants, lstatSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
 import { realpathLenient } from '../core/paths.mjs';
 import { unknotHome } from '../core/project.mjs';
@@ -26,6 +27,9 @@ export const MAIN_CHECKOUT_READABLE = ['.git', 'node_modules', '.venv', 'venv', 
 function envSecretDirs() {
   return [process.env.CLAUDE_CONFIG_DIR].filter((p) => typeof p === 'string' && p.startsWith('/'));
 }
+
+// The plugin's own directory (runtime/broker/ -> repository root), never secret.
+const PLUGIN_ROOT = realpathLenient(fileURLToPath(new URL('../../', import.meta.url))).replace(/\/$/, '');
 
 function executable(path) {
   try {
@@ -97,6 +101,10 @@ export function macosProfile({ writable, network, sockets = [], hideRoot = null,
     `(subpath ${sbplString(realpathLenient(unknotHome()))})`,
   ];
   lines.push(`(deny file-read* file-write* ${hidden.join(' ')})`);
+  // Unknot's own files stay readable: an installed plugin lives inside the Claude config
+  // directory hidden above, and its extractors (extract.py) run in this sandbox. Without
+  // this, every Python file in a live session fell back to lexical reading.
+  lines.push(`(allow file-read* (subpath ${sbplString(PLUGIN_ROOT)}))`);
   return lines.join('\n');
 }
 
@@ -134,6 +142,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     for (const d of [...SECRET_HOME_DIRS.map((x) => join(home, x)), ...envSecretDirs()]) args.push('--tmpfs', d);
     for (const f of SECRET_HOME_FILES) args.push('--ro-bind-try', '/dev/null', join(home, f));
     args.push('--tmpfs', realpathLenient(unknotHome()));
+    args.push('--ro-bind', PLUGIN_ROOT, PLUGIN_ROOT); // after the tmpfs mounts: see macosProfile
     if (!network) args.push('--unshare-net');
     return { file: 'bwrap', args: [...args, '--', ...argv], sandbox: kind };
   }

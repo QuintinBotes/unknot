@@ -4,6 +4,21 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.8] - 2026-10-05
+
+### Fixed
+
+- Inside Claude Code sessions every Python file was read lexically: the sandbox hid the
+  Claude config directory, which is where an installed plugin lives, so `python3` could not
+  read Unknot's own `extract.py`. The plugin directory is now readable in the sandbox (it
+  holds no secrets); the rest of the config directory stays hidden. Found by running the
+  installed plugin on a fresh Python repository.
+
+### Added
+
+- The map result lists `notices` for degraded-but-working conditions, starting with the
+  Python AST extractor being unavailable, so a lexical fallback is never silent.
+
 ## [0.1.7] - 2026-10-05
 
 From a second, unbiased audit: a fresh simple random sample of 110 findings across eleven
