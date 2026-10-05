@@ -34,6 +34,17 @@ function firstSlice(treatment, cand, sel) {
     T8: { objective: `Introduce feature/layer import rules for ${where} in warn mode with a baseline`, changes: 'lint rules only' },
     T9: { objective: `Add one read-only BFF endpoint for one screen, proxying existing APIs`, changes: 'new endpoint only; clients switch behind a flag later' },
   };
+  if (treatment === 'T0' && sel.prepare?.length) {
+    return {
+      treatment,
+      objective: `Establish ${sel.prepare.join(', ')} for ${where} so the decomposition decision can be made on evidence`,
+      change_shape: 'tests, instrumentation and ownership records only; no structural change and no data moves',
+      pattern_step: 'Gather the missing evidence before choosing a treatment',
+      scope: { include: cand.modules.slice(0, 50).map((m) => m.slice(7)), exclude: [] },
+      sequence: sel.sequence,
+      prerequisite: null,
+    };
+  }
   return {
     treatment,
     objective: templates[treatment].objective,

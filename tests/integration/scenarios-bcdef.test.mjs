@@ -97,7 +97,7 @@ describe('Scenario B: distributed monolith', async () => {
     }
   });
 
-  test('createCampaign --from DEC yields first slices that establish contracts, observability or ownership, not data moves', { todo: 'GAP: runtime/decompose/select.mjs selects retain (T0) for every candidate of the distributed monolith even with independent_deploy, so runtime/plan/campaign.mjs createCampaign refuses ("selected treatment is retain") instead of producing contract/observability/ownership slices' }, async () => {
+  test('createCampaign --from DEC yields first slices that establish contracts, observability or ownership, not data moves', {}, async () => {
     const d = await decompose(r.ctx, { config: r.config, drivers: ['independent_deploy'] });
     const rec = d.details[0];
     const { slices, campaign } = createCampaign(r.ctx, { config: r.config, actor: 'model:main', objective: 'Decouple the order services', decomposition: rec.id });

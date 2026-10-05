@@ -27,6 +27,6 @@ test('modular monolith: nothing above low-severity noise', () => {
 
 // A function passed by reference (`lines.map(lineTotal)`) is a use. The dead-code detector
 // counts only calls and CALLS/REFERENCES edges, so it reports lineTotal as having no callers.
-test('modular monolith: no dead-code findings', { todo: 'GAP: runtime/diagnose/detectors/local.mjs dead-code reports a private function passed by reference (arr.map(fn)) as unused' }, () => {
+test('modular monolith: no dead-code findings', {}, () => {
   assert.ok(!kinds(r.findings).includes('code.dead-code'), JSON.stringify(r.findings.filter((f) => f.kind === 'code.dead-code').map((f) => f.title)));
 });

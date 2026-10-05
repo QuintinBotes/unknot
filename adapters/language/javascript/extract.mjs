@@ -59,6 +59,11 @@ function codeFacts(file, text) {
   const ts = TS_RE.test(path);
   const tk = tokenize(text, { jsx: !NO_JSX_RE.test(path), ts });
   const { tokens, n } = tk;
+  // How often each identifier occurs in the file. A function whose name occurs more than
+  // once is used somewhere — called, passed by reference (`map(lineTotal)`), exported in a
+  // list — even when no call edge resolves (golden-suite gap 1).
+  const nameCount = new Map();
+  for (let i = 0; i < n; i++) if (tokens[i].t === 'id') nameCount.set(tokens[i].v, (nameCount.get(tokens[i].v) ?? 0) + 1);
   const { match, bad } = buildMatch(tokens, n);
   let analysis;
   let failed = false;
@@ -125,6 +130,7 @@ function codeFacts(file, text) {
         kind: f.kind, returns: f.returns, return_type: f.return_type, calls: f.calls, class: f.cls,
         decorators: f.decorators.map((d) => d.name), visibility: f.visibility ?? null,
         unreachable: unreachable.get(f) ?? [],
+        name_occurrences: nameCount.get(f.qname.split('.').pop()) ?? 0,
       },
     }, p(f.start_line));
     fnByQ.set(f.qname, id);

@@ -467,6 +467,10 @@ const deadCode = define({
       if (graph.in(n.id, 'CALLS').length) continue;
       if (graph.in(n.id, ['INSTANTIATES', 'REFERENCES']).length) continue;
       if (called.get(n.path)?.has(short) || called.get(n.path)?.has(nameOf(n)) || anywhere.has(short)) continue;
+      // Referenced by value in its own module (callback, map(fn), registry): JS counts the
+      // declaration among the occurrences, Python does not.
+      const occ = n.attrs.name_occurrences;
+      if (Number.isInteger(occ) && occ > (mod.attrs?.language === 'python' ? 0 : 1)) continue;
       if (!perModule.has(mod.id)) perModule.set(mod.id, { mod, symbols: [] });
       perModule.get(mod.id).symbols.push(n);
     }

@@ -111,8 +111,27 @@ function draftsFromDecomposition(ctx, decId) {
   const include = rec.first_slice.scope.include.length ? rec.first_slice.scope.include : rec.candidate.modules.map((m) => m.slice(7));
   const steps = rec.first_slice.sequence ?? [rec.treatment];
   const drafts = [];
+  const name = rec.candidate.name;
+  const dirs = [...new Set(include.map((p) => p.replace(/[^/]+$/, '')).filter(Boolean))];
+  const PREPARE = {
+    contracts: { objective: `Add consumer-driven contract tests for the interfaces of ${name}`, include: [...dirs.map((d) => `${d}**`), '**/contracts/**', '**/pacts/**', '**/test*/**', '**/*.test.*', '**/*_test.*'] },
+    observability: { objective: `Add correlation IDs and boundary tracing to ${name} so its runtime coupling can be measured`, include: dirs.map((d) => `${d}**`) },
+    ownership: { objective: `Record the owners of ${name} (CODEOWNERS or service catalog) so ownership alignment can be measured`, include: ['CODEOWNERS', '.github/CODEOWNERS', '**/catalog-info.yaml'] },
+  };
   for (const step of steps) {
     if (step === 'T0') continue;
+    if (PREPARE[step]) {
+      drafts.push({
+        objective: PREPARE[step].objective,
+        kind: step === 'ownership' ? 'documentation' : 'code',
+        scope: { include: PREPARE[step].include, exclude: ['**/migrations/**'] },
+        invariants: ['Observable behaviour is unchanged', 'No data is moved and no schema changes'],
+        sources: [decId],
+        patterns: step === 'observability' ? ['resilience.health-endpoint-monitoring'] : [],
+        rationale: `From ${decId}: driver(s) ${rec.driver.join(', ')} recorded, but ${step} evidence is missing`,
+      });
+      continue;
+    }
     const isChar = step === 'characterization';
     drafts.push({
       objective: isChar ? `Add characterization tests pinning current behaviour of ${rec.candidate.name}` : step === rec.treatment ? rec.first_slice.objective : `First safe slice of ${step} for ${rec.candidate.name}`,

@@ -263,6 +263,13 @@ class Analyzer(object):
         self.module_calls = []
         self.module_call_set = set()
         self.assign_of = {}
+        # Occurrences of each name as a Name or attribute in the file: a function referenced
+        # by value (`map(total)`, a callback, a registry dict) is used even with no call.
+        self.name_counts = {}
+        for node in ast.walk(tree):
+            key = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+            if key is not None:
+                self.name_counts[key] = self.name_counts.get(key, 0) + 1
         self.docs = set()
         self.stack = []  # (kind, qual, record)
         self.fn_calls = {}
@@ -379,7 +386,7 @@ class Analyzer(object):
                'start_line': n.lineno, 'end_line': end, 'params': params, 'params_required': len(required), 'cyclomatic': cc, 'cognitive': cog,
                'max_nesting': depth, 'decorators': decs, 'async': isinstance(n, ast.AsyncFunctionDef),
                'returns': unparse(n.returns, 120) if n.returns is not None else None, 'calls': [],
-               'unreachable': unreachable_in(n)}
+               'unreachable': unreachable_in(n), 'name_occurrences': self.name_counts.get(n.name, 0)}
         self.functions.append(rec)
         self.fn_calls[qual] = (rec, set())
         for d in n.decorator_list:

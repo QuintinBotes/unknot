@@ -103,6 +103,16 @@ export function selectTreatment({ target, signals, drivers }) {
       if (chosen?.needs_characterization) sequence = ['characterization', ...sequence];
     }
   }
+  // With a recorded driver but nothing safe to do yet, the right first step is to gather
+  // the evidence the decision is missing — contracts, runtime observability, ownership —
+  // not to change structure or move data (spec §32 Scenario B).
+  const prepare = [];
+  if (!chosen && drivers.length) {
+    if (signals['contracts.present'] !== 1) prepare.push('contracts');
+    if (signals['traces.available'] !== 1) prepare.push('observability');
+    if (signals['ownership.alignment'] === undefined) prepare.push('ownership');
+    if (prepare.length) sequence = prepare;
+  }
   const retain = evaluations.find((e) => e.treatment === 'T0');
   const treatment = chosen ? chosen.treatment === 'T3' && sequence[0] === 'T6' ? 'T6' : chosen.treatment : 'T0';
   const gaps = [...new Set(evaluations.flatMap((e) => e.gaps))];
@@ -119,6 +129,7 @@ export function selectTreatment({ target, signals, drivers }) {
     evidence_gaps: gaps,
     confidence,
     evaluations: evaluations.map(({ treatment: t, fit, reasons }) => ({ treatment: t, fit, reasons })),
-    retain_reason: chosen ? null : 'no treatment both fits the measured evidence and serves a recorded driver; retaining is the least risky correct answer until that changes',
+    prepare,
+    retain_reason: chosen ? null : prepare.length ? `retain until the evidence exists: ${prepare.join(', ')} come first, then decomposition is re-evaluated` : 'no treatment both fits the measured evidence and serves a recorded driver; retaining is the least risky correct answer until that changes',
   };
 }

@@ -68,7 +68,7 @@ describe('state protection against path tricks (Write/Edit)', () => {
   });
 
   test('case variants of not-yet-existing state paths are denied on case-insensitive filesystems',
-    { skip: !caseInsensitive && 'filesystem is case-sensitive', todo: 'BUG: pdp.mjs isStatePath() compares case-sensitively; on case-insensitive filesystems .unknot/DECISIONS.jsonl or .unknot/SLICES/x.yaml (not yet created) alias protected state but pass alwaysOn' },
+    { skip: !caseInsensitive && 'filesystem is case-sensitive' },
     () => {
       for (const rel of ['.unknot/DECISIONS.jsonl', '.unknot/SLICES/UK-9999.yaml', '.unknot/CAMPAIGNS/C-1.yaml']) {
         assert.equal(always('Write', { file_path: join(dir, rel) })?.decision, 'deny', rel);
