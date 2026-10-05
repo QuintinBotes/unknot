@@ -7,6 +7,8 @@
 //
 // Usage: node scripts/live-suite.mjs [--install fresh|local|installed] [--repos a,b]
 //   [--steps init,map,...] [--change rotate|all|none|<name>] [--model sonnet] [--out <dir>]
+//   [--local <path,...>]   also run the read-only steps on local checkouts (cloned to a
+//                          temporary directory first; never opened for writing)
 //   fresh      a new CLAUDE_CONFIG_DIR; `claude plugin marketplace add <this checkout>` and
 //              `claude plugin install unknot@unknot`. Needs ANTHROPIC_API_KEY. The CI mode.
 //   local      the current Claude config, with this checkout as --plugin-dir and the catalog
@@ -32,7 +34,8 @@ const out = opt('--out') ?? mkdtempSync(join(T, 'uk-live-'));
 mkdirSync(out, { recursive: true });
 const suite = JSON.parse(readFileSync(join(ROOT, 'scripts/live-suite.json'), 'utf8'));
 const only = opt('--repos')?.split(',');
-const repos = suite.repos.filter((r) => !only || only.includes(r.name));
+const local = (opt('--local')?.split(',') ?? []).filter(Boolean).map((p) => ({ name: p.replace(/\/+$/, '').split('/').pop(), path: p }));
+const repos = [...suite.repos.filter((r) => !only || only.includes(r.name)), ...local];
 const steps = (opt('--steps') ?? 'init,map,diagnose,explain,decompose').split(',');
 const log = (s) => process.stderr.write(`${s}\n`);
 
@@ -136,11 +139,11 @@ const changeFor = (r, i) => Boolean(r.change) && (changeOpt === 'all' || changeO
 
 const report = { install, model, started: new Date().toISOString(), repos: [] };
 for (const [i, r] of repos.entries()) {
-  const src = fetchRepo(r);
+  const src = r.path ?? fetchRepo(r);
   const work = mkdtempSync(join(T, `uk-live-${r.name}-`));
   must(sh('git', ['clone', '-q', '--no-hardlinks', src, work]), 'clone');
   const home = mkdtempSync(join(T, 'uk-live-home-'));
-  const entry = { name: r.name, commit: r.commit, sessions: {}, failures: [], warnings: [], cost: 0 };
+  const entry = { name: r.name, commit: r.commit ?? sh('git', ['-C', src, 'rev-parse', 'HEAD']).stdout.trim(), sessions: {}, failures: [], warnings: [], cost: 0 };
   for (const step of steps) {
     let prompt = `/unknot:${step}`;
     if (step === 'explain') {
