@@ -221,6 +221,7 @@ function codeFacts(file, text) {
     imports: analysis.imports,
     calls: analysis.calls,
     directives: analysis.directives,
+    ...(tk.jsxElements > 0 && { has_jsx: true }),
   };
   if (degraded) attrs.parse_issues = tk.issues.concat(bad ? [`bracket mismatches: ${bad}`] : [], failed ? ['structure pass failed'] : []).slice(0, 10);
   if (truncated) attrs.truncated = true;

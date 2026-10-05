@@ -11,7 +11,7 @@ import { parseState } from './state.mjs';
 import { detectDrift } from './drift.mjs';
 
 const ID = 'iac';
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const EXTRACTOR = `${ID}@${VERSION}`;
 
 const catalogProv = (ref, confidence = 'high') => prov({ source_type: 'catalog', source_ref: ref, extractor: EXTRACTOR, confidence });
@@ -65,6 +65,19 @@ function shortOf(address) {
   return String(address).replace(/^(?:module\.[^.\[]+(?:\[[^\]]*\])?\.)+/, '').replace(/\[[^\]]*\]$/, '');
 }
 
+/**
+ * A committed dependency lock file pins every provider of its root module to an exact
+ * version and checksums, whatever the version constraints say (an unfamiliar-repository
+ * test ranked "unpinned providers" first while the lock file pinned them).
+ */
+function lockFacts(file, text) {
+  const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
+  const locked = [...text.matchAll(/provider\s+"([^"]+)"\s*\{[^}]*?\bversion\s*=\s*"([^"]+)"/g)].map((m) => ({ source: m[1].replace(/^registry\.(terraform|opentofu)\.io\//, ''), version: m[2] }));
+  if (!locked.length) return [];
+  const label = dir || '.';
+  return [nodeFact('iac_module', label, { name: label, path: dir || null, attrs: { lock_file: file.path, locked_providers: locked } }, prov({ source_type: 'config', source_ref: `${file.path}:1`, extractor: EXTRACTOR, confidence: 'high' }))];
+}
+
 export default {
   id: ID,
   version: VERSION,
@@ -81,7 +94,7 @@ export default {
   extract(file, text) {
     const p = file.path;
     if (/\.tf(\.json)?$/.test(p) || (/\.hcl$/.test(p) && !/\.terraform\.lock\.hcl$/.test(p))) return extractTerraform(file, text);
-    if (/\.terraform\.lock\.hcl$/.test(p)) return [];
+    if (/\.terraform\.lock\.hcl$/.test(p)) return lockFacts(file, text);
     return extractCloudFormation(file, text);
   },
 

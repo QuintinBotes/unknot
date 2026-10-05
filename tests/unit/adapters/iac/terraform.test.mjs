@@ -201,7 +201,7 @@ test('facts carry config provenance with path:line and the adapter extractor', (
   const f = m.node('resource:envs/prod/aws_db_instance.main');
   assert.equal(f.provenance.source_type, 'config');
   assert.match(f.provenance.source_ref, /^envs\/prod\/main\.tf:\d+$/);
-  assert.equal(f.provenance.extractor, 'iac@0.1.0');
+  assert.equal(f.provenance.extractor, 'iac@0.1.1');
   const implicit = m.all.find((x) => x.id === 'state_backend:envs/staging');
   assert.equal(implicit.provenance.source_type, 'inference');
   assert.equal(implicit.provenance.confidence, 'medium');

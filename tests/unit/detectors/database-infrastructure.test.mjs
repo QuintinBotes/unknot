@@ -757,3 +757,20 @@ test('diagnose(): destructive and privilege-widening infrastructure findings are
     for (const f of found) assert.ok(['high', 'critical'].includes(f.risk), `${kind} classified ${f.risk}`);
   }
 });
+
+test('floating-versions: providers pinned by a committed lock file, and minimum versions in child modules, are not flagged', () => {
+  const prov = (dir, name, constraint) => N('dependency', `provider ${dir} ${name}`, { kind: 'provider', provider: name, source: `hashicorp/${name}`, constraint, pinned: 'unpinned', dir });
+  const out = runInfra('floating-versions', [
+    N('iac_module', 'envs/dev', { kind: 'stack', root: true, child_module: false, locked_providers: [{ source: 'hashicorp/random', version: '3.6.0' }] }),
+    N('iac_module', 'modules/net', { kind: 'module', root: false, child_module: true }),
+    N('iac_module', 'envs/prod', { kind: 'stack', root: true, child_module: false }),
+    prov('envs/dev', 'random', '>= 3.0.0'),
+    prov('modules/net', 'aws', '>= 5.0'),
+    prov('modules/net', 'null', null),
+    prov('envs/prod', 'random', '>= 3.0.0'),
+  ]);
+  const titles = out.map((d) => d.title).sort();
+  assert.equal(out.length, 2, titles.join(' | '));
+  assert.ok(titles.some((t) => t.startsWith('envs/prod')), 'a root module without a lock file is still flagged');
+  assert.ok(titles.some((t) => t.startsWith('modules/net') && /1 unpinned provider/.test(t)), 'a child module with no constraint at all is still flagged');
+});

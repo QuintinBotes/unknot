@@ -4,6 +4,16 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.3] - 2026-10-05
+
+### Fixed
+
+- A committed `.terraform.lock.hcl` is read: providers it pins are not reported as unpinned,
+  and child modules may state minimum versions (`>=`) as Terraform recommends. On the test
+  repository this removed three findings that had ranked first.
+- React class `render` methods and default exports in files containing JSX (including `.js`
+  files) use the component line threshold; an anonymous default export is named by its file.
+
 ## [0.1.2] - 2026-10-05
 
 More fixes from the same repository, measured on it: open findings 878 → 554, and

@@ -13,7 +13,7 @@ import {
   isPublicCidr, policyFromStatementBlocks, refsIn, safeAttrs,
 } from './analysis.mjs';
 
-export const EXTRACTOR = 'iac@0.1.0';
+export const EXTRACTOR = 'iac@0.1.1';
 const MAX_FACTS = 5000;
 const asArray = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
 
@@ -437,6 +437,9 @@ export function linkTerraform(ctx) {
       module_calls: summary.modules.length, moved_blocks: summary.moved.length, import_blocks: summary.imports.length,
       moved: summary.moved.slice(0, 50), imports: summary.imports.slice(0, 50),
       backend: summary.backend ?? 'local (implicit)', uses,
+      // Child modules (under modules/ or called by another module) declare minimum provider
+      // versions; their callers' lock files pin them.
+      child_module: underModules || uses > 0,
     };
     if (underModules) {
       attrs.one_use = uses === 1;

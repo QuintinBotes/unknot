@@ -69,6 +69,7 @@ export function tokenize(text, { jsx = true, ts = false } = {}) {
   let mode = 0; // 0 js, 1 inside a JSX tag, 2 JSX children
   const ctx = []; // open '{' contexts: { k: 'b' | 't' | 'ja' | 'jc', base, head, start }
   const jsxStack = [];
+  let jsxElements = 0; // top-level JSX elements opened from code (not nested children)
   let curBase = 0;
   let tagClosing = false;
   let tagName = '';
@@ -333,7 +334,7 @@ export function tokenize(text, { jsx = true, ts = false } = {}) {
       const nc = text.charCodeAt(i + 1);
       if (nc === 62 || isIdStart(nc)) {
         TSX_GENERIC_RE.lastIndex = i;
-        if (!(ts && TSX_GENERIC_RE.test(text))) { openTag(false); continue; }
+        if (!(ts && TSX_GENERIC_RE.test(text))) { jsxElements++; openTag(false); continue; }
       }
     }
     // Operators and punctuation, longest match first.
@@ -357,5 +358,5 @@ export function tokenize(text, { jsx = true, ts = false } = {}) {
   for (let k = 0; k < 4; k++) tokens.push(eof);
   let sloc = 0;
   for (let k = 1; k <= lineCount; k++) if (code[k]) sloc++;
-  return { tokens, n, loc: lineCount, sloc, issues };
+  return { tokens, n, loc: lineCount, sloc, issues, jsxElements };
 }

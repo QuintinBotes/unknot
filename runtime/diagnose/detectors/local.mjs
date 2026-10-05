@@ -128,12 +128,18 @@ const longFunction = define({
     const out = [];
     for (const n of codeSymbols(graph)) {
       const lines = n.attrs.lines ?? 0;
-      const component = /\.(jsx|tsx|vue|svelte)$/.test(n.path ?? '') && /^[A-Z]/.test(nameOf(n).split('.').pop());
+      // UI components: markup inflates line counts (FB8). A component is a capitalised
+      // function, a class's render method, or a file's default export, in a file with JSX.
+      const last = nameOf(n).split('.').pop();
+      const jsxFile = /\.(jsx|tsx|vue|svelte)$/.test(n.path ?? '') || graph.node(`module:${n.path}`)?.attrs?.has_jsx === true;
+      const component = jsxFile && (/^[A-Z]/.test(last) || (last === 'render' && Boolean(n.attrs.class)) || nameOf(n) === 'default');
       const limit = component ? o.component_lines : o.lines;
       if (lines <= limit) continue;
+      // An anonymous default export is named after its file, so the title says where it is.
+      const label = nameOf(n) === 'default' ? `The default export of ${n.path}` : nameOf(n);
       const d = base(graph, n, {
         kind: 'code.long-function',
-        title: `${component ? 'Component ' : ''}${nameOf(n)} is ${lines} lines long (threshold ${limit})`,
+        title: `${component && nameOf(n) !== 'default' ? 'Component ' : ''}${label} is ${lines} lines long (threshold ${limit})`,
         summary: `${lines} lines, cyclomatic ${n.attrs.cyclomatic ?? '?'}, max nesting ${n.attrs.max_nesting ?? '?'}`,
         measurements: { 'function.lines': lines, ...(n.attrs.cyclomatic != null && { 'function.cyclomatic': n.attrs.cyclomatic }) },
         thresholds: { lines: limit, 'lines.note': 'heuristic: a readability guideline, not a defect limit' },

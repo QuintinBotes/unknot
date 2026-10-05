@@ -512,3 +512,10 @@ test('dead-code: Meteor eager loading, asset directories, manifests and tool con
   const explicit = [...meteor, file('package.json', { mentions: [], meteor_main_module: true })];
   assert.deepEqual(flagged([...used, ...candidates, ...explicit]), ['imports/orphan.js', 'server/config/init.js']);
 });
+
+test('long-function: class render methods and default exports in JSX files use the component threshold; default exports are named by file', () => {
+  const fn = (path, qname, attrs) => nodeFact('function', `${path}#${qname}`, { name: qname, path, attrs: { lines: 120, cyclomatic: 2, params: 0, ...attrs } }, P);
+  const facts = [mod('ui/Layout.js', { has_jsx: true }), fn('ui/Layout.js', 'Layout.render', { class: 'Layout' }), mod('ui/page.jsx'), fn('ui/page.jsx', 'default', {}), mod('lib/a.js'), fn('lib/a.js', 'default', {})];
+  const titles = run('local.long-function', facts).map((d) => d.title);
+  assert.deepEqual(titles, ['The default export of lib/a.js is 120 lines long (threshold 80)']);
+});

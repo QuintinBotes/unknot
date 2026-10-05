@@ -10,7 +10,7 @@ const readText = async (p) => readFileSync(join(FIXTURES, p), 'utf8');
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'iac');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.kind, 'infrastructure');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -26,6 +26,9 @@ test('extract dispatches by file type and ignores the lock file', () => {
   assert.ok(adapter.extract({ path: 'a.tf' }, 'resource "aws_s3_bucket" "b" {}').length > 0);
   assert.ok(adapter.extract({ path: 'a.bicep' }, "resource s 'Microsoft.Storage/storageAccounts@1' = {\n}\n").length > 0);
   assert.deepEqual(adapter.extract({ path: '.terraform.lock.hcl' }, 'provider "x" {}'), []);
+  const lock = adapter.extract({ path: 'envs/dev/.terraform.lock.hcl' }, 'provider "registry.terraform.io/hashicorp/random" {\n  version     = "3.6.0"\n  constraints = ">= 3.0.0"\n}\n');
+  assert.deepEqual(lock[0].attrs.locked_providers, [{ source: 'hashicorp/random', version: '3.6.0' }]);
+  assert.equal(lock[0].id, 'iac_module:envs/dev');
   assert.deepEqual(adapter.extract({ path: 'cloudformation/other.json' }, '{}'), []);
 });
 

@@ -11,7 +11,7 @@ import {
   analyzeResourcePolicies, classifyResource, ingressSummary, isAdminRole, isPublicCidr, pick, safeAttrs,
 } from './analysis.mjs';
 
-const EXTRACTOR = 'iac@0.1.0';
+const EXTRACTOR = 'iac@0.1.1';
 const asArray = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
 const ADMIN_GUIDS = ['8e3af657-a8ff-443c-a75c-2fe8c4bcb635', 'b24988ac-6180-42a0-ab88-20f7382dd24c', '18d7d88d-d35e-4fb5-a5c3-7773c20a72d9'];
 

@@ -151,7 +151,15 @@ const floatingVersions = detector('floating-versions', ({ graph }) => {
     return stacks.get(stackId);
   };
   for (const dep of graph.nodes('dependency')) {
-    if (dep.attrs.kind === 'provider' && dep.attrs.pinned === 'unpinned') slot(`iac_module:${dep.attrs.dir ?? '.'}`).providers.push(dep);
+    if (dep.attrs.kind !== 'provider' || dep.attrs.pinned !== 'unpinned') continue;
+    const stackId = `iac_module:${dep.attrs.dir ?? '.'}`;
+    const stack = graph.node(stackId);
+    const src = String(dep.attrs.source ?? '').toLowerCase();
+    // Pinned by a committed lock file of this root module.
+    if ((stack?.attrs?.locked_providers ?? []).some((l) => String(l.source).toLowerCase() === src)) continue;
+    // A reusable module states a minimum version; pinning belongs to the root's lock file.
+    if (stack?.attrs?.child_module && /^\s*>=?\s*\d/.test(dep.attrs.constraint ?? '')) continue;
+    slot(stackId).providers.push(dep);
   }
   for (const e of graph.edges('DEPENDS_ON')) {
     const target = graph.node(e.to);

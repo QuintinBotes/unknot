@@ -3,7 +3,7 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 
-export const EXTRACTOR = 'javascript@0.1.6';
+export const EXTRACTOR = 'javascript@0.1.7';
 
 const DEP_GROUPS = ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies'];
 
