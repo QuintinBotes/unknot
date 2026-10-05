@@ -33,12 +33,15 @@ async function approve(positional, flags) {
     expiry: flags.expires ?? cfg.config.approvals.expiry ?? LANE_DEFAULTS.expiry,
   });
   const covered = Object.keys(lane.slices);
-  const rows = covered.map((id) => ({ id, objective: JSON.parse(ctx.store.get('SELECT body FROM slices WHERE id = ?', id).body).objective }));
+  const rows = covered.map((id) => {
+    const body = JSON.parse(ctx.store.get('SELECT body FROM slices WHERE id = ?', id).body);
+    return { id, objective: body.objective, scope: (body.scope?.include ?? []).join(', '), obligations: ctx.store.get('SELECT COUNT(*) AS n FROM proof_obligations WHERE slice_id = ?', id).n };
+  });
   output([
     `Lane for ${campaignId}, as ${approver} / ${lane.role ?? '—'}`,
     `The agent may apply and verify these slices without asking you per slice. Each patch must ${lane.kinds.map((k) => (k === 'deletion' ? 'only delete code' : 'only change tests')).join(' or ')}, within ${lane.max_changed_files} files and ${lane.max_diff_lines} lines; anything else is refused. You still approve every change before it is accepted.`,
     '',
-    covered.length ? table(rows, ['id', 'objective']) : 'No slice fits a lane.',
+    covered.length ? table(rows, ['id', 'objective', 'scope', 'obligations']) : 'No slice fits a lane.',
     ...(excluded.length ? ['', 'Not in the lane (they need their own approval):', ...excluded.map((e) => `  ${e.id}: ${e.problems.join('; ')}`)] : []),
     '',
     `Policy digest: ${lane.policy_digest}`,

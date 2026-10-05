@@ -58,8 +58,16 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- A slice starts only from its approved baseline: an existing `unknot/<slice>` branch at another
+  commit is refused instead of reused, and the diff budget (and a lane's shape check) is
+  measured on the staged patch against the baseline, which is what gets hashed and approved.
+  Accepting a change re-stages the worktree and refuses if it no longer matches the approved
+  diff. Found by an adversarial review of the lane design.
+- During a run, commands cannot be left running in the background, and wake-ups, monitors,
+  cron and remote triggers are refused: they would let work continue after the run's turn.
 - A shell command that only writes text mentioning `.unknot` into another file (a heredoc
-  appended to notes) is no longer refused; programs that could act on `.unknot` still are.
+  appended to notes, a plain `cat`, `echo` or `printf` to a literal file) is no longer refused;
+  any other command that mentions `.unknot`, including one split by quotes, still is.
 - Hand-backs are bound to the active run: a made-up run id is replaced and kept as a warning,
   `submit_handoff` outside a run is refused, and an agent that reported through
   `submit_handoff` is not blocked for a missing block. Agent examples no longer carry a literal

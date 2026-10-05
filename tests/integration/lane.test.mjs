@@ -144,4 +144,5 @@ test('lane patch shapes: deletion-only, tests-only, caps', () => {
   assert.match(mixed.problems.join(' '), /not deletion-only.*non-test files \(src\/a\.mjs\)/);
   assert.match(checkLaneDiff(lane, { files: 3, lines: 30, added: 0, paths: ['a', 'b', 'c'] }).problems.join(' '), /3 files.*cap 2.*30 lines.*cap 20/);
   assert.equal(checkLaneDiff({ ...lane, kinds: ['deletion'] }, { files: 1, lines: 2, added: 2, paths: ['test/a.test.mjs'] }).ok, false, 'tests-only patches need the tests kind');
+  assert.equal(checkLaneDiff(lane, { files: 1, lines: 4, added: 4, paths: ['api/spec/openapi.yaml'] }).ok, false, 'a spec document is not test code');
 });

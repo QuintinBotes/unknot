@@ -19,7 +19,7 @@ import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { head } from './git.mjs';
-import { assertCleanBaseline, createWorktree, diffStat, removeWorktree, stagePatch } from './worktree.mjs';
+import { assertCleanBaseline, createWorktree, diffStat, removeWorktree, stagePatch, stagedStat } from './worktree.mjs';
 
 export function loadSlice(ctx, id) {
   const row = ctx.store.get('SELECT * FROM slices WHERE id = ?', id);
@@ -141,8 +141,11 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
 export function finishApply(ctx, { cfg, run, sliceId, actor }) {
   const slice = loadSlice(ctx, sliceId);
   if (slice.state !== 'PATCHING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}, not PATCHING`, { slice_id: sliceId });
-  const stat = diffStat(slice.worktree);
-  if (stat.files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
+  if (diffStat(slice.worktree).files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
+  const { patch, diff_hash, files } = stagePatch(slice.worktree, slice.baseline_commit);
+  // Budget and lane fit are measured on what was staged against the baseline: that is what is
+  // hashed and approved, whatever the worktree's own history says.
+  const stat = stagedStat(slice.worktree, slice.baseline_commit);
   const budget = checkDiffBudget({ ...cfg.config.limits, ...slice.body.budgets }, stat);
   // Under a lane the patch itself must fit: only deletions or only tests, within its caps.
   const lane = laneOfSlice(ctx, sliceId);
@@ -152,7 +155,6 @@ export function finishApply(ctx, { cfg, run, sliceId, actor }) {
       throw new UnknotError('UK_POLICY_DENIED', `the patch leaves lane ${lane.id}: ${fit.problems.join('; ')}. Shrink it to fit, run \`unknot apply ${sliceId} replan --reason "..."\`, or a person approves this slice's plan (unknot approve ${sliceId} --stage plan)`, { slice_id: sliceId, details: { policy: 'lane.fit', lane: lane.id, problems: fit.problems } });
     }
   }
-  const { patch, diff_hash, files } = stagePatch(slice.worktree, slice.baseline_commit);
   const dir = join(ctx.paths.runs, run.id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'diff.patch'), patch);

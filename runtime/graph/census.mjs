@@ -70,6 +70,8 @@ export function looksGenerated(text) {
 
 /** Test files and test directories, by path (the census's own rule). */
 export const isTestFile = (path) => matchAny(path, TEST);
+/** Test code: a test path in a programming language (not a spec document or fixture data). */
+export const isTestCode = (path) => isTestFile(path) && CODE.has(languageOf(path));
 
 export function languageOf(path) {
   const base = path.split('/').pop();

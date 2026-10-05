@@ -13,7 +13,7 @@ import { addMs, now, nowISO, parseDuration } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { matchAny } from '../core/glob.mjs';
 import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.mjs';
-import { isTestFile } from '../graph/census.mjs';
+import { isTestCode } from '../graph/census.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { sliceDigest } from './approvals.mjs';
 import { classifyRisk, requiredApprovals } from './risk.mjs';
@@ -155,9 +155,9 @@ export function checkLaneDiff(lane, stat) {
   const body = lane.body ?? lane;
   if (stat.files > body.max_changed_files) problems.push(`${stat.files} files changed (lane cap ${body.max_changed_files})`);
   if (stat.lines > body.max_diff_lines) problems.push(`${stat.lines} lines changed (lane cap ${body.max_diff_lines})`);
-  const fits = { deletion: stat.added === 0, tests: stat.paths.every((p) => isTestFile(p)) };
+  const fits = { deletion: stat.added === 0, tests: stat.paths.every((p) => isTestCode(p)) };
   if (!body.kinds.some((k) => fits[k])) {
-    const nonTest = stat.paths.filter((p) => !isTestFile(p));
+    const nonTest = stat.paths.filter((p) => !isTestCode(p));
     problems.push(body.kinds.map((k) => (k === 'deletion' ? `adds ${stat.added} line(s), so it is not deletion-only` : `changes non-test files (${nonTest.slice(0, 3).join(', ')})`)).join(' and '));
   }
   return { ok: problems.length === 0, problems };
@@ -171,9 +171,9 @@ export function laneOfSlice(ctx, sliceId) {
   return lane_id ? getLane(ctx, lane_id) : null;
 }
 
-/** Slices that were applied under a lane, with their current state. */
+/** Slices whose latest start was under this lane, with their current state. */
 export function laneSlices(ctx, laneId) {
-  const ids = ctx.store.all("SELECT DISTINCT slice_id FROM events WHERE type = 'lane.applied' AND json_extract(payload, '$.lane_id') = ?", laneId).map((r) => r.slice_id);
+  const ids = ctx.store.all("SELECT DISTINCT slice_id FROM events WHERE type = 'lane.applied' AND json_extract(payload, '$.lane_id') = ?", laneId).map((r) => r.slice_id).filter((id) => laneOfSlice(ctx, id)?.id === laneId);
   return ids.map((id) => ctx.store.get('SELECT id, state, risk, diff_hash, baseline_commit, worktree, branch, body FROM slices WHERE id = ?', id)).filter(Boolean).map((s) => ({ ...s, body: JSON.parse(s.body) }));
 }
 

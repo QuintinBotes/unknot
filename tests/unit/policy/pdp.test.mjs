@@ -135,6 +135,14 @@ describe('decide: reads', () => {
     assert.equal(read(join(w.p.dir, 'src/a.js'), { actor: { agent_id: 'a2', agent_type: 'general-purpose' } }).decision, 'allow');
   });
 
+  test('nothing can outlive the run: wake-ups, monitors, cron and background commands are denied', () => {
+    for (const t of ['ScheduleWakeup', 'Monitor', 'CronCreate', 'RemoteTrigger']) assert.equal(policy(dec(w, t, {})), 'tool.unknown', t);
+    const bg = dec(w, 'Bash', { command: 'ls', run_in_background: true });
+    assert.equal(bg.decision, 'deny');
+    assert.equal(policy(bg), 'exec.background');
+    assert.notEqual(policy(dec(w, 'Bash', { command: 'ls' })), 'exec.background');
+  });
+
   test('inert tools are allowed; unknown tools are denied', () => {
     assert.equal(dec(w, 'TodoWrite', {}).decision, 'allow');
     for (const t of ['Frobnicate', 'computer', 'ExitWorktree', 'NotebookRead2']) {

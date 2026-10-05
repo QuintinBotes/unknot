@@ -53,14 +53,22 @@ function findDependencyDirs(root, dir = '', depth = 0, out = []) {
 export function createWorktree(ctx, sliceId, baseCommit) {
   const path = worktreePath(ctx, sliceId);
   const branch = branchName(sliceId);
+  // A slice starts from its approved baseline. A branch or worktree of that name at another
+  // commit would carry changes nobody approved into the staged patch, so it is refused.
+  const stray = (at) => new UnknotError('UK_STATE_CONFLICT', `${branch} is at ${String(at).slice(0, 12)}, not the approved baseline ${String(baseCommit).slice(0, 12)}; a person removes it (git worktree remove ${path}; git branch -D ${branch}) or replans the slice`, { slice_id: sliceId, details: { policy: 'worktree.baseline' } });
   if (existsSync(path)) {
     const current = head(path);
     const onBranch = git(path, ['rev-parse', '--abbrev-ref', 'HEAD'], { check: false }).stdout.trim();
     if (onBranch !== branch) throw new UnknotError('UK_STATE_CONFLICT', `${path} exists but is not on ${branch}`);
+    if (current !== baseCommit) throw stray(current);
     return { path, branch, head: current, reused: true, linked: [] };
   }
   const exists = git(ctx.root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { check: false }).status === 0;
-  if (exists) git(ctx.root, ['worktree', 'add', path, branch]);
+  if (exists) {
+    const at = git(ctx.root, ['rev-parse', `refs/heads/${branch}`]).stdout.trim();
+    if (at !== baseCommit) throw stray(at);
+    git(ctx.root, ['worktree', 'add', path, branch]);
+  }
   else git(ctx.root, ['worktree', 'add', '-b', branch, path, baseCommit]);
   const linked = [];
   for (const rel of findDependencyDirs(ctx.root)) {
@@ -140,6 +148,27 @@ export function stagePatch(path, baseCommit) {
   git(path, ['add', '-A', '--', '.', ...excludes(path)]);
   const patch = git(path, ['diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', '--full-index', baseCommit]).stdout;
   return { patch, diff_hash: `sha256:${sha256(patch)}`, files: git(path, ['diff', '--cached', '--name-only', baseCommit]).stdout.split('\n').filter(Boolean) };
+}
+
+/**
+ * Size and shape of the staged patch against the baseline: exactly what is hashed and approved.
+ * Renames count as a deletion plus an addition; a mode change or a new file, symlink or
+ * submodule counts as an addition even when it adds no line.
+ */
+export function stagedStat(path, baseCommit) {
+  const num = git(path, ['diff', '--cached', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', baseCommit]).stdout;
+  const summary = git(path, ['diff', '--cached', '--summary', '--no-renames', baseCommit]).stdout;
+  let lines = 0;
+  let added = 0;
+  const paths = [];
+  for (const line of num.split('\n').filter(Boolean)) {
+    const [a, d, p] = line.split('\t');
+    lines += (a === '-' ? 0 : Number(a)) + (d === '-' ? 0 : Number(d));
+    added += a === '-' ? 1 : Number(a);
+    paths.push(p);
+  }
+  added += (summary.match(/^ (create mode|mode change) /gm) ?? []).length;
+  return { files: paths.length, lines, added, paths: paths.sort() };
 }
 
 export function relToWorktree(ctx, sliceId, abs) {

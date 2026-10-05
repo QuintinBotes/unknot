@@ -108,6 +108,17 @@ describe('human-only commands cannot be reached through shell tricks', () => {
     "D=.unknot; cat > $D/config.yaml <<'EOF'\nmode: campaign\nEOF",
     'echo .unknot/config.yaml | xargs rm',
     "cat <<EOF > notes.md\n$(rm .unknot/config.yaml)\nEOF",
+    // Found by the adversarial review of the narrower rule: programs that write through their
+    // arguments, variables filled by printf -v, loop words, globs and split quoting.
+    'uniq /tmp/x .unknot/config.yaml',
+    'sort -o .unknot/decisions.jsonl a b',
+    'tee .unknot/conf*.yaml </tmp/x',
+    'tee .unknot/{config,x}.yaml </tmp/x',
+    'printf -v p %s .unknot/config.yaml; cp /tmp/x "$p"',
+    'for p in .unknot/config.yaml; do cp /tmp/x "$p"; done',
+    'for x in .unknot/config.yaml; do echo hi > $x; done',
+    "sed -i s/plan/campaign/ .unk''not/config.yaml",
+    'echo hi | tee -a .unknot/decisions.jsonl',
   ];
   for (const cmd of viaProgram) test(`denies ${JSON.stringify(cmd)}`, () => assert.equal(bash(cmd)?.decision, 'deny'));
 });

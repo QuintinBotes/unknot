@@ -252,7 +252,7 @@ async function closeInterruptedRun(event) {
   if (!ctx) return null;
   const { activeRun, endRun, isReadOnlyRun } = await import('../state/runs.mjs');
   const run = activeRun(ctx.store);
-  if (!run || run.actor !== 'human:prompt' || otherSession(run, event) || !isReadOnlyRun(run)) return null;
+  if (!run || run.actor !== 'human:prompt' || otherSession(run, event) || !isReadOnlyRun(run) || run.slice_id) return null;
   endRun(ctx, run.id, { outcome: 'interrupted', actor: 'hook:UserPromptSubmit' });
   return run;
 }
@@ -273,7 +273,7 @@ export async function onUserPromptSubmit(event) {
   const sliceArg = /\b(UK-(?:DB-|INFRA-)?\d{4,})\b/.exec(m[2])?.[1] ?? null;
   // The ids the person typed become the run scope. Commands that record human decisions
   // (accept, reject) check it, so an agent can only act on what the person named.
-  const ids = [...new Set(m[2].match(/\b(?:F-\d{4,}|UK-(?:DB-|INFRA-)?\d{4,}|CMP-\d+|DEC-\d{4,})\b/g) ?? [])];
+  const ids = [...new Set(m[2].match(/\b(?:F-\d{4,}|UK-(?:DB-|INFRA-)?\d{4,}|CMP-\d+|DEC-\d{4,}|LN-[a-z0-9]+)\b/g) ?? [])];
   const run = startRun(ctx, { command, actor: 'human:prompt', session_id: event.session_id ?? null, slice_id: ['apply', 'verify', 'rollback'].includes(command) ? sliceArg : null, config, configDigest: cfgDigest, supersede: true, scope: ids });
   return context('UserPromptSubmit', `Unknot run ${run.id} started for /unknot:${command} in mode ${config.mode}. Policy is enforced by hooks for the rest of this turn.`);
 }
