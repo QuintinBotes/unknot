@@ -9,7 +9,9 @@
 //
 // Usage: node scripts/writepath-e2e.mjs --repo <path> --test '<json argv>' [--setup '<shell>']
 //   [--typecheck '<json argv>'] [--lang js|ts|py|rs|go] [--within <dir>] [--loopback] [--model sonnet]
-//   [--out <file.json>]
+//   [--plugin-dir <checkout>] [--out <file.json>]
+// --plugin-dir runs the sessions on a local checkout instead of the installed plugin (which is
+// disabled for those sessions), to test skill and hook changes before a release.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
@@ -98,8 +100,9 @@ endRun(ctx, run.id);
 step('plan', { slice: s.id, risk: s.risk, approvals: s.body.approvals });
 
 // Live Claude Code sessions with the installed plugin.
-const session = (prompt) => {
-  const r = spawnSync('claude', ['-p', prompt, '--model', model, '--allowedTools', 'Bash(unknot *)', 'Bash(unknot:*)', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'mcp__plugin_unknot_unknot', '--output-format', 'stream-json', '--verbose'], { cwd: dir, encoding: 'utf8', input: '', maxBuffer: 256 << 20, env: process.env, timeout: 30 * 60_000 });
+const session = (prompt, name) => {
+  const local = opt('--plugin-dir') ? ['--plugin-dir', opt('--plugin-dir'), '--settings', JSON.stringify({ enabledPlugins: { 'unknot@quintinbotes': false } })] : [];
+  const r = spawnSync('claude', ['-p', prompt, ...local, '--model', model, '--allowedTools', 'Bash(unknot *)', 'Bash(unknot:*)', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'mcp__plugin_unknot_unknot', '--output-format', 'stream-json', '--verbose'], { cwd: dir, encoding: 'utf8', input: '', maxBuffer: 256 << 20, env: process.env, timeout: 30 * 60_000 });
   const errors = [];
   let cost = 0;
   for (const line of (r.stdout ?? '').split('\n')) {
@@ -108,10 +111,11 @@ const session = (prompt) => {
     if (e.type === 'user') for (const c of e.message?.content ?? []) if (c?.is_error) errors.push(String(typeof c.content === 'string' ? c.content : c.content?.map?.((x) => x.text).join(' ')).slice(0, 160));
     if (e.type === 'result' && !cost) cost = e.total_cost_usd ?? 0;
   }
+  if (opt('--out')) writeFileSync(opt('--out').replace(/\.json$/, `.${name}.jsonl`), r.stdout ?? '');
   return { exit: r.status, cost: +cost.toFixed(3), errors };
 };
-step('apply', session(`/unknot:apply ${s.id}`));
-step('verify', session(`/unknot:verify ${s.id}`));
+step('apply', session(`/unknot:apply ${s.id}`, 'apply'));
+step('verify', session(`/unknot:verify ${s.id}`, 'verify'));
 s = loadSlice(ctx, s.id);
 const obligations = ctx.store.all('SELECT kind, status FROM proof_obligations WHERE slice_id = ?', s.id);
 step('verified', { state: s.state, obligations });
