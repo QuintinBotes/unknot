@@ -100,7 +100,7 @@ export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id =
   const { activeRun, startRun, endRun, setRunSlice } = await import('../state/runs.mjs');
   const existing = activeRun(ctx.store);
   if (existing) {
-    if (slice_id && !existing.slice_id) setRunSlice(ctx, existing.id, slice_id);
+    if (slice_id && existing.slice_id !== slice_id) setRunSlice(ctx, existing.id, slice_id, actor, { mode: cfg.config.mode });
     return fn(activeRun(ctx.store));
   }
   const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, config: cfg.config, configDigest: cfg.digest });

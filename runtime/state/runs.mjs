@@ -113,10 +113,25 @@ export function setRunState(ctx, runId, state, reason, actor = 'runtime:unknot')
 }
 
 /** Bind a slice to an active run (hooks read the slice through the run). */
-export function setRunSlice(ctx, runId, sliceId, actor = 'runtime:unknot') {
+// A slice is out of flight when it can no longer be patched in this run.
+const SETTLED = new Set(['REVIEW_READY', 'ACCEPTED', 'ABANDONED', 'ROLLED_BACK']);
+
+/**
+ * Bind a slice to an active run (hooks read the slice through the run). Outside campaign
+ * mode a run handles one slice. In campaign mode (spec §4.2: repeated, separately approved
+ * slices) a run may move on to the next slice of the same campaign once the current one is
+ * settled; each slice still needs its own approved plan to start patching.
+ */
+export function setRunSlice(ctx, runId, sliceId, actor = 'runtime:unknot', { mode = null } = {}) {
   const run = getRun(ctx.store, runId);
   if (run.slice_id === sliceId) return run;
-  if (run.slice_id) throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}`);
+  if (run.slice_id) {
+    if (mode !== 'campaign') throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}; outside campaign mode a run handles one slice`);
+    const prev = ctx.store.get('SELECT state, campaign_id FROM slices WHERE id = ?', run.slice_id);
+    const next = ctx.store.get('SELECT campaign_id FROM slices WHERE id = ?', sliceId);
+    if (prev && !SETTLED.has(prev.state)) throw new UnknotError('UK_STATE_CONFLICT', `finish ${run.slice_id} (${prev.state}) before moving to ${sliceId}`);
+    if (prev && next && prev.campaign_id !== next.campaign_id) throw new UnknotError('UK_POLICY_DENIED', `a campaign run stays within campaign ${prev.campaign_id}`);
+  }
   ctx.store.update('runs', runId, run.version, { slice_id: sliceId });
   appendEvent(ctx, { type: 'run.bound', run_id: runId, slice_id: sliceId, actor, payload: { slice: sliceId } });
   return getRun(ctx.store, runId);
