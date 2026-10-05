@@ -2,7 +2,7 @@
 
 import { head } from '../../apply/git.mjs';
 import { activeRun } from '../../state/runs.mjs';
-import { output, table } from '../util.mjs';
+import { humanCommand, output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ flags }) {
@@ -42,7 +42,7 @@ export async function run({ flags }) {
     'Slices:',
     table(slices, ['id', 'campaign_id', 'state', 'risk']),
   ];
-  if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (unknot approve <slice> --role <role> --as <name>, in a terminal)`);
+  if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (in a separate terminal window: ${humanCommand('approve <slice> --role <role> --as <name>')})`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
   output(lines.join('\n'));
 }

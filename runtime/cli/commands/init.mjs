@@ -1,13 +1,14 @@
 // /unknot:init — detect the project's toolchain and propose a configuration. It writes
 // only .unknot/config.proposed.yaml (spec §4.1: config-only write); a human accepts it.
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { matchAny } from '../../core/glob.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
-import { output } from '../util.mjs';
+import { humanCommand, output } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 function readJSON(p) {
@@ -252,12 +253,21 @@ export async function run({ flags }) {
   };
   writeFileSync(ctx.paths.proposedConfig, stringifyYAML(proposed));
   appendEvent(ctx, { type: 'config.proposed', actor, payload: { commands: Object.keys(d.commands) } });
+  // .unknot/ itself is ignored only when someone excluded it; its own .gitignore covers local state.
+  const ignored = spawnSync('git', ['check-ignore', '-q', '--', '.unknot/config.yaml'], { cwd: ctx.root, stdio: 'ignore' }).status === 0;
+  const state_dir = { path: '.unknot', ignored, exclude_line: '.unknot/' };
   const msg = [
-    'Wrote .unknot/config.proposed.yaml (mode: plan). Nothing else was changed.',
+    'Wrote .unknot/config.proposed.yaml (mode: plan). Nothing else was changed, and nothing is activated.',
     `Detected commands: ${Object.entries(d.commands).map(([k, v]) => `${k} = ${v.join(' ')}`).join('; ') || 'none'}.`,
     ...d.notes,
-    'To review: unknot config diff. To accept (a human, in a terminal): unknot config accept.',
-    'To register yourself as an approver: unknot keys generate <name>, then add the printed block under approvers:.',
+    '',
+    ignored
+      ? '.unknot/ is ignored by git here, so nothing in it will be committed.'
+      : '.unknot/ holds config, decisions and records meant to be committed; local state (state/, cas/, runs/, worktrees/, telemetry/, config.proposed.yaml) is already ignored by .unknot/.gitignore. To keep Unknot out of a shared repository, add `.unknot/` to .git/info/exclude (local only) or .gitignore.',
+    '',
+    'A read-only assessment (map, diagnose, decompose, explain) works now. Accepting the configuration, keys and approvals are only for changing code.',
+    `To review the proposal: ${humanCommand('config diff')}`,
+    'To accept it (a person, in a separate terminal window): unknot config accept. To register as an approver: unknot keys generate <name>, then add the printed block under approvers:.',
   ];
-  output(flags.json ? { proposed, detected: d } : msg.join('\n'), { json: flags.json });
+  output(flags.json ? { proposed, detected: d, state_dir } : msg.join('\n'), { json: flags.json });
 }

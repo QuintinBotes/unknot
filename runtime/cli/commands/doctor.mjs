@@ -2,13 +2,15 @@
 // ledger integrity, config and org policy, adapters and their tools.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
 import { detectSandbox } from '../../broker/sandbox.mjs';
 import { findProjectRoot, isInitialized, unknotHome } from '../../core/project.mjs';
 import { verifyLedger } from '../../state/ledger.mjs';
-import { output } from '../util.mjs';
+import { cliPath, humanCommand, output, stableUnknot } from '../util.mjs';
+import { SHIM_MARK } from './cli.mjs';
 
 function tool(name, args = ['--version']) {
   const r = spawnSync(name, args, { encoding: 'utf8', timeout: 10_000, shell: false });
@@ -30,6 +32,11 @@ export async function run({ flags }) {
     add(t, Boolean(v), v ?? 'not installed (optional)', v ? 'ok' : 'info');
   }
   add('unknot home', true, unknotHome(), 'info');
+  const onPath = stableUnknot();
+  const shim = join(homedir(), '.local', 'bin', 'unknot');
+  const shimOurs = existsSync(shim) && readFileSync(shim, 'utf8').includes(SHIM_MARK);
+  const stable = Boolean(onPath);
+  add('unknot cli', true, `${cliPath()}; shim ${shimOurs ? `installed at ${shim}` : 'not installed'}; \`unknot\` ${stable ? `on PATH (${onPath})` : 'not a stable command in a normal terminal'}${stable ? '' : `. Fix: node ${cliPath()} cli install (once, in a separate terminal window)`}`, stable ? 'ok' : 'warn');
   const root = findProjectRoot(flags.cwd ?? process.cwd());
   if (!isInitialized(root)) {
     add('project', false, `${root} is not initialised; run /unknot:init`, 'warn');
@@ -54,7 +61,7 @@ export async function run({ flags }) {
       const ledger = verifyLedger(ctx.store, pub);
       add('ledger', ledger.ok, ledger.ok ? `${ledger.count} events, chain and signatures valid` : `broken at ${ledger.broken_at}: ${ledger.reason}`);
       const approvers = Object.keys(cfg.config.approvers ?? {});
-      add('approvers', approvers.length > 0, approvers.length ? approvers.join(', ') : 'none registered: no slice can be approved (unknot keys generate <name>)', approvers.length ? 'ok' : 'warn');
+      add('approvers', approvers.length > 0, approvers.length ? approvers.join(', ') : `none registered: only needed to change code (a person runs, in a separate terminal: ${humanCommand('keys generate <name>').split('\n')[0]})`, approvers.length ? 'ok' : 'warn');
       const { loaded, unavailable } = await loadAdapters(cfg.config);
       add('adapters', true, `${loaded.map((a) => `${a.id}@${a.version}`).join(', ')}`, 'info');
       for (const u of unavailable) add(`adapter ${u.id}`, false, u.reason, 'warn');

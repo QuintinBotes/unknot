@@ -39,7 +39,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
 
-1. *TTY check inside the command.* `approve`, `attest`, `keys generate`, `config accept`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
+1. *TTY check inside the command.* `approve`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
 2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
 
 ## Command summary
@@ -63,6 +63,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | `rollback` | Removes a worktree, or creates a revert branch | no | `/unknot:rollback` |
 | `accept`, `reject` | Appends to `.unknot/decisions.jsonl` | only via a person's prompt | `/unknot:accept`, `/unknot:reject` |
 | `doctor` | Read-only | no | `/unknot:doctor` |
+| `cli` | `install` and `uninstall` write or remove a launcher outside the project | install/uninstall yes (TTY check) | none |
 | `learn` | `propose` writes `config.proposed.yaml` | no | `/unknot:learn` |
 | `exec` | Runs a configured command in the sandbox | no | none |
 | `pattern`, `graph`, `slice` | Read-only | no | none |
@@ -82,7 +83,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 ### `unknot init`
 
-Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Maven, Gradle and Makefile projects (it reads files and runs nothing), creates `.unknot/`, and writes `.unknot/config.proposed.yaml` with `mode: plan`. Records a `config.proposed` ledger event. Flag: `--json` (proposal and detected commands).
+Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Maven, Gradle and Makefile projects (it reads files and runs nothing), creates `.unknot/`, and writes `.unknot/config.proposed.yaml` with `mode: plan` (nothing is activated; a read-only assessment needs nothing more). Records a `config.proposed` ledger event. It says what `.unknot/` is for and whether git already ignores it. Flag: `--json` (proposal, detected commands and `state_dir: { path, ignored, exclude_line }`).
 
 ### `unknot config show | diff | accept`
 
@@ -98,9 +99,13 @@ Prompts for a passphrase twice (minimum 8 characters), writes an Ed25519 key pai
 
 Organization policy bundles. `keygen` and `sign` are human-only (passphrase at least 12 characters). `verify` exits 1 if the signature or content is invalid. `effective` prints the effective config and what org policy changed; accepts `--json`. See [configuration.md](configuration.md#organization-policy).
 
+### `unknot cli status | install | uninstall [--dir <dir>]`
+
+Reaches the CLI from a normal terminal. `status` prints the CLI path, the launcher location and whether its directory is on `PATH`. `install` (human) writes a small launcher (default `~/.local/bin/unknot`) that runs the newest installed plugin version, or the checkout it was installed from, with the same arguments, stdio and exit code; it refuses to overwrite a file it did not write. `uninstall` (human) removes it only if unknot wrote it. On Windows both print instructions instead.
+
 ### `unknot doctor`
 
-Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, registered approvers, adapters and the hook error log. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
+Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
 
 ## Understanding the system
 

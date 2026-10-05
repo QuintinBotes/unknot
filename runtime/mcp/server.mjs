@@ -107,7 +107,7 @@ export function createServer({ env = process.env } = {}) {
     try {
       const ctx = projects(Boolean(tool.needsWrite));
       if (!ctx) {
-        return { result: toolResult({ code: 'UK_NOT_INITIALIZED', message: 'This project is not initialised for Unknot. Ask the user to run /unknot:init.' }, true) };
+        return { result: toolResult({ code: 'UK_NOT_INITIALIZED', message: 'This project is not initialised for Unknot. Ask the user to run /unknot:init: it writes only a proposal, and a read-only assessment needs nothing else.' }, true) };
       }
       return { result: toolResult(tool.run(ctx, args)) };
     } catch (err) {

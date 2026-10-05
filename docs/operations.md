@@ -13,7 +13,7 @@ or `%ProgramData%\Unknot`) next to a `trusted-keys/` directory of PEM public key
 repository's `.unknot/config.yaml` can tighten the policy but never weaken it (spec §8).
 
 ```
-unknot policy keygen release-2026        # human terminal only; passphrase-protected key
+unknot policy keygen release-2026        # human terminal only (if `unknot` is not found: `unknot cli install`); passphrase-protected key
 unknot policy sign org-policy.yaml --key release-2026   # human terminal only
 unknot policy trust <policy-dir> --key release-2026     # copy the public key into trusted-keys/
 unknot policy verify <policy-dir>        # same check the runtime runs at startup
