@@ -63,8 +63,13 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
     if (o) set(key, union(get(c, key), o));
   }
   for (const [k, v] of Object.entries(org.limits ?? {})) if (typeof v === 'number') set(`limits.${k}`, minNum(c.limits[k], v));
-  // Prices are facts the organization pays, not a tightness choice: its table wins.
-  if (org.limits?.pricing) set('limits.pricing', structuredClone(org.limits.pricing));
+  // Prices are facts the organization pays, not a tightness choice: its table wins. An
+  // unaccepted repository edit may only raise prices (charging more is tighter).
+  if (org.limits?.pricing && unruledKeys === 'replace') set('limits.pricing', structuredClone(org.limits.pricing));
+  else if (org.limits?.pricing && c.limits.pricing) {
+    const keys = new Set([...Object.keys(c.limits.pricing), ...Object.keys(org.limits.pricing)]);
+    set('limits.pricing', Object.fromEntries([...keys].map((k) => [k, Math.max(c.limits.pricing[k] ?? 0, org.limits.pricing[k] ?? 0)])));
+  }
   if (org.quality?.forbid_new_cycles) set('quality.forbid_new_cycles', true);
   if (org.security?.require_os_sandbox) set('security.require_os_sandbox', true);
   if (org.infrastructure?.require_saved_plan) set('infrastructure.require_saved_plan', true);

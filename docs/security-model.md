@@ -131,11 +131,17 @@ Everything that builds, tests, installs or changes state is reached through `unk
 
 | Platform | Mechanism | Writes allowed | Network | Hidden from the process |
 |---|---|---|---|---|
-| macOS | `sandbox-exec` with a generated profile (`(allow default)` then deny writes and network) | The worktree, the run directory, a private temp directory, `/dev`, system temp | Denied, except local Unix sockets (test runners talking to their workers) | `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gcloud`, `~/.config/gh`, `~/.password-store`, `~/.vault-token`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.pgpass`, `~/.my.cnf`, and the Unknot home: read and write denied |
-| Linux | `bwrap` (bubblewrap), if installed | The same set, bind-mounted | Unshared | The same set, replaced by empty tmpfs mounts or `/dev/null` |
+| macOS | `sandbox-exec` with a generated profile (`(allow default)` then deny writes and network) | The worktree, the run directory, a private temp directory, `/dev`, system temp | Denied. Unix sockets only inside the run's own directories (the worktree, run directory and private temp), so test runners can talk to their workers but not to the Docker API, tmux or other local control sockets | Credential and agent directories (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gcloud`, `~/.config/gh`, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.terraform.d`, `~/.m2`, `~/.cargo/credentials*`, `~/.orbstack`, keychains and similar, plus `$CLAUDE_CONFIG_DIR`), credential files (`~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.pgpass`, `~/.my.cnf`, `~/.boto`, `~/.s3cfg`), and the Unknot home: read and write denied |
+| Linux | `bwrap` (bubblewrap), if installed | The same set, bind-mounted | Network, IPC, PID and UTS namespaces unshared; `/run` and `/var/run` (Docker, D-Bus, systemd sockets) replaced by empty tmpfs mounts | The same set, replaced by empty tmpfs mounts or `/dev/null` |
 | Other | None | Whatever the user can write | Whatever the user has | Nothing |
 
-With no sandbox, the command runs unwrapped and the evidence record says `sandbox: none`. Set `security.require_os_sandbox: true` (or have org policy set it) to make that a refusal instead. The sandbox confines writes and network; the process can still read most of the filesystem outside the hidden paths.
+When a command runs in a slice worktree, the main checkout is hidden as well: only the worktree, the main checkout's `.git` (which the worktree's git needs) and the dependency directories the worktree links to (`node_modules`, `.venv`, `venv`, `vendor/bundle`) stay readable. The directories between the checkout root and the worktree can be listed, so path resolution works, but files in the main checkout (an untracked `.env`, notes) cannot be read. A command that runs in the main checkout itself, such as discovery during `map`, keeps it readable.
+
+With no sandbox, the command runs unwrapped and the evidence record says `sandbox: none`. Set `security.require_os_sandbox: true` (or have org policy set it) to make that a refusal instead. The sandbox confines writes and network; the process can still read the filesystem outside the main checkout and the hidden paths, for example toolchains and system files.
+
+## Runs and slices
+
+A run is bound to at most one slice at a time. Only a run started for slice work (`apply`, `verify`, `rollback`) can take on a slice, and when the person typed slice ids the run may take on only those. A command's write ceiling bounds every actor in its run, subagents included: source changes need an `apply` or `rollback` run, and documentation writes need a planning command. A slice that is ready for review goes back to patching only when a person names it (`/unknot:apply UK-…`). In `mode: campaign` a run may move to the next slice of the same campaign once the current one is settled.
 
 ## Approvals
 

@@ -5,15 +5,27 @@
 // macOS: sandbox-exec with a generated SBPL profile. Linux: bubblewrap when installed.
 // Elsewhere: no sandbox, which `doctor` reports and `security.require_os_sandbox` refuses.
 
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, lstatSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { realpathLenient } from '../core/paths.mjs';
 import { unknotHome } from '../core/project.mjs';
 
-const SECRET_HOME_DIRS = ['.ssh', '.aws', '.gnupg', '.kube', '.docker', '.azure', '.config/gcloud', '.config/gh', '.password-store', '.vault-token'];
-const SECRET_HOME_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.pgpass', '.my.cnf'];
+const SECRET_HOME_DIRS = ['.ssh', '.aws', '.gnupg', '.kube', '.docker', '.azure', '.config/gcloud', '.config/gh', '.password-store', '.vault-token',
+  // Agent and tool credentials and session data (security review: ~/.claude.json was readable).
+  '.claude', '.codex', '.config/claude', '.terraform.d', '.orbstack', '.config/op', '.local/share/keyrings', 'Library/Keychains', '.m2', '.gradle/gradle.properties', '.cargo/credentials', '.config/hub', '.config/doctl', '.oci'];
+const SECRET_HOME_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.pgpass', '.my.cnf', '.claude.json', '.cargo/credentials.toml', '.boto', '.s3cfg'];
+
+// What a command running in a slice worktree may still read from the main checkout: git's
+// object store (the worktree's .git points there) and the dependency directories the
+// worktree links to. Everything else there (.env files, untracked notes) stays hidden.
+export const MAIN_CHECKOUT_READABLE = ['.git', 'node_modules', '.venv', 'venv', 'vendor/bundle'];
+
+/** Extra secret directories named by the environment (a relocated Claude config). */
+function envSecretDirs() {
+  return [process.env.CLAUDE_CONFIG_DIR].filter((p) => typeof p === 'string' && p.startsWith('/'));
+}
 
 function executable(path) {
   try {
@@ -37,20 +49,43 @@ function sbplString(p) {
   return `"${p}"`;
 }
 
-/** The SBPL profile for one command. Exported for tests and `doctor --show-sandbox`. */
-export function macosProfile({ writable, network }) {
+/**
+ * The SBPL profile for one command. Exported for tests and `doctor --show-sandbox`.
+ * Unix sockets may be used only inside `sockets` (the run's private directories), so a
+ * sandboxed test cannot reach the Docker API, tmux, or any other local control socket.
+ * With `hideRoot` (the main checkout, when the command runs in a slice worktree) only the
+ * working directory and MAIN_CHECKOUT_READABLE stay readable there.
+ */
+export function macosProfile({ writable, network, sockets = [], hideRoot = null, cwd = null }) {
   const home = realpathLenient(homedir());
   const lines = ['(version 1)', '(allow default)'];
   if (!network) {
     lines.push('(deny network*)');
-    // Local IPC (test runners talking to their own workers) stays available.
-    lines.push('(allow network* (local unix-socket))');
+    if (sockets.length) {
+      const sp = sockets.map((p) => `(subpath ${sbplString(realpathLenient(p))})`).join(' ');
+      lines.push(`(allow network* (local unix-socket ${sp}))`, `(allow network* (remote unix-socket ${sp}))`);
+    }
   }
   lines.push('(deny file-write*)');
   const w = [...writable, '/dev'].map((p) => `(subpath ${sbplString(realpathLenient(p))})`);
   lines.push(`(allow file-write* ${w.join(' ')})`);
+  if (hideRoot && cwd) {
+    const root = realpathLenient(hideRoot);
+    lines.push(`(deny file-read* (subpath ${sbplString(root)}))`);
+    const keep = [realpathLenient(cwd), ...writable.map((p) => realpathLenient(p)).filter((p) => p.startsWith(`${root}/`)), ...MAIN_CHECKOUT_READABLE.map((d) => join(root, d))];
+    lines.push(`(allow file-read* ${[...new Set(keep)].map((p) => `(subpath ${sbplString(p)})`).join(' ')})`);
+    // getcwd and path resolution list the directories between the root and the working
+    // directory: those directories themselves (names, never file contents) stay readable.
+    const ancestors = [];
+    for (let d = dirname(realpathLenient(cwd)); d.startsWith(root); d = dirname(d)) {
+      ancestors.push(d);
+      if (d === root) break;
+    }
+    lines.push(`(allow file-read-metadata (subpath ${sbplString(root)}))`);
+    if (ancestors.length) lines.push(`(allow file-read* ${ancestors.map((d) => `(literal ${sbplString(d)})`).join(' ')})`);
+  }
   const hidden = [
-    ...SECRET_HOME_DIRS.map((d) => `(subpath ${sbplString(join(home, d))})`),
+    ...[...SECRET_HOME_DIRS.map((d) => join(home, d)), ...envSecretDirs()].map((d) => `(subpath ${sbplString(d)})`),
     ...SECRET_HOME_FILES.map((f) => `(literal ${sbplString(join(home, f))})`),
     `(subpath ${sbplString(realpathLenient(unknotHome()))})`,
   ];
@@ -58,21 +93,38 @@ export function macosProfile({ writable, network }) {
   return lines.join('\n');
 }
 
+const isRealDir = (p) => {
+  try {
+    return lstatSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Wrap an argv for the sandbox.
  * @returns {{file: string, args: string[], sandbox: string}}
  */
-export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false } = {}) {
+export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, cwd = null } = {}) {
   const tmp = realpathLenient(tmpdir());
   const allWritable = [...new Set([...writable, tmp, '/private/tmp', '/tmp'].map((p) => realpathLenient(p)))];
+  const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
-    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network }), ...argv], sandbox: kind };
+    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, cwd }), ...argv], sandbox: kind };
   }
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());
-    const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--die-with-parent', '--new-session'];
+    const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--die-with-parent', '--new-session', '--unshare-ipc', '--unshare-pid', '--unshare-uts'];
+    // Control sockets (Docker, D-Bus, systemd) live under /run.
+    for (const d of ['/run', '/var/run']) if (isRealDir(d)) args.push('--tmpfs', d);
+    if (hide) {
+      const root = realpathLenient(hide);
+      args.push('--tmpfs', root);
+      for (const d of MAIN_CHECKOUT_READABLE) args.push('--ro-bind-try', join(root, d), join(root, d));
+      args.push('--ro-bind', realpathLenient(cwd), realpathLenient(cwd));
+    }
     for (const p of allWritable) if (p !== '/tmp') args.push('--bind', p, p);
-    for (const d of [...SECRET_HOME_DIRS, ...SECRET_HOME_FILES.map(() => null)].filter(Boolean)) args.push('--tmpfs', join(home, d));
+    for (const d of [...SECRET_HOME_DIRS.map((x) => join(home, x)), ...envSecretDirs()]) args.push('--tmpfs', d);
     for (const f of SECRET_HOME_FILES) args.push('--ro-bind-try', '/dev/null', join(home, f));
     args.push('--tmpfs', realpathLenient(unknotHome()));
     if (!network) args.push('--unshare-net');

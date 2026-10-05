@@ -151,7 +151,7 @@ test('OWNERS: per-directory owners, per-file, includes, noparent, hashed e-mails
   assert.equal(f.attrs.dir, 'services/checkout');
   assert.deepEqual(f.attrs.includes, ['services/shared/OWNERS']);
   assert.equal(f.attrs.per_file[0].globs[0], '*.md');
-  assert.ok(!/chromium\.org/.test(JSON.stringify(co)));
+  assert.ok(!/example\.org/.test(JSON.stringify(co)));
   const root = run('OWNERS-root', 'OWNERS');
   assert.equal(node(root, 'file:OWNERS').attrs.anyone, true);
   const shared = run('OWNERS-shared', 'services/shared/OWNERS');

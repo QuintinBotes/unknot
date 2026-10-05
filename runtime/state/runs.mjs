@@ -113,6 +113,8 @@ export function setRunState(ctx, runId, state, reason, actor = 'runtime:unknot')
 }
 
 /** Bind a slice to an active run (hooks read the slice through the run). */
+const SLICE_COMMANDS = new Set(['apply', 'verify', 'rollback']);
+
 // A slice is out of flight when it can no longer be patched in this run.
 const SETTLED = new Set(['REVIEW_READY', 'ACCEPTED', 'ABANDONED', 'ROLLED_BACK']);
 
@@ -125,6 +127,13 @@ const SETTLED = new Set(['REVIEW_READY', 'ACCEPTED', 'ABANDONED', 'ROLLED_BACK']
 export function setRunSlice(ctx, runId, sliceId, actor = 'runtime:unknot', { mode = null } = {}) {
   const run = getRun(ctx.store, runId);
   if (run.slice_id === sliceId) return run;
+  if (!run.slice_id) {
+    // A run takes on a slice only when it was started for slice work, and only a slice the
+    // person named when they named any (security review: during /unknot:map the model
+    // could otherwise bind any slice to the run and start patching it).
+    if (!SLICE_COMMANDS.has(run.command)) throw new UnknotError('UK_POLICY_DENIED', `a ${run.command} run cannot take on slice ${sliceId}; the person starts /unknot:apply ${sliceId}`, { details: { policy: 'run.slice_binding' } });
+    if ((run.scope ?? []).length && !run.scope.includes(sliceId)) throw new UnknotError('UK_POLICY_DENIED', `this run is scoped to ${run.scope.join(', ')}, not ${sliceId}`, { details: { policy: 'run.slice_binding' } });
+  }
   if (run.slice_id) {
     if (mode !== 'campaign') throw new UnknotError('UK_STATE_CONFLICT', `run ${runId} is already bound to ${run.slice_id}; outside campaign mode a run handles one slice`);
     const prev = ctx.store.get('SELECT state, campaign_id FROM slices WHERE id = ?', run.slice_id);

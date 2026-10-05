@@ -5,6 +5,7 @@
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
 import { stronglyConnected } from '../graph/algorithms.mjs';
 import { moduleOf } from './affinity.mjs';
+import { maxOf, minOf } from '../core/arrays.mjs';
 
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
@@ -23,7 +24,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
     .filter((cl) => cl.size >= 2)
     .map((cl, i) => {
       const members = new Set(cl.members);
-      const stab = Math.min(...cl.members.map((m) => stability.get(m) ?? 0));
+      const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
       return {
         id: `C-${i + 1}`,
         modules: cl.members,
@@ -154,7 +155,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     }
   }
   if (owned) {
-    m['ownership.alignment'] = +(Math.max(...owners.values()) / members.size).toFixed(3);
+    m['ownership.alignment'] = +(maxOf(owners.values()) / members.size).toFixed(3);
     m['owners.count'] = owners.size;
   } else gaps.push('no ownership facts (CODEOWNERS/catalog): ownership alignment unknown');
   // Requests interceptable: the candidate exposes routable entry points.

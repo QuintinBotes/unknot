@@ -17,7 +17,7 @@ const MAX_READ = 8 * 1024 * 1024;
  * Usage in `path` from byte `offset`, for requests at or after `since`.
  * @returns {{offset: number, lastId: string|null, turns: number, tokens: number, usage: object}}
  */
-export function readUsage(path, { offset = 0, since = null, lastId = null } = {}) {
+export function readUsage(path, { offset = 0, since = null, lastId = null, skipping = false } = {}) {
   const fd = openSync(path, 'r');
   try {
     const size = fstatSync(fd).size;
@@ -25,9 +25,23 @@ export function readUsage(path, { offset = 0, since = null, lastId = null } = {}
     const len = Math.min(size - offset, MAX_READ);
     const buf = Buffer.alloc(len);
     const got = len ? readSync(fd, buf, 0, len, offset) : 0;
-    const end = buf.subarray(0, got).lastIndexOf(0x0a) + 1; // complete lines only
-    const out = { offset: offset + end, lastId, turns: 0, tokens: 0, usage: { input: 0, output: 0, cache_write: 0, cache_read: 0 } };
-    for (const line of buf.subarray(0, end).toString('utf8').split('\n')) {
+    let start = 0;
+    let end = buf.subarray(0, got).lastIndexOf(0x0a) + 1; // complete lines only
+    // A line longer than the window (a large tool result) would pin the offset forever.
+    // Skip it: lines that big are tool payloads, while usage entries are small.
+    let skip = false;
+    if (skipping) {
+      const nl = buf.subarray(0, got).indexOf(0x0a);
+      if (nl < 0) return { offset: offset + got, lastId, turns: 0, tokens: 0, usage: { input: 0, output: 0, cache_write: 0, cache_read: 0 }, skipping: true, skipped: true };
+      start = nl + 1;
+    }
+    if (end === 0 && got === MAX_READ) {
+      end = got;
+      start = got;
+      skip = true;
+    }
+    const out = { offset: offset + end, lastId, turns: 0, tokens: 0, usage: { input: 0, output: 0, cache_write: 0, cache_read: 0 }, skipping: skip, skipped: skip || skipping };
+    for (const line of buf.subarray(start, Math.max(start, end)).toString('utf8').split('\n')) {
       if (!line.includes('"assistant"') || !line.includes('"usage"')) continue;
       let e;
       try {
@@ -75,14 +89,14 @@ export function chargeModelUsage(ctx, run, transcriptPath, { agentId = null, pri
   const key = `usage:${run.id}:${sha256(String(transcriptPath ?? '')).slice(0, 16)}`;
   let state;
   try {
-    state = JSON.parse(ctx.store.meta(key) ?? 'null') ?? { offset: 0, lastId: null };
+    state = JSON.parse(ctx.store.meta(key) ?? 'null') ?? { offset: 0, lastId: null, skipping: false };
   } catch {
-    state = { offset: 0, lastId: null };
+    state = { offset: 0, lastId: null, skipping: false };
   }
   let r;
   try {
     if (typeof transcriptPath !== 'string' || !isAbsolute(transcriptPath) || !transcriptPath.endsWith('.jsonl')) throw new Error('no transcript path in the hook event');
-    r = readUsage(transcriptPath, { offset: state.offset, since: run.started_at, lastId: state.lastId });
+    r = readUsage(transcriptPath, { offset: state.offset, since: run.started_at, lastId: state.lastId, skipping: state.skipping });
   } catch (err) {
     const flag = `usage-unmeasured:${run.id}`;
     if (!ctx.store.meta(flag)) {
@@ -91,7 +105,7 @@ export function chargeModelUsage(ctx, run, transcriptPath, { agentId = null, pri
     }
     return null;
   }
-  ctx.store.meta(key, JSON.stringify({ offset: r.offset, lastId: r.lastId }));
+  ctx.store.meta(key, JSON.stringify({ offset: r.offset, lastId: r.lastId, skipping: r.skipping }));
   if (r.turns) charge(ctx, run, 'turns', r.turns, { agentId });
   if (r.tokens) charge(ctx, run, 'tokens', r.tokens, { agentId });
   const cost = costOf(r.usage, pricing);

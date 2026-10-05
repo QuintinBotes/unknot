@@ -62,7 +62,7 @@ Trust boundaries: user and Claude Code; model and Unknot runtime; runtime and re
 | Least-privilege profile per agent type; unknown agents get read-only | `PROFILES` in `runtime/policy/capability.mjs` |
 | Budgets (tool calls, files and bytes read, commands, network requests, delegation depth) | `runtime/policy/budget.mjs`, `runtime/policy/pdp.mjs` |
 | Command broker: argument vectors, no shell, per-tool argument rules, minimal environment, timeouts, output caps | `runtime/broker/broker.mjs` |
-| OS sandbox for brokered commands: write confinement, no network, credential directories hidden | `runtime/broker/sandbox.mjs` |
+| OS sandbox for brokered commands: write confinement, no network, Unix sockets only in the run's directories, credential and agent directories hidden, main checkout hidden when running in a worktree | `runtime/broker/sandbox.mjs` |
 | Secret redaction before output, logs, bundles and tool-result notes | `runtime/core/redact.mjs`; `output` in `runtime/cli/util.mjs` |
 | Prompt-injection markers recorded and the model reminded that content is data | `runtime/core/injection.mjs`, `onPostToolUse` |
 | Approvals: Ed25519 signature over commit, slice digest, diff hash, policy digest, environment, expiry | `runtime/policy/approvals.mjs` |

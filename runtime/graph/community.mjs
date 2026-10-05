@@ -8,6 +8,8 @@
 // sorted internally, so results do not depend on input order, and every random choice
 // comes from a seeded PRNG, so identical input and seed give identical output.
 
+import { maxOf, minOf } from '../core/arrays.mjs';
+
 const EPS = 1e-12;
 
 /** mulberry32: a tiny seeded PRNG. Not for security, only for reproducible tie-breaking. */
@@ -494,9 +496,9 @@ export function robustness(input, { resolutions = [0.5, 0.75, 1, 1.25, 1.5], per
       robust: communities.filter((c) => c.robust).length,
       robustFraction: communities.length ? communities.filter((c) => c.robust).length / communities.length : 1,
       meanStability: mean(stabilities),
-      minStability: stabilities.length ? Math.min(...stabilities) : 1,
+      minStability: minOf(stabilities, 1),
       meanDistance: mean(distances),
-      maxDistance: distances.length ? Math.max(...distances) : 0,
+      maxDistance: maxOf(distances, 0),
     },
   };
 }

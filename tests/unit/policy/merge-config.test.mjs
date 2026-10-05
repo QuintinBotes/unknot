@@ -372,3 +372,12 @@ test('org keys without a merge rule replace the repository value; an unaccepted 
   assert.equal(edit.config.daemon.bind, '127.0.0.1', 'an unaccepted edit to a key without a tighten rule waits for acceptance');
   assert.equal(edit.config.limits.max_changed_files, 3, 'tightening still applies at once');
 });
+
+test('an unaccepted edit can only raise prices; organization pricing replaces', () => {
+  const repo = structuredClone(K.DEFAULT_CONFIG);
+  repo.limits.pricing = { input_per_mtok: 3, output_per_mtok: 15 };
+  const edit = applyOrgPolicy(repo, { limits: { pricing: { input_per_mtok: 0, output_per_mtok: 20 } } }, { unruledKeys: 'ignore' });
+  assert.deepEqual(edit.config.limits.pricing, { input_per_mtok: 3, output_per_mtok: 20 });
+  const org = applyOrgPolicy(repo, { limits: { pricing: { input_per_mtok: 1, output_per_mtok: 2 } } });
+  assert.deepEqual(org.config.limits.pricing, { input_per_mtok: 1, output_per_mtok: 2 });
+});

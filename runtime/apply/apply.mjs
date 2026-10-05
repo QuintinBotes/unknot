@@ -56,6 +56,10 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
     throw new UnknotError('UK_POLICY_DENIED', `mode ${config.mode} does not permit patching; a human sets mode: assist (or higher) in .unknot/config.yaml`, { slice_id: sliceId, details: { policy: 'mode.write', required_mode: 'assist' } });
   }
   let slice = loadSlice(ctx, sliceId);
+  if (slice.state === 'REVIEW_READY' && !(run.scope ?? []).includes(sliceId) && !String(actor).startsWith('human:')) {
+    // Changes after review are the reviewer's request, so a person names the slice.
+    throw new UnknotError('UK_POLICY_DENIED', `slice ${sliceId} is ready for review; going back to patching is requested by a person (/unknot:apply ${sliceId})`, { slice_id: sliceId, details: { policy: 'review.reopen' } });
+  }
   if (slice.state === 'VERIFICATION_FAILED' || slice.state === 'REVIEW_READY') {
     // Fixing within scope after a failed verification, or changes requested in review:
     // back to PATCHING in the same worktree. Change approvals no longer describe the diff.

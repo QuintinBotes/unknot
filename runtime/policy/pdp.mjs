@@ -9,6 +9,7 @@ import { matchAny } from '../core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.mjs';
 import { unknotHome } from '../core/project.mjs';
 import { profileFor } from './capability.mjs';
+import { COMMANDS } from '../state/runs.mjs';
 import { judgeShell } from './commands.mjs';
 import { modeRank } from './defaults.mjs';
 
@@ -205,8 +206,10 @@ function mainProfile(command) {
 }
 
 function decideWrite({ ctx, config, run, slice, profile, capability, op, base }) {
-  const canDocs = profile.ops.includes('fs.write.docs') || (capability?.write ?? []).includes('<docs>') || profile.name === 'documentation-curator';
-  const canCode = profile.ops.includes('fs.write') && profile.name !== 'documentation-curator';
+  // The command's write ceiling bounds every actor in the run, subagents included.
+  const ceiling = COMMANDS[run.command]?.writes ?? 'none';
+  const canDocs = (ceiling === 'docs' || ceiling === 'artifacts') && (profile.ops.includes('fs.write.docs') || (capability?.write ?? []).includes('<docs>') || profile.name === 'documentation-curator');
+  const canCode = ceiling === 'worktree' && profile.ops.includes('fs.write') && profile.name !== 'documentation-curator';
   for (const p of op.paths) {
     if (!p) return deny('write.no_path', 'write without a path', base);
     const real = realpathLenient(p);

@@ -21,6 +21,7 @@ import { analysable, census, readEntry } from './census.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
 import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
+import { pushAll } from '../core/arrays.mjs';
 
 const PARALLEL_THRESHOLD = 400;
 const MAX_FACTS_PER_FILE = 5000;
@@ -132,7 +133,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   for (const adapter of loaded) {
     if (!adapter.link) continue;
     try {
-      global.push(...(adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {} }) ?? []).map(assertFact));
+      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {} }) ?? []).map(assertFact));
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -158,7 +159,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       const { key, ref } = JSON.parse(cached);
       if (key === cacheKey) {
         try {
-          global.push(...JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')));
+          pushAll(global, JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')));
           stats.discover_cached = (stats.discover_cached ?? 0) + 1;
           continue;
         } catch {
@@ -178,7 +179,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         factsByFile: perFile,
       });
       const discovered = (out ?? []).map((f) => redactDeep(assertFact(f)));
-      global.push(...discovered);
+      pushAll(global, discovered);
       const discFailures = out?.failures ?? [];
       for (const f of discFailures) failures.push({ path: f.path ?? f.file ?? '<evidence>', adapter: adapter.id, error: String(f.error ?? f.reason ?? f.message ?? 'failed') });
       if (!discFailures.length) {
@@ -211,7 +212,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         const { casPut } = await import('../state/cas.mjs');
         ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref: casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' }), stats: h.stats }));
       }
-      global.push(...h.facts);
+      pushAll(global, h.facts);
       historyStats = h.stats;
     } catch (err) {
       failures.push({ path: '<history>', adapter: 'history', error: String(err?.message ?? err) });

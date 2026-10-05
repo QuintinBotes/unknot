@@ -2,7 +2,7 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { findProjectRoot, isInitialized } from '../core/project.mjs';
+import { findProjectRoot, isInitialized, unknotHome } from '../core/project.mjs';
 import { preToolDeny, readEvent, respond } from './io.mjs';
 
 const MUTATING = /^(Edit|Write|MultiEdit|NotebookEdit|Bash|WebFetch|WebSearch|Task|Agent|mcp__.*)$/;
@@ -32,7 +32,13 @@ export async function main(eventName) {
     if (root && name === 'PreToolUse' && target) {
       const { isSecretPath } = await import('../core/paths.mjs');
       const { relative } = await import('node:path');
-      if (isSecretPath(relative(root, target)) || /\.config\/unknot|\.ssh\//.test(target)) {
+      const { isAbsolute, resolve } = await import('node:path');
+      const abs = isAbsolute(String(target)) ? String(target) : resolve(event.cwd ?? process.cwd(), String(target));
+      const home = unknotHome();
+      // While policy cannot be evaluated, nothing outside the project and no credential
+      // path is read, wherever UNKNOT_HOME points.
+      const rel = relative(root, abs);
+      if (rel.startsWith('..') || isAbsolute(rel) || isSecretPath(rel) || abs === home || abs.startsWith(`${home}/`) || /\.config\/unknot|\.ssh\//.test(abs)) {
         respond(preToolDeny('Unknot could not evaluate policy and will not expose credential paths meanwhile; run `unknot doctor`.'));
         return;
       }

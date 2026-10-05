@@ -16,6 +16,7 @@ import { languageOf } from '../graph/census.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
 import { DEP_MANIFESTS } from '../policy/risk.mjs';
+import { pushAll } from '../core/arrays.mjs';
 
 /** Paths changed between the baseline and the staged worktree, with their status. */
 export function changedPaths(worktree, base) {
@@ -84,7 +85,7 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
     for (const ad of loaded) {
       if (!ad.link) continue;
       try {
-        facts.push(...(ad.link({ files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {} }) ?? []));
+        pushAll(facts, (ad.link({ files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {} }) ?? []));
       } catch (err) {
         notes.push(`${ad.id} link failed during verification: ${err.message}`);
       }
@@ -114,7 +115,7 @@ export const CHECKS = {
       if (isSecretPath(c.path)) bad.push(`${c.path}: credential path`);
       if (matchAny(c.path, DEP_MANIFESTS)) {
         if (config.security.dependency_changes === 'forbidden') bad.push(`${c.path}: dependency changes are forbidden (security.dependency_changes)`);
-        else if (config.security.dependency_changes === 'approval_required' && !slice.body.changes.some((x) => matchAny(x.path, DEP_MANIFESTS))) {
+        else if (config.security.dependency_changes === 'approval_required' && !(slice.body.changes ?? []).some((x) => x.path === c.path)) {
           bad.push(`${c.path}: dependency change not declared in the approved plan`);
         }
       }

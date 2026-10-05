@@ -542,3 +542,16 @@ describe('decide: Bash', () => {
     assert.equal(bash('ls /Users').decision, 'deny');
   });
 });
+
+describe('security review: command write ceilings bound subagents too', () => {
+  test('a refactorer subagent cannot write during a map run, even into a PATCHING slice worktree', () => {
+    const w = world({ command: 'map' });
+    const d = write(w, 'src/a.js', { actor: { agent_id: 'ag-1', agent_type: 'unknot:refactorer' } });
+    assert.equal(d.decision, 'deny');
+    assert.equal(policy(d), 'capability.write');
+  });
+  test('the same write is allowed in an apply run', () => {
+    const w = world({ command: 'apply' });
+    assert.equal(write(w, 'src/a.js', { actor: { agent_id: 'ag-1', agent_type: 'unknot:refactorer' } }).decision, 'allow');
+  });
+});

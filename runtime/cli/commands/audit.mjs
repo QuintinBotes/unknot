@@ -24,6 +24,7 @@ export async function run({ positional, flags }) {
       output(flags.json ? { ok: false, reason: 'audit public key in the database differs from the key in UNKNOT_HOME' } : 'LEDGER UNTRUSTED: the audit public key stored in the database differs from the key in UNKNOT_HOME', { json: flags.json });
       return 4;
     }
+    if (!pub) anchor = 'none: no audit public key anywhere, so only the hash chain was checked (signatures unverified)';
     const r = { ...verifyLedger(ctx.store, pub), anchor };
     output(flags.json ? r : r.ok ? `ledger intact: ${r.count} events, head ${r.head} (verified against the ${anchor})` : `LEDGER BROKEN at event ${r.broken_at}: ${r.reason}`, { json: flags.json });
     return r.ok ? 0 : 4;

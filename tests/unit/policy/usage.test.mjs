@@ -40,3 +40,18 @@ test('chargeModelUsage enforces max_turns and max_tokens from the transcript, an
   const events = p.ctx.store.all("SELECT * FROM events WHERE type = 'budget.unmeasured'");
   assert.equal(events.length, 1);
 });
+
+test('a transcript line longer than the read window is skipped, not a permanent stall (security review)', () => {
+  const p = K.makeProject();
+  const file = join(p.dir, 'big.jsonl');
+  const huge = `${JSON.stringify({ type: 'user', message: { content: 'x'.repeat(9 * 1024 * 1024) } })}\n`;
+  writeFileSync(file, entry('a', '2026-02-01T00:00:00Z', U) + huge + entry('b', '2026-02-01T00:00:01Z', U) + entry('c', '2026-02-01T00:00:02Z', U));
+  let state = { offset: 0, lastId: null, skipping: false };
+  let turns = 0;
+  for (let i = 0; i < 5; i++) {
+    const r = readUsage(file, { ...state, since: '2026-01-01T00:00:00Z' });
+    turns += r.turns;
+    state = { offset: r.offset, lastId: r.lastId, skipping: r.skipping };
+  }
+  assert.equal(turns, 3);
+});

@@ -2,6 +2,7 @@
 
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
+import { pushAll } from '../core/arrays.mjs';
 
 export function defaultWorkers(configured) {
   if (configured) return Math.max(1, Math.floor(configured));
@@ -29,7 +30,7 @@ export async function extractParallel({ moduleURL, root, files, commit, options,
               w.postMessage({ id, root, items: queue[id], commit, options });
             };
             w.on('message', (msg) => {
-              results.push(...msg.results);
+              pushAll(results, msg.results);
               send();
             });
             w.on('error', reject);
