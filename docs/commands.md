@@ -230,7 +230,7 @@ Run lifecycle. Hooks enforce policy only while a run is active. Normally `/unkno
 
 ### `unknot audit verify | export [--out file] [--after seq] [--limit N]`
 
-`verify` (default) walks the ledger checking hash chain and signatures; exit 4 and the first broken event if it fails. `export` writes NDJSON, with a header line holding the audit public key, so an auditor can verify offline. Human-only from an agent's shell.
+`verify` (default) walks the ledger checking hash chain and signatures; exit 4 and the first broken event if it fails. It verifies against the audit public key in `$UNKNOT_HOME`; if the database copy differs it reports LEDGER UNTRUSTED and exits 4, and if there is no key in `$UNKNOT_HOME` it falls back to the database copy and names the `anchor` in the output. `unknot doctor` flags a mismatch and warns when the key is missing. `export` writes NDJSON, with a header line holding the audit public key, so an auditor can verify offline. Human-only from an agent's shell.
 
 ### `unknot backup create <file> | verify <file> | restore <file> --to <empty-dir>` `[--passphrase-file <file>]`
 

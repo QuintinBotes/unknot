@@ -26,7 +26,7 @@ Every check Unknot counts is a command it ran itself through the broker, and the
 
 ### Why did `decompose` say "retain"?
 
-Because that is the least risky correct answer when nothing both fits the evidence and serves a recorded driver. Read `rejected_treatments` and `evidence_gaps` in the DEC file. Common reasons: no driver recorded (service extraction and micro-frontends are not offered without one); no table access facts, so shared-table writers is unknown; no runtime traces; no CODEOWNERS, so ownership alignment is unknown; a candidate that is not stable under perturbation. In version 0.1.0 a few inputs the pattern cards ask for are not measured yet, so some treatments cannot be selected; see [decomposition.md](decomposition.md#how-a-treatment-is-chosen). Record a real driver, supply the missing evidence, and run again.
+Because that is the least risky correct answer when nothing both fits the evidence and serves a recorded driver. Read `rejected_treatments` and `evidence_gaps` in the DEC file. Common reasons: no driver recorded (service extraction and micro-frontends are not offered without one); no table access facts, so shared-table writers is unknown; no runtime traces; no CODEOWNERS, so ownership alignment is unknown; a candidate that is not stable under perturbation. A few inputs the pattern cards ask for (API client counts, route navigation) are not measured, so some treatments cannot be selected; see [decomposition.md](decomposition.md#how-a-treatment-is-chosen). Record a real driver, supply the missing evidence, and run again.
 
 ### A finding is wrong, or true but not worth fixing. What do I do?
 

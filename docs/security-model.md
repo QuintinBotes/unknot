@@ -175,7 +175,7 @@ sig   = Ed25519(project audit key, hash)
 
 The first event links to `sha256:genesis`. `actor` is `human:`, `model:`, `runtime:`, `hook:`, `daemon:` or `ci:` plus a name; a person at a terminal is `human:<user>`, an agent's shell is `model:main`, a CI job is `ci:pipeline`. Current state in the rest of the database is a projection that can be rebuilt from events.
 
-`unknot audit verify` recomputes every hash and link and checks every signature, and reports the first broken event. `unknot audit export` writes NDJSON with the audit public key in a header, so an auditor can verify offline. The audit private key is in `<home>/projects/<project-id>/audit.pem`. See the limits in [SECURITY.md](../SECURITY.md#limitations): the ledger detects edits, but it is checked against a public key stored beside it, and anyone holding the private key can re-sign.
+`unknot audit verify` recomputes every hash and link and checks every signature, and reports the first broken event. `unknot audit export` writes NDJSON with the audit public key in a header, so an auditor can verify offline. The audit private key is in `<home>/projects/<project-id>/audit.pem`. See the limits in [SECURITY.md](../SECURITY.md#limitations): the ledger detects edits, and `verify` checks against the public key in `$UNKNOT_HOME` rather than the copy in the database (a differing copy reports LEDGER UNTRUSTED, exit 4; with no key in `$UNKNOT_HOME` it falls back to the database copy and says so). Anyone holding the private key can re-sign.
 
 Artifacts (command output, patches) are stored by SHA-256 of their plaintext and encrypted with AES-256-GCM under a per-project key. Reading one re-hashes it. Deleting the project key directory (`gc --shred`) makes them unrecoverable.
 

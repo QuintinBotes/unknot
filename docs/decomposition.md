@@ -51,7 +51,7 @@ Each component is first scaled to the range 0 to 1 (divided by its largest value
 | E, evolutionary | Git co-change degree between files. Commits touching more than `max_changeset` files (default 50) are ignored, and pairs sharing fewer than `min_shared_commits` (default 10) commits are dropped. Window: `history_days` (default 365) | `git log` |
 | M, semantic | Overlap of domain words in paths and exported names, for modules already related or in the same directory | Paths and symbols |
 
-Defaults are 0.35, 0.30, 0.25, 0.10. They are heuristics, they are configurable (`decomposition.weights`), and every recommendation lists the weights used. A fifth component for runtime call counts is reserved in the config (`weights.runtime`) but is not part of the graph in this version.
+Defaults are 0.35, 0.30, 0.25, 0.10. They are heuristics, they are configurable (`decomposition.weights`), and every recommendation lists the weights used. A fifth component, R (`weights.runtime`, default 0.25), couples services from imported traces: `RUNTIME_CALLS` between services link the services' entry modules (modules exposing endpoints under the service's `code_root`, else up to 20 modules), weighted log(1+calls). It is used only when traces exist.
 
 ## Candidates
 
@@ -105,7 +105,7 @@ Ten treatments, each a pattern card in `patterns/decomposition/` with applicabil
 | T8 | Frontend modular monolith | A strong independent-deploy driver across teams (consider T7) | Layer or slice import rules in warn mode with a baseline |
 | T9 | Backend for frontend | One client; identical requests; latency budget cannot absorb a hop | One read-only BFF endpoint for one screen |
 
-The thresholds inside the cards (0.8 ownership, 0.2 co-change leak, 5 calls per request) are heuristics. The output labels them as such. At present the pattern cards hold these values themselves; changing the `decomposition.thresholds` entries for ownership and chatty calls does not change a card's decision (see [configuration.md](configuration.md#decomposition)).
+The thresholds inside the cards (0.8 ownership, 0.2 co-change leak, 5 calls per request) are heuristics. The output labels them as such. The cards keep 0.8, 0.2 and 5 as defaults. `decomposition.thresholds.ownership_alignment`, `co_change_leak` and `chatty_calls_p95` override them (see [configuration.md](configuration.md#decomposition)).
 
 ### How a treatment is chosen
 
@@ -117,13 +117,13 @@ For each candidate:
 4. Discard treatments with insufficient evidence.
 5. Of what is left, prefer treatments that serve a recorded driver, and among those pick the least invasive: `T0 < T1 < T2 = T4 = T5 < T6 < T8 = T9 < T7 < T3`.
 6. If T3 wins but the candidate has shared-table writers or cross joins, the sequence becomes T6 then T3, and T6 is the recommendation (data ownership before a network seam). If T6 is contraindicated, T3 is rejected and the next best wins.
-7. If nothing fits and serves, the answer is T0 with a `retain_reason`.
+7. If nothing fits and serves, the answer is T0 with a `retain_reason`. When a driver is recorded and evidence is missing, the recommendation also carries a preparation sequence (contracts, observability, ownership, whichever is missing). `unknot plan --from DEC-xxxx` then creates evidence-gathering slices (contract tests, correlation IDs and tracing, CODEOWNERS) instead of failing.
 
 Every recommendation cites the favouring signals with measured values, lists every contraindication it checked, lists the rejected treatments with reasons, and lists the evidence gaps. Confidence is `high` only with at least two favouring signals and at most two evidence gaps, `medium` with one favouring signal or none needed (retain), and `low` for an unstable candidate. The spec asks for static evidence alone to cap extraction at `medium`; in practice the gaps keep it there, but the code does not enforce that cap separately.
 
 What this means in practice in version 0.1.0:
 
-- **Retain is common.** Several inputs that the cards ask for are not yet measured by the command: the number of consumers of a module, whether contracts exist, how many API clients and how they differ, navigation between frontend routes, whether each unit has its own pipeline. A treatment that needs one of those comes back as `insufficient_evidence` and is not selected. Table facts (from the database adapter or SQL and ORM recognition) are needed before T2 can be considered at all, because shared-table writers is a hard contraindication that must be measured.
+- **Retain is common.** Candidates measure `module.consumers` (external modules importing the candidate), `contracts.present` (when the candidate exposes endpoints: whether any has a contract), `ci.per_unit_pipeline` (when workflows exist: whether a workflow's path filters all lie inside the candidate's common directory) and `boundary.calls_per_request_p95` (from runtime call edges). Some inputs are still not measured: how many API clients there are and how they differ, and navigation between frontend routes. A treatment that needs one of those comes back as `insufficient_evidence` and is not selected. Table facts (from the database adapter or SQL and ORM recognition) are needed before T2 can be considered at all, because shared-table writers is a hard contraindication that must be measured.
 - Of the backend treatments, T0 and T1 are the ones you will most often see. T1 appears when there are dependency cycles or co-change across the boundary. For the frontend, T8 appears when there are cross-feature imports, layer violations or cycles.
 - T3 needs imported traces, interceptable requests and a per-unit pipeline signal in addition to a driver. Without them it is contraindicated. This is deliberate: the card is conservative, not a bug in your repository.
 
@@ -150,7 +150,7 @@ What is recognised from source:
 
 From routes Unknot builds each route's closure (modules reachable by imports, up to depth 6), treats modules used by at least half the routes as shared, and groups routes by their first path segment. Those groups become the vertical split candidates (`R-1`, `R-2`, ...). If no routes are recognised, affinity clustering supplies candidates and the gap is reported. Only vertical (route or domain) splits are proposed; a horizontal fragment split would need an owner per fragment, which Unknot reports as missing and does not invent.
 
-Missing inputs are reported: team count when there are no ownership facts, and navigation between routes, which Unknot cannot know without analytics. Module Federation and single-spa configuration are not recognised in this version, and integration options (build-time packages, runtime federation, iframes, multi-zone, server-side composition, web components, edge composition) exist as pattern cards (`unknot pattern list --category frontend`) that you can consult, but `decompose` does not choose among them yet.
+Missing inputs are reported: team count when there are no ownership facts, and navigation between routes, which Unknot cannot know without analytics. Module Federation (`ModuleFederationPlugin`, `@module-federation` packages, `withModuleFederation`, `federation({...})`), single-spa `registerApplication` names and Next.js multi-zone rewrites to external hosts are recognised by text patterns at medium confidence, and the frontend detectors count Module Federation remotes and single-spa apps as frontend applications. Integration options (build-time packages, runtime federation, iframes, multi-zone, server-side composition, web components, edge composition) exist as pattern cards (`unknot pattern list --category frontend`) that you can consult, but `decompose` does not choose among them yet.
 
 ## Reading a DEC artifact
 

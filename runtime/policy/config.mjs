@@ -133,7 +133,7 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
   let config = overlay(structuredClone(DEFAULT_CONFIG), raw ?? {});
   const adjustments = [];
   if (view.tighten) {
-    const r = applyOrgPolicy(config, { ...view.tighten, mode: view.tighten.mode });
+    const r = applyOrgPolicy(config, { ...view.tighten, mode: view.tighten.mode }, { unruledKeys: 'ignore' });
     config = r.config;
     adjustments.push(...r.adjustments.map((a) => ({ ...a, by: 'unaccepted config.yaml (tighten-only)' })));
   }

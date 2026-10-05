@@ -104,7 +104,7 @@ Commands meant for a person at a terminal (`approve`, `attest`, `keys`, `config 
 | `plan` (default) | Observe, plus plans, campaigns and architecture documents. |
 | `assist` | Plan, plus scoped patches in an isolated worktree for approved slices. |
 | `governed` | Assist, plus a commit on the slice branch once the change is approved. |
-| `campaign` | Accepted by the schema and ranked above `governed`; the code treats it the same as `governed`. Intended for repeated, separately approved slices. |
+| `campaign` | Ranked above `governed`. Like `governed`, but a run may move on to the next slice of the same campaign once the current slice is settled. Each slice still needs its own approved plan. In every other mode a run handles one slice. |
 
 A mode higher than `plan` takes effect only after a human accepts the configuration. A config change made by anyone else (an agent, a merge, a script) can lower the mode but cannot raise it. Mode and every other key: [docs/configuration.md](docs/configuration.md).
 

@@ -15,7 +15,7 @@ A configuration can raise Unknot's authority: a higher mode, registered approver
 | `unaccepted` | A `config.yaml` exists but nobody has ever accepted one | The file, with `approvers` emptied and any mode above `plan` forced to `plan`. |
 | `changed` | The file differs from the accepted snapshot | The accepted snapshot, plus only the parts of the new file that tighten policy. |
 
-For `changed`, Unknot keeps the accepted text in force. It applies the new file as if it were organization policy (see "Tighten-only merge" below), after removing `approvers`, `commands`, `adapters`, `detectors` and `evidence`. So an edit that lowers the mode, shrinks a limit, adds a protected path or requires a stricter scan takes effect at once. An edit that raises the mode, loosens a limit, adds an approver or changes a command waits. Keys with no tighten rule (for example `daemon`, `workspace`, `database.engines`, `infrastructure.plans`, `suppression`, `decomposition`) are ignored until accepted. Commands print a notice on stderr when the file is `unaccepted` or `changed`, and `unknot doctor` and `unknot status` show it.
+For `changed`, Unknot keeps the accepted text in force. It applies the new file as if it were organization policy (see "Tighten-only merge" below), after removing `approvers`, `commands`, `adapters`, `detectors` and `evidence`. So an edit that lowers the mode, shrinks a limit, adds a protected path or requires a stricter scan takes effect at once. An edit that raises the mode, loosens a limit, adds an approver or changes a command waits. Keys with no tighten rule for a changed repository file (for example `daemon`, `workspace`, `database.engines`, `infrastructure.plans`, `suppression`, `decomposition`) are ignored until accepted. Commands print a notice on stderr when the file is `unaccepted` or `changed`, and `unknot doctor` and `unknot status` show it.
 
 `unknot config accept` requires a human at an interactive terminal. It shows the proposal (or the current file if there is no proposal), and you must type the mode back. It then records the digest and text of what you accepted and writes a `config.accepted` ledger event. `unknot config diff` shows current versus proposed and is safe for anyone to run.
 
@@ -73,6 +73,7 @@ The effective config is defaults, then the accepted repository config, then each
 | `telemetry.enabled` | Org `false` forces `false`. |
 | `retention.runs`, `retention.cache` | Shorter wins. |
 | `forbid_executables` | Union. |
+| Any other top-level key | In organization policy: organization-controlled, the org value replaces the repository value, because no rule says which direction is tighter. In an unaccepted repository edit: ignored until accepted. |
 
 Keys that have no rule in this table are not constrained by organization policy in this version: a value set for them in an org bundle (for example `commands`, `decomposition`, `daemon`) has no effect. `database.destructive_execution`, `infrastructure.apply` and `infrastructure.destroy` accept only `forbidden` in the schema, so no config can loosen them.
 
@@ -118,7 +119,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `plan` | Plans, campaigns and architecture documents. No source changes. |
 | `assist` | A patch of one approved slice inside its worktree. Minimum mode for `apply`, `verify` and `rollback` runs. |
 | `governed` | As `assist`, and approving the change commits it on the slice branch. Never merges or pushes. |
-| `campaign` | Ranked above `governed`. No code path distinguishes it from `governed` yet. |
+| `campaign` | Ranked above `governed`. Outside this mode a run handles one slice. In `campaign` mode a run may move to the next slice of the same campaign once the current slice is `REVIEW_READY`, `ACCEPTED`, `ABANDONED` or `ROLLED_BACK`. Each slice needs its own approved plan. Moving to a slice of a different campaign is denied. |
 
 The first run defaults to `plan`. Mode never rises because of what you say to Claude.
 
@@ -154,10 +155,13 @@ Any other name can be run by hand with `unknot exec <name> [args]`. If an obliga
 | `max_commands` | 200 | Brokered commands per run. |
 | `max_tool_calls` | 3000 | Tool calls per run. |
 | `max_delegation_depth` | 2 | Subagent nesting. |
-| `max_turns`, `max_tokens`, `max_cost_usd` | `null` | Accepted and stored in the run budget. In this version no code charges these counters, so they are not enforced. |
+| `max_turns`, `max_tokens`, `max_cost_usd` | `null` | Charged from the session transcript; see "Usage budgets" below. |
+| `pricing` | `null` | Optional `{input_per_mtok, output_per_mtok, cache_write_per_mtok, cache_read_per_mtok}`, USD per million tokens. Needed to measure `max_cost_usd`. Org policy's `limits.pricing`, when set, replaces the repository's. |
 | `workers` | `null` | Worker threads for mapping; `null` picks a default. |
 
 A breach is recorded in the ledger and blocks the operation and the run. There is no "ask for more".
+
+**Usage budgets.** On every PreToolUse hook during an active run, the runtime reads the session transcript named by the hook event (`transcript_path`) incrementally, at most 8 MB per call and complete lines only. It counts assistant API requests made after the run started: one turn per request, with entries sharing a message id counted once. Tokens are input plus output plus cache writes plus cache reads. Cost is tokens times `limits.pricing`. A breach denies the tool call (`UK_BUDGET_EXCEEDED`) and records a `budget.breach` ledger event. If the transcript cannot be read, or `max_cost_usd` is set without `pricing`, a `budget.unmeasured` event is recorded once per run and that budget is not enforced. Only usage in the transcript passed to the hook is counted; subagent sidecar transcripts may not be.
 
 ### `quality`
 
@@ -173,7 +177,7 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 |---|---|---|
 | `secrets_scan` | `required`, `optional`, `off`; `required` | Adds the `secrets-scan` obligation (no credential-like values in the diff) unless `off`. |
 | `sast` | `required`, `required_for_high_risk`, `optional`, `off`; `required_for_high_risk` | Adds a `security-scan` obligation. With a `sast` command it runs; without one it becomes a human review. |
-| `dependency_changes` | `allowed`, `approval_required`, `forbidden`; `approval_required` | Accepted and tightened by org policy, but no code reads it yet. Dependency manifest changes are always classified medium risk or higher, whatever this says. `forbidden` does not block anything in this version. |
+| `dependency_changes` | `allowed`, `approval_required`, `forbidden`; `approval_required` | Dependency manifest changes are always classified medium risk or higher. `forbidden`: creating a slice whose declared changes touch a manifest fails with `UK_POLICY_DENIED`, and the scope check fails any changed manifest. `approval_required`: such slices get a human-review proof obligation, and the scope check fails a manifest change that the approved plan did not declare. `allowed`: no extra gate. |
 | `require_os_sandbox` | boolean, `false` | Refuse to run brokered commands when no OS sandbox is available. |
 | `redact_patterns` | list of regex sources, `[]` | Extra patterns redacted from output, logs and bundles. |
 
@@ -220,7 +224,7 @@ approvers:
 
 `unknot keys generate <name>` prints this block. `roles` and `public_key` are required; names match `^[A-Za-z0-9._-]{1,64}$`. `teams` and `paths` are recorded but not used in approval checks in this version.
 
-`unknot init` proposes `approvals.medium: [code-owner]` and `approvals.high: [code-owner, security-owner]`, which differ from the built-in defaults above because the proposal is merged over the defaults. Read the proposal before accepting.
+`unknot init` proposes only `approvals: { expiry: '72h' }` and leaves approval roles to the built-in defaults above, so a proposal never starts looser. Read the proposal before accepting.
 
 ### `evidence`
 
@@ -261,14 +265,14 @@ These are heuristics and each finding says so in its `thresholds`. `unknot learn
 | `weights.data` | 0.30 | Shared tables, writes over reads. |
 | `weights.evolutionary` | 0.25 | Git co-change. |
 | `weights.semantic` | 0.10 | Shared domain terms in paths and identifiers. |
-| `weights.runtime` | 0.25 | Reserved for call counts from imported traces. Accepted, but the affinity graph does not include a runtime component in this version. |
+| `weights.runtime` | 0.25 | Weight of the runtime component R: call counts between services from imported traces. Used only when traces exist. |
 | `min_shared_commits` | 10 | Minimum commits two files must share to count as co-changing. |
 | `max_changeset` | 50 | Commits touching more files than this are ignored for co-change. |
 | `history_days` | 365 | Git history window. |
 | `size_band` | `[5, 20]` | Modules per candidate considered neither nano nor mega. |
-| `thresholds.ownership_alignment` | 0.8 | Share of a candidate owned by one team. Listed in the output, but the pattern cards compare against a fixed 0.8; changing this does not change the decision yet. |
-| `thresholds.co_change_leak` | 0.2 | Maximum share of commits crossing the boundary. Used by the `decomposition.co-change-leak` detector; the pattern cards use a fixed 0.2. |
-| `thresholds.chatty_calls_p95` | 5 | Maximum cross-boundary calls per request. Listed in the output; the pattern cards use a fixed 5. |
+| `thresholds.ownership_alignment` | 0.8 | Share of a candidate owned by one team. Overrides the value the pattern cards compare against (cards default to 0.8). |
+| `thresholds.co_change_leak` | 0.2 | Maximum share of commits crossing the boundary. Used by the `decomposition.co-change-leak` detector and overrides the pattern-card value (default 0.2). |
+| `thresholds.chatty_calls_p95` | 5 | Maximum cross-boundary calls per request. Overrides the pattern-card value (default 5). |
 | `thresholds.robustness` | 0.9 | Share of a candidate's modules that must keep their membership under perturbation. Used. |
 | `drivers` | `[]` | Recorded decomposition drivers: list of `{id, scope?, evidence?, owner?}`. `id` is one of `independent_deploy`, `independent_scale`, `availability_isolation`, `security_isolation`, `team_autonomy`, `technology_divergence`, `build_time`. |
 

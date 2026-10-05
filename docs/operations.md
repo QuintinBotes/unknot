@@ -83,8 +83,9 @@ and copy-on-write filesystems; it bounds how much history is kept.
 `project.shredded` ledger event, then deletes the project's key directory
 (`<unknotHome>/projects/<project-id>/`). The CAS is AES-256-GCM encrypted under that key, so
 every cached artifact becomes unrecoverable whatever the storage layer retains. The
-ledger written so far still verifies (its public key is in the database), but no new
-events can be signed.
+ledger written so far still verifies against the public key copy in the database, and
+`unknot audit verify` says so, because the key in `UNKNOT_HOME` is gone; no new events can
+be signed.
 
 ## 4. Backup, restore and the disaster recovery exercise
 

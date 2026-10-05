@@ -41,7 +41,7 @@ Recognition is by pattern on names and shapes (imports, decorators, call shapes)
 | Messaging | Topics and queues from client calls where a literal name is visible (inferred) |
 | Build topology | Nx, Lerna, pnpm workspaces, Turborepo, Rush, Bazel, Make |
 
-Not recognised in this version: Module Federation and single-spa configuration, and Remix and Nuxt as named frameworks. Routes in Rails, Spring and similar come only from the generic adapter's lexical guesses.
+Micro-frontend configuration is recognised by text patterns at medium confidence and stored as the module attribute `mfe`: Module Federation (`ModuleFederationPlugin`, `@module-federation` packages, `withModuleFederation`, `federation({...})`, with `name`, `remotes`, `exposes` and `shared` keys), single-spa `registerApplication` names, and Next.js multi-zone rewrites to external hosts. Not recognised in this version: Remix and Nuxt as named frameworks. Routes in Rails, Spring and similar come only from the generic adapter's lexical guesses.
 
 ### API and event contracts
 

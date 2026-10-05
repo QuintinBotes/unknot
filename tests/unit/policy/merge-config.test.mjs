@@ -361,3 +361,14 @@ describe('policy bundles', () => {
     }
   });
 });
+
+test('org keys without a merge rule replace the repository value; an unaccepted repository edit cannot use that path', () => {
+  const repo = structuredClone(K.DEFAULT_CONFIG);
+  repo.daemon = { bind: '127.0.0.1' };
+  const org = applyOrgPolicy(repo, { daemon: { bind: '10.0.0.1' }, decomposition: { weights: { structural: 1 } } });
+  assert.equal(org.config.daemon.bind, '10.0.0.1');
+  assert.deepEqual(org.config.decomposition, { weights: { structural: 1 } });
+  const edit = applyOrgPolicy(repo, { daemon: { bind: '0.0.0.0' }, limits: { max_changed_files: 3 } }, { unruledKeys: 'ignore' });
+  assert.equal(edit.config.daemon.bind, '127.0.0.1', 'an unaccepted edit to a key without a tighten rule waits for acceptance');
+  assert.equal(edit.config.limits.max_changed_files, 3, 'tightening still applies at once');
+});

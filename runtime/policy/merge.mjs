@@ -33,7 +33,7 @@ const stricter = (ladder) => (a, b) => {
  * Returns `{ config, adjustments }`, where each adjustment records a repo value that
  * org policy overrode, so `doctor` can show why the effective config differs.
  */
-export function applyOrgPolicy(repo, org) {
+export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   if (!org) return { config: repo, adjustments: [] };
   const c = structuredClone(repo);
   const adjustments = [];
@@ -92,7 +92,9 @@ export function applyOrgPolicy(repo, org) {
   if (org.forbid_executables) set('forbid_executables', union(c.forbid_executables, org.forbid_executables));
   // Any other key the organization sets is organization-controlled: the repository value
   // is replaced, never merged, because there is no rule saying which direction is tighter.
-  for (const [k, v] of Object.entries(org)) {
+  // An unaccepted repository edit is applied through these same rules with
+  // unruledKeys 'ignore': only what provably tightens takes effect before acceptance.
+  for (const [k, v] of Object.entries(unruledKeys === 'replace' ? org : {})) {
     if (HANDLED.has(k) || v === undefined) continue;
     set(k, structuredClone(v));
   }

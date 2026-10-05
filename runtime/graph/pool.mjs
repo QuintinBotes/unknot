@@ -33,6 +33,9 @@ export async function extractParallel({ moduleURL, root, files, commit, options,
               send();
             });
             w.on('error', reject);
+            // A worker that dies without an error event (native crash, exit) would otherwise
+            // leave its share of the queue unfinished and the map waiting forever.
+            w.on('exit', (code) => reject(new Error(`extraction worker exited (code ${code}) before finishing`)));
             send();
           }),
       ),
