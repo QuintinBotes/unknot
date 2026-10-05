@@ -29,8 +29,11 @@ Scope entries are the same as for every other command: paths, globs (`src/**/*Bi
 and warns; say so rather than reporting an empty result as "nothing to split". Reruns reuse
 the ids of unchanged candidates (same target, drivers and modules), so ids are stable;
 `--dry-run` shows what would be written without writing. `--summary` gives one line per
-candidate. `unknot decompose list` shows saved records (stale once the graph was rebuilt) and
-`unknot decompose show <DEC-id>` prints one with its readiness table.
+candidate. `unknot decompose list` shows saved records (stale once the graph was rebuilt;
+`superseded`, with the reason, when an older version wrote them or a later run replaced them) and
+`unknot decompose show <DEC-id>` prints one with its readiness table. `unknot decompose prune
+[--dry-run]` removes superseded records and says which; a record a campaign or slice references
+is kept.
 
 When the user states a driver, pass where and in whose words: `--driver <id> --driver-source
 <url or document> --driver-quote "<their sentence>"`. Only their words count as a quote; never
@@ -50,7 +53,14 @@ For each recommendation (DEC id) show:
   and test-module edges are counted apart; `reverse_dependency_targets` lets you check);
 - favouring signals with their measured values, `evidence` ids and sources, and the
   `selection_reason` (or `retain_reason` for retain);
-- rejected treatments with reasons, and the `readiness` rows for T3 and T2: which predicates
+- `drivers_not_served`: a recorded driver the chosen treatment does not serve although a more
+  invasive one would (modularizing in place does not give independent deployment), and why that
+  treatment was not taken; say it, do not list only the drivers that are served;
+- `candidate.folded_siblings` (modules only members import, folded in), `candidate.owners` (who
+  owns how much, so `owners.count` reads with `ownership.alignment`) and, for an unstable
+  candidate, `candidate.robustness_detail` (the run and seed that moved which members);
+- rejected treatments with reasons (each leads with the failed predicates: signal, value,
+  threshold; then the evidence that is missing), and the `readiness` rows for T3 and T2: which predicates
   are met, which are unmeasured and what evidence would measure them;
 - the driver provenance (source and quote), if any;
 - evidence gaps (for example "no traces, so cross-boundary call cost is unknown"). "No routable

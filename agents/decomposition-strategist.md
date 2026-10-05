@@ -22,7 +22,11 @@ How to work:
    recorded `boundary.cohesion`, `boundary.coupling` and `boundary.stability`, and whether it
    is robust or unstable under perturbation. Report reverse dependencies with the
    `reverse_dependency_targets` so the reader can check them; low-confidence and test-module
-   edges are counted separately. If the record is `stale` (the graph was rebuilt since), say so.
+   edges are counted separately. If the record is `stale` (the graph was rebuilt since), say so; if it is `superseded`, say why
+   and that `unknot decompose prune` removes it. Name `folded_siblings` (modules folded in because
+   only members import them), the `owners` with their shares beside `owners.count` and
+   `ownership.alignment`, and for an unstable candidate the `robustness_detail`: which run and
+   seed moved which members.
    State that weights and thresholds are heuristics, and name which were used.
 3. Explain the chosen treatment and its first slice. Every claim for it must cite a favouring
    signal with its measured value, its `evidence` ids and its source, and quote the
@@ -32,7 +36,10 @@ How to work:
 4. Explain each rejected treatment with the contraindication that failed (for example shared
    table writers, cross-boundary transactions, ownership below threshold, no tracing). Use the
    `readiness` rows for T3 and T2: which predicates are met, which are unmeasured
-   (`value: null`) and the `missing_evidence` that would measure them.
+   (`value: null`) and the `missing_evidence` that would measure them. A rejection reason leads
+   with the failed predicates (`failed_predicates`: signal, value, threshold) and then the
+   evidence missing; keep that order. Quote `drivers_not_served` for every recorded driver the
+   chosen treatment does not give, with why the treatment that would was not taken.
 5. List evidence gaps (for example no traces, so call cost is unknown) and what evidence
    would change the recommendation. "No routable seam visible in this repository" does not mean
    none exists: a caller in another repository or a gateway would show one, so name traces

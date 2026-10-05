@@ -6,11 +6,12 @@ import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
 import { stronglyConnected } from '../graph/algorithms.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
+import { foldReason, foldSiblings } from './fold.mjs';
 
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
  */
-export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42 } = {}) {
+export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [] } = {}) {
   const input = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
   const rob = robustness(input, { seed });
   const partition = rob.baseline;
@@ -20,10 +21,13 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   const cache = new Map();
   const tableOwners = ownersOfTables(graph, cache);
   const sccs = stronglyConnected(graph, { edgeTypes: ['IMPORTS'] });
-  const candidates = cm.clusters
-    .filter((cl) => cl.size >= 2)
+  const clusters = cm.clusters.filter((cl) => cl.size >= 2);
+  const folds = foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
+  const candidates = clusters
     .map((cl, i) => {
-      const members = new Set(cl.members);
+      const folded = folds.get(i) ?? [];
+      const all = [...cl.members, ...folded.map((f) => f.module)].sort();
+      const members = new Set(all);
       const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
       const touching = cl.internal + cl.external;
       const named = describeName(cl.members, graph);
@@ -34,8 +38,10 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
       metrics.metrics['boundary.stability'] = +stab.toFixed(3);
       return {
         id: `C-${i + 1}`,
-        modules: cl.members,
-        size: cl.size,
+        modules: all,
+        size: all.length,
+        ...(folded.length ? { folded: folded.map((f) => ({ module: f.module, reason: foldReason(f) })) } : {}),
+        clustered: cl.members,
         size_flag: cl.sizeFlag,
         cohesion: +cl.cohesion.toFixed(3),
         stability: +stab.toFixed(3),
@@ -250,7 +256,11 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     }
   }
   if (owned) {
-    const top = [...owners].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+    const ranked = [...owners].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const top = ranked[0][0];
+    // Who the owners are and what share each holds, so owners.count reads with alignment.
+    details.owners = ranked.slice(0, 10).map(([o, n]) => ({ owner: graph.node(o)?.name ?? o, modules: n, share: +(n / members.size).toFixed(3) }));
+    if (owned < members.size) details.unowned = members.size - owned;
     details.evidence['ownership.alignment'] = [...members].filter((id) => graph.out(id, 'OWNED_BY')[0]?.to === top).sort();
     m['ownership.alignment'] = +(maxOf(owners.values()) / members.size).toFixed(3);
     m['owners.count'] = owners.size;

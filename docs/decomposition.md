@@ -71,7 +71,7 @@ The summary line shows the modularity Q of the partition and how many candidates
 
 ### Stable ids
 
-A record's fingerprint is the sha256 of the target, the sorted drivers and the sorted candidate module ids. A rerun that finds a record with the same fingerprint reuses its id and overwrites it, so running `decompose` again does not add records. A changed boundary or driver set is a new recommendation with a new id. Each record stores its `fingerprint`, the `graph_generation` it was computed on and its `scope`; `list` marks a record stale when the graph has been rebuilt since.
+A record's fingerprint is the sha256 of the target, the sorted drivers and the sorted candidate module ids. A rerun that finds a record with the same fingerprint reuses its id and overwrites it, so running `decompose` again does not add records. A changed boundary or driver set is a new recommendation with a new id. Each record stores its `fingerprint`, the `graph_generation` it was computed on and its `scope`; `list` marks a record stale when the graph has been rebuilt since. It marks it superseded when it has no fingerprint (an older version wrote it, so no rerun overwrites it) or when its graph generation is older and a run since the rebuild has produced records again without it. `unknot decompose prune [--dry-run]` removes superseded records and lists them; a record named by a campaign or a slice (for example from `plan --from DEC-...`) is kept and reported as referenced.
 
 `--dry-run` computes and prints but writes nothing and allocates no ids: it shows the existing id a real run would overwrite, or `new`.
 
@@ -82,7 +82,8 @@ A candidate is named by the dominant namespace (module attribute `namespace` or 
 ### Reading the output
 
 - `unknot decompose --summary` prints one line per candidate: id, name, size, treatment, confidence and the top reason the next more invasive treatment was rejected (`--summary --json` gives the same as an array).
-- `unknot decompose list` shows the saved records (id, name, target, treatment, confidence, size, stale).
+- `unknot decompose list` shows the saved records (id, name, target, treatment, confidence, size, stale, superseded and why).
+- `unknot decompose prune [--dry-run]` removes the superseded records and says which; records that a campaign or slice references stay.
 - `unknot decompose show <DEC-id> [--json]` prints one record: metrics, favouring signals with their evidence, rejections, a readiness table and the gaps. `list` and `show` are subcommands only as the first positional.
 
 ### Metrics
@@ -94,6 +95,8 @@ Computed for each candidate. They are relative to your repository, not absolute 
 | Size (`boundary.size`) | Modules in the candidate; flagged nano or mega outside `size_band` | graph |
 | Interface count (`boundary.interface_count`) | Candidate modules used from outside | imports |
 | Cohesion, coupling, stability (`boundary.cohesion`, `boundary.coupling`, `boundary.stability`) | Share of the affinity weight touching the candidate that stays inside, the share that leaves it, and how steadily its modules stay together under perturbation | affinity graph |
+| Test code | Test code is never a candidate member. The census marks files in test projects as tests: directories named `*.Tests`, `*.UnitTests`, `*.IntegrationTests`, `*.FunctionalTests`, `*.Specs`, `*Tests`, and anything under a project whose `.csproj` references `Microsoft.NET.Test.Sdk`, xunit, NUnit or MSTest (each project file is read once) | census |
+| Folded siblings | A module outside the clustered members that only candidate members import, in a directory a member occupies, is part of the candidate (repeated until none is left) so it does not count as a reverse dependency of its own owner. `candidate.folded_siblings` lists each with the reason | imports |
 | Reverse dependencies (`boundary.reverse_deps`) | Imports from the candidate back into the rest, without low-confidence edges (resolved only by namespace) and without imports into test modules. Those are reported as `boundary.reverse_deps_low_confidence` and `boundary.reverse_deps_test`; the record lists the ten most-imported targets in `candidate.reverse_dependency_targets` so a reader can check | imports |
 | Internal imports, cycle size (`boundary.internal_imports`, `cycle.size`) | Dependency cycles that cross the boundary (they block extraction) | imports |
 | Shared-table writers (`boundary.shared_table_writers`) | Tables written both inside and outside the candidate | table access facts |
@@ -183,7 +186,7 @@ Missing inputs are reported: team count when there are no ownership facts, and n
 | `driver` | The drivers recorded for this run. Empty means no service extraction or micro-frontend was on offer. |
 | `fingerprint`, `graph_generation`, `scope` | What the record was computed from; a rerun with the same fingerprint reuses the id. A record is stale when the graph generation has moved on. |
 | `driver_provenance` | Per driver: `source` and `quote` as given (`null` when missing) |
-| `candidate` | `id`, `name`, `name_basis`, `top_files`, `modules`, `robust`, the `metrics` that were measured (including cohesion, coupling and stability) and `reverse_dependency_targets` |
+| `candidate` | `id`, `name`, `name_basis`, `top_files`, `modules`, `robust`, the `metrics` that were measured (including cohesion, coupling and stability) and `reverse_dependency_targets`, `folded_siblings`, `owners` (owner, modules, share; with `unowned_modules`) and, for a candidate below the robustness threshold, `robustness_detail` (the runs that moved members: resolution, label propagation or a weight-perturbation trial with its seed, and the members that moved) |
 | `treatment` | The recommendation (T0 to T9). With a data prerequisite, the first step of `sequence`. |
 | `sequence` | Steps in order, for example `["characterization", "T1"]` or `["T6", "T3"]` |
 | `favoring_signals` | Measured values that support the treatment. Each has `evidence` (up to 20 module or edge ids it was measured on, such as the members and closing edges of a cycle) and a `source` naming the metric and the graph generation |
@@ -191,7 +194,8 @@ Missing inputs are reported: team count when there are no ownership facts, and n
 | `retain_reason` | Retain (T0) records only: why the boundary is left alone |
 | `readiness` | Per rejected treatment (at least T3, and T2 when present): each applicability signal, precondition and contraindication as `{ treatment, signal, value, op, threshold, met, missing_evidence }`. An unmeasured signal has `value: null` and says what evidence would measure it. `show` prints T2 and T3 as a table |
 | `contraindications_checked` | Each check, its result (`pass`, `fail`, `unknown`) and the value |
-| `rejected_treatments` | Every other treatment and the reason it was discarded |
+| `rejected_treatments` | Every other treatment and the reason it was discarded. The reason leads with the predicates that failed (`signal=value (need op threshold)`), then the evidence that is missing; `failed_predicates` and `evidence_needed` hold the same as data |
+| `drivers_not_served` | `{ driver, would_be_served_by, reason }` for a recorded driver the chosen treatment does not serve although a more invasive treatment would (modularizing in place does not give independent deployment), with why that treatment was rejected |
 | `evidence_gaps` | What was not measured. Read these before trusting a recommendation. |
 | `confidence` | `low`, `medium` or `high`. Low for unstable candidates. |
 | `first_slice` | Exactly one: objective, the shape of the change, the pattern step, scope (every member module, with `include_total` and `truncated`), prerequisite |
