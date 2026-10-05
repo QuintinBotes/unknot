@@ -82,6 +82,22 @@ no extraction failures and no detector errors; open findings forge 366, tervin 4
 139, fullstack-app 111, circuit-breaker 18. The round found FB15 and FB16, fixed in the same
 round and re-measured.
 
+**Round 7, a measured audit** — five further repositories (Django with React, Angular/Ionic
+with Android Java, a TypeScript library, React with Supabase SQL migrations, FastAPI with
+React Native), mapped and diagnosed through the harness and through 25 live Claude Code
+sessions with the installed plugin. A stratified random sample of 100 findings (20 per
+repository, every finding kind represented) was checked against the source by independent
+reviewers and re-checked by hand where a fix depended on it: 51 true, 14 factually wrong, 35
+true but not worth flagging. The fixes (0.1.5) kept 50 of the 51 true findings and removed 36
+of the 49 false ones; the 13 left are threshold judgements (a 7-parameter recursive helper, a
+class one method over the limit, a context module that is a hub by design) and stay. A second
+review of every finding that changed on the five earlier repositories found 74 removals
+correct and 2 wrong (stale copies of a main module, now handled), and 20 of 22 new findings
+invalid (structural Protocols, now excluded). Two of the live sessions lost their map to a CLI
+crash when output was piped into `head` (fixed), and the full write path on the TypeScript
+library showed that its tests need loopback and run `ps`, which the macOS sandbox refuses
+(now explained, and loopback is an opt-in setting).
+
 ## What the loop does not do
 
 It never accepts its own proposals, never disables a detector, and never treats repository

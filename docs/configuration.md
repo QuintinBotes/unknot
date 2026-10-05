@@ -60,6 +60,7 @@ The effective config is defaults, then the accepted repository config, then each
 | `quality.forbid_new_cycles` | Org `true` forces `true`. |
 | `quality.max_complexity_increase` | Smaller value wins. |
 | `security.require_os_sandbox`, `infrastructure.require_saved_plan` | Org `true` forces `true`. |
+| `security.sandbox_loopback` | Org `false` forces `false`. |
 | `quality.public_api_compatibility` | Stricter wins: `advisory` < `required`. |
 | `security.secrets_scan` | `off` < `optional` < `required`. |
 | `security.sast` | `off` < `optional` < `required_for_high_risk` < `required`. |
@@ -179,6 +180,7 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 | `sast` | `required`, `required_for_high_risk`, `optional`, `off`; `required_for_high_risk` | Adds a `security-scan` obligation. With a `sast` command it runs; without one it becomes a human review. |
 | `dependency_changes` | `allowed`, `approval_required`, `forbidden`; `approval_required` | Dependency manifest changes are always classified medium risk or higher. `forbidden`: creating a slice whose declared changes touch a manifest fails with `UK_POLICY_DENIED`, and the scope check fails any changed manifest. `approval_required`: such slices get a human-review proof obligation, and the scope check fails a manifest change that the approved plan did not declare. `allowed`: no extra gate. |
 | `require_os_sandbox` | boolean, `false` | Refuse to run brokered commands when no OS sandbox is available. |
+| `sandbox_loopback` | boolean, `false` | Let sandboxed commands use loopback (127.0.0.1), for test suites that start local servers. On macOS this also reaches any other local TCP service (databases, dev servers) because loopback cannot be isolated per process; on Linux each command has a private loopback. The internet stays blocked either way. Org `false` forces `false`. |
 | `redact_patterns` | list of regex sources, `[]` | Extra patterns redacted from output, logs and bundles. |
 
 ### `database`

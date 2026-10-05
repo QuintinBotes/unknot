@@ -4,6 +4,42 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.5] - 2026-10-05
+
+Precision release from a measured audit of five further repositories: 100 sampled findings
+checked against the source (51 true before; after, 50 of them kept and 36 of 49 false ones
+gone). See docs/dogfood/README.md, round 7.
+
+### Fixed
+
+- TypeScript generic calls (`createThunk<A, B>(...)`) no longer turn type arguments into
+  exports; unreachable code ignores type-annotated nested declarations and unparseable files.
+- Command execution is flagged only through `child_process` bindings (not `RegExp.exec`);
+  placeholder credentials (`${VAR:-changeme}`, `ghp_secretsecret…`, `change_in_production`)
+  are not findings, while redaction stays conservative; SQL f-strings that interpolate only
+  module constants are not injection.
+- Speculative generality judges abstract classes only (not names like *Manager, and not
+  structural Protocols). Stale copies (`main_old.py` beside `main.py`) stay dead code.
+- Clones ignore imports, re-exports, decorators and data-only runs (style sheets, option
+  objects); similarity threshold 0.5; migrations are not compared.
+- Entry points: Python scripts (shebang or `__main__`), Django convention modules, files
+  started by path from code, generated component libraries (`components.json`); Meteor
+  eager-loaded files only when they run something at load time.
+- Oversized APIs skip barrels, type exports and component libraries; Angular/NestJS
+  dependency-injection constructors are not long parameter lists; messaging calls need a
+  messaging client; lazy and `TYPE_CHECKING` imports do not form cycles.
+- Generated files: markers in block comments and docstrings, `.gen.` names, minified files,
+  Capacitor/Cordova build output; `e2e/`, `cypress/` and `playwright/` are tests.
+- Migrations that drop and re-create a function, trigger, view or index are not destructive;
+  Terraform lock files and registry-prefixed sources are matched; locked root modules with
+  `>=` are a low-priority finding; deploy steps ignore URLs and directory names.
+- The CLI survives a reader closing stdout early (`unknot map | head` lost the map).
+
+### Added
+
+- `security.sandbox_loopback` (default false): lets sandboxed tests use 127.0.0.1. Baseline
+  failures caused by the sandbox (blocked loopback, setuid programs such as `ps`) say so.
+
 ## [0.1.4] - 2026-10-05
 
 ### Added

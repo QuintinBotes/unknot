@@ -137,6 +137,8 @@ Everything that builds, tests, installs or changes state is reached through `unk
 
 When a command runs in a slice worktree, the main checkout is hidden as well: only the worktree, the main checkout's `.git` (which the worktree's git needs) and the dependency directories the worktree links to (`node_modules`, `.venv`, `venv`, `vendor/bundle`) stay readable. The directories between the checkout root and the worktree can be listed, so path resolution works, but files in the main checkout (an untracked `.env`, notes) cannot be read. A command that runs in the main checkout itself, such as discovery during `map`, keeps it readable.
 
+Loopback is blocked by default as well. Test suites that start servers on 127.0.0.1 need `security.sandbox_loopback: true`; on macOS that opens loopback as a whole (any local TCP service, such as a database without a password, becomes reachable), on Linux each command gets a private loopback. The macOS sandbox also cannot execute setuid programs such as `ps`, so tests that inspect processes fail there; when a baseline fails for either reason, `unknot apply` says so.
+
 With no sandbox, the command runs unwrapped and the evidence record says `sandbox: none`. Set `security.require_os_sandbox: true` (or have org policy set it) to make that a refusal instead. The sandbox confines writes and network; the process can still read the filesystem outside the main checkout and the hidden paths, for example toolchains and system files.
 
 ## Runs and slices
