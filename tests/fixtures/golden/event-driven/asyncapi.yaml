@@ -1,0 +1,19 @@
+asyncapi: 2.6.0
+info:
+  title: Order events
+  version: 1.0.0
+servers:
+  prod:
+    url: kafka.example.com:9092
+    protocol: kafka
+channels:
+  orders.created:
+    publish:
+      operationId: onOrderCreated
+      message:
+        name: OrderCreated
+  orders.cancelled:
+    publish:
+      operationId: onOrderCancelled
+      message:
+        name: OrderCancelled

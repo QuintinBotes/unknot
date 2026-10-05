@@ -1,0 +1,13 @@
+services:
+  orders:
+    build: ./services/orders
+  billing:
+    build: ./services/billing
+  shipping:
+    build: ./services/shipping
+  audit:
+    build: ./services/audit
+  notifier:
+    build: ./services/notifier
+  kafka:
+    image: bitnami/kafka:3.7

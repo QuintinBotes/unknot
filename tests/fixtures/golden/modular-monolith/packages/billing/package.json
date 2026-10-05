@@ -1,0 +1,10 @@
+{
+  "name": "@shop/billing",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@shop/shared": "1.0.0",
+    "@shop/orders": "1.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "engine": "postgresql",
+  "version": "16.2",
+  "tables": [
+    {
+      "schema": "public", "name": "orders", "estimated_rows": 52000000, "size_bytes": 41000000000,
+      "columns": [{"name": "id", "type": "bigint", "nullable": false}, {"name": "customer_id", "type": "bigint", "nullable": false}, {"name": "status", "type": "text", "nullable": true}],
+      "indexes": [
+        {"name": "orders_pkey", "definition": "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)", "idx_scan": 90000, "size_bytes": 1100000000, "unique": true, "primary": true, "valid": true},
+        {"name": "orders_customer_idx", "definition": "CREATE INDEX orders_customer_idx ON public.orders USING btree (customer_id)", "idx_scan": 0, "size_bytes": 900000000, "valid": true},
+        {"name": "orders_customer_idx2", "definition": "CREATE INDEX orders_customer_idx2 ON public.orders USING btree (customer_id)", "idx_scan": 1200, "size_bytes": 900000000, "valid": true},
+        {"name": "orders_customer_status_idx", "definition": "CREATE INDEX orders_customer_status_idx ON public.orders USING btree (customer_id, status)", "idx_scan": 400, "size_bytes": 1500000000, "valid": true},
+        {"name": "orders_id_status_key", "definition": "CREATE UNIQUE INDEX orders_id_status_key ON public.orders USING btree (id, status)", "idx_scan": 0, "size_bytes": 100, "unique": true, "valid": true}
+      ],
+      "constraints": [{"name": "orders_pkey", "type": "p", "definition": "PRIMARY KEY (id)"}]
+    },
+    {
+      "schema": "public", "name": "customers", "estimated_rows": 900000,
+      "columns": [{"name": "id", "type": "bigint", "nullable": false}],
+      "indexes": [], "constraints": []
+    },
+    {
+      "schema": "public", "name": "warehouses", "estimated_rows": 40,
+      "columns": [{"name": "id", "type": "bigint", "nullable": false}],
+      "indexes": [], "constraints": []
+    }
+  ]
+}

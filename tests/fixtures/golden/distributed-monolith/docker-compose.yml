@@ -1,0 +1,27 @@
+services:
+  orders:
+    build: ./services/orders
+    ports:
+      - "8080:3000"
+    environment:
+      DATABASE_URL: postgres://shop@db/shop
+    depends_on:
+      - db
+  billing:
+    build: ./services/billing
+    ports:
+      - "8081:3000"
+    environment:
+      DATABASE_URL: postgres://shop@db/shop
+    depends_on:
+      - db
+  shipping:
+    build: ./services/shipping
+    ports:
+      - "8082:3000"
+    environment:
+      DATABASE_URL: postgres://shop@db/shop
+    depends_on:
+      - db
+  db:
+    image: postgres:16

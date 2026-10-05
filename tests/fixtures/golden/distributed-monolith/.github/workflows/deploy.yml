@@ -1,0 +1,18 @@
+name: Deploy everything
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  deploy-all:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: docker build -t registry.example.com/shop/orders:${{ github.sha }} services/orders
+      - run: docker build -t registry.example.com/shop/billing:${{ github.sha }} services/billing
+      - run: docker build -t registry.example.com/shop/shipping:${{ github.sha }} services/shipping
+      - run: helm upgrade --install orders ./charts/orders --namespace shop
+      - run: helm upgrade --install billing ./charts/billing --namespace shop
+      - run: helm upgrade --install shipping ./charts/shipping --namespace shop
