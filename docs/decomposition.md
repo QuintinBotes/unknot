@@ -30,7 +30,7 @@ Splitting something has a cost, so it needs a reason. Unknot calls the reason a 
 | `technology_divergence` | A capability that needs a different runtime or framework |
 | `build_time` | Build or test time dominated by unaffected areas |
 
-Record drivers with `--driver <id>` (repeatable) or in `decomposition.drivers` in the config, with optional `scope`, `evidence` and `owner`. Unknot never infers a driver from the code and never picks one to make a treatment available. The `/unknot:decompose` skill tells Claude the same: a driver comes only from what you say.
+Record drivers with `--driver <id>` (repeatable) or in `decomposition.drivers` in the config, with optional `scope`, `evidence`, `owner`, `source` and `quote`. To say where and in whose words a driver was stated, add `--driver-source <url or document>` and `--driver-quote "<the sentence>"`; they apply to the drivers given on that command line. Each record keeps `driver_provenance: [{ driver, source, quote }]`. A source without a quote is stored as such (`quote: null`): a driver still needs the person's words. Unknot never infers a driver from the code and never picks one to make a treatment available. The `/unknot:decompose` skill tells Claude the same: a driver comes only from what you say.
 
 With no driver, service extraction (T3) and micro-frontends (T7) are not offered. Retain, modularize in place (T1), extract module (T2) and the frontend modular monolith (T8) need no driver.
 
@@ -65,7 +65,25 @@ A candidate is **robust** only if at least `thresholds.robustness` (default 0.9)
 
 The summary line shows the modularity Q of the partition and how many candidates were robust.
 
-Candidate names are the longest common directory of their modules, so two candidates can share a name. Check the module list in the DEC file.
+### Scope
+
+`unknot decompose [scope...]` takes the same scope entries as every other command: a path, a glob anchored at the repository root (`src/**/*Billing*/**`), `ns:<namespace>` (modules whose declared namespace or package is that or below it) and `seed:<module or type>~N` (a module, a file name or a type it declares, plus everything within N import hops). Candidates are found among the modules in scope only. When the scope selects no module, or a seed is not found, nothing is written and the command warns (`scope "<entries>" matched 0 of <total> modules`, on stderr and in the text output). `--json` carries `scope: { entries, matched, total, unresolved }`.
+
+### Stable ids
+
+A record's fingerprint is the sha256 of the target, the sorted drivers and the sorted candidate module ids. A rerun that finds a record with the same fingerprint reuses its id and overwrites it, so running `decompose` again does not add records. A changed boundary or driver set is a new recommendation with a new id. Each record stores its `fingerprint`, the `graph_generation` it was computed on and its `scope`; `list` marks a record stale when the graph has been rebuilt since.
+
+`--dry-run` computes and prints but writes nothing and allocates no ids: it shows the existing id a real run would overwrite, or `new`.
+
+### Names
+
+A candidate is named by the dominant namespace (module attribute `namespace` or `package`) when at least half of its members share it, taking the longest such prefix. Otherwise it is named by the dominant directory below the members' common directory prefix. `candidate.name_basis` says which. When two candidates in one run would share a name, the hub file is appended: `Shop.Catalog (hub ProductService.cs)`. `candidate.top_files` lists up to five members by fan-in.
+
+### Reading the output
+
+- `unknot decompose --summary` prints one line per candidate: id, name, size, treatment, confidence and the top reason the next more invasive treatment was rejected (`--summary --json` gives the same as an array).
+- `unknot decompose list` shows the saved records (id, name, target, treatment, confidence, size, stale).
+- `unknot decompose show <DEC-id> [--json]` prints one record: metrics, favouring signals with their evidence, rejections, a readiness table and the gaps. `list` and `show` are subcommands only as the first positional.
 
 ### Metrics
 
@@ -75,18 +93,21 @@ Computed for each candidate. They are relative to your repository, not absolute 
 |---|---|---|
 | Size (`boundary.size`) | Modules in the candidate; flagged nano or mega outside `size_band` | graph |
 | Interface count (`boundary.interface_count`) | Candidate modules used from outside | imports |
-| Reverse dependencies (`boundary.reverse_deps`) | Imports from the candidate back into the rest | imports |
+| Cohesion, coupling, stability (`boundary.cohesion`, `boundary.coupling`, `boundary.stability`) | Share of the affinity weight touching the candidate that stays inside, the share that leaves it, and how steadily its modules stay together under perturbation | affinity graph |
+| Reverse dependencies (`boundary.reverse_deps`) | Imports from the candidate back into the rest, without low-confidence edges (resolved only by namespace) and without imports into test modules. Those are reported as `boundary.reverse_deps_low_confidence` and `boundary.reverse_deps_test`; the record lists the ten most-imported targets in `candidate.reverse_dependency_targets` so a reader can check | imports |
 | Internal imports, cycle size (`boundary.internal_imports`, `cycle.size`) | Dependency cycles that cross the boundary (they block extraction) | imports |
 | Shared-table writers (`boundary.shared_table_writers`) | Tables written both inside and outside the candidate | table access facts |
 | Cross-boundary joins (`boundary.cross_joins`) | Joins between tables owned by different candidates | table access facts |
 | Cross-boundary transactions (`boundary.cross_transactions`) | Transactions spanning tables of different candidates | transaction facts |
 | Co-change leak (`module.co_change_leak`) | Share of co-change weight that crosses the boundary | git history |
 | Ownership alignment (`ownership.alignment`, `owners.count`) | Largest single-owner share of the candidate | CODEOWNERS or a catalog |
-| Interceptable (`requests.interceptable`) | The candidate exposes routable entry points | endpoint facts |
+| Interceptable (`requests.interceptable`) | The candidate exposes routable entry points, or a traced service or endpoint whose `code_root` maps into it shows requests arriving | endpoint facts, imported traces |
 | Tests (`tests.present`) | Tests that cover the candidate's modules | test facts |
 | Cross-boundary calls per request (`boundary.calls_per_request_p95`) | Chattiness | imported traces |
 
 If there are no table facts, the data metrics are omitted rather than set to zero. If there are no traces, chattiness is unknown.
+
+An interceptable value of 0 means "no routable seam (HTTP route or queue entry) visible in this repository", not that none exists. A caller in another repository or a gateway would show an existing seam; the evidence gap says to import its traces (`evidence.traces`) or a catalog that names the endpoints (`evidence.catalogs`).
 
 ## Treatments
 
@@ -154,21 +175,26 @@ Missing inputs are reported: team count when there are no ownership facts, and n
 
 ## Reading a DEC artifact
 
-`.unknot/decompositions/DEC-xxxx.json` holds one recommendation. The schema is `schemas/decomposition-recommendation.schema.json`. The saved file also carries a few extra fields from the run (`evaluations`, `sequence`, `serves`, `retain_reason`).
+`.unknot/decompositions/DEC-xxxx.json` holds one recommendation. The schema is `schemas/decomposition-recommendation.schema.json`. The saved file also carries a few extra fields from the run (`evaluations`, `sequence`, `serves`).
 
 | Field | How to read it |
 |---|---|
 | `target` | `backend` or `frontend` |
 | `driver` | The drivers recorded for this run. Empty means no service extraction or micro-frontend was on offer. |
-| `candidate` | `id`, `name`, `modules`, `robust`, and the `metrics` that were measured |
+| `fingerprint`, `graph_generation`, `scope` | What the record was computed from; a rerun with the same fingerprint reuses the id. A record is stale when the graph generation has moved on. |
+| `driver_provenance` | Per driver: `source` and `quote` as given (`null` when missing) |
+| `candidate` | `id`, `name`, `name_basis`, `top_files`, `modules`, `robust`, the `metrics` that were measured (including cohesion, coupling and stability) and `reverse_dependency_targets` |
 | `treatment` | The recommendation (T0 to T9). With a data prerequisite, the first step of `sequence`. |
 | `sequence` | Steps in order, for example `["characterization", "T1"]` or `["T6", "T3"]` |
-| `favoring_signals` | Measured values that support the treatment, with their source |
+| `favoring_signals` | Measured values that support the treatment. Each has `evidence` (up to 20 module or edge ids it was measured on, such as the members and closing edges of a cycle) and a `source` naming the metric and the graph generation |
+| `selection_reason` | Non-retain records: why this treatment was chosen and why retaining was not |
+| `retain_reason` | Retain (T0) records only: why the boundary is left alone |
+| `readiness` | Per rejected treatment (at least T3, and T2 when present): each applicability signal, precondition and contraindication as `{ treatment, signal, value, op, threshold, met, missing_evidence }`. An unmeasured signal has `value: null` and says what evidence would measure it. `show` prints T2 and T3 as a table |
 | `contraindications_checked` | Each check, its result (`pass`, `fail`, `unknown`) and the value |
 | `rejected_treatments` | Every other treatment and the reason it was discarded |
 | `evidence_gaps` | What was not measured. Read these before trusting a recommendation. |
 | `confidence` | `low`, `medium` or `high`. Low for unstable candidates. |
-| `first_slice` | Exactly one: objective, the shape of the change, the pattern step, scope, prerequisite |
+| `first_slice` | Exactly one: objective, the shape of the change, the pattern step, scope (every member module, with `include_total` and `truncated`), prerequisite |
 | `proof_obligations` | Obligation kinds the slice will need |
 | `recovery` | How the first slice is undone |
 | `irreversible` | `false` for first slices |

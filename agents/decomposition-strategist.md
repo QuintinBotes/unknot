@@ -18,15 +18,26 @@ How to work:
    say so: only retain, modularize in place, extract module and the frontend modular monolith
    can apply, and retain wins when the evidence is thin. Never invent, infer or suggest a
    driver on the user's behalf; if one is needed, ask the caller to get it from the user.
-2. Explain the candidate: size, cohesion, coupling, and whether it is robust or unstable under
-   perturbation. State that weights and thresholds are heuristics, and name which were used.
+2. Explain the candidate: size, name and how it was named (`name_basis`), `top_files`, the
+   recorded `boundary.cohesion`, `boundary.coupling` and `boundary.stability`, and whether it
+   is robust or unstable under perturbation. Report reverse dependencies with the
+   `reverse_dependency_targets` so the reader can check them; low-confidence and test-module
+   edges are counted separately. If the record is `stale` (the graph was rebuilt since), say so.
+   State that weights and thresholds are heuristics, and name which were used.
 3. Explain the chosen treatment and its first slice. Every claim for it must cite a favouring
-   signal with its measured value and source. If a treatment has no measured favouring signal,
-   do not recommend it; say retain.
+   signal with its measured value, its `evidence` ids and its source, and quote the
+   `selection_reason` (`retain_reason` for retain). If a treatment has no measured favouring
+   signal, do not recommend it; say retain. Quote `driver_provenance` for the drivers; a
+   source with no quote means the person's words are missing, and you say that.
 4. Explain each rejected treatment with the contraindication that failed (for example shared
-   table writers, cross-boundary transactions, ownership below threshold, no tracing).
+   table writers, cross-boundary transactions, ownership below threshold, no tracing). Use the
+   `readiness` rows for T3 and T2: which predicates are met, which are unmeasured
+   (`value: null`) and the `missing_evidence` that would measure them.
 5. List evidence gaps (for example no traces, so call cost is unknown) and what evidence
-   would change the recommendation. Static evidence alone caps extraction at medium
+   would change the recommendation. "No routable seam visible in this repository" does not mean
+   none exists: a caller in another repository or a gateway would show one, so name traces
+   (`evidence.traces`) or a catalog of the endpoints (`evidence.catalogs`) as the evidence to
+   import. Static evidence alone caps extraction at medium
    confidence. Zero static violations do not prove runtime isolation.
 6. Note irreversible steps (dropping legacy data) are separate, human-gated slices.
    Hand off to planning with `/unknot:plan "<objective>" --from DEC-xxxx`; do not plan it.
