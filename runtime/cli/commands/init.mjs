@@ -27,7 +27,7 @@ function has(root, ...names) {
   return names.some((n) => existsSync(join(root, n)));
 }
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', 'vendored', 'bin', 'obj', '.unknot']);
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', 'vendored', 'bin', 'obj', '.unknot', '.claude']);
 
 /** Files up to `depth` directories below the root, as sorted root-relative paths (bounded). */
 function walk(root, depth) {
@@ -43,7 +43,8 @@ function walk(root, depth) {
       if (out.length >= 20000) return;
       const p = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) {
-        if (d < depth && !SKIP_DIRS.has(e.name.toLowerCase())) rec(p, d + 1);
+        // Another checkout inside this one (a git worktree, a nested clone) is not this project.
+        if (d < depth && !SKIP_DIRS.has(e.name.toLowerCase()) && !existsSync(join(root, p, '.git'))) rec(p, d + 1);
       } else if (e.isFile()) out.push(p);
     }
   };
@@ -98,9 +99,17 @@ const HINT_FILES = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md'];
 const HINT_HEADING = /validat|build|test|lint|check/i;
 const HINT_TOOL = /^(dotnet|npm|pnpm|yarn|bun|make|cargo|go|pytest|python3? -m|\.\/gradlew|gradle|mvn|just|task)(\s|$)/;
 
-/** Commands the repository's own guidance names in its validation sections, as [file, heading, command]. */
+const HINT_NEG = /\b(do not|don't|never|avoid|must not|should not)\b/i;
+const HINT_TOOL_ANY = /\b(dotnet|npm|pnpm|yarn|bun|make|cargo|go|pytest|gradle|mvn|just|task)\s+([a-z][\w:-]*)/gi;
+
+/**
+ * Commands the repository's own guidance names in its validation sections, as [file, heading,
+ * command], and the command shapes it tells people not to run (`Do not use dotnet test on the
+ * whole solution`), as {file, heading, sentence, prefix}.
+ */
 function guidanceHints(root) {
   const hints = [];
+  const forbidden = [];
   for (const file of HINT_FILES) {
     const text = readText(join(root, file));
     let heading = null;
@@ -119,11 +128,18 @@ function guidanceHints(root) {
       else {
         const h = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
         if (h) heading = HINT_HEADING.test(h[1]) ? h[1] : null;
-        else for (const m of line.matchAll(/`([^`]+)`/g)) push(m[1]);
+        else if (heading && HINT_NEG.test(line)) {
+          for (const sentence of line.split(/(?<=[.!?])\s+/).filter((x) => HINT_NEG.test(x))) {
+            for (const m of sentence.replace(/`/g, '').matchAll(HINT_TOOL_ANY)) {
+              const prefix = `${m[1].toLowerCase()} ${m[2]}`;
+              if (!forbidden.some((f) => f.file === file && f.prefix === prefix)) forbidden.push({ file, heading, sentence: sentence.trim().slice(0, 240), prefix });
+            }
+          }
+        } else for (const m of line.matchAll(/`([^`]+)`/g)) push(m[1]);
       }
     }
   }
-  return hints;
+  return { hints, forbidden };
 }
 
 const ROOT_MANIFESTS = ['package.json', 'pyproject.toml', 'setup.py', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'Makefile', '*.sln', '*.slnx', '*.csproj', '*.fsproj'];
@@ -213,19 +229,36 @@ export function detect(root) {
   const top = readdirSync(root);
   if (top.includes('terraform') || top.includes('infra')) protectedPaths.push('**/*.tfstate*');
   if (dotnet) protectedPaths.push('**/Directory.Build.props', '**/Directory.Build.targets', '**/Directory.Packages.props', 'global.json', '**/NuGet.config', '**/nuget.config');
+  // One note per proposed path, however many pipeline directories it covers.
+  const pipelineGlobs = new Map();
   for (const [dir, fs] of azurePipelineDirs(root, files)) {
     const segs = dir.split('/');
     const at = segs.indexOf('pipelines');
     const globs = !dir ? fs.filter((f) => !matchAny(f, protectedPaths)) : at >= 0 ? [`${segs.slice(0, at + 1).join('/')}/**`] : [`${dir}/**/*.yml`, `${dir}/**/*.yaml`];
+    if (!globs.length) continue;
+    const key = globs.join(', ');
+    pipelineGlobs.set(key, [...(pipelineGlobs.get(key) ?? []), ...fs]);
     protectedPaths.push(...globs);
-    if (globs.length) notes.push(`protected ${globs.join(', ')}: Azure DevOps pipeline definitions (${fs.slice(0, 3).join(', ')}${fs.length > 3 ? ', ...' : ''})`);
   }
+  for (const [key, fs] of pipelineGlobs) notes.push(`protected ${key}: Azure DevOps pipeline definitions (${fs.length} file${fs.length === 1 ? '' : 's'}: ${fs.slice(0, 3).join(', ')}${fs.length > 3 ? ', ...' : ''})`);
   if (!Object.keys(commands).length) {
     const below = files.filter((f) => f.includes('/') && depthOf(f) <= 3 && MANIFEST_RE.test(f));
     notes.push(`no commands detected: looked for ${ROOT_MANIFESTS.join(', ')} at the root; ${below.length ? `found below the root: ${below.slice(0, 8).join(', ')}${below.length > 8 ? ', ...' : ''}` : 'nothing found up to depth 3 below it'}`);
   }
+  // A command the repository's guidance says not to run is not proposed, whatever detected it.
+  const guidance = guidanceHints(root);
+  for (const [name, argv] of Object.entries(commands)) {
+    const rule = guidance.forbidden.find((f) => argv.join(' ').toLowerCase().startsWith(f.prefix));
+    if (!rule) continue;
+    delete commands[name];
+    notes.push(`${name} not proposed: ${rule.file} (${rule.heading}) says "${rule.sentence}"`);
+    if (rule.prefix === 'dotnet test') {
+      const projects = files.filter((f) => /(^|\/)[^/]*(UnitTests|\.Tests|Tests)\.(cs|fs)proj$/i.test(f)).slice(0, 6);
+      if (projects.length) notes.push(`test projects that could be run one at a time instead: ${projects.join(', ')}`);
+    }
+  }
   const known = Object.entries(commands).map(([k, v]) => [k, v.join(' ')]);
-  for (const [file, heading, cmd] of guidanceHints(root)) {
+  for (const [file, heading, cmd] of guidance.hints) {
     const same = known.find(([, c]) => c === cmd);
     notes.push(`${file} (${heading}) mentions: ${cmd}${same ? `, which confirms ${same[0]}` : ' (a hint; not proposed as a command)'}`);
   }
