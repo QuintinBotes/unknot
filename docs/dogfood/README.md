@@ -21,6 +21,7 @@ each repository and writes one JSON report per repository plus a summary.
 | fullstack-app | 304 | Python + TypeScript | FastAPI backend, React routes, Dockerfiles |
 | forge | 1,987 | Python + TSX + YAML | Largest; packages, services, many contracts |
 | js-monorepo | 213 of 18,557 | JS/TS | Scale check (most files are committed `node_modules`, correctly excluded) |
+| nopCommerce (public) | 6,741 (3,659 C#) | C# with a little JavaScript | A .NET monolith with its solution below the root (`src/`), central build files and Entity Framework mappings |
 
 ## Feedback items
 
@@ -48,6 +49,18 @@ each repository and writes one JSON report per repository plus a summary.
 | FB20 | 9 | A project inside the Claude config directory (a background job's scratch space) was unreadable in the sandbox: Python extraction fell back to lexical reading, and the cached fallback hid the notice from later maps | The project's working set is put back after the secret rules (nested secrets stay hidden); a degraded batch is not cached | click cloned into job scratch: AST extraction, no notice, 46 findings instead of 42 |
 | FB21 | 9 | Live-session suite on public repositories: cargo failed the baseline in every crate without `[workspace]` (the hidden `Cargo.toml` above the worktree read as "not permitted"); staging failed where `.gitignore` lists `node_modules` without a slash | The main checkout's tracked top-level files are readable from a worktree; linked directories git ignores get no exclude pathspec | termcolor and picomatch: ACCEPTED |
 | FB22 | 9 | A finalize migration that drops the old column after add and backfill migrations was told to split into expand/contract | The contract step of an expand/backfill sequence is recognised and advised as such, ranked lower | the audited finding reworded, priority 0.02 |
+| FB23 | 10 | `init` on a .NET repository with its solution under `src/` detected no commands and gave no notes; pipelines kept in a subdirectory and central build files were not protected | Solutions found up to three levels down; commands named in AGENTS.md, CLAUDE.md or CONTRIBUTING.md listed as hints, never copied; a note says why when nothing is detected; Azure DevOps pipelines anywhere, `Directory.Build.*`, `Directory.Packages.props`, `global.json` and `NuGet.config` proposed as protected; NuGet manifests count as dependency changes | nopCommerce: `dotnet build` and `dotnet test` on `src/NopCommerce.sln`, the other solution noted, six build files protected |
+| FB24 | 10 | C# `using X;` linked a file to every file of namespace X (identical fan-in across a whole namespace), while classes referencing each other in the same namespace had no edge | Type-level resolution: an edge only to files declaring a type the file mentions, through its own namespace, usings, global usings, aliases, `using static` and qualified names; a dependency held only by an injected member that is never used is marked | nopCommerce edges 177,223 → 44,334, cold map 64 s → 8.6 s; hubs no longer tied; module findings 609 → 37, decomposition findings 899 → 284 |
+| FB25 | 10 | A cycle that closed only through an injected member nobody used was reported as a design problem | Such a cycle says so ("closes only through the unused member …: remove it") and ranks lower; a cycle that survives without those edges is reported as before, listing them | 2 declared-only edges on nopCommerce, both checked by hand; none of its 7 cycles depends on one |
+| FB26 | 10 | `map` said `complete` for a repository whose dominant language was read lexically, and a narrow scope hid the root CODEOWNERS from the ownership adapter | Per-language coverage in the summary; `partial` with the reason under `unavailable` when the dominant language has no dedicated adapter; ownership files at the root are read under any scope | nopCommerce: `partial`, "no dedicated adapter for csharp (3528 of 3552 source files)"; a scoped map links 77 files to their owner |
+| FB27 | 10 | `decompose` matched scope by literal prefix (a glob `map` accepted selected nothing, silently), saved new DEC ids on every run, named candidates after the common path prefix, and dropped cohesion, coupling and the evidence behind its signals | One scope language for every command (paths, globs, `ns:`, `seed:<x>~N`) with a warning when it matches nothing; stable ids from a fingerprint of target, drivers and members; `list`, `show`, `--dry-run`, `--summary`; names from the dominant namespace with the hub file on collisions; metrics, evidence ids, a selection reason, driver provenance and a readiness table in each record | nopCommerce: three runs give the same 32 ids; a glob, a namespace and a seed scope each give named candidates; an empty scope writes nothing and says so |
+| FB28 | 10 | Graph tools ignored `--type`/`--limit`, cut ids in tables, returned whole nodes without a size cap over MCP, ranked hubs on one edge type, and ignored scope | Filters honoured, compact results by default with a cap of about 40 KB and a hint to narrow, hubs over several edge types, scoped hubs and cycles, `graph neighbourhood` | broad MCP queries on nopCommerce stay under 40 KB |
+| FB29 | 10 | The hook refused a heredoc that appended notes to a markdown file because the text mentioned `.unknot` | A mention counts only where a program could act on it: arguments of programs other than plain printers, redirect targets, assignments, heredocs fed to programs or expanded | the heredoc passes; heredocs into interpreters, substitutions, `xargs` and variables pointing at `.unknot` stay refused |
+| FB30 | 10 | Agents copied the literal run id from the handoff example; an agent that reported through `submit_handoff` was still blocked for a missing block | The active run is stamped into every handoff (a different claim is kept as a warning); `submit_handoff` outside a run is refused; a tool hand-back counts | unit tests on both paths |
+| FB31 | 10 | A read-only command's run left open by an interrupted turn kept restricting later turns, and a parallel session in the same repository | A run governs only the session that started it; a read-only run left open ends with the next message; denials say how long they last. The agent still cannot end a run mid-turn, which keeps analysis turns read-only against instructions in the code they read | hook tests for both sessions |
+| FB32 | 10 | First run: the model could not run `init`; the Quickstart did not say a read-only assessment needs no keys or approvals; a human-only step run through Claude Code's `!` prefix was refused as if an agent ran it; outside Claude Code `unknot` was not on PATH and the installed path changes with every version | `init` is model-invocable (it only writes a proposal); a read-only track in the Quickstart; the refusal names the missing terminal; hand-offs print how to reach the CLI, and `unknot cli install` adds a stable command that runs the newest installed version | unit tests for the messages and the shim |
+| FB33 | 10 | Even a two-line, test-covered deletion needed about six human actions | Lanes: a person signs one plan approval for a campaign's low-risk slices; the agent applies and verifies those whose patch only deletes code or only changes tests, within a cap; changes are still accepted by a person, together | an end-to-end test: an added line leaves the lane and is refused, a deletion is applied, verified and accepted with a person's signature |
+| FB34 | 10 | Runtime evidence kept in a hosted observability service had no route into Unknot, and a Prometheus HTTP API response parsed to nothing | The Prometheus HTTP API JSON format is accepted; `docs/runtime-evidence.md` gives export recipes | unit test; vendor commands not run against live accounts |
 
 ## Round summaries
 
@@ -131,6 +144,18 @@ live-session suite that installs the plugin as a user would, on three pinned pub
 repositories in Python, JavaScript and Rust (FB20, FB21). The final suite run before 0.1.10:
 fifteen read-only sessions and three change workflows, all passing, every slice ACCEPTED with
 only its planned file staged, for $3.45 of model usage. The suite now runs nightly in CI.
+
+**Round 10, first-run usability and .NET** — a first-run review, done the way a new user would
+(an agent asked to use Unknot, the person doing only the human steps), covered everything from
+the first command to the change workflow (FB23–FB34). Every problem that depends on the code
+was reproduced and re-measured on nopCommerce, a public .NET monolith: there, released 0.1.10
+detected no commands, reported `complete`, gave an identical fan-in to every file of a
+namespace, and returned nothing for a glob scope. The
+largest fix is C# resolution by type rather than by namespace, which cut nopCommerce's edges by
+three quarters and its cold map from 64 to 8.6 seconds, and removed most module and
+decomposition findings, which came from the false edges. Two requests were answered
+differently from how they were asked: the agent still cannot end a run during its turn (FB31),
+and lanes (FB33) never approve a change, only the plan.
 
 ## What the loop does not do
 

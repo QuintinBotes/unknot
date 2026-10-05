@@ -138,14 +138,17 @@ Detector problems are listed, not hidden.
 
 Prints a finding as JSON keyed by the ten questions: `1_what`, `2_evidence` (each item with its provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
 
-### `unknot decompose [scope...]`
+### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`
 
-See [decomposition.md](decomposition.md).
+See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since); `show` prints one with its metrics, evidence, rejections and readiness table.
 
 | Flag | Meaning |
 |---|---|
 | `--target backend\|frontend\|auto` | Default `auto`: backend if there are at least two non-frontend modules, frontend if at least two frontend modules. |
 | `--driver <id>` | Record a driver for this run. Repeatable. Drivers in `decomposition.drivers` are always included. |
+| `--driver-source <url or document>`, `--driver-quote "<sentence>"` | Where the person's driver comes from, recorded as `driver_provenance`. |
+| `--summary` | One line per candidate: id, name, size, treatment, confidence, and why the next more invasive treatment was rejected. |
+| `--dry-run` | Compute and print; write no records and allocate no ids. |
 | `--json`, `--full` | JSON summary; `--full` adds per-recommendation details. |
 
 ### `unknot architecture [scope...]`
