@@ -396,8 +396,12 @@ describe('OS sandbox enforcement (macOS)', { skip: process.platform !== 'darwin'
   test('~/.ssh and ~/.aws are unreadable', async () => {
     const r = await exec(node(`const fs = require('fs'), os = require('os'), path = require('path'); for (const d of ['.ssh', '.aws']) { try { fs.readdirSync(path.join(os.homedir(), d)); console.log(d + ':LISTED') } catch (e) { console.log(d + ':' + e.code) } }`));
     const out = r.stdout.toString();
-    assert.match(out, /\.ssh:(EPERM|EACCES)/);
-    assert.match(out, /\.aws:(EPERM|EACCES)/);
+    // A directory the host does not have (CI runners have no ~/.aws) reads as ENOENT;
+    // the property is that none is ever listed, and existing ones are denied.
+    for (const d of ['.ssh', '.aws']) {
+      assert.ok(!out.includes(`${d}:LISTED`), out);
+      if (existsSync(join(homedir(), d))) assert.match(out, new RegExp(`\\${d}:(EPERM|EACCES)`));
+    }
   });
 
   test('outbound network is blocked by default and open when network:true', async () => {
