@@ -24,7 +24,16 @@ function twinsOf(id) {
 }
 
 /** 1 when an OWNED_BY edge names an owner for the resource, else 0 (absence is the signal). */
+const hasOwnership = new WeakMap();
+
+/**
+ * 1 when the resource has a recorded owner, 0 when ownership is recorded elsewhere but not
+ * for it, and undefined (unmeasured) when the repository records no ownership at all: then
+ * "no owner" is unknown, not a fact, and must not make every pattern look contraindicated.
+ */
 function ownerKnown(graph, id) {
+  if (!hasOwnership.has(graph)) hasOwnership.set(graph, graph.edges('OWNED_BY').length > 0);
+  if (!hasOwnership.get(graph)) return undefined;
   return twinsOf(id).some((t) => graph.out(t, 'OWNED_BY').length > 0) ? 1 : 0;
 }
 
@@ -44,6 +53,8 @@ function draft(d) {
     blast_radius: 'bounded',
     quality_impacts: { changeability: 'medium', reliability: 'medium', security: 'medium' },
     ...d,
+    ...(d.measurements && { measurements: Object.fromEntries(Object.entries(d.measurements).filter(([, v]) => v !== undefined)) }),
+    ...(d.measurements && Object.values(d.measurements).includes(undefined) && { uncertainties: [...(d.uncertainties ?? []), 'No ownership is recorded in this repository (CODEOWNERS, catalog or tags), so whether the affected resources have owners is unknown.'] }),
     alternatives: [{ id: 'retain', summary: 'Keep the current declaration, record the reason and an owner, and revisit if the measured cost grows.' }, ...(d.alternatives ?? [])],
   };
 }
@@ -155,7 +166,7 @@ const floatingVersions = detector('floating-versions', ({ graph }) => {
       scope: scopeOf(stack, ...s.providers),
       key: `${stackId}:iac`,
       evidence: [...s.providers.map((p) => evidence(p.id, `provider ${p.attrs.provider} constraint ${p.attrs.constraint ?? '(none)'}`, 'observed', p.path)), ...s.modules.map((m) => evidence(m.target.id, `module "${m.call}" source ${m.source} without a version or ref`, 'observed'))].slice(0, 20),
-      measurements: { 'resource.owner_known': stack ? ownerKnown(graph, stack.id) : 0 },
+      measurements: { 'resource.owner_known': stack ? ownerKnown(graph, stack.id) : undefined },
       why_accidental: 'An unconstrained version means the next init can pull a breaking release and the same commit no longer produces the same plan.',
       essential_considerations: ['A committed dependency lock file pins providers even without a version constraint.', 'Pinning needs an update process or security fixes stall.'],
       smallest_simplification: 'Add pessimistic (~>) or exact constraints and commit the lock file; pin remote modules by version or ref, and by digest where supported.',
@@ -305,7 +316,7 @@ const drift = detector('drift', ({ graph }) => {
       thresholds: { ...THRESHOLDS, source: 'adapter drift comparison of declared, recorded and actual state' },
       why_accidental: 'The declared, recorded and actual states disagree, so the next apply may do something nobody reviewed.',
       essential_considerations: ['Drift is a finding, not an instruction to overwrite actual state: the actual side may be the intended one.', 'An emergency manual fix may be correct and merely undocumented.'],
-      smallest_simplification: ownerSeen ? advice.simplification : `${advice.simplification} Do not retire or delete anything until an owner is recorded (resource.owner_known = 0).`,
+      smallest_simplification: ownerSeen ? advice.simplification : `${advice.simplification} Do not retire or delete anything until an owner is recorded (${ownerSeen === 0 ? 'resource.owner_known = 0' : 'no ownership is recorded in this repository'}).`,
       invariants: [INV.owner, INV.state, INV.recovery],
       risks: ['Applying the declared state blindly could delete or revert something in use.', 'Importing without a no-op proof can create a plan that replaces the resource.', 'Unmanaged resources may hold data that has no other copy.'],
       verification: ['Read-only refresh of recorded vs actual inventory; no apply.', 'For import: plan must show a no-op for the imported address.', 'Confirm the owner and dependency evidence before any retirement.', NO_APPLY],
@@ -355,7 +366,7 @@ const destructivePlanChange = detector('destructive-plan-change', ({ graph }) =>
       scope: planScope(graph, c),
       key: c.id,
       evidence: [evidence(c.id, `${a.action} ${a.address}; stateful ${Boolean(a.stateful)}; recovery ${a.recovery_delta?.direction ?? 'unknown'}${a.prevent_destroy_overridden ? '; prevent_destroy would be overridden' : ''}; plan ${String(a.plan_hash).slice(0, 12)} serial ${a.state_serial ?? 'unknown'}`, 'observed', c.path)],
-      measurements: { 'plan.deletes': t.deletes, 'plan.replaces': t.replaces, 'resource.owner_known': ownerKnown(graph, c.id) || Number(graph.out(c.id, 'PROVISIONS').some((e) => ownerKnown(graph, e.to))), 'backup.restore_tested': restoreTested(graph) },
+      measurements: { 'plan.deletes': t.deletes, 'plan.replaces': t.replaces, 'resource.owner_known': ownerKnown(graph, c.id) === undefined ? undefined : ownerKnown(graph, c.id) || Number(graph.out(c.id, 'PROVISIONS').some((e) => ownerKnown(graph, e.to))), 'backup.restore_tested': restoreTested(graph) },
       thresholds: { ...THRESHOLDS, rule: 'delete, replace or forget of a stateful, cluster or node-pool resource (always high risk, spec §15.9)' },
       why_accidental: 'A replace caused by an immutable attribute change deletes the data-bearing resource although an in-place or phased path may exist.',
       essential_considerations: ['The deletion may be an intentional decommission.', 'Recreation may be acceptable if data is restored from a tested backup.'],

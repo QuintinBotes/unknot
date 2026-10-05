@@ -366,6 +366,23 @@ const largeModule = define({
 
 const ENTRY_BASENAMES = new Set(['index', 'main', 'app', 'server', 'cli', '__main__', 'manage', '__init__', 'setup', 'conftest', 'wsgi', 'asgi', 'settings']);
 const CONFIG_RE = /(^|\/)(\.?[\w-]*\.config|[\w-]+\.conf|(jest|vite|vitest|webpack|rollup|babel|eslint|prettier|tailwind|postcss|next|nuxt|svelte|astro|tsup|karma|gulpfile|gruntfile|Makefile|noxfile|tox|setup)[\w.-]*)\.(c?m?[jt]s|json|ya?ml|toml|py|rb|cfg)$/i;
+// Files a tool loads by convention rather than by import.
+const TOOL_ENTRY_RE = /(^|\/)(\.storybook\/|[^/]+\.stories\.[cm]?[jt]sx?$|[^/]+\.d\.[cm]?ts$|[^/]+\.(sample|example)\.[cm]?[jt]s$|mup\.[cm]?js$)/;
+// Runtimes that execute a script given on their command line (load tests and the like).
+const TOOL_RUNTIME_DEPS = new Set(['dependency:k6', 'dependency:artillery']);
+const meteorAppCache = new WeakMap();
+/** Meteor apps in the repository: `{dir, eager}`, eager unless package.json names a mainModule. */
+function meteorApps(graph) {
+  if (!meteorAppCache.has(graph)) {
+    const apps = graph.nodes('file').filter((f) => typeof f.attrs?.meteor_app === 'string').map((f) => {
+      const dir = f.attrs.meteor_app;
+      const pkg = graph.node(`file:${dir ? `${dir}/` : ''}package.json`);
+      return { dir, eager: pkg?.attrs?.meteor_main_module !== true };
+    });
+    meteorAppCache.set(graph, apps);
+  }
+  return meteorAppCache.get(graph);
+}
 const ROUTE_DIR_RE = /(^|\/)(routes?|pages?|app|views|handlers|controllers|api|endpoints|commands|migrations|management)\//;
 const ROUTE_FILE_RE = /(^|\/)(page|route|layout|loading|error|not-found|\+page|\+server|\+layout)\.[a-z]+$/;
 
@@ -402,6 +419,18 @@ function moduleEntryReason(graph, m, entries) {
   if (entries.has(path) || [...entries].some((e) => e.replace(/\.[^./]+$/, '') === path.replace(/\.[^./]+$/, ''))) return 'declared package entry';
   if (ROUTE_DIR_RE.test(path) || ROUTE_FILE_RE.test(path)) return 'route/page/handler convention';
   if (CONFIG_RE.test(path)) return 'config file';
+  if (TOOL_ENTRY_RE.test(path)) return 'tool convention (Storybook, type declarations, samples)';
+  const own = graph.node(`file:${path}`);
+  if (own?.attrs?.manifest) return 'package manifest';
+  for (const app of meteorApps(graph)) {
+    const rel = app.dir ? (path.startsWith(`${app.dir}/`) ? path.slice(app.dir.length + 1) : null) : path;
+    if (rel === null) continue;
+    if (/^(private|public)\//.test(rel)) return 'Meteor asset directory';
+    // Without meteor.mainModule, Meteor loads every file outside imports/ (and outside
+    // packages, node_modules and tests) when the app starts.
+    if (app.eager && !/(^|\/)(imports|node_modules|packages|tests?)\//.test(rel)) return 'Meteor eager-loaded file';
+  }
+  for (const e of graph.out(m.id)) if (TOOL_RUNTIME_DEPS.has(e.to)) return 'script run by a tool runtime';
   for (const e of graph.out(m.id)) if (['EXPOSES', 'ROUTES_TO', 'BUILDS'].includes(e.type)) return 'exposes endpoints';
   for (const c of graph.children(m.id)) if (['endpoint', 'route', 'command', 'job', 'workflow', 'component'].includes(c.type)) return 'contains endpoints';
   for (const e of graph.in(m.id)) if (['BUILDS', 'DEPENDS_ON', 'ROUTES_TO', 'DEPLOYS', 'RENDERS', 'REFERENCES'].includes(e.type)) return 'referenced by build or runtime wiring';

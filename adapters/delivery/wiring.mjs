@@ -7,7 +7,7 @@
 import { edgeFact, nodeFact, prov } from '../../runtime/graph/facts.mjs';
 
 const ID = 'wiring';
-const VERSION = '0.1.0';
+const VERSION = '0.1.2';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 512 * 1024;
 const LOCKFILES = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|composer\.lock|Gemfile\.lock|bun\.lockb?)$/;
@@ -36,15 +36,33 @@ export default {
   version: VERSION,
   kind: 'delivery',
   capabilities: {
-    files: ['**/*.json', '**/*.{yml,yaml,toml}', '**/Makefile', '**/Dockerfile', '**/Dockerfile.*', '**/*.dockerfile', '**/Procfile', '**/Justfile', '**/justfile', '**/Taskfile.{yml,yaml}'],
+    files: ['**/package.js', '**/.meteor/release', '**/*.json', '**/*.{yml,yaml,toml}', '**/Makefile', '**/Dockerfile', '**/Dockerfile.*', '**/*.dockerfile', '**/Procfile', '**/Justfile', '**/justfile', '**/Taskfile.{yml,yaml}'],
     executes: [],
     network: false,
   },
 
   extract(file, text) {
     if (LOCKFILES.test(file.path) || text.length > MAX_BYTES) return [];
+    // A Meteor app: `private/` holds server assets and `public/` static files, not modules.
+    if (/(^|\/)\.meteor\/release$/.test(file.path)) return [nodeFact('file', file.path, { path: file.path, attrs: { meteor_app: dirOf(dirOf(file.path)) } }, P(file.path))];
+    const isPackageJs = /(^|\/)package\.js$/.test(file.path);
+    // A Meteor package manifest (api.mainModule, api.addFiles) is the package's entry point;
+    // any other package.js is ordinary code and not ours.
+    if (isPackageJs && !/\bPackage\.(describe|onUse)\s*\(/.test(text)) return [];
     const list = mentions(text);
-    return list.length ? [nodeFact('file', file.path, { path: file.path, attrs: { mentions: list } }, P(file.path))] : [];
+    // package.json `meteor.mainModule` switches a Meteor app from eager loading (every file
+    // outside imports/ runs) to explicit entry modules.
+    let meteor = null;
+    if (/(^|\/)package\.json$/.test(file.path)) {
+      try {
+        const m = JSON.parse(text)?.meteor;
+        if (m && typeof m === 'object') meteor = { meteor_main_module: Boolean(m.mainModule) };
+      } catch {
+        // Not JSON we can read: mentions still count.
+      }
+    }
+    if (!list.length && !isPackageJs && !meteor) return [];
+    return [nodeFact('file', file.path, { path: file.path, attrs: { mentions: list, ...(isPackageJs && { manifest: 'meteor-package' }), ...meteor } }, P(file.path))];
   },
 
   link(ctx) {

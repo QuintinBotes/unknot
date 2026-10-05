@@ -515,8 +515,17 @@ test('drift: declared/recorded/actual disagreement is reported without an instru
   assert.ok(unmanaged, 'unmanaged resource from the inventory');
   assert.match(unmanaged.essential_considerations.join(' '), /Drift is a finding, not an instruction to overwrite actual state/);
   assert.match(unmanaged.smallest_simplification, /owner/);
-  assert.match(unmanaged.smallest_simplification, /resource\.owner_known = 0/);
-  assert.equal(unmanaged.measurements['resource.owner_known'], 0);
+  // No ownership anywhere in this graph: owner_known is unmeasured, the caveat still applies.
+  assert.match(unmanaged.smallest_simplification, /no ownership is recorded in this repository/);
+  assert.equal(unmanaged.measurements['resource.owner_known'], undefined);
+  assert.ok(unmanaged.uncertainties.some((u) => /No ownership is recorded/.test(u)));
+  // Ownership recorded for something else: this resource's owner_known is a measured 0.
+  const elsewhere = runInfra('drift', [
+    N('resource', 'drift/unmanaged/b2', { drift: { kind: 'unmanaged', id: 'b2', type: 'aws_s3_bucket', evidence: { note: 'x' } } }),
+    N('resource', 'aws_s3_bucket.other', { type: 'aws_s3_bucket' }), N('team', 'platform'), E('OWNED_BY', 'resource:aws_s3_bucket.other', 'team:platform'),
+  ]);
+  assert.equal(elsewhere[0].measurements['resource.owner_known'], 0);
+  assert.match(elsewhere[0].smallest_simplification, /resource\.owner_known = 0/);
   assert.ok(out.every((d) => !/apply (the )?declared|overwrite actual state by/i.test(d.smallest_simplification)));
   assert.ok(out.every((d) => d.recovery.type === 'roll_forward'));
   // ordinary resources carry no drift attr
@@ -582,7 +591,7 @@ test('public-exposure: open CIDRs, public buckets and databases, LoadBalancer se
   assert.ok(!k.some((x) => /envs\/(dev|staging)\/.*aws_security_group\.web/.test(x)), 'dev and staging SGs only allow 10.0.0.0/8');
   const prodWeb = out.find((d) => /envs\/prod\/.*aws_security_group\.web/.test(d.key));
   assert.ok(prodWeb, 'prod web SG is open to the world (SSH)');
-  assert.deepEqual(prodWeb.uncertainties, [], 'SSH to the world has no by-design caveat');
+  assert.deepEqual(prodWeb.uncertainties.filter((u) => !/No ownership is recorded/.test(u)), [], 'SSH to the world has no by-design caveat');
   assert.match(prodWeb.evidence[0].summary, /22/);
   assert.ok(out.every((d) => d.measurements['network.public_ingress'] === 1));
   const lb = out.find((d) => d.key === 'service:shop/api-public');

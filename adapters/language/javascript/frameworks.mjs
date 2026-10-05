@@ -325,6 +325,10 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
         continue;
       }
       if (!isP(i - 1, '.') || !isP(i + 1, '(')) continue;
+      // `Meteor.subscribe('name')` and `Meteor.publish('name', fn)` are DDP data publications
+      // (reads of a published dataset), not message channels; treating them as consumers
+      // produced a hundred idempotency findings on a Meteor application.
+      if (isId(i - 2, 'Meteor') && (tk.v === 'subscribe' || tk.v === 'publish')) continue;
       const args = splitArgs(i + 1);
       const first = args[0];
       const lit0 = first ? literalOf(first.s, first.e) : null;

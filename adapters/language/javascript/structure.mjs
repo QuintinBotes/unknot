@@ -418,6 +418,45 @@ export function analyze(tokens, n, match, { ts = false } = {}) {
       }
       return i + 1;
     }
+    // `export default from './x'` (the same proposal, re-exporting another module's default).
+    if (isDefault && isId(k, 'from') && at(k + 1).t === 'str') {
+      const spec = at(k + 1).v;
+      addImport({ specifier: spec, names: ['default'], bindings: [{ imported: 'default', local: 'default' }], kind: 'reexport', line });
+      addExport('default', 'reexport', line, null, spec);
+      return i + 1;
+    }
+    // Babel's export-default-from proposal, common in older React and Meteor code:
+    // `export X from './x'`, `export X, { a } from './x'`, `export X, * as ns from './x'`.
+    // A declaration keyword is never followed by `from '…'` or a comma, so this is unambiguous.
+    if (!isDefault && at(k).t === 'id' && ((isId(k + 1, 'from') && at(k + 2).t === 'str') || isP(k + 1, ','))) {
+      const local = at(k).v;
+      if (isId(k + 1, 'from')) {
+        const spec = at(k + 2).v;
+        addImport({ specifier: spec, names: ['default'], bindings: [{ imported: 'default', local }], kind: 'reexport', line });
+        addExport(local, 'reexport', line, null, spec);
+        return i + 1;
+      }
+      const j = k + 2;
+      if (isP(j, '{') && isId(match[j] + 1, 'from') && at(match[j] + 2).t === 'str') {
+        const spec = at(match[j] + 2).v;
+        const bindings = [{ imported: 'default', local }];
+        for (const r of splitArgs(j)) {
+          const nt = at(r.s);
+          if (nt.t !== 'id' && nt.t !== 'str') continue;
+          bindings.push({ imported: nt.v, local: isId(r.s + 1, 'as') ? at(r.s + 2).v : nt.v });
+        }
+        addImport({ specifier: spec, names: [...new Set(bindings.map((b) => b.imported))].sort(), bindings, kind: 'reexport', line });
+        for (const b of bindings) addExport(b.local, 'reexport', line, null, spec);
+        return i + 1;
+      }
+      if (isP(j, '*') && isId(j + 1, 'as') && at(j + 2).t === 'id' && isId(j + 3, 'from') && at(j + 4).t === 'str') {
+        const spec = at(j + 4).v;
+        addImport({ specifier: spec, names: ['*', 'default'], bindings: [{ imported: 'default', local }], kind: 'reexport', line });
+        addExport(local, 'reexport', line, null, spec);
+        addExport(at(j + 2).v, 'reexport', line, null, spec);
+        return i + 1;
+      }
+    }
     while (isId(k, 'declare') || isId(k, 'abstract') || (isId(k, 'async') && isId(k + 1, 'function'))) k++;
     const kw = at(k);
     if (kw.t !== 'id') {

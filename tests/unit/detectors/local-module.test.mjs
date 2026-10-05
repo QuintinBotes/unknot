@@ -500,3 +500,15 @@ test('diagnose() accepts every draft: findings validate against the schema', asy
   }
   ctx.store.close?.();
 });
+
+test('dead-code: Meteor eager loading, asset directories, manifests and tool conventions are entry points (unfamiliar-repository regression)', () => {
+  const file = (path, attrs) => nodeFact('file', path, { path, attrs }, P);
+  const used = [mod('imports/main.js'), mod('imports/b.js'), edgeFact('IMPORTS', 'module:imports/main.js', 'module:imports/b.js', {}, P)];
+  const candidates = ['server/config/init.js', 'private/workers/report.js', 'packages/x/package.js', '.storybook/config.js', 'src/Button.stories.jsx', 'typings/index.d.ts', 'imports/orphan.js'].map((p) => mod(p));
+  const meteor = [file('.meteor/release', { meteor_app: '' }), file('packages/x/package.js', { mentions: [], manifest: 'meteor-package' })];
+  const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
+  assert.deepEqual(flagged([...used, ...candidates, ...meteor]), ['imports/orphan.js']);
+  // With meteor.mainModule set, files outside imports/ are no longer loaded eagerly.
+  const explicit = [...meteor, file('package.json', { mentions: [], meteor_main_module: true })];
+  assert.deepEqual(flagged([...used, ...candidates, ...explicit]), ['imports/orphan.js', 'server/config/init.js']);
+});

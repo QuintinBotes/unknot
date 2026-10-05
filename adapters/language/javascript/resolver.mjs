@@ -187,6 +187,20 @@ export function createResolver({ has, tsconfigs, packages }) {
     return null;
   }
 
+  const appRoots = new Map();
+  /** The nearest ancestor directory holding a Meteor app (`.meteor/release`), or null. */
+  function appRootOf(importer) {
+    let dir = dirOf(importer);
+    const trail = [];
+    for (;;) {
+      if (appRoots.has(dir)) { const v = appRoots.get(dir); for (const t of trail) appRoots.set(t, v); return v; }
+      trail.push(dir);
+      if (has(dir ? `${dir}/.meteor/release` : '.meteor/release')) { for (const t of trail) appRoots.set(t, dir); return dir; }
+      if (!dir) { for (const t of trail) appRoots.set(t, null); return null; }
+      dir = dirOf(dir);
+    }
+  }
+
   const cache = new Map();
 
   /**
@@ -213,7 +227,18 @@ export function createResolver({ has, tsconfigs, packages }) {
       if (base !== null && has(base)) return { t: 'asset' };
       return { t: 'unresolved', reason: 'relative' };
     }
-    if (spec.startsWith('/')) return { t: 'unresolved', reason: 'absolute' };
+    if (spec.startsWith('/')) {
+      // Root-relative: Meteor resolves `/imports/x` against the app (the directory holding
+      // `.meteor/`), and several bundlers against the project root. Accept only a file that
+      // exists there; anything else stays unresolved.
+      const rel = spec.replace(/^\/+/, '');
+      for (const root of [appRootOf(importer), '']) {
+        if (root === null) continue;
+        const hit = probe(root ? join(root, rel) : normalize(rel), tsFirst);
+        if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'root-relative' } : { t: 'asset' };
+      }
+      return { t: 'unresolved', reason: 'absolute' };
+    }
     const { hit, matched } = viaPaths(importer, spec);
     if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'tsconfig-paths' } : { t: 'asset' };
     if (matched) return { t: 'unresolved', reason: 'tsconfig-paths' };
