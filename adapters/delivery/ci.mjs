@@ -59,7 +59,13 @@ const HELM_VALUE_FLAGS = new Set(['-n', '--namespace', '-f', '--values', '--set'
 
 /** An actual deployment step: deploy commands or an action whose reference says deploy. */
 const DEPLOY_CMD_RE = /\b(kubectl\s+(apply|set\s+image|rollout)|helm\s+(upgrade|install)|terraform\s+apply|tofu\s+apply|cdk\s+deploy|(serverless|sls)\s+deploy|docker\s+push|(fly|flyctl)\s+deploy|gcloud\b[^\n]*\bdeploy|aws\s+(ecs\s+update-service|deploy)|az\s+(webapp|containerapp)\b[^\n]*\b(deploy|up)|ssh\s|scp\s|rsync\s|git\s+push\s+(heroku|dokku))/i;
-export const hasDeployStep = (steps) => steps.some((s) => (s.run && (DEPLOY_CMD_RE.test(String(s.run)) || DEPLOY_RE.test(String(s.run)))) || (s.uses && DEPLOY_RE.test(String(s.uses))));
+// Directories are not verbs: `./deploy/backup/restore-drill.sh` lives in a deploy folder but
+// deploys nothing (an unfamiliar repository's backup drill was read as a deploy job), while
+// `./scripts/deploy.sh` is named for what it does, so file names are kept.
+const withoutPaths = (cmd) => String(cmd)
+  .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ') // URLs: a download path is not a verb
+  .replace(/(?:\.{0,2}\/)?[\w.-]+(?:\/[\w.-]+)+/g, (p) => ` ${p.slice(p.lastIndexOf('/') + 1)} `);
+export const hasDeployStep = (steps) => steps.some((s) => (s.run && (DEPLOY_CMD_RE.test(String(s.run)) || DEPLOY_RE.test(withoutPaths(s.run)))) || (s.uses && DEPLOY_RE.test(String(s.uses))));
 
 /** Service names named in deploy commands. Heuristic; callers record confidence low. */
 export function commandTargets(run) {

@@ -172,6 +172,8 @@ function hashString(s) {
 
 const BASE = 1000003;
 
+const DATA_TOKENS = new Set(['I', 'L', ':', ',', '{', '}', '[', ']', '.', ';', '=', 'private', 'public', 'protected', 'readonly', 'const', 'let', 'var', 'val']);
+
 /** Winnowed k-gram fingerprints: [[hash, startLine, endLine], ...] in position order. */
 export function fingerprint(tokens, k = K, window = WINDOW) {
   if (tokens.length < k) return { fingerprints: [], lines: tokens.length ? tokens[tokens.length - 1].line : 0 };
@@ -194,8 +196,14 @@ export function fingerprint(tokens, k = K, window = WINDOW) {
     for (let j = s + 1; j < s + w; j++) if (hashes[j] <= hashes[min]) min = j; // rightmost minimum
     if (min !== last) { picked.push(min); last = min; }
   }
+  // A window made only of names, literals and object punctuation is data (style sheets,
+  // option objects, injected-parameter lists), not logic: matching those produced clone
+  // findings between screens that shared only their StyleSheet layout.
+  const dataPrefix = new Int32Array(tokens.length + 1);
+  for (let i = 0; i < tokens.length; i++) dataPrefix[i + 1] = dataPrefix[i] + (DATA_TOKENS.has(tokens[i].t) ? 1 : 0);
+  const isData = (p) => dataPrefix[p + k] - dataPrefix[p] === k;
   return {
-    fingerprints: picked.map((p) => [hashes[p], tokens[p].line, tokens[p + k - 1].line]),
+    fingerprints: picked.filter((p) => !isData(p)).map((p) => [hashes[p], tokens[p].line, tokens[p + k - 1].line]),
     lines: tokens[tokens.length - 1].line,
   };
 }
@@ -228,7 +236,7 @@ function mergeMatches(matches) {
 
 export default {
   id: 'quality',
-  version: '0.1.1',
+  version: '0.1.2',
   kind: 'language',
   capabilities: {
     files: ['**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,py,go,java,kt,kts,cs,rs,rb,php,swift,scala,c,h,cc,cpp,cxx,hpp,hh}'],

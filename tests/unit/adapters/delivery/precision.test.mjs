@@ -22,3 +22,14 @@ test('deploy_step: a restore drill runs no deploy step, a kubectl job does', () 
   assert.equal(drill.deploy_step, false);
   assert.equal(attrs(wf('      - run: kubectl apply -f k8s/')).deploy_step, true);
 });
+
+test('a script in a deploy/ folder is not a deploy step; a script named deploy is (precision re-check)', async () => {
+  const { hasDeployStep } = await import('../../../../adapters/delivery/ci.mjs');
+  assert.equal(hasDeployStep([{ run: './deploy/backup/restore-drill.sh' }]), false);
+  assert.equal(hasDeployStep([{ run: './scripts/deploy.sh prod' }]), true);
+});
+
+test('a release URL in a download command is not a deploy step', async () => {
+  const { hasDeployStep } = await import('../../../../adapters/delivery/ci.mjs');
+  assert.equal(hasDeployStep([{ run: 'curl -fsSL -o mc "https://dl.min.io/client/mc/release/linux-amd64/archive/mc.RELEASE.2025-08-13T08-35-41Z"' }]), false);
+});

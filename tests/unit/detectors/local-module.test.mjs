@@ -524,3 +524,12 @@ test('long-function: class render methods and default exports in JSX files use t
   const titles = run('local.long-function', facts).map((d) => d.title);
   assert.deepEqual(titles, ['The default export of lib/a.js is 120 lines long (threshold 80)']);
 });
+
+test('dead-code: a stale copy beside its original is not an entry script; Protocols are not speculative (regression re-check)', () => {
+  const used = [mod('svc/run.py', { entry_script: true }), mod('svc/b.py'), edgeFact('IMPORTS', 'module:svc/run.py', 'module:svc/b.py', {}, P)];
+  const facts = [...used, mod('svc/main.py', { entry_script: true }), mod('svc/main_old.py', { entry_script: true }), mod('svc/tool.py', { entry_script: true })];
+  const flagged = run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]);
+  assert.deepEqual(flagged, ['svc/main_old.py']);
+  const proto = [mod('p.py'), sym('class', 'p.py', 'Port', { kind: 'class', bases: ['Protocol'] })];
+  assert.deepEqual(run('local.speculative-generality', proto), []);
+});

@@ -26,7 +26,7 @@ function run(kinds = {}) {
 
 test('descriptor', () => {
   assert.equal(adapter.id, 'quality');
-  assert.equal(adapter.version, '0.1.1');
+  assert.equal(adapter.version, '0.1.2');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -119,4 +119,13 @@ test('boilerplate shared by many files is ignored; clones per module are capped'
   const linked = make(15);
   assert.equal(linked.length, 15);
   assert.ok(linked.every((f) => f.attrs.clones.length === 14));
+});
+
+test('data-only blocks (style sheets, option objects) do not fingerprint as clones; repeated logic still does', async () => {
+  const { fingerprint, tokenize, dropBoilerplate } = await import('../../../../adapters/quality/index.mjs');
+  const fp = (t) => fingerprint(dropBoilerplate(tokenize(t, 'c'), 'c')).fingerprints.length;
+  const styles = `const styles = StyleSheet.create({\n${Array.from({ length: 40 }, (_, i) => `  s${i}: { flex: 1, padding: ${i}, color: 'red', margin: 2 },`).join('\n')}\n});\n`;
+  const logic = `export function f(a, b) {\n${Array.from({ length: 30 }, (_, i) => `  if (a > ${i}) { b = g(b, a - ${i}); } else { b = h(b); }`).join('\n')}\n  return b;\n}\n`;
+  assert.ok(fp(styles) <= 2, `style data produced ${fp(styles)} fingerprints`);
+  assert.ok(fp(logic) > 10);
 });

@@ -385,6 +385,17 @@ const CONFIG_RE = /(^|\/)(\.?[\w-]*\.config|[\w-]+\.conf|(jest|vite|vitest|webpa
 const TOOL_ENTRY_RE = /(^|\/)(\.storybook\/|[^/]+\.stories\.[cm]?[jt]sx?$|[^/]+\.d\.[cm]?ts$|[^/]+\.(sample|example)\.[cm]?[jt]s$|mup\.[cm]?js$)/;
 // Runtimes that execute a script given on their command line (load tests and the like).
 const TOOL_RUNTIME_DEPS = new Set(['dependency:k6', 'dependency:artillery']);
+const MIGRATION_PATH = /(^|\/)(migrations?|alembic\/versions|db\/migrate|supabase\/migrations)\//;
+const STALE_SUFFIX = /^(.+?)[_.-](old|backup|bak|copy|orig|original|clean|new|tmp|v\d+|\d+)$/i;
+/** `main_old.py` beside `main.py`: a leftover copy, not a script anyone runs on purpose. */
+function isStaleCopy(graph, path) {
+  const file = path.split('/').pop();
+  const ext = file.includes('.') ? file.slice(file.lastIndexOf('.')) : '';
+  const m = STALE_SUFFIX.exec(file.slice(0, file.length - ext.length));
+  if (!m) return false;
+  const dir = path.includes('/') ? `${path.slice(0, path.lastIndexOf('/'))}/` : '';
+  return Boolean(graph.node(`module:${dir}${m[1]}${ext}`));
+}
 const meteorAppCache = new WeakMap();
 /** Meteor apps in the repository: `{dir, eager}`, eager unless package.json names a mainModule. */
 function meteorApps(graph) {
@@ -436,7 +447,7 @@ function moduleEntryReason(graph, m, entries) {
   if (CONFIG_RE.test(path)) return 'config file';
   if (TOOL_ENTRY_RE.test(path)) return 'tool convention (Storybook, type declarations, samples)';
   if (inLibraryDir(graph, path)) return 'generated component library (components.json)';
-  if (m.attrs?.entry_script) return 'script run directly (shebang or __main__ guard)';
+  if (m.attrs?.entry_script && !isStaleCopy(graph, path)) return 'script run directly (shebang or __main__ guard)';
   if (m.attrs?.django_convention) return 'Django convention module';
   const own = graph.node(`file:${path}`);
   if (own?.attrs?.manifest) return 'package manifest';
@@ -667,7 +678,8 @@ const BARREL = /(^|\/)(__init__\.py|index\.(js|mjs|cjs|ts|tsx|jsx)|mod\.rs|lib\.
 const duplicatedCode = define({
   name: 'duplicated-code',
   kinds: ['code.duplicated-code'],
-  defaults: { min_lines: 20, min_similarity: 0.4 },
+  // 0.5: below it, matches were route scaffolding and model declarations (five repositories).
+  defaults: { min_lines: 20, min_similarity: 0.5 },
   run(graph, o) {
     // Pairs that pass the thresholds, then one finding per group of mutually cloned
     // modules: twelve copies of one block are one problem, not sixty-six.
@@ -682,6 +694,8 @@ const duplicatedCode = define({
         const key = `${a}|${b}`;
         if (seen.has(key)) continue;
         if ((c.lines ?? 0) < o.min_lines || (c.similarity ?? 0) < o.min_similarity) continue;
+        // Migrations repeat the same scaffolding by convention and are never refactored.
+        if (MIGRATION_PATH.test(a) && MIGRATION_PATH.test(b)) continue;
         seen.add(key);
         const r0 = (c.ranges ?? [])[0] ?? [1, 1, 1, 1];
         pairs.push({ a, b, lines: c.lines, similarity: c.similarity ?? 0, lineA: m.path === a ? r0[0] : r0[2], lineB: m.path === a ? r0[2] : r0[0] });
@@ -779,7 +793,9 @@ const speculativeGenerality = define({
     // alone flagged Django model managers, script classes and bundled adapters on
     // unfamiliar repositories, so only abstract classes are judged now.
     const abstractClass = (c) => c.attrs?.abstract === true
-      || (Array.isArray(c.attrs?.bases) && c.attrs.bases.some((b) => /(^|\.)(ABC|ABCMeta|Protocol)$/.test(String(b))))
+      // typing.Protocol is excluded: protocols are implemented structurally, so "no explicit
+      // subclass" is their normal state (16 false findings on a real repository).
+      || (Array.isArray(c.attrs?.bases) && c.attrs.bases.some((b) => /(^|\.)(ABC|ABCMeta)$/.test(String(b))))
       || graph.children(c.id).some((m) => (m.attrs?.decorators ?? []).some((d) => /(^|\.)abstract(method|property)?$/.test(String(d))));
     for (const c of codeSymbols(graph, ['class'])) {
       if (!abstractClass(c)) continue;
