@@ -8,6 +8,10 @@ import { sha256 } from '../core/canonical.mjs';
 import { inScope, matchAny } from '../core/glob.mjs';
 import { isSecretPath } from '../core/paths.mjs';
 import { pathGlobs } from '../core/scope.mjs';
+
+// Ownership files at fixed root locations: read whatever the scope, so a narrow scope still
+// gets its owners. Flagged `context`: never counted as in-scope files or modules.
+export const CONTEXT_FILES = ['CODEOWNERS', '.github/CODEOWNERS', 'docs/CODEOWNERS', '.gitlab/CODEOWNERS'];
 import { blobIds, git, isRepo, listFiles } from '../apply/git.mjs';
 
 const LANGUAGES = {
@@ -134,7 +138,8 @@ export function census(root, { config, scope = [] } = {}) {
   for (const path of paths) {
     if (path.startsWith('.unknot/') || path.startsWith('.claude/')) continue;
     if (config?.scope && !inScope(path, config.scope)) continue;
-    if (scopeGlobs.length && !matchAny(path, scopeGlobs)) continue;
+    const context = Boolean(scopeGlobs?.length) && CONTEXT_FILES.includes(path) && !matchAny(path, scopeGlobs);
+    if (scopeGlobs?.length && !context && !matchAny(path, scopeGlobs)) continue;
     const abs = join(root, path);
     let st;
     try {
@@ -142,7 +147,7 @@ export function census(root, { config, scope = [] } = {}) {
     } catch {
       continue;
     }
-    const entry = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: matchAny(path, TEST), too_large: st.size > maxBytes };
+    const entry = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: matchAny(path, TEST), too_large: st.size > maxBytes, ...(context && { context: true }) };
     if (st.isSymbolicLink()) entry.kind = 'symlink';
     else if (!st.isFile()) continue;
     else if (isSecretPath(path)) entry.kind = 'secret';
@@ -161,7 +166,7 @@ export function census(root, { config, scope = [] } = {}) {
     }
     if (blobs.has(path) && !modified.has(path)) entry.blob = `git:${blobs.get(path)}`;
     files.push(entry);
-    byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
+    if (!context) byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
   }
   const commit = repo ? git(root, ['rev-parse', 'HEAD'], { check: false }).stdout.trim() || null : null;
   return { files, repo, commit, byKind };
