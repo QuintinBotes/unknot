@@ -1,15 +1,8 @@
 # Test fixtures with fake credentials and Pulumi's public secret-signature constant.
-8fd7c7d065bdf83808d14f75cd2507033c92b089:adapters/infrastructure/iac/analysis.mjs:generic-api-key:139
-8fd7c7d065bdf83808d14f75cd2507033c92b089:adapters/infrastructure/iac/plan.mjs:generic-api-key:368
-8fd7c7d065bdf83808d14f75cd2507033c92b089:tests/unit/adapters/iac/cloudformation.test.mjs:generic-api-key:64
-8fd7c7d065bdf83808d14f75cd2507033c92b089:tests/unit/adapters/iac/terraform.test.mjs:generic-api-key:36
+ec52765dc6aef55e2941a80a87302f80f8e80d81:adapters/infrastructure/iac/analysis.mjs:generic-api-key:139
+ec52765dc6aef55e2941a80a87302f80f8e80d81:adapters/infrastructure/iac/plan.mjs:generic-api-key:368
+ec52765dc6aef55e2941a80a87302f80f8e80d81:tests/unit/adapters/iac/cloudformation.test.mjs:generic-api-key:64
+ec52765dc6aef55e2941a80a87302f80f8e80d81:tests/unit/adapters/iac/terraform.test.mjs:generic-api-key:36
 ef466bb14968e8f1fd9764ce8f48a3e3dfa2c882:tests/fixtures/k8s/manifests/config.yaml:generic-api-key:11
 ef466bb14968e8f1fd9764ce8f48a3e3dfa2c882:tests/fixtures/k8s/manifests/config.yaml:generic-api-key:7
 ef466bb14968e8f1fd9764ce8f48a3e3dfa2c882:tests/fixtures/k8s/manifests/config.yaml:kubernetes-secret-yaml:2
-effacca83b9f204d0fcea335f5d3ac8050f65219:tests/fixtures/k8s/manifests/config.yaml:generic-api-key:11
-effacca83b9f204d0fcea335f5d3ac8050f65219:tests/fixtures/k8s/manifests/config.yaml:generic-api-key:7
-effacca83b9f204d0fcea335f5d3ac8050f65219:tests/fixtures/k8s/manifests/config.yaml:kubernetes-secret-yaml:2
-f7b7255246960c9042a563017774100008c8d4c2:adapters/infrastructure/iac/analysis.mjs:generic-api-key:139
-f7b7255246960c9042a563017774100008c8d4c2:adapters/infrastructure/iac/plan.mjs:generic-api-key:368
-f7b7255246960c9042a563017774100008c8d4c2:tests/unit/adapters/iac/cloudformation.test.mjs:generic-api-key:64
-f7b7255246960c9042a563017774100008c8d4c2:tests/unit/adapters/iac/terraform.test.mjs:generic-api-key:36
