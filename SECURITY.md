@@ -8,7 +8,7 @@
 | Previous minor release | Security fixes only, for 90 days after the newer minor is published |
 | Older | Not supported |
 
-Unknot is at 0.1.0. Before 1.0, minor releases may include breaking changes (see [COMPATIBILITY.md](COMPATIBILITY.md)). A change that makes a previously permissive security behaviour stricter is treated as a patch-level fix.
+Unknot is at 0.1.x. Before 1.0, minor releases may include breaking changes (see [COMPATIBILITY.md](COMPATIBILITY.md)). A change that makes a previously permissive security behaviour stricter is treated as a patch-level fix.
 
 ## Reporting a vulnerability
 

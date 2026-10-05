@@ -1,10 +1,24 @@
 {
   "name": "unknot",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Architecture-aware incremental codebase simplification with verification and recovery.",
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "refactoring",
+    "software-architecture",
+    "static-analysis",
+    "monolith",
+    "modernization",
+    "technical-debt"
+  ],
+  "homepage": "https://github.com/QuintinBotes/unknot#readme",
+  "bugs": {
+    "url": "https://github.com/QuintinBotes/unknot/issues"
+  },
   "bin": {
     "unknot": "bin/unknot"
   },

@@ -1,0 +1,11 @@
+# Actions are pinned to full commit SHAs; Dependabot keeps the pins and their version
+# comments current. The runtime has no npm dependencies, so there is nothing else to update.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

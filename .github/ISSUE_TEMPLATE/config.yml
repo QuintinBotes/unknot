@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/QuintinBotes/unknot/security/advisories/new
+    about: Bypasses of hooks, policy, sandbox, approvals or the ledger. Reported privately; see SECURITY.md.

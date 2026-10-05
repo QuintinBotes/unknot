@@ -1,5 +1,7 @@
 # Unknot
 
+[![CI](https://github.com/QuintinBotes/unknot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/QuintinBotes/unknot/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/QuintinBotes/unknot)](https://github.com/QuintinBotes/unknot/releases) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 > Untangle complexity. Preserve behavior.
 
 Unknot is a Claude Code plugin for simplifying existing codebases under governance. It maps a repository (code, data, infrastructure, delivery, ownership), finds accidental complexity, proposes the smallest change that would remove it, applies one approved change at a time in an isolated git worktree, and proves the result with commands it ran itself. A person approves each step.

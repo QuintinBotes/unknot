@@ -2,7 +2,7 @@
 
 Thank you for helping. Unknot is a safety tool, so the bar for changes that touch policy, the broker, hooks, approvals or the ledger is high: a change there needs a test that fails without it, and an adversarial test if it closes or could open a bypass.
 
-For vulnerabilities, do not open a public issue; see [SECURITY.md](SECURITY.md).
+For vulnerabilities, do not open a public issue; see [SECURITY.md](SECURITY.md). Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Setup
 
@@ -119,6 +119,7 @@ The `Live sessions` workflow runs it nightly with `--install fresh` (a new Claud
 - Run `npm test` before you push. If you changed anything under `runtime/policy`, `runtime/broker`, `runtime/hooks` or `runtime/core/shell.mjs`, say in the pull request what you tried to bypass.
 - Update `CHANGELOG.md` under the unreleased version for anything a user would notice, and `COMPATIBILITY.md` if the matrix changed.
 - Do not weaken a safety property to make a test pass. If a test is wrong, say why.
+- `main` is protected: every change lands through a pull request whose CI checks (tests on Ubuntu and macOS with Node 22 and 24, and the plugin manifest validation) pass on a branch that is up to date with `main`. Force pushes and deleting `main` are refused, for maintainers too. Release tags (`v*`) cannot be moved or deleted once pushed.
 
 ## Releasing
 

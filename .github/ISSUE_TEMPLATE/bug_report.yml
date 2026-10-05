@@ -1,0 +1,56 @@
+name: Bug report
+description: Something Unknot did wrong, crashed on, or refused when it should not have.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems (a bypass of a hook, the policy, the sandbox, approvals or the ledger) go to a [private vulnerability report](https://github.com/QuintinBotes/unknot/security/advisories/new), not here.
+
+        Remove secrets and anything from private repositories before pasting output. A public repository or a small scratch repository that reproduces the problem is the most useful thing you can give.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command or slash command, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps, starting from a repository others can get (a public repository at a commit, or a few files).
+      placeholder: |
+        1. git clone https://github.com/example/repo && git checkout <sha>
+        2. /unknot:init, then /unknot:map
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The error (`UK_...` code and message), and `unknot doctor` output if setup is involved.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Unknot version
+      description: "`unknot --version`"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node.js version, Claude Code version
+      placeholder: macOS 15, Node 22.13, Claude Code 2.x
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed secrets and private code from everything above.
+          required: true
