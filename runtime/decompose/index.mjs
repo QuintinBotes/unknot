@@ -13,7 +13,6 @@ import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { buildAffinity } from './affinity.mjs';
-import { brokenBy } from './perturb.mjs';
 import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
 import { fingerprintIndex, fingerprintOf, currentGeneration } from './records.mjs';
@@ -123,10 +122,8 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const candidates = t === 'frontend' && fe?.groups.length >= 2
       ? fe.groups.map((g, i) => ({ id: `R-${i + 1}`, name: `routes:/${g.name}`, name_basis: 'route', modules: g.modules, size: g.modules.length, robust: true, stability: 1, cohesion: null, metrics: { 'boundary.size': g.modules.length, gaps: [] }, teams: g.teams }))
       : found.candidates;
-    const affinityInput = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
     for (const cand of candidates) {
       cand.top_files = topFiles(graph, cand.modules);
-      if (!cand.robust && cand.clustered) cand.broken_by = brokenBy(affinityInput, cand.clustered);
       work.push({ t, cand, fe });
     }
   }

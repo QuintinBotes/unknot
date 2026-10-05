@@ -17,7 +17,8 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   const partition = rob.baseline;
   const cm = clusterMetrics(input, partition, { sizeBand });
   const stability = new Map();
-  for (const c of rob.communities) for (const m of c.members) stability.set(m, c.stability);
+  const brokenBy = new Map();
+  for (const c of rob.communities) for (const m of c.members) stability.set(m, c.stability), brokenBy.set(m, c.broken_by);
   const cache = new Map();
   const tableOwners = ownersOfTables(graph, cache);
   const sccs = stronglyConnected(graph, { edgeTypes: ['IMPORTS'] });
@@ -46,6 +47,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
         cohesion: +cl.cohesion.toFixed(3),
         stability: +stab.toFixed(3),
         robust: stab >= threshold,
+        ...(stab < threshold && brokenBy.get(cl.members[0])?.length ? { broken_by: brokenBy.get(cl.members[0]) } : {}),
         metrics: { ...metrics.metrics, gaps: metrics.gaps },
         details: metrics.details,
         name: named.name,

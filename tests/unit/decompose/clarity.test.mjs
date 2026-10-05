@@ -13,7 +13,7 @@ const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.
 const { census, isTestFile } = await import('../../../runtime/graph/census.mjs');
 const { boundaryMetrics } = await import('../../../runtime/decompose/candidates.mjs');
 const { decompose } = await import('../../../runtime/decompose/index.mjs');
-const { brokenBy } = await import('../../../runtime/decompose/perturb.mjs');
+const { robustness } = await import('../../../runtime/graph/community.mjs');
 const { foldSiblings } = await import('../../../runtime/decompose/fold.mjs');
 const { listRecords, pruneRecords, showRecord, summaryLine } = await import('../../../runtime/decompose/records.mjs');
 const { selectTreatment } = await import('../../../runtime/decompose/select.mjs');
@@ -180,13 +180,16 @@ describe('readiness detail', () => {
   test('a perturbation that moves members is named with its seed and the members', () => {
     const nodes = ['a', 'b', 'c', 'd', 'e', 'f'];
     const edges = [['a', 'b', 5], ['b', 'c', 5], ['a', 'c', 5], ['d', 'e', 5], ['e', 'f', 5], ['d', 'f', 5], ['c', 'd', 4.5]].map(([a, b, w]) => ({ a, b, w }));
-    const runs = brokenBy({ nodes, edges }, ['a', 'b', 'c']);
-    assert.ok(runs.length <= 3);
-    for (const x of runs) {
-      assert.ok(x.run && Number.isInteger(x.seed));
-      assert.ok(x.moved_total >= 1 && x.moved.every((m) => ['a', 'b', 'c'].includes(m)));
+    // Recorded by the robustness sweep itself: no clustering is run again to explain it.
+    const rob = robustness({ nodes, edges });
+    for (const c of rob.communities) {
+      assert.ok(c.broken_by.length <= 3);
+      for (const x of c.broken_by) {
+        assert.ok(x.run && Number.isInteger(x.seed));
+        assert.ok(x.moved_total >= 1 && x.moved.every((m) => c.members.includes(m)));
+      }
     }
-    assert.deepEqual(brokenBy({ nodes, edges }, ['a', 'b', 'c']), runs);
+    assert.deepEqual(robustness({ nodes, edges }).communities.map((c) => c.broken_by), rob.communities.map((c) => c.broken_by));
   });
 });
 

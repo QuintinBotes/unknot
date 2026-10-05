@@ -452,13 +452,14 @@ export function robustness(input, { resolutions = [0.5, 0.75, 1, 1.25, 1.5], per
   const runs = [];
   for (const r of resolutions) {
     if (r === 1) continue; // identical to the baseline by construction
-    runs.push({ kind: 'resolution', resolution: r, partition: leiden(input, { resolution: r, seed }).partition });
+    runs.push({ kind: 'resolution', resolution: r, label: `resolution ${r}`, seed, partition: leiden(input, { resolution: r, seed }).partition });
   }
-  runs.push({ kind: 'label-propagation', partition: labelPropagation(input, { seed }) });
+  runs.push({ kind: 'label-propagation', label: 'label propagation', seed, partition: labelPropagation(input, { seed }) });
   for (let t = 0; t < trials; t++) {
-    const rng = makeRng(seed + 7919 * (t + 1));
+    const s = seed + 7919 * (t + 1);
+    const rng = makeRng(s);
     const noisy = { nodes: input.nodes, edges: edges.map((e) => ({ ...e, w: e.w * Math.max(0, 1 - perturbation + 2 * perturbation * rng()) })) };
-    runs.push({ kind: 'perturbation', trial: t, partition: leiden(noisy, { resolution: 1, seed }).partition });
+    runs.push({ kind: 'perturbation', trial: t, label: `weight perturbation, trial ${t + 1}`, seed: s, partition: leiden(noisy, { resolution: 1, seed }).partition });
   }
 
   const byComm = new Map();
@@ -470,6 +471,8 @@ export function robustness(input, { resolutions = [0.5, 0.75, 1, 1.25, 1.5], per
   for (const c of [...byComm.keys()].sort((x, y) => x - y)) {
     const members = byComm.get(c).sort();
     let together = new Set(members);
+    // Which runs pulled members away from the majority, so a fragile boundary can say why.
+    const brokenBy = [];
     for (const run of runs) {
       const counts = new Map();
       for (const id of members) {
@@ -480,9 +483,12 @@ export function robustness(input, { resolutions = [0.5, 0.75, 1, 1.25, 1.5], per
       let bestCount = -1;
       for (const [l, n] of counts) if (n > bestCount || (n === bestCount && String(l) < String(bestLabel))) { bestLabel = l; bestCount = n; }
       together = new Set([...together].filter((id) => run.partition.get(id) === bestLabel));
+      const moved = members.filter((id) => run.partition.get(id) !== bestLabel);
+      if (moved.length) brokenBy.push({ run: run.label, seed: run.seed, moved: moved.slice(0, 8), moved_total: moved.length });
     }
     const stability = members.length ? together.size / members.length : 1;
-    communities.push({ id: c, members, stability, robust: stability >= 0.9 });
+    brokenBy.sort((a, b) => b.moved_total - a.moved_total || a.run.localeCompare(b.run));
+    communities.push({ id: c, members, stability, robust: stability >= 0.9, broken_by: brokenBy.slice(0, 3) });
   }
   const distances = runs.map((r) => partitionDistance(baseline, r.partition));
   const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
