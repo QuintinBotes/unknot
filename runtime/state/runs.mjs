@@ -44,6 +44,9 @@ export function getRun(store, id) {
   return parseJSONColumns(store.get('SELECT * FROM runs WHERE id = ?', id), JSON_COLS);
 }
 
+/** A run whose command writes nothing (map, diagnose, decompose, ...). */
+export const isReadOnlyRun = (run) => COMMANDS[run?.command]?.writes === 'none';
+
 /** The run hooks should enforce, or null. Interrupted runs stay active until ended. */
 export function activeRun(store) {
   return parseJSONColumns(store.get('SELECT * FROM runs WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1'), JSON_COLS);

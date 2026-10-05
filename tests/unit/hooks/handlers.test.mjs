@@ -562,6 +562,36 @@ describe('UserPromptSubmit', () => {
     assert.ok(denies(await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') })));
   });
 
+  test('a read-only run left open by an interrupted turn ends with the next message; a writing run does not', async () => {
+    const h = hookProject({ run: false });
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:map' });
+    const first = K.runs.activeRun(h.p.ctx.store).id;
+    // No Stop hook ran (the turn was interrupted); the next message is not an Unknot command.
+    const a = await H.onUserPromptSubmit({ ...h.base, prompt: 'now update docs/notes.md' });
+    assert.match(a.hookSpecificOutput.additionalContext, new RegExp(`${first}.*has been ended`));
+    assert.equal(K.runs.activeRun(h.p.ctx.store), null);
+    assert.equal(K.runs.getRun(h.p.ctx.store, first).outcome, 'interrupted');
+    assert.equal(await pre(h, 'Edit', { file_path: join(h.p.dir, 'docs/notes.md') }), null);
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:apply UK-0042' });
+    assert.equal(await H.onUserPromptSubmit({ ...h.base, prompt: 'carry on' }), null);
+    assert.equal(K.runs.activeRun(h.p.ctx.store).command, 'apply');
+  });
+
+  test('a run applies only to the session that started it', async () => {
+    const h = hookProject({ run: false });
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:diagnose' });
+    const other = { ...h.base, session_id: 's2' };
+    assert.equal(await H.onPreToolUse({ ...other, tool_name: 'Edit', tool_input: { file_path: join(h.p.dir, 'src/a.js') } }), null);
+    assert.equal(await H.onUserPromptSubmit({ ...other, prompt: 'unrelated work' }), null);
+    assert.equal(await H.onStop({ ...other }), null);
+    assert.ok(K.runs.activeRun(h.p.ctx.store), 'another session neither ends nor inherits the run');
+    const denied = await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') });
+    assert.ok(denies(denied));
+    assert.match(denied.hookSpecificOutput.permissionDecisionReason, /ends when this turn ends, or with the user's next message/);
+    // The always-on protections still apply everywhere.
+    assert.ok(denies(await H.onPreToolUse({ ...other, tool_name: 'Write', tool_input: { file_path: join(h.p.dir, '.unknot/config.yaml'), content: 'mode: campaign' } })));
+  });
+
   test('a new command supersedes the previous run', async () => {
     const h = hookProject({ run: false });
     await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:map' });
