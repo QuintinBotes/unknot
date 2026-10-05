@@ -228,6 +228,12 @@ export async function brokerExec(ctx, req) {
   const stderr = Buffer.concat(result.streams.stderr.chunks);
   const stdoutRef = casPut(ctx, stdout, { mediaType: 'text/plain', runId: run?.id, label: `${execId}.stdout` });
   const stderrRef = casPut(ctx, stderr, { mediaType: 'text/plain', runId: run?.id, label: `${execId}.stderr` });
+  // bubblewrap reports a child killed by signal N as exit code 128+N; map it back so a
+  // killed command is "inconclusive" on Linux as it is elsewhere.
+  if (wrapped.sandbox === 'linux-bwrap' && !result.signal && result.code > 128 && result.code <= 192) {
+    result.signal = result.code - 128;
+    result.code = null;
+  }
   const exitCode = result.error ? null : result.code ?? null;
   const verdict = result.error || result.timedOut || exitCode === null ? 'inconclusive' : exitCode === 0 ? 'pass' : 'fail';
   const record = {

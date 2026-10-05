@@ -133,6 +133,11 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());
     const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--die-with-parent', '--new-session', '--unshare-ipc', '--unshare-pid', '--unshare-uts'];
+    // A project that lives under /tmp (temporary clones, test fixtures) would vanish under the
+    // fresh /tmp: put it back read-only before the narrower mounts below.
+    for (const p of [hideRoot, cwd].filter(Boolean).map((x) => realpathLenient(x))) {
+      if (p.startsWith('/tmp/')) args.push('--ro-bind', p, p);
+    }
     // Control sockets (Docker, D-Bus, systemd) live under /run.
     for (const d of ['/run', '/var/run']) if (isRealDir(d)) args.push('--tmpfs', d);
     if (hide) {
