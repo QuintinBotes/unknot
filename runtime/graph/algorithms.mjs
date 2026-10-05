@@ -121,6 +121,158 @@ export function shortestCycle(graph, component, edgeTypes = DEFAULT_EDGES) {
 }
 
 /**
+ * What one strongly connected component is made of, in a form a person can act on: its
+ * elementary cycles (shortest first, at most `maxCycles` of at most `maxLength` nodes; the
+ * search also stops at a work budget, and `truncated` says any limit cut it short) and a
+ * small greedy feedback arc set: edges whose removal leaves the component acyclic, declared-
+ * only edges first (an edge held only by an injected member nobody uses), then those that
+ * close the most listed cycles. Edges are node pairs: a pair is declared-only when every
+ * edge between them is, and then carries the unused member.
+ */
+export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxCycles = 50, maxLength = 12 } = {}) {
+  const ids = [...members].sort();
+  const inSet = new Set(ids);
+  const info = new Map();
+  const adj = new Map(ids.map((id) => [id, []]));
+  for (const from of ids) {
+    const byTo = new Map();
+    for (const e of graph.out(from, edgeTypes)) if (inSet.has(e.to)) (byTo.get(e.to) ?? byTo.set(e.to, []).get(e.to)).push(e);
+    for (const to of [...byTo.keys()].sort()) {
+      const es = byTo.get(to);
+      const declared = es.every((e) => e.attrs?.declared_only);
+      const first = es.find((e) => e.attrs?.line) ?? es[0];
+      info.set(`${from}\0${to}`, {
+        from, to, declared_only: declared,
+        ...(declared && { unused_member: [...new Set(es.map((e) => e.attrs?.unused_member).filter(Boolean))].join(', ') || undefined }),
+        ...(first.attrs?.line && { line: first.attrs.line }),
+      });
+      adj.get(from).push(to);
+    }
+  }
+  const edgeOf = (a, b) => info.get(`${a}\0${b}`);
+  const publicEdge = (e, extra = {}) => ({ from: e.from, to: e.to, declared_only: e.declared_only, ...(e.unused_member && { unused_member: e.unused_member }), ...(e.line && { line: e.line }), ...extra });
+
+  // Elementary cycles by increasing length; each starts at its smallest member.
+  const cycles = [];
+  let truncated = false;
+  let budget = 400000;
+  for (let len = 1; len <= maxLength && !truncated; len++) {
+    const path = [];
+    const onPath = new Set();
+    const walk = (start, v) => {
+      if (truncated) return;
+      if (--budget < 0) { truncated = true; return; }
+      path.push(v);
+      onPath.add(v);
+      for (const w of adj.get(v)) {
+        if (path.length === len) {
+          if (w === start) {
+            if (cycles.length >= maxCycles) { truncated = true; break; }
+            cycles.push([...path]);
+          }
+        } else if (w > start && !onPath.has(w)) walk(start, w);
+        if (truncated) break;
+      }
+      path.pop();
+      onPath.delete(v);
+    };
+    for (const start of ids) { walk(start, start); if (truncated) break; }
+  }
+  if (!truncated && ids.length > maxLength) truncated = true;
+  const cyclePairs = (c) => c.map((v, i) => edgeOf(v, c[(i + 1) % c.length]));
+
+  // Greedy feedback arc set over the edges that remain after each cut.
+  const removed = new Set();
+  const live = (a) => adj.get(a).filter((b) => !removed.has(`${a}\0${b}`));
+  const cyclic = (nodes) => {
+    const deg = new Map(nodes.map((v) => [v, 0]));
+    const set = new Set(nodes);
+    for (const a of nodes) for (const b of live(a)) if (set.has(b)) deg.set(b, deg.get(b) + 1);
+    const queue = nodes.filter((v) => deg.get(v) === 0);
+    let seen = 0;
+    while (queue.length) {
+      const v = queue.pop();
+      seen++;
+      for (const b of live(v)) if (set.has(b)) { deg.set(b, deg.get(b) - 1); if (deg.get(b) === 0) queue.push(b); }
+    }
+    return seen < nodes.length;
+  };
+  const inDegree = new Map();
+  for (const a of ids) for (const b of adj.get(a)) inDegree.set(b, (inDegree.get(b) ?? 0) + 1);
+  const cut = [];
+  for (let guard = 0; guard < info.size && cyclic(ids); guard++) {
+    const closing = new Map();
+    for (const c of cycles) {
+      const es = cyclePairs(c);
+      if (es.some((e) => removed.has(`${e.from}\0${e.to}`))) continue;
+      for (const e of es) closing.set(e, (closing.get(e) ?? 0) + 1);
+    }
+    const comps = componentsOf(ids, live);
+    for (const comp of comps) {
+      const inComp = new Set(comp);
+      let best = null;
+      for (const a of comp) for (const b of live(a)) {
+        if (!inComp.has(b)) continue;
+        const e = edgeOf(a, b);
+        const closes = closing.get(e) ?? 0;
+        const rank = [e.declared_only ? 0 : 1, -closes, -(live(a).length * (inDegree.get(b) ?? 0))];
+        if (!best || rank[0] < best.rank[0] || (rank[0] === best.rank[0] && (rank[1] < best.rank[1] || (rank[1] === best.rank[1] && rank[2] < best.rank[2])))) best = { e, rank, closes };
+      }
+      if (best) { removed.add(`${best.e.from}\0${best.e.to}`); cut.push(best); }
+    }
+  }
+  // Drop any cut that turned out unnecessary, ordinary edges first.
+  for (const c of [...cut].sort((x, y) => Number(x.e.declared_only) - Number(y.e.declared_only))) {
+    const key = `${c.e.from}\0${c.e.to}`;
+    removed.delete(key);
+    if (cyclic(ids)) removed.add(key);
+    else cut.splice(cut.indexOf(c), 1);
+  }
+  return {
+    members: ids,
+    cycles: cycles.map((c) => ({ length: c.length, nodes: c, edges: cyclePairs(c).map((e) => publicEdge(e)) })),
+    truncated,
+    cut: cut.map((c) => publicEdge(c.e, { closes: c.closes })),
+  };
+}
+
+/** Components with a cycle among the live edges (iterative Tarjan over plain id lists). */
+function componentsOf(ids, live) {
+  const set = new Set(ids);
+  const order = new Map();
+  const low = new Map();
+  const on = new Set();
+  const stack = [];
+  const out = [];
+  let counter = 0;
+  for (const root of ids) {
+    if (order.has(root)) continue;
+    const frames = [[root, live(root).filter((b) => set.has(b)), 0]];
+    order.set(root, counter); low.set(root, counter++);
+    stack.push(root); on.add(root);
+    while (frames.length) {
+      const f = frames[frames.length - 1];
+      const [v, succ] = f;
+      if (f[2] < succ.length) {
+        const w = succ[f[2]++];
+        if (!order.has(w)) { order.set(w, counter); low.set(w, counter++); stack.push(w); on.add(w); frames.push([w, live(w).filter((b) => set.has(b)), 0]); }
+        else if (on.has(w) && order.get(w) < low.get(v)) low.set(v, order.get(w));
+        continue;
+      }
+      frames.pop();
+      if (frames.length) { const p = frames[frames.length - 1][0]; if (low.get(v) < low.get(p)) low.set(p, low.get(v)); }
+      if (low.get(v) === order.get(v)) {
+        const comp = [];
+        let w;
+        do { w = stack.pop(); on.delete(w); comp.push(w); } while (w !== v);
+        if (comp.length > 1 || succ.includes(v)) out.push(comp.sort());
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Transitive reach from `ids` as Map id -> depth (seeds are depth 0). `direction: 'in'`
  * follows edges backwards, which answers "who is affected if this changes".
  */

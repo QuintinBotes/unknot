@@ -1,6 +1,6 @@
 import { UnknotError } from '../../core/errors.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
-import { neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
+import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
 import { EDGE_TYPES } from '../../graph/facts.mjs';
 import { Graph } from '../../graph/graph.mjs';
 import { output, table } from '../util.mjs';
@@ -42,6 +42,18 @@ function refIds(g, flag, ref) {
 /** `--within` may swallow the next scope entry as its value; give it back. */
 function scopeOf(rest, flags) {
   return typeof flags.within === 'string' ? [flags.within, ...rest] : rest;
+}
+
+/** Words joined to lines of at most 100 columns, each after the first indented. */
+function wrap(text, first, indent) {
+  const out = [];
+  let line = first;
+  for (const word of text.split(' ')) {
+    if (line.length + word.length + 1 > 100 && line.trim() && line !== first && line !== indent) { out.push(line.trimEnd()); line = indent; }
+    line += `${word} `;
+  }
+  out.push(line.trimEnd());
+  return out;
 }
 
 export async function run({ positional, flags }) {
@@ -91,9 +103,25 @@ export async function run({ positional, flags }) {
     const warn = emptyScopeWarning(pred.scope);
     if (warn) process.stderr.write(`unknot: ${warn}\n`);
     const all = stronglyConnected(g, { edgeTypes, nodeFilter: pred.scope.all ? undefined : pred });
-    const comps = all.slice(0, limit);
+    const comps = all.slice(0, limit).map((c) => {
+      const b = cycleBreakdown(g, c, { edgeTypes, maxCycles: limit });
+      return { size: c.length, members: c, cycles: b.cycles, cycles_truncated: b.truncated, cut: b.cut };
+    });
+    if (flags.json) return output(comps, { json: true });
+    if (!comps.length) return output('no cycles');
+    const nameOf = (id) => g.node(id)?.path ?? id;
+    const edgeText = (e) => `${nameOf(e.from)} → ${nameOf(e.to)}${e.declared_only ? ` (declared only: ${nameOf(e.to)} member ${e.unused_member ?? '(unnamed)'} is never used)` : ''}`;
+    const lines = comps.flatMap((c, i) => [
+      ...(i ? [''] : []),
+      `cycle ${i + 1}: ${c.size} ${c.size === 1 ? 'module' : 'modules'}`,
+      ...wrap(c.members.map(nameOf).join(', '), '  members: ', '    '),
+      `  ${c.cycles.length}${c.cycles_truncated ? '+' : ''} elementary ${c.cycles.length === 1 ? 'cycle' : 'cycles'}, shortest first${c.cycles_truncated ? ` (stopped at ${c.cycles.length}; raise --limit)` : ''}:`,
+      ...c.cycles.map((y) => `    ${[...y.nodes, y.nodes[0]].map(nameOf).join(' → ')}${y.edges.some((e) => e.declared_only) ? ' (has declared-only edges)' : ''}`),
+      `  edges to cut (${c.cut.length}; removing them leaves no cycle):`,
+      ...c.cut.map((e) => `    ${edgeText(e)}${e.closes ? ` [closes ${e.closes}]` : ''}`),
+    ]);
     const note = all.length > comps.length ? `\n(${comps.length} of ${all.length} cycles; raise --limit)` : '';
-    return output(flags.json ? comps : comps.length ? comps.map((c, i) => `cycle ${i + 1} (${c.length}): ${c.slice(0, 8).join(' → ')}${c.length > 8 ? ' …' : ''}`).join('\n') + note : 'no cycles', { json: flags.json });
+    return output(lines.join('\n') + note);
   }
   if (sub === 'hubs') {
     const g = Graph.fromStore(ctx.store);

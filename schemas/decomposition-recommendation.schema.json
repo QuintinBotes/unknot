@@ -64,6 +64,81 @@
           "maxItems": 5,
           "description": "Members with the highest fan-in"
         },
+        "cycle_detail": {
+          "type": "object",
+          "description": "The largest import cycle wholly inside the candidate (boundary.internal_cycle_size): its members, elementary cycles (shortest first, capped; each lists nodes in order, the closing edge implied), and edges whose removal breaks it, declared-only edges first",
+          "properties": {
+            "scope": {
+              "const": "internal"
+            },
+            "size": {
+              "type": "integer"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cycles": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "cycles_truncated": {
+              "type": "boolean"
+            },
+            "cut": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "declared_only": {
+                    "type": "boolean",
+                    "description": "Held only by an injected member that is never used"
+                  },
+                  "unused_member": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "closes": {
+                    "type": "integer",
+                    "description": "Listed cycles this edge closes"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "declared_only"
+                ]
+              }
+            },
+            "declared_only": {
+              "type": "integer",
+              "description": "How many edges to cut are declared-only"
+            }
+          },
+          "required": [
+            "scope",
+            "size",
+            "members",
+            "cycles",
+            "cycles_truncated",
+            "cut"
+          ]
+        },
         "reverse_dependency_targets": {
           "type": "array",
           "items": {

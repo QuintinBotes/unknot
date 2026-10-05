@@ -88,6 +88,15 @@ describe('boundary metrics', () => {
     assert.ok(cyc.details.evidence['cycle.size'].some((e) => e.startsWith('IMPORTS|')));
   });
 
+  test('a cycle wholly inside the candidate is recorded with its cut and named apart from the crossing size', () => {
+    const { metrics, details } = boundaryMetrics(Graph.fromFacts([...facts, imp('in/b.ts', 'in/a.ts')]), members, { tableOwners: new Map(), sccs: [['module:in/a.ts', 'module:in/b.ts']], candidateOf: () => null, self: 0 });
+    assert.equal(metrics['cycle.size'], 0);
+    assert.equal(metrics['cycle.crossing_size'], 0);
+    assert.equal(metrics['boundary.internal_cycle_size'], 2);
+    assert.deepEqual(details.cycle_detail.members, ['module:in/a.ts', 'module:in/b.ts']);
+    assert.equal(details.cycle_detail.cut.length, 1);
+  });
+
   test('no seam in the repository is an evidence gap that names the traces and catalogs to import', () => {
     const { metrics, gaps } = run();
     assert.equal(metrics['requests.interceptable'], 0);

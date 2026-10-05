@@ -3,7 +3,7 @@
 // proposal is. Metrics are relative to this repository and carry what was not measured.
 
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
-import { stronglyConnected } from '../graph/algorithms.mjs';
+import { cycleBreakdown, stronglyConnected } from '../graph/algorithms.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 
@@ -291,7 +291,15 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const inCycle = new Set(worst);
   const closing = worst.flatMap((x) => graph.out(x, 'IMPORTS').filter((e) => inCycle.has(e.to) && members.has(x) !== members.has(e.to)).map((e) => e.id));
   details.evidence['cycle.size'] = [...worst, ...closing];
-  m['boundary.internal_cycle_size'] = touching.length ? Math.max(...touching.filter((c) => c.every((x) => members.has(x))).map((c) => c.length), 0) : 0;
+  // `cycle.size` counts only cycles that cross the boundary; the cycle wholly inside it is
+  // `boundary.internal_cycle_size`. `cycle.crossing_size` names the first so neither reads as "the cycle".
+  m['cycle.crossing_size'] = m['cycle.size'];
+  const wholly = touching.filter((c) => c.every((x) => members.has(x))).sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1));
+  m['boundary.internal_cycle_size'] = wholly.length ? wholly[0].length : 0;
+  if (wholly.length) {
+    const b = cycleBreakdown(graph, wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: 20 });
+    details.cycle_detail = { scope: 'internal', size: wholly[0].length, members: b.members, cycles: b.cycles.map((c) => c.nodes), cycles_truncated: b.truncated, cut: b.cut, declared_only: b.cut.filter((e) => e.declared_only).length };
+  }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
   const consumers = new Set();
   let contracts = 0;
