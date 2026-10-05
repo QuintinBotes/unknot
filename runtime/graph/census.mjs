@@ -68,8 +68,40 @@ export function looksGenerated(text) {
   return GENERATED_MARK.test(comment.join('\n'));
 }
 
+// .NET keeps tests in projects, not in files named *Tests.cs: a directory named like a test
+// project (Shop.Orders.Tests, Shop.UnitTests, Shop.Specs, ...Tests) holds only test code.
+const TEST_DIR = /(^|\/)[^/]*(Tests|\.Test|\.Specs?)\//;
+// A project that references a test framework is a test project wherever it sits.
+const TEST_SDK = /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i;
+const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+
+/**
+ * Directories whose nearest `.csproj` references a test framework. Each project file is
+ * read once, however many sources sit beneath it.
+ */
+function testProjectDirs(root, paths) {
+  const found = new Set();
+  for (const p of paths) {
+    if (!/\.csproj$/i.test(p)) continue;
+    try {
+      if (TEST_SDK.test(readFileSync(join(root, p), 'utf8'))) found.add(dirOf(p));
+    } catch {
+      // unreadable project file: its directory is not known to be a test project
+    }
+  }
+  return found;
+}
+
+/** Whether `path` lies under a directory of `dirs` with no nearer project directory in between. */
+function underTestProject(path, dirs, projectDirs) {
+  for (let d = dirOf(path); ; d = dirOf(d)) {
+    if (dirs.has(d)) return true;
+    if (projectDirs.has(d) || !d) return false;
+  }
+}
+
 /** Test files and test directories, by path (the census's own rule). */
-export const isTestFile = (path) => matchAny(path, TEST);
+export const isTestFile = (path) => matchAny(path, TEST) || TEST_DIR.test(path);
 /** Test code: a test path in a programming language (not a spec document or fixture data). */
 export const isTestCode = (path) => isTestFile(path) && CODE.has(languageOf(path));
 
@@ -138,6 +170,9 @@ export function census(root, { config, scope = [] } = {}) {
   const vendoredGlobs = [...VENDORED, ...attrs.vendored];
   const maxBytes = config?.limits?.max_file_bytes ?? 2 * 1024 * 1024;
   const scopeGlobs = pathGlobs(scope) ?? [];
+  const csproj = paths.filter((p) => /\.csproj$/i.test(p));
+  const testProjects = csproj.length ? testProjectDirs(root, paths) : new Set();
+  const projectDirs = new Set(csproj.map(dirOf));
   const files = [];
   const byKind = {};
   for (const path of paths) {
@@ -152,7 +187,7 @@ export function census(root, { config, scope = [] } = {}) {
     } catch {
       continue;
     }
-    const entry = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: matchAny(path, TEST), too_large: st.size > maxBytes, ...(context && { context: true }) };
+    const entry = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: isTestFile(path) || (testProjects.size > 0 && underTestProject(path, testProjects, projectDirs)), too_large: st.size > maxBytes, ...(context && { context: true }) };
     if (st.isSymbolicLink()) entry.kind = 'symlink';
     else if (!st.isFile()) continue;
     else if (isSecretPath(path)) entry.kind = 'secret';

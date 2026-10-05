@@ -138,9 +138,9 @@ Detector problems are listed, not hidden.
 
 Prints a finding as JSON keyed by the ten questions: `1_what`, `2_evidence` (each item with its provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
 
-### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`
+### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`, `decompose prune`
 
-See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since); `show` prints one with its metrics, evidence, rejections and readiness table.
+See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since; superseded, with the reason, when an older version wrote it or a later run replaced it); `prune [--dry-run]` removes the superseded records and says which, keeping any that a campaign or slice references; `show` prints one with its metrics, evidence, rejections and readiness table.
 
 | Flag | Meaning |
 |---|---|
