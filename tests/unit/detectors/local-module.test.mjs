@@ -508,13 +508,14 @@ test('diagnose() accepts every draft: findings validate against the schema', asy
 test('dead-code: Meteor eager loading, asset directories, manifests and tool conventions are entry points (unfamiliar-repository regression)', () => {
   const file = (path, attrs) => nodeFact('file', path, { path, attrs }, P);
   const used = [mod('imports/main.js'), mod('imports/b.js'), edgeFact('IMPORTS', 'module:imports/main.js', 'module:imports/b.js', {}, P)];
-  const candidates = ['server/config/init.js', 'private/workers/report.js', 'packages/x/package.js', '.storybook/config.js', 'src/Button.stories.jsx', 'typings/index.d.ts', 'imports/orphan.js'].map((p) => mod(p));
+  // server/config/init.js runs code when loaded; server/lib/Template.js only defines a class.
+  const candidates = [mod('server/config/init.js', { calls: [{ name: 'Meteor.startup', line: 1 }] }), mod('server/lib/Template.js'), ...['private/workers/report.js', 'packages/x/package.js', '.storybook/config.js', 'src/Button.stories.jsx', 'typings/index.d.ts', 'imports/orphan.js'].map((p) => mod(p))];
   const meteor = [file('.meteor/release', { meteor_app: '' }), file('packages/x/package.js', { mentions: [], manifest: 'meteor-package' })];
   const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
-  assert.deepEqual(flagged([...used, ...candidates, ...meteor]), ['imports/orphan.js']);
+  assert.deepEqual(flagged([...used, ...candidates, ...meteor]), ['imports/orphan.js', 'server/lib/Template.js']);
   // With meteor.mainModule set, files outside imports/ are no longer loaded eagerly.
   const explicit = [...meteor, file('package.json', { mentions: [], meteor_main_module: true })];
-  assert.deepEqual(flagged([...used, ...candidates, ...explicit]), ['imports/orphan.js', 'server/config/init.js']);
+  assert.deepEqual(flagged([...used, ...candidates, ...explicit]), ['imports/orphan.js', 'server/config/init.js', 'server/lib/Template.js']);
 });
 
 test('long-function: class render methods and default exports in JSX files use the component threshold; default exports are named by file', () => {

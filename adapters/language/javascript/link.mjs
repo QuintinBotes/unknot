@@ -5,7 +5,7 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR } from './config.mjs';
-import { createResolver } from './resolver.mjs';
+import { createResolver, normalize as normalizePath } from './resolver.mjs';
 
 const KIND_ORDER = ['static', 'reexport', 'require', 'dynamic', 'type'];
 
@@ -123,7 +123,10 @@ export function linkFacts(ctx) {
       if (e.name !== name || !e.from) continue;
       const r = resolvedImports.get(path)?.get(e.from);
       if (!r || r.t !== 'module') continue;
-      const imp = attrs.imports.find((i) => i.specifier === e.from && (i.kind === 'reexport' || i.kind === 'type'));
+      // Prefer the re-export that binds this name: `export * from './x'` and
+      // `export Y from './x'` share a specifier, and only the second binds Y.
+      const cands = attrs.imports.filter((i) => i.specifier === e.from && (i.kind === 'reexport' || i.kind === 'type'));
+      const imp = cands.find((i) => (i.bindings ?? []).some((x) => x.local === name)) ?? cands[0];
       const b = imp?.bindings?.find((x) => x.local === name);
       const hit = resolveExport(r.path, b?.imported ?? name, depth + 1, seen);
       if (hit) return hit;
@@ -268,6 +271,17 @@ export function linkFacts(ctx) {
     const pkg = nearestPackage(path);
     if (pkg) out.push(edgeFact('CONTAINS', pkg.id, `module:${path}`, {}, P(pkg.path, 1)));
   }
+  // Files named by path in code (spawned scripts, workers): the module starts them, so they
+  // are referenced even though nothing imports them.
+  for (const [path, attrs] of mods) {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    for (const m of attrs.path_mentions ?? []) {
+      const rel = m.replace(/^\.\//, '');
+      const target = [dir ? normalizePath(`${dir}/${rel}`) : rel, rel].find((c) => c && c !== path && ctx.files.has(c));
+      if (target) out.push(edgeFact('REFERENCES', `module:${path}`, `module:${target}`, { via: 'path string' }, P(path, 1, 'medium')));
+    }
+  }
+
   // MongoDB collections: resolve each binding used for a read or write to the module that
   // defines the collection (through imports and re-exports), so data affinity and the
   // database detectors see which modules share a collection.

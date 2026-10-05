@@ -6,6 +6,7 @@
 import { globToRegExp } from '../../core/glob.mjs';
 import { condense, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
 import { clamp, isTestModule, opt } from './local.mjs';
+import { inLibraryDir } from '../conventions.mjs';
 
 const byId = (a, b) => (a.id < b.id ? -1 : 1);
 const IMPORT = ['IMPORTS'];
@@ -486,7 +487,12 @@ const oversizedApi = define({
   run(graph, o) {
     const out = [];
     for (const m of sourceModules(graph)) {
-      const exported = sortedUnique(names(m.attrs.exports));
+      // A barrel only re-exports; a generated component library exports its whole set by
+      // design; types used in public signatures are part of the API, not surplus.
+      const exps = Array.isArray(m.attrs.exports) ? m.attrs.exports : [];
+      if (exps.length && exps.every((e) => e?.from || e?.kind === 'reexport')) continue;
+      if (inLibraryDir(graph, m.path)) continue;
+      const exported = sortedUnique(names(exps.filter((e) => !['interface', 'type', 'type_alias', 'enum_type'].includes(e?.kind))));
       if (exported.length < o.min_exports) continue;
       const inbound = graph.in(m.id, IMPORT).filter((e) => e.from !== m.id && !isTestModule(graph.node(e.from)));
       if (!inbound.length) continue;

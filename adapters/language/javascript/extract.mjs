@@ -65,6 +65,14 @@ function codeFacts(file, text) {
   // list — even when no call edge resolves (golden-suite gap 1).
   const nameCount = new Map();
   for (let i = 0; i < n; i++) if (tokens[i].t === 'id') nameCount.set(tokens[i].v, (nameCount.get(tokens[i].v) ?? 0) + 1);
+  // Source files the code starts by path (`spawn(node, [join(here, 'hook-main.ts')])`,
+  // `new Worker(new URL('./worker.js', import.meta.url))`): link turns them into REFERENCES.
+  const pathMentions = new Set();
+  for (let i = 0; i < n && pathMentions.size < 50; i++) {
+    const t = tokens[i];
+    // Only a file that exists next to the module (or at the repository root) becomes an edge.
+    if (t.t === 'str' && /^(?:\.{1,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:m?[jt]sx?|cjs|cts|mts|py|sh)$/.test(t.v)) pathMentions.add(t.v);
+  }
   const { match, bad } = buildMatch(tokens, n);
   let analysis;
   let failed = false;
@@ -224,6 +232,7 @@ function codeFacts(file, text) {
     calls: analysis.calls,
     directives: analysis.directives,
     ...(tk.jsxElements > 0 && { has_jsx: true }),
+    ...(pathMentions.size && { path_mentions: [...pathMentions].sort() }),
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
   };

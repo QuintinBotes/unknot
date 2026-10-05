@@ -26,7 +26,7 @@ function run(kinds = {}) {
 
 test('descriptor', () => {
   assert.equal(adapter.id, 'quality');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);

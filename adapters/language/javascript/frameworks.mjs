@@ -81,6 +81,7 @@ export function conventionRoutes(path, exportNames, req) {
 /**
  * @param {{ path: string, tokens: object[], n: number, match: Int32Array, analysis: object }} input
  */
+const MESSAGING_RECEIVER = /(consumer|producer|channel|queue|pubsub|publisher|subscriber|broker|kafka|rabbit|amqp|sqs|sns|nats|mqtt|redis|bus|topic|stream)/i;
 const MONGO_READS = new Set(['find', 'findOne', 'findAsync', 'findOneAsync', 'aggregate', 'countDocuments', 'estimatedDocumentCount', 'distinct', 'findById', 'exists']);
 const MONGO_WRITES = new Set(['insert', 'insertAsync', 'update', 'updateAsync', 'upsert', 'upsertAsync', 'remove', 'removeAsync', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'replaceOne', 'bulkWrite', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'findByIdAndUpdate', 'findByIdAndDelete', 'create']);
 
@@ -325,6 +326,13 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
     res.reqMethods = [...found].sort();
   }
 
+  const messagingFile = importsAny('kafkajs', 'amqplib', 'amqp-connection-manager', '@google-cloud/pubsub', 'redis', 'ioredis', 'nats', 'mqtt', '@aws-sdk/client-sqs', '@aws-sdk/client-sns', 'aws-sdk', 'bullmq', 'bull', '@azure/service-bus', 'rhea', 'zeromq', 'graphql-subscriptions', 'socket.io', 'pusher', 'ably');
+  const receiverName = (i) => {
+    let j = i - 2;
+    while (isP(j, ')') && match[j] !== undefined && match[j] >= 0) j = match[j] - 1;
+    return at(j).t === 'id' ? at(j).v : '';
+  };
+
   function messaging() {
     const add = (dir, kind, name, line, lib) => {
       if (res.messaging.length < 200) res.messaging.push({ dir, kind, name, line, lib });
@@ -344,6 +352,10 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
       // (reads of a published dataset), not message channels; treating them as consumers
       // produced a hundred idempotency findings on a Meteor application.
       if (isId(i - 2, 'Meteor') && (tk.v === 'subscribe' || tk.v === 'publish')) continue;
+      // Generic method names (`consume`, `publish`, `subscribe`, `send`) are messaging only in
+      // a file that uses a messaging client, or on a receiver named like one: a budget
+      // ledger's `consume('retries')` was read as a queue consumer on an unfamiliar repository.
+      if (['consume', 'sendToQueue', 'publish', 'subscribe'].includes(tk.v) && !messagingFile && !MESSAGING_RECEIVER.test(receiverName(i))) continue;
       const args = splitArgs(i + 1);
       const first = args[0];
       const lit0 = first ? literalOf(first.s, first.e) : null;
@@ -399,7 +411,7 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
       if (isId(i - 1, 'new') && (tk.v === 'Mongo' || tk.v === 'Meteor') && isP(i + 1, '.') && isId(i + 2, 'Collection') && isP(i + 3, '(')) {
         const a0 = splitArgs(i + 3)[0];
         const name = a0 ? literalOf(a0.s, a0.e) : null;
-        const binding = bindingBefore(i - 1);
+        const binding = bindingBefore(i - 1) ?? (isId(i - 2, 'default') && isId(i - 3, 'export') ? 'default' : null);
         if (name && defs.length < 200) defs.push({ binding, name, line: tk.l, orm: 'meteor' });
         continue;
       }

@@ -23,3 +23,28 @@ test('MongoDB collections: reads and writes resolve through imports and re-expor
     'QUERIES module:imports/api/delivery/methods.js table:parcels',
   ]);
 });
+
+test('a named re-export resolves even when `export *` from the same module comes first (review regression)', () => {
+  const out = project({
+    'x.js': "import { Mongo } from 'meteor/mongo';\nconst T = new Mongo.Collection('t');\nexport default T;\n",
+    'a.js': "export * from './x';\nexport Y from './x';\n",
+    'b.js': "import { Y } from './a';\nexport const f = () => Y.find();\n",
+  });
+  assert.ok(out.some((e) => e.type === 'QUERIES' && e.from === 'module:b.js' && e.to === 'table:t'));
+});
+
+test('export default new Mongo.Collection resolves through a default import (review regression)', () => {
+  const out = project({
+    'c.js': "import { Mongo } from 'meteor/mongo';\nexport default new Mongo.Collection('tasks');\n",
+    'u.js': "import Tasks from './c';\nexport const f = () => Tasks.insert({});\n",
+  });
+  assert.ok(out.some((e) => e.type === 'MUTATES' && e.from === 'module:u.js' && e.to === 'table:tasks'));
+});
+
+test('a file started by path from code is referenced, not dead (audit regression)', () => {
+  const out = project({
+    'src/adapters/commands.ts': "import { join } from 'node:path';\nconst here = import.meta.dirname;\nexport const cmd = [process.execPath, join(here, 'hook-main.ts')];\n",
+    'src/adapters/hook-main.ts': "await run();\n",
+  });
+  assert.ok(out.some((e) => e.type === 'REFERENCES' && e.from === 'module:src/adapters/commands.ts' && e.to === 'module:src/adapters/hook-main.ts'));
+});

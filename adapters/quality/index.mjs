@@ -113,6 +113,57 @@ export function tokenize(text, family) {
   return toks;
 }
 
+/**
+ * Drop module plumbing before fingerprinting: import and re-export statements and
+ * decorators (`@Component({...})`, `@app.get(...)`). With identifiers normalised to `I`,
+ * every file's import block is the same token stream, so clones were "found" between
+ * files that shared only their imports and decorator boilerplate (four repositories).
+ */
+export function dropBoilerplate(toks, family) {
+  const out = [];
+  let i = 0;
+  const skipGroup = (k) => {
+    let depth = 0;
+    for (; k < toks.length; k++) {
+      if (toks[k].t === '(') depth++;
+      else if (toks[k].t === ')' && --depth === 0) return k + 1;
+    }
+    return k;
+  };
+  while (i < toks.length) {
+    const t = toks[i];
+    if (family === 'python' && (t.t === 'import' || (t.t === 'from' && (i === 0 || toks[i - 1].line < t.line)))) {
+      const line = t.line;
+      let paren = 0;
+      while (i < toks.length && (toks[i].line === line || paren > 0)) {
+        if (toks[i].t === '(') paren++;
+        else if (toks[i].t === ')') paren--;
+        i++;
+      }
+      continue;
+    }
+    if (family !== 'python' && (t.t === 'import' || (t.t === 'export' && (toks[i + 1]?.t === '{' || toks[i + 1]?.t === '*')))) {
+      // ... to the module specifier (`from 'x'`, or `import 'x'`), and its `;`.
+      let k = i + 1;
+      while (k < toks.length && toks[k].t !== ';' && !(toks[k].t === 'L' && (toks[k - 1].t === 'from' || toks[k - 1].t === 'import'))) k++;
+      if (k < toks.length && toks[k].t === 'L') k++;
+      if (k < toks.length && toks[k].t === ';') k++;
+      // Java/Kotlin/Go imports end at the line or `;`; never swallow more than a few lines.
+      if (toks[k - 1] && toks[k - 1].line - t.line <= 40) { i = k; continue; }
+    }
+    if (t.t === '@' && toks[i + 1]?.t === 'I') {
+      let k = i + 2;
+      while (toks[k]?.t === '.' && toks[k + 1]?.t === 'I') k += 2;
+      if (toks[k]?.t === '(') k = skipGroup(k);
+      i = k;
+      continue;
+    }
+    out.push(t);
+    i++;
+  }
+  return out;
+}
+
 function hashString(s) {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
@@ -177,7 +228,7 @@ function mergeMatches(matches) {
 
 export default {
   id: 'quality',
-  version: '0.1.0',
+  version: '0.1.1',
   kind: 'language',
   capabilities: {
     files: ['**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,py,go,java,kt,kts,cs,rs,rb,php,swift,scala,c,h,cc,cpp,cxx,hpp,hh}'],
@@ -189,7 +240,7 @@ export default {
     if (file.kind === 'generated' || file.kind === 'vendored' || file.kind === 'binary') return [];
     const family = familyOf(extOf(file.path));
     if (!family) return [];
-    const { fingerprints, lines } = fingerprint(tokenize(text, family));
+    const { fingerprints, lines } = fingerprint(dropBoilerplate(tokenize(text, family), family));
     const truncated = fingerprints.length > MAX_FINGERPRINTS;
     const attrs = { fingerprints: fingerprints.slice(0, MAX_FINGERPRINTS), fp_lines: lines };
     if (truncated) attrs.fp_truncated = { dropped: fingerprints.length - MAX_FINGERPRINTS, cap: MAX_FINGERPRINTS };

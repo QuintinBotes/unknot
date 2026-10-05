@@ -4,7 +4,10 @@
 // through config.detectors['local.<name>']; every threshold in effect is echoed back in the
 // draft so a reviewer can see what the claim rests on, and heuristic ones say so.
 
+import { inLibraryDir } from '../conventions.mjs';
+
 const SOURCE_NODE_TYPES = ['function', 'method'];
+const DI_DECORATORS = /^(Component|Injectable|Directive|Pipe|NgModule|Controller|Resolver|Module|Service|Repository|Entity|Gateway)$/;
 
 /** Option lookup: a configured number wins, anything else falls back to the default. */
 export function opt(options, key, dflt) {
@@ -256,6 +259,12 @@ const longParameterList = define({
       // them (optional keyword-only parameters cannot be passed in the wrong order), but
       // still flag very long lists outright (dogfood FB14).
       const total = n.attrs.params;
+      // Dependency-injection constructors (Angular, NestJS): the framework supplies every
+      // argument, so the count is not something callers can get wrong.
+      if (nameOf(n).endsWith('constructor') && n.attrs.class) {
+        const cls = graph.parent(n.id);
+        if ((cls?.attrs?.decorators ?? []).some((d) => DI_DECORATORS.test(String(d)))) continue;
+      }
       const required = Number.isInteger(n.attrs.params_required) ? n.attrs.params_required : total;
       if (typeof total !== 'number' || (required <= o.params && total < 2 * o.params + 1)) continue;
       const p = required > o.params ? required : total;
@@ -426,6 +435,9 @@ function moduleEntryReason(graph, m, entries) {
   if (ROUTE_DIR_RE.test(path) || ROUTE_FILE_RE.test(path)) return 'route/page/handler convention';
   if (CONFIG_RE.test(path)) return 'config file';
   if (TOOL_ENTRY_RE.test(path)) return 'tool convention (Storybook, type declarations, samples)';
+  if (inLibraryDir(graph, path)) return 'generated component library (components.json)';
+  if (m.attrs?.entry_script) return 'script run directly (shebang or __main__ guard)';
+  if (m.attrs?.django_convention) return 'Django convention module';
   const own = graph.node(`file:${path}`);
   if (own?.attrs?.manifest) return 'package manifest';
   for (const app of meteorApps(graph)) {
@@ -434,7 +446,9 @@ function moduleEntryReason(graph, m, entries) {
     if (/^(private|public)\//.test(rel)) return 'Meteor asset directory';
     // Without meteor.mainModule, Meteor loads every file outside imports/ (and outside
     // packages, node_modules and tests) when the app starts.
-    if (app.eager && !/(^|\/)(imports|node_modules|packages|tests?)\//.test(rel)) return 'Meteor eager-loaded file';
+    // Eager loading runs the file, but a file that only defines things nobody imports is
+    // still dead: only files that do something when loaded (top-level calls) are entries.
+    if (app.eager && !/(^|\/)(imports|node_modules|packages|tests?)\//.test(rel) && (m.attrs?.calls ?? []).length > 0) return 'Meteor eager-loaded file';
   }
   for (const e of graph.out(m.id)) if (TOOL_RUNTIME_DEPS.has(e.to)) return 'script run by a tool runtime';
   for (const e of graph.out(m.id)) if (['EXPOSES', 'ROUTES_TO', 'BUILDS'].includes(e.type)) return 'exposes endpoints';
@@ -689,6 +703,7 @@ const duplicatedCode = define({
     const out = [];
     for (const list of groups.values()) {
       const members = [...new Set(list.flatMap((p) => [p.a, p.b]))].sort();
+      if (members.every((p) => inLibraryDir(graph, p))) continue;
       const lines = Math.max(...list.map((p) => p.lines));
       const sim = Math.max(...list.map((p) => p.similarity));
       const pct = Math.round(sim * 100);

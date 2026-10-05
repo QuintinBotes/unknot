@@ -7,7 +7,7 @@
 import { edgeFact, nodeFact, prov } from '../../runtime/graph/facts.mjs';
 
 const ID = 'wiring';
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 512 * 1024;
 const LOCKFILES = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|composer\.lock|Gemfile\.lock|bun\.lockb?)$/;
@@ -61,8 +61,23 @@ export default {
         // Not JSON we can read: mentions still count.
       }
     }
-    if (!list.length && !isPackageJs && !meteor) return [];
-    return [nodeFact('file', file.path, { path: file.path, attrs: { mentions: list, ...(isPackageJs && { manifest: 'meteor-package' }), ...meteor } }, P(file.path))];
+    // shadcn/ui `components.json`: where the generated component library lives.
+    let library = null;
+    if (/(^|\/)components\.json$/.test(file.path)) {
+      try {
+        const j = JSON.parse(text);
+        const ui = j?.aliases?.ui ?? (j?.aliases?.components ? `${j.aliases.components}/ui` : null);
+        if (typeof ui === 'string' && (String(j.$schema ?? '').includes('shadcn') || j.aliases)) {
+          const base = dirOf(file.path);
+          const rel = ui.replace(/^[@~]\//, 'src/').replace(/^\.\//, '');
+          library = { component_library: base ? `${base}/${rel}` : rel };
+        }
+      } catch {
+        // Not JSON we can read.
+      }
+    }
+    if (!list.length && !isPackageJs && !meteor && !library) return [];
+    return [nodeFact('file', file.path, { path: file.path, attrs: { mentions: list, ...(isPackageJs && { manifest: 'meteor-package' }), ...meteor, ...library } }, P(file.path))];
   },
 
   link(ctx) {
