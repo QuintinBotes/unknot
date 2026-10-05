@@ -1,4 +1,4 @@
-import { stronglyConnected } from '../../graph/algorithms.mjs';
+import { rankHubs, stronglyConnected } from '../../graph/algorithms.mjs';
 import { Graph } from '../../graph/graph.mjs';
 import { output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
@@ -33,6 +33,13 @@ export async function run({ positional, flags }) {
     const comps = stronglyConnected(g, { edgeTypes: [arg ?? 'IMPORTS'] });
     return output(flags.json ? comps : comps.length ? comps.map((c, i) => `cycle ${i + 1} (${c.length}): ${c.slice(0, 8).join(' → ')}${c.length > 8 ? ' …' : ''}`).join('\n') : 'no cycles', { json: flags.json });
   }
-  output('usage: unknot graph stats|nodes [type]|node <id>|edges [type]|cycles [EDGE_TYPE]');
+  if (sub === 'hubs') {
+    const h = rankHubs(Graph.fromStore(ctx.store), { edgeType: arg ?? 'IMPORTS', limit: Math.min(limit, 200) });
+    if (flags.json) return output(h, { json: true });
+    // Full ids: the tail of a path is what tells two modules apart.
+    const lines = (list) => (list.length ? list.map((x) => `${String(x.n).padStart(6)}  ${x.id}`) : ['     (none)']);
+    return output([`fan-in (${h.edge_type}, distinct importers):`, ...lines(h.fan_in), '', `fan-out (${h.edge_type}, distinct imports):`, ...lines(h.fan_out)].join('\n'));
+  }
+  output('usage: unknot graph stats|nodes [type]|node <id>|edges [type]|cycles [EDGE_TYPE]|hubs [EDGE_TYPE] [--limit N]');
   return 2;
 }

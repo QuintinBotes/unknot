@@ -21,7 +21,7 @@ const WF = '.github/workflows';
 test('adapter shape and capabilities', () => {
   assert.equal(adapter.id, 'delivery');
   assert.equal(adapter.kind, 'delivery');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.capabilities.network, false);
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.ok(adapter.capabilities.files.includes('Jenkinsfile'));
@@ -38,7 +38,7 @@ test('github actions: workflow attrs, jobs, needs and dependencies', () => {
   assert.deepEqual(wf.attrs.env_names, ['NODE_ENV']);
   assert.deepEqual(wf.attrs.secrets, ['CI_API_KEY']);
   assert.equal(wf.provenance.confidence, 'high');
-  assert.equal(wf.provenance.extractor, 'delivery@0.1.0');
+  assert.equal(wf.provenance.extractor, 'delivery@0.1.1');
   const test_ = node(f, `job:${WF}/ci.yml#test`);
   assert.equal(test_.attrs.steps, 5);
   assert.equal(test_.attrs.deploy_signal, false);

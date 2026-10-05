@@ -126,7 +126,7 @@ test('tools/list exposes every tool, objects only, none that suggests mutation',
   const { result } = await c.request('tools/list');
   const names = result.tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
-    'decomposition_get', 'finding_get', 'findings_list', 'graph_neighbourhood', 'graph_query', 'next_slice',
+    'decomposition_get', 'finding_get', 'findings_list', 'graph_hubs', 'graph_neighbourhood', 'graph_query', 'next_slice',
     'pattern_fit', 'pattern_get', 'pattern_index', 'slice_get', 'status', 'submit_handoff',
   ]);
   for (const t of result.tools) {

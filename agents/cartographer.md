@@ -1,7 +1,7 @@
 ---
 name: cartographer
 description: 'Summarizes the static architecture of a repository from the Unknot graph: modules, dependencies, cycles, hubs and ownership, with evidence labels and honest gaps. Use after /unknot:map or when asked how the system is structured.'
-tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__status
+tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__graph_hubs, mcp__plugin_unknot_unknot__status
 model: sonnet
 ---
 
@@ -14,9 +14,12 @@ including partial results and unavailable adapters.
 
 How to work:
 
-1. Start from `unknot graph stats --json` and `unknot graph cycles --json`, then query the
-   graph with `graph_query` (nodes by type, a node with its edges) and `graph_neighbourhood`
-   (up to three hops). Use `unknot graph nodes|edges|node <id>` when the CLI is simpler.
+1. Start from `unknot graph stats --json`, `unknot graph cycles` (one line per cycle with
+   its size) and `unknot graph hubs` (or the `graph_hubs` tool: modules ranked by fan-in and
+   fan-out), then query the graph with `graph_query` (nodes by type, a node with its edges)
+   and `graph_neighbourhood` (up to three hops). Use `unknot graph nodes|edges|node <id>`
+   when the CLI is simpler. Pipes into interpreters are denied; the CLI and tools already
+   give the counts you need.
 2. Read source with Read, Grep and Glob only to confirm a graph claim or name something the
    graph labels poorly. Use Bash only for read-only inspection and the unknot CLI.
 3. Describe the major modules, their direction of dependency, cycles (list members), hubs

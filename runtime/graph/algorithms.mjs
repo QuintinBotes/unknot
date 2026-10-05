@@ -283,3 +283,23 @@ export function topoOrder(nodes, edges) {
   err.cycle = cycle;
   throw err;
 }
+
+/**
+ * The top nodes by fan-in and by fan-out over one edge type (distinct neighbours, self loops
+ * ignored), for the cartographer's report. `hubs` above is the threshold filter detectors use.
+ * @returns {{fan_in: {id, n}[], fan_out: {id, n}[]}}
+ */
+export function rankHubs(graph, { edgeType = 'IMPORTS', nodeType = 'module', limit = 15 } = {}) {
+  const inn = new Map();
+  const out = new Map();
+  for (const e of graph.edges(edgeType)) {
+    if (e.from === e.to) continue;
+    if (nodeType && (graph.node(e.from)?.type !== nodeType || graph.node(e.to)?.type !== nodeType)) continue;
+    if (!inn.has(e.to)) inn.set(e.to, new Set());
+    if (!out.has(e.from)) out.set(e.from, new Set());
+    inn.get(e.to).add(e.from);
+    out.get(e.from).add(e.to);
+  }
+  const rank = (m) => [...m].map(([id, s]) => ({ id, n: s.size })).sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1)).slice(0, limit);
+  return { edge_type: edgeType, fan_in: rank(inn), fan_out: rank(out) };
+}

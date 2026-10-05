@@ -2,7 +2,7 @@
 // only .unknot/config.proposed.yaml (spec §4.1: config-only write); a human accepts it.
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { stringifyYAML } from '../../core/yaml.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
@@ -15,6 +15,10 @@ function readJSON(p) {
   } catch {
     return null;
   }
+}
+
+function onPath(exe) {
+  return (process.env.PATH ?? '').split(delimiter).some((d) => d && existsSync(join(d, exe)));
 }
 
 function has(root, ...names) {
@@ -35,6 +39,27 @@ export function detect(root) {
       if (s) commands[name] = pm === 'npm' && s !== 'test' ? ['npm', 'run', s] : [pm, ...(pm === 'npm' ? [] : ['run']), s].filter(Boolean);
     }
     if (commands.test_unit?.[0] === 'npm' && commands.test_unit[2] === 'test') commands.test_unit = ['npm', 'test'];
+    // Linting and type checking often run through hooks (husky, lint-staged) rather than a
+    // script; the tool's own config plus a dependency on it is enough to propose a command.
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const runner = pm === 'npm' ? ['npx', '--no'] : pm === 'yarn' ? ['yarn'] : [pm, 'exec'];
+    const eslintConfig = readdirSync(root).some((f) => /^(\.eslintrc(\.\w+)?|eslint\.config\.\w+)$/.test(f)) || Boolean(pkg.eslintConfig);
+    if (!commands.lint && deps.eslint && eslintConfig) {
+      commands.lint = [...runner, 'eslint', '.'];
+      notes.push('lint: proposed from the ESLint config and dependency (no lint script)');
+    }
+    if (!commands.typecheck && deps.typescript && has(root, 'tsconfig.json')) {
+      commands.typecheck = [...runner, 'tsc', '--noEmit'];
+      notes.push('typecheck: proposed from tsconfig.json and the TypeScript dependency (no typecheck script)');
+    }
+    if (Object.keys(deps).length && !has(root, 'node_modules')) notes.push('node_modules is missing: install dependencies before baseline checks run, or every check will fail');
+    for (const [name, argv] of Object.entries(commands)) {
+      const script = argv[0] === pm && scripts[argv.at(-1)];
+      const exe = typeof script === 'string' ? script.trim().split(/\s+/)[0] : null;
+      if (exe && !/[=/]/.test(exe) && !['node', 'npm', 'npx', 'yarn', 'pnpm', 'bun'].includes(exe) && !onPath(exe) && !has(root, `node_modules/.bin/${exe}`)) {
+        notes.push(`${name} runs \`${exe}\`, which is not on PATH or in node_modules/.bin`);
+      }
+    }
     notes.push(`node: package manager ${pm}, scripts ${Object.keys(scripts).join(', ') || 'none'}`);
   }
   if (has(root, 'pyproject.toml', 'setup.py', 'requirements.txt', 'pytest.ini', 'tox.ini')) {

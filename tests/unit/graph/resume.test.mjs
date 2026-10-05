@@ -29,3 +29,23 @@ test('an interrupted cold map resumes from the chunks already committed (spec §
   assert.equal(r.cache.extracted, 6002 - 5000);
   assert.equal(calls, 1);
 });
+
+test('a quiet repository reads at least history_min_commits recent commits and says the window was extended', async () => {
+  const p = K.makeProject();
+  const old = { ...process.env, GIT_AUTHOR_DATE: '2020-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2020-01-01T00:00:00Z' };
+  const { execFileSync } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(join(p.dir, 'src/a.js'), `export const a = ${i};\n`);
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', `c${i}`], { cwd: p.dir, env: old });
+  }
+  const config = K.cfg({ mode: 'plan' });
+  config.decomposition = { ...config.decomposition, history_days: 30, history_min_commits: 50 };
+  const r = await mapRepository(p.ctx, { config, configDigest: 'd' });
+  assert.match(r.history.window, /^extended to the latest \d+ commits/);
+  assert.ok(r.history.commits >= 3);
+  config.decomposition.history_min_commits = 0;
+  const r2 = await mapRepository(p.ctx, { config, configDigest: 'd2' });
+  assert.equal(r2.history.window, '30 days');
+});

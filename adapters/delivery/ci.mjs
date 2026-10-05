@@ -102,8 +102,10 @@ function targetFromJobName(id) {
   const rest = String(id)
     .replace(/([a-z])([A-Z])/g, '$1-$2')
     .toLowerCase()
-    .split(/[-_\s]+/)
-    .filter((w) => w && !/^(deploy|deployment|release|publish|to|prod|production|staging|stage|dev|job|ci|cd|push|and|all|ship|apply|run|go|live|matrix|terraform|build)$/.test(w))
+    // Letters and digits only: emoji and punctuation in job names (`🚀 deploy`) are decoration,
+    // not a target (an unknown-repository test found deployables named `🚀`).
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !/^(deploy|deployment|release|publish|to|prod|production|staging|stage|dev|job|ci|cd|push|and|all|ship|apply|run|go|live|matrix|terraform|build|review|preview|test|tests|qa|uat|canary|rollout|update|upload)$/.test(w))
     .join('-');
   return rest && literal(rest) ? rest : null;
 }

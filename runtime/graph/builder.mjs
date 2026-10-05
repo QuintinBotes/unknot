@@ -203,7 +203,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   if (history && cen.repo) {
     try {
       const sources = new Set(cen.files.filter((f) => f.kind === 'source' || f.kind === 'test').map((f) => f.path));
-      const hkey = digest({ commit, days: config.decomposition.history_days, max: config.decomposition.max_changeset, min: config.decomposition.min_shared_commits, sources: [...sources].sort() });
+      const hkey = digest({ commit, days: config.decomposition.history_days, floor: config.decomposition.history_min_commits, max: config.decomposition.max_changeset, min: config.decomposition.min_shared_commits, sources: [...sources].sort() });
       const hc = ctx.store.meta('history:cache');
       let h = null;
       if (hc) {
@@ -254,8 +254,20 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
 
 function historyFacts(root, config, sourcePaths) {
   const d = config.decomposition;
-  const out = git(root, [...GIT_LOG_ARGS, `--since=${d.history_days} days ago`], { check: false, maxBuffer: 512 * 1024 * 1024 }).stdout;
-  const commits = parseGitLog(out);
+  const log = (args) => parseGitLog(git(root, [...GIT_LOG_ARGS, ...args], { check: false, maxBuffer: 512 * 1024 * 1024 }).stdout);
+  let commits = log([`--since=${d.history_days} days ago`]);
+  // A quiet repository has too few recent commits for co-change to say anything (an
+  // unknown-repository test: 116 commits in a year, no pairs). Read the most recent
+  // history_min_commits instead, and say so.
+  const floor = d.history_min_commits ?? 0;
+  let extended = false;
+  if (floor > commits.length) {
+    const more = log([`-n${floor}`]);
+    if (more.length > commits.length) {
+      commits = more;
+      extended = true;
+    }
+  }
   const pv = prov({ source_type: 'vcs', source_ref: 'git log', extractor: 'history@0.1.0', confidence: 'high' });
   const facts = [];
   const cc = coChange(commits, { maxChangeset: d.max_changeset, minSharedCommits: d.min_shared_commits, pathFilter: (p) => sourcePaths.has(p) });
@@ -266,7 +278,8 @@ function historyFacts(root, config, sourcePaths) {
     if (!sourcePaths.has(path)) continue;
     facts.push(nodeFact('module', path, { path, attrs: { churn_commits: c.commits, churn_lines: c.added + c.deleted, last_change: new Date(c.last_time * 1000).toISOString() } }, pv));
   }
-  return { facts, stats: { commits: commits.length, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: cc.pairs.length } };
+  const oldest = commits.reduce((m, c) => Math.min(m, c.time ?? Infinity), Infinity);
+  return { facts, stats: { commits: commits.length, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: cc.pairs.length, window: extended ? `extended to the latest ${commits.length} commits (fewer than ${floor} in ${d.history_days} days)` : `${d.history_days} days`, ...(Number.isFinite(oldest) && { oldest_commit_at: new Date(oldest * 1000).toISOString() }) } };
 }
 
 const PLACEHOLDER_TYPE = (id) => {

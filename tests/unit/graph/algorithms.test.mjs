@@ -115,3 +115,14 @@ test('topoOrder: throws with the cycle named', () => {
     },
   );
 });
+
+test('rankHubs ranks modules by distinct importers and imports', async () => {
+  const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const g = new Graph();
+  for (const id of ['a', 'b', 'c', 'u']) g.addNode(`module:${id}`, 'module', { name: id });
+  for (const [f, t] of [['a', 'u'], ['b', 'u'], ['c', 'u'], ['a', 'u'], ['a', 'b'], ['u', 'u']]) g.addEdge('IMPORTS', `module:${f}`, `module:${t}`);
+  const h = rankHubs(g, { limit: 2 });
+  assert.deepEqual(h.fan_in[0], { id: 'module:u', n: 3 });
+  assert.deepEqual(h.fan_out[0], { id: 'module:a', n: 2 });
+});

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
+import { rankHubs } from '../graph/algorithms.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
@@ -79,6 +80,13 @@ export const TOOLS = {
     },
   },
 
+  graph_hubs: {
+    description: 'Modules ranked by fan-in and fan-out over one edge type (default IMPORTS).',
+    inputSchema: schema({ edge_type: str(), limit: limit(15) }),
+    run(ctx, a) {
+      return rankHubs(Graph.fromStore(ctx.store), { edgeType: a.edge_type ?? 'IMPORTS', limit: Math.min(a.limit ?? 15, 200) });
+    },
+  },
   graph_neighbourhood: {
     description: 'Breadth-first subgraph around a node, up to three hops.',
     inputSchema: schema({ id: str(), depth: limit(3), edge_types: { type: 'array', items: str(), maxItems: 32 } }, ['id']),

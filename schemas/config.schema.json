@@ -171,10 +171,22 @@
           "description": "USD per million tokens, used to charge max_cost_usd from transcript usage",
           "additionalProperties": false,
           "properties": {
-            "input_per_mtok": { "type": "number", "minimum": 0 },
-            "output_per_mtok": { "type": "number", "minimum": 0 },
-            "cache_write_per_mtok": { "type": "number", "minimum": 0 },
-            "cache_read_per_mtok": { "type": "number", "minimum": 0 }
+            "input_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "output_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_write_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_read_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            }
           }
         }
       }
@@ -614,6 +626,11 @@
               "id"
             ]
           }
+        },
+        "history_min_commits": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Read at least this many recent commits when history_days holds fewer"
         }
       }
     },

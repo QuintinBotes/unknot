@@ -14,7 +14,9 @@ export const DEFAULT_CONFIG = Object.freeze({
     include: [],
     exclude: ['vendor/**', 'node_modules/**', 'dist/**', 'build/**', 'generated/**', '**/node_modules/**', '.git/**', '.unknot/**'],
   },
-  protected_paths: ['.github/workflows/**', '**/auth/**', '**/crypto/**', '**/migrations/**'],
+  // CI definitions and git hooks run with the project's credentials or on developers'
+  // machines, so every CI system the delivery adapter parses is protected, not only GitHub's.
+  protected_paths: ['.github/workflows/**', '.gitlab-ci.yml', '.gitlab/ci/**', '.circleci/**', 'azure-pipelines.yml', '**/Jenkinsfile', '.buildkite/**', 'bitbucket-pipelines.yml', '.husky/**', '.githooks/**', '**/auth/**', '**/crypto/**', '**/migrations/**'],
   generated_paths: [],
   commands: {},
   limits: {
@@ -71,6 +73,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     min_shared_commits: 10,
     max_changeset: 50,
     history_days: 365,
+    history_min_commits: 1000,
     size_band: [5, 20],
     thresholds: { ownership_alignment: 0.8, co_change_leak: 0.2, chatty_calls_p95: 5, robustness: 0.9 },
     drivers: [],

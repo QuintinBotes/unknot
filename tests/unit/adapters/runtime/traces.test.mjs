@@ -167,7 +167,9 @@ test('unreadable or corrupt files are reported, others still processed', async (
   assert.equal(warned.length, 2);
 });
 
-test('performance: 200k spans in under 3 seconds', async () => {
+// A guard against super-linear regressions (quadratic work on 200k spans takes minutes), with
+// headroom for loaded machines: under the parallel suite it once took 3.8 s against a 3 s bound.
+test('performance: 200k spans in well under 10 seconds', async () => {
   const base = 1788220800000000000n;
   const reqSpans = [];
   const svcs = ['gw', 'api', 'db'];
@@ -192,6 +194,6 @@ test('performance: 200k spans in under 3 seconds', async () => {
   const t0 = performance.now();
   const facts = await run({ traces: ['big.json'] }, { 'big.json': text });
   const elapsed = performance.now() - t0;
-  assert.ok(elapsed < 3000, `took ${elapsed}ms`);
+  assert.ok(elapsed < 10_000, `took ${elapsed}ms`);
   assert.equal(facts.filter((f) => f.type === 'service').reduce((a, f) => a + f.attrs.span_count, 0), 200_000);
 });
