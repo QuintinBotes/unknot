@@ -126,11 +126,14 @@ const longFunction = define({
   kinds: ['code.long-function'],
   // UI components are measured against their own threshold: JSX markup is lines without
   // branching (dogfood round 2: 269 of 545 findings on one TSX app were components).
-  defaults: { lines: 80, component_lines: 150 },
+  defaults: { lines: 80, component_lines: 150, component_min_cyclomatic: 0 },
   run(graph, o) {
     const out = [];
     for (const n of codeSymbols(graph)) {
-      const lines = n.attrs.lines ?? 0;
+      const total = n.attrs.lines ?? 0;
+      // Lines of pure data (literal tables, seed data) are size without logic.
+      const dataLines = Math.min(n.attrs.data_lines ?? 0, total);
+      const lines = total - dataLines;
       // UI components: markup inflates line counts (FB8). A component is a capitalised
       // function, a class's render method, or a file's default export, in a file with JSX.
       const last = nameOf(n).split('.').pop();
@@ -138,20 +141,23 @@ const longFunction = define({
       const component = jsxFile && (/^[A-Z]/.test(last) || (last === 'render' && Boolean(n.attrs.class)) || nameOf(n) === 'default');
       const limit = component ? o.component_lines : o.lines;
       if (lines <= limit) continue;
+      // A team can choose not to flag long components that hold little logic.
+      if (component && o.component_min_cyclomatic > 0 && typeof n.attrs.cyclomatic === 'number' && n.attrs.cyclomatic < o.component_min_cyclomatic) continue;
+      const dataNote = dataLines > 0 ? ` (${dataLines} of them data; threshold ${limit})` : ` (threshold ${limit})`;
       // An anonymous default export is named after its file, so the title says where it is.
       const label = nameOf(n) === 'default' ? `The default export of ${n.path}` : nameOf(n);
       const d = base(graph, n, {
         kind: 'code.long-function',
-        title: `${component && nameOf(n) !== 'default' ? 'Component ' : ''}${label} is ${lines} lines long (threshold ${limit})`,
-        summary: `${lines} lines, cyclomatic ${n.attrs.cyclomatic ?? '?'}, max nesting ${n.attrs.max_nesting ?? '?'}`,
-        measurements: { 'function.lines': lines, ...(n.attrs.cyclomatic != null && { 'function.cyclomatic': n.attrs.cyclomatic }) },
+        title: `${component && nameOf(n) !== 'default' ? 'Component ' : ''}${label} is ${total} lines long${dataNote}`,
+        summary: `${total} lines${dataLines ? ` (${dataLines} data)` : ''}, cyclomatic ${n.attrs.cyclomatic ?? '?'}, max nesting ${n.attrs.max_nesting ?? '?'}`,
+        measurements: { 'function.lines': total, ...(dataLines > 0 && { 'function.data_lines': dataLines }), ...(n.attrs.cyclomatic != null && { 'function.cyclomatic': n.attrs.cyclomatic }) },
         thresholds: { lines: limit, 'lines.note': 'heuristic: a readability guideline, not a defect limit' },
         benefit: 1 + lines / 80,
         cost: lines > 300 ? 4 : lines > 150 ? 3 : 2,
       });
       out.push({
         ...d,
-        why_accidental: `A ${symbolKind(n)} of ${lines} lines mixes several steps that each need to be understood, tested and changed together.`,
+        why_accidental: `A ${symbolKind(n)} of ${total} lines${dataLines ? ` (${lines} excluding data)` : ''} mixes several steps that each need to be understood, tested and changed together.`,
         essential_considerations: ['A long linear sequence (a parser table, a declarative mapping) can be clearer unbroken than split into arbitrary pieces.'],
         smallest_simplification: `Extract the single most self-contained block of ${nameOf(n)} into a named function and call it; stop after one extraction and re-measure.`,
         risks: ['Extraction can change variable capture or evaluation order if blocks share mutable locals.'],
@@ -309,13 +315,16 @@ const largeClass = define({
     const out = [];
     for (const c of codeSymbols(graph, ['class'])) {
       const methods = methodCount(graph, c);
-      const lines = c.attrs.lines ?? 0;
+      const total = c.attrs.lines ?? 0;
+      const dataLines = Math.min(c.attrs.data_lines ?? 0, total);
+      const lines = total - dataLines;
       if (methods <= o.methods && lines <= o.lines) continue;
+      const dataNote = dataLines > 0 ? `${total} lines, ${dataLines} of them data` : `${lines} lines`;
       const d = base(graph, c, {
         kind: 'code.large-class',
-        title: `${nameOf(c)} has ${methods} methods over ${lines} lines (thresholds ${o.methods} methods, ${o.lines} lines)`,
-        summary: `${methods} methods, ${lines} lines`,
-        measurements: { 'class.methods': methods, 'class.lines': lines },
+        title: `${nameOf(c)} has ${methods} methods over ${dataNote} (thresholds ${o.methods} methods, ${o.lines} lines)`,
+        summary: `${methods} methods, ${dataNote}`,
+        measurements: { 'class.methods': methods, 'class.lines': total, ...(dataLines > 0 && { 'class.data_lines': dataLines }) },
         thresholds: { methods: o.methods, lines: o.lines, note: 'heuristic: size proxies for multiple responsibilities' },
         benefit: 2 + Math.max(methods / o.methods, lines / o.lines),
         cost: 4,
@@ -346,13 +355,15 @@ const largeModule = define({
     const out = [];
     for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) {
       if (isTestModule(m)) continue;
-      const sloc = m.attrs.sloc ?? 0;
+      const total = m.attrs.sloc ?? 0;
+      const dataLines = Math.min(m.attrs.data_lines ?? 0, total);
+      const sloc = total - dataLines;
       if (sloc <= o.sloc) continue;
       const d = base(graph, m, {
         kind: 'code.large-module',
-        title: `${m.path ?? m.name} has ${sloc} source lines (threshold ${o.sloc})`,
-        summary: `${sloc} source lines of ${m.attrs.loc ?? '?'} total`,
-        measurements: { 'module.loc': m.attrs.loc ?? sloc },
+        title: `${m.path ?? m.name} has ${total} source lines${dataLines ? ` (${dataLines} of them data; threshold ${o.sloc})` : ` (threshold ${o.sloc})`}`,
+        summary: `${total} source lines of ${m.attrs.loc ?? '?'} total`,
+        measurements: { 'module.loc': m.attrs.loc ?? total, ...(dataLines > 0 && { 'module.data_lines': dataLines }) },
         thresholds: { sloc: o.sloc, note: 'heuristic: file length is a convention, not a defect' },
         benefit: 2 + sloc / o.sloc,
         cost: 4,

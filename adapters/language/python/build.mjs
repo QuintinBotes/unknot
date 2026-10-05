@@ -3,6 +3,7 @@
 // fact shape and differ only in provenance (ast/high versus inference/low).
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { frameworkFacts } from './frameworks.mjs';
 
 /** Dotted module paths in string literals: from the AST, or by pattern when read lexically. */
@@ -60,7 +61,8 @@ export function buildFacts(path, raw, text, quality) {
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
   const loc = raw.loc ?? lines.length;
   const sloc = raw.sloc ?? lines.filter((l) => l.trim() && !l.trim().startsWith('#')).length;
-  const base = { language: 'python', loc, sloc, is_test: isTestPath(path) };
+  const dataPrefix = dataLinePrefix(text, 'py');
+  const base = { language: 'python', loc, sloc, data_lines: dataPrefix[dataPrefix.length - 1], is_test: isTestPath(path) };
 
   if (raw.error) {
     return [nodeFact('module', path, {
@@ -111,6 +113,7 @@ export function buildFacts(path, raw, text, quality) {
     const exported = !r.name.startsWith('_') && (!r.parent || symbols.get(r.parent)?.type === 'class');
     const common = {
       language: 'python', start_line: r.start_line, end_line: r.end_line, lines: r.end_line - r.start_line + 1,
+      data_lines: dataLinesIn(dataPrefix, r.start_line, r.end_line),
       exported, decorators: (r.decorators ?? []).map((d) => d.name), parse_quality: quality,
     };
     const attrs = sym.type === 'class'

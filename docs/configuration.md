@@ -249,13 +249,15 @@ Each is a map from an id to an options object. `adapters.<id>.enabled: false` st
 
 | Detector | Option (default) |
 |---|---|
-| `local.long-function` | `lines` (80), `component_lines` (150) |
+| `local.long-function` | `lines` (80), `component_lines` (150), `component_min_cyclomatic` (0) |
 | `local.complex-function` | `cyclomatic` (15), `cognitive` (20) |
 | `local.deep-nesting` | `max_nesting` (4) |
 | `local.long-parameter-list` | `params` (6) |
 | `local.large-class` | `methods` (20), `lines` (500) |
 | `local.large-module` | `sloc` (1000) |
 | `local.duplicated-code` | `min_lines` (20), `min_similarity` (0.4) |
+
+`component_min_cyclomatic` skips long components whose cyclomatic complexity is below it (0 keeps every long component). Lines of pure data (literal tables, seed data, mock builders) are discounted from a function's or class's `lines` and a module's `sloc` before comparing with the threshold; the title and measurements report both.
 
 These are heuristics and each finding says so in its `thresholds`. `unknot learn propose` writes changes to them (see [learning.md](learning.md)).
 

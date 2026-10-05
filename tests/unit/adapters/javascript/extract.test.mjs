@@ -12,7 +12,7 @@ const edges = (facts, type) => facts.filter((f) => f.kind === 'edge' && f.type =
 
 test('adapter contract: identity and capabilities', () => {
   assert.equal(adapter.id, 'javascript');
-  assert.equal(adapter.version, '0.1.9');
+  assert.equal(adapter.version, '0.1.10');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -26,7 +26,7 @@ test('adapter contract: identity and capabilities', () => {
 test('every fact carries provenance with the extractor id and a path:line source_ref', () => {
   const facts = extractOne('src/a.ts', 'export function f() { return 1; }\nexport class C {}');
   for (const f of facts) {
-    assert.equal(f.provenance.extractor, 'javascript@0.1.9');
+    assert.equal(f.provenance.extractor, 'javascript@0.1.10');
     assert.match(f.provenance.source_ref, /^src\/a\.ts:\d+$/);
     assert.equal(f.provenance.source_type, 'ast');
   }

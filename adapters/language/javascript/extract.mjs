@@ -1,6 +1,7 @@
 // Per-file extraction: tokenizes, runs the structural and framework passes, and turns the
 // result into graph facts. Pure and deterministic: the same text always yields the same facts.
 
+import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
 import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
@@ -121,6 +122,7 @@ function codeFacts(file, text) {
   const mfe = /(webpack|rspack|rsbuild|vite|next)\.config|root-config|single-spa|federation/i.test(path) || /registerApplication|ModuleFederationPlugin|@module-federation/.test(text) ? detectMicroFrontends(text) : null;
   if (mfe) facts.push(nodeFact('module', path, { path, attrs: { mfe } }, p(1, 'medium')));
 
+  const dataPrefix = dataLinePrefix(text, 'js');
   const classByQ = new Map();
   const fnByQ = new Map();
 
@@ -128,7 +130,7 @@ function codeFacts(file, text) {
     const id = node('class', `${path}#${c.qname}`, {
       name: c.qname, path,
       attrs: {
-        start_line: c.start_line, end_line: c.end_line, lines: c.lines, extends: c.extends, implements: c.implements,
+        start_line: c.start_line, end_line: c.end_line, lines: c.lines, data_lines: dataLinesIn(dataPrefix, c.start_line, c.end_line), extends: c.extends, implements: c.implements,
         decorators: c.decorators.map((d) => d.name), abstract: c.abstract, exported: c.exported, methods: c.methods.length,
       },
     }, p(c.start_line));
@@ -138,7 +140,7 @@ function codeFacts(file, text) {
     const id = node(f.type, `${path}#${f.qname}`, {
       name: f.qname, path,
       attrs: {
-        start_line: f.start_line, end_line: f.end_line, lines: f.lines, params: f.params, param_names: f.param_names,
+        start_line: f.start_line, end_line: f.end_line, lines: f.lines, data_lines: dataLinesIn(dataPrefix, f.start_line, f.end_line), params: f.params, param_names: f.param_names,
         cyclomatic: f.cyclomatic, cognitive: f.cognitive, max_nesting: f.max_nesting, exported: f.exported, async: f.async,
         kind: f.kind, returns: f.returns, return_type: f.return_type, calls: f.calls, class: f.cls,
         decorators: f.decorators.map((d) => d.name), visibility: f.visibility ?? null,
@@ -222,6 +224,7 @@ function codeFacts(file, text) {
     language: ts ? 'typescript' : 'javascript',
     loc: tk.loc,
     sloc: tk.sloc,
+    data_lines: dataPrefix[dataPrefix.length - 1],
     is_test: file.kind === 'test' || isTestPath(path),
     exports: analysis.exports.map((e) => ({ name: e.name, kind: e.kind, line: e.line, local: e.local, ...(e.from ? { from: e.from } : {}) })),
     env_reads: [...analysis.envReads].sort(),
