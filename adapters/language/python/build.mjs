@@ -8,6 +8,14 @@ import { frameworkFacts } from './frameworks.mjs';
 export const EXTRACTOR = 'python@0.1.0';
 const MAX_FACTS = 5000;
 
+const DJANGO_NAMES = new Set(['apps.py', 'admin.py', 'models.py', 'urls.py', 'views.py', 'signals.py', 'receivers.py', 'tasks.py', 'checks.py', 'context_processors.py', 'middleware.py', 'forms.py', 'serializers.py']);
+const DJANGO_DIR_RE = /(^|\/)(management\/commands|templatetags|migrations)\//;
+
+/** True for the file names and directories Django loads by convention (not whether this is a Django project). */
+export function isDjangoConventionPath(path) {
+  return DJANGO_NAMES.has(path.slice(path.lastIndexOf('/') + 1)) || DJANGO_DIR_RE.test(path);
+}
+
 const TEST_RE = /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$|(^|\/)tests?\//;
 
 export function isTestPath(path) {
@@ -59,6 +67,8 @@ export function buildFacts(path, raw, text, quality) {
     if (!symbols.has(f.qual)) symbols.set(f.qual, { id: `${type}:${path}#${f.qual}`, type, rec: f });
   }
 
+  const entryScript = raw.entry_script ?? (text.startsWith('#!') || /^if\s+__name__\s*==\s*(['"])__main__\1\s*:/m.test(text));
+  const djangoImport = raw.imports.some((i) => /^(django|rest_framework)(\.|$)/.test(i.module ?? ''));
   const moduleFact = nodeFact('module', path, {
     name: path,
     path,
@@ -66,12 +76,15 @@ export function buildFacts(path, raw, text, quality) {
       ...base,
       imports: raw.imports.map((i) => ({
         kind: i.kind, level: i.level, module: i.module, as: i.as ?? null, line: i.line,
+        ...(i.lazy && { lazy: true }), ...(i.type_only && { type_only: true }),
         names: i.names.map((n) => ({ name: n.name, as: n.as ?? null })),
       })),
       env_reads: [...new Set(raw.env.map((e) => e.name))].sort(),
       sql: raw.sql,
       security_signals: raw.security,
       parse_quality: quality,
+      ...(entryScript && { entry_script: true }),
+      ...(djangoImport && isDjangoConventionPath(path) && { django_convention: true }),
     },
   }, pv(1));
   facts.push(moduleFact);

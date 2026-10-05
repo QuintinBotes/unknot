@@ -214,3 +214,51 @@ test('manifest helpers and the adapter route manifests without python3', async (
   assert.equal(edges(adapter.extract({ path: 'requirements.txt' }, 'six\n', {}), 'DEPENDS_ON').length, 1);
   assert.equal(nodes(adapter.extract({ path: 'setup.py' }, "setup(name='s')\n", {}), 'module').length, 1);
 });
+
+test('entry scripts, lazy and type-only imports, django conventions', { skip: !hasPython ? 'python3 not available' : false }, async () => {
+  const { m, linked } = await repo({
+    'manage.py': '#!/usr/bin/env python\nimport os\n',
+    'tool.py': 'def main():\n    pass\n\nif __name__ == \'__main__\':\n    main()\n',
+    'lib.py': 'def f():\n    pass\n',
+    'a.py': 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import b\n\ndef g():\n    import c\n',
+    'b.py': 'import a\n',
+    'c.py': 'import a\n',
+    'shop/__init__.py': '',
+    'shop/models.py': 'x = 1\n',
+    'shop/utils.py': 'x = 1\n',
+    'shop/management/commands/run.py': 'x = 1\n',
+    'lone/forms.py': 'from django import forms\n',
+  }, realExec);
+  const mod = (p) => find([...m.values()].flat(), `module:${p}`).attrs;
+  assert.equal(mod('manage.py').entry_script, true);
+  assert.equal(mod('tool.py').entry_script, true);
+  assert.equal(mod('lib.py').entry_script, undefined);
+  const imports = mod('a.py').imports;
+  assert.equal(imports.find((i) => i.module === 'b').type_only, true);
+  assert.equal(imports.find((i) => i.module === 'c').lazy, true);
+  assert.equal(mod('c.py').imports.find((i) => i.module === 'a').lazy, undefined);
+  const im = (from, to) => edges(linked, 'IMPORTS').find((e) => e.from === `module:${from}` && e.to === `module:${to}`);
+  assert.equal(im('a.py', 'c.py').attrs.lazy, true);
+  assert.equal(im('a.py', 'b.py').attrs.type_only, true);
+  assert.equal(im('b.py', 'a.py').attrs.lazy, undefined);
+  const dj = (p) => [...m.values(), linked].flat().some((f) => f.kind === 'node' && f.id === `module:${p}` && f.attrs.django_convention);
+  assert.equal(dj('shop/models.py'), true); // manage.py exists
+  assert.equal(dj('shop/management/commands/run.py'), true);
+  assert.equal(dj('shop/utils.py'), false);
+  assert.equal(dj('lone/forms.py'), true); // imports django
+});
+
+test('dependency-cycle ignores lazy and type-only imports', async () => {
+  const { default: detectors } = await import('../../../../runtime/diagnose/detectors/module.mjs');
+  const { Graph } = await import('../../../../runtime/graph/graph.mjs');
+  const { edgeFact, nodeFact, prov } = await import('../../../../runtime/graph/facts.mjs');
+  const P = prov({ source_type: 'ast', source_ref: 't.py:1', extractor: 't@0', confidence: 'high' });
+  const mod = (p) => nodeFact('module', p, { name: p, path: p, attrs: { language: 'python', loc: 50, sloc: 40, is_test: false, parse_quality: 'ast' } }, P);
+  const imp = (a, b, attrs = {}) => edgeFact('IMPORTS', `module:${a}`, `module:${b}`, attrs, P);
+  const det = detectors.find((d) => d.id === 'module.dependency-cycle' || d.name === 'dependency-cycle' || d.id === 'dependency-cycle');
+  const count = (facts) => det.detect({ graph: Graph.fromFacts(facts), options: {} }).filter((d) => d.kind === 'module.dependency-cycle').length;
+  const mods = [mod('a.py'), mod('b.py')];
+  assert.equal(count([...mods, imp('a.py', 'b.py'), imp('b.py', 'a.py')]), 1);
+  assert.equal(count([...mods, imp('a.py', 'b.py'), imp('b.py', 'a.py', { lazy: true })]), 0);
+  assert.equal(count([...mods, imp('a.py', 'b.py'), imp('b.py', 'a.py', { type_only: true })]), 0);
+});

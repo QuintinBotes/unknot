@@ -249,6 +249,24 @@ class Metrics(object):
                 self.v(ch, d, c)
 
 
+def is_type_checking(t):
+    return (isinstance(t, ast.Name) and t.id == 'TYPE_CHECKING') or \
+        (isinstance(t, ast.Attribute) and t.attr == 'TYPE_CHECKING')
+
+
+def is_entry_script(text, tree):
+    if text.startswith('#!'):
+        return True
+    for n in tree.body:
+        if isinstance(n, ast.If) and isinstance(n.test, ast.Compare) and len(n.test.ops) == 1 \
+                and isinstance(n.test.ops[0], ast.Eq) and len(n.test.comparators) == 1:
+            sides = [n.test.left, n.test.comparators[0]]
+            if any(isinstance(x, ast.Name) and x.id == '__name__' for x in sides) and \
+                    any(isinstance(x, ast.Constant) and x.value == '__main__' for x in sides):
+                return True
+    return False
+
+
 class Analyzer(object):
     def __init__(self, path, text, tree):
         self.path = path
@@ -256,6 +274,7 @@ class Analyzer(object):
         self.functions = []
         self.classes = []
         self.imports = []
+        self.type_checking = 0
         self.sql = []
         self.env = []
         self.security = []
@@ -310,12 +329,21 @@ class Analyzer(object):
             return self.on_function(n)
         if isinstance(n, ast.ClassDef):
             return self.on_class(n)
+        if isinstance(n, ast.If) and is_type_checking(n.test):
+            self.visit(n.test)
+            self.type_checking += 1
+            for ch in n.body:
+                self.visit(ch)
+            self.type_checking -= 1
+            for ch in n.orelse:
+                self.visit(ch)
+            return
         if isinstance(n, ast.Import):
             for a in n.names:
-                self.imports.append({'kind': 'import', 'level': 0, 'module': a.name, 'as': a.asname, 'names': [], 'line': n.lineno})
+                self.imports.append(self.mark({'kind': 'import', 'level': 0, 'module': a.name, 'as': a.asname, 'names': [], 'line': n.lineno}))
         elif isinstance(n, ast.ImportFrom):
-            self.imports.append({'kind': 'from', 'level': n.level or 0, 'module': n.module or '',
-                                 'names': [{'name': a.name, 'as': a.asname} for a in n.names], 'line': n.lineno})
+            self.imports.append(self.mark({'kind': 'from', 'level': n.level or 0, 'module': n.module or '',
+                                           'names': [{'name': a.name, 'as': a.asname} for a in n.names], 'line': n.lineno}))
         elif isinstance(n, ast.Assign):
             if isinstance(n.value, ast.Call) and len(n.targets) == 1:
                 t = n.targets[0]
@@ -340,6 +368,15 @@ class Analyzer(object):
             return
         for ch in ast.iter_child_nodes(n):
             self.visit(ch)
+
+    def mark(self, rec):
+        # Imports inside a function body are the standard way to break an import cycle;
+        # imports under `if TYPE_CHECKING:` never run.
+        if any(k == 'fn' for k, _, _ in self.stack):
+            rec['lazy'] = True
+        if self.type_checking:
+            rec['type_only'] = True
+        return rec
 
     def on_string(self, s, line):
         if len(self.sql) < MAX_ITEMS and len(s) >= 12 and SQL_RE.match(s):
@@ -505,7 +542,7 @@ def analyze(path, text):
     sloc = sum(1 for ln in lines if ln.strip() and not ln.strip().startswith('#'))
     return {'path': path, 'loc': len(lines), 'sloc': sloc, 'functions': an.functions, 'classes': an.classes,
             'imports': an.imports, 'calls': an.module_calls, 'calls_detail': an.detail, 'sql': an.sql,
-            'env': an.env, 'security': an.security}
+            'env': an.env, 'security': an.security, 'entry_script': is_entry_script(text, tree)}
 
 
 def process(item):

@@ -3,7 +3,7 @@
 // call targets through import bindings, class inheritance, tests and package containment.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
-import { EXTRACTOR } from './build.mjs';
+import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
 
@@ -105,9 +105,12 @@ export function link(ctx) {
     bindings.set(path, bind);
     const targets = new Map(); // target path -> { names, line }
     const externals = new Map(); // dependency id -> { top, line, stdlib }
+    let cur = {};
     const internal = (target, line, name) => {
       if (target === path) return;
-      const t = targets.get(target) ?? { names: [], line };
+      const t = targets.get(target) ?? { names: [], line, lazy: true, typeOnly: true };
+      t.lazy = t.lazy && Boolean(cur.lazy || cur.type_only);
+      t.typeOnly = t.typeOnly && Boolean(cur.type_only);
       if (name) t.names.push(name);
       targets.set(target, t);
     };
@@ -119,6 +122,7 @@ export function link(ctx) {
     };
 
     for (const imp of mod.attrs.imports ?? []) {
+      cur = imp;
       const parts = imp.module ? imp.module.split('.') : [];
       if (imp.level > 0) {
         let dir = dirOf(path);
@@ -174,7 +178,7 @@ export function link(ctx) {
     importedModules.set(path, new Set(targets.keys()));
     const moduleId = `module:${path}`;
     for (const [target, t] of [...targets].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-      emit(edgeFact('IMPORTS', moduleId, `module:${target}`, { names: [...new Set(t.names)].sort(), line: t.line }, pvFor(path, t.line)));
+      emit(edgeFact('IMPORTS', moduleId, `module:${target}`, { names: [...new Set(t.names)].sort(), line: t.line, ...(t.lazy && { lazy: true }), ...(t.typeOnly && { type_only: true }) }, pvFor(path, t.line)));
     }
     for (const [id, e] of [...externals].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
       emit(nodeFact('dependency', id.slice('dependency:'.length), {
@@ -183,6 +187,15 @@ export function link(ctx) {
       }, pvFor(path, e.line)));
       emit(edgeFact('IMPORTS', moduleId, id, { line: e.line, external: true, stdlib: e.stdlib }, pvFor(path, e.line)));
     }
+  }
+
+  // --- Django conventions that need the project layout (manage.py, sibling apps.py) ------
+  const hasManage = [...pyPaths].some((p) => p === 'manage.py' || p.endsWith('/manage.py'));
+  for (const [path, mod] of modules) {
+    if (mod.attrs.django_convention || !isDjangoConventionPath(path)) continue;
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    const sibling = ['apps.py', 'admin.py', 'models.py', 'urls.py'].includes(base) && pyPaths.has(join(dirOf(path), 'apps.py'));
+    if (hasManage || sibling) emit(nodeFact('module', path, { name: path, path, attrs: { django_convention: true } }, pvFor(path, 1, 'medium')));
   }
 
   // --- name resolution -----------------------------------------------------------------

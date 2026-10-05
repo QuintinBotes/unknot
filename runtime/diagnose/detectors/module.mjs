@@ -100,10 +100,13 @@ const dependencyCycle = define({
     const mods = sourceModules(graph);
     const modIds = new Set(mods.map((m) => m.id));
 
-    for (const comp of stronglyConnected(graph, { edgeTypes: IMPORT, nodeTypes: ['module'] })) {
+    // Lazy (function-body) and type-only imports do not form a runtime cycle.
+    const strict = Object.create(graph);
+    strict.out = (id, type) => graph.out(id, type).filter((e) => !(e.attrs?.lazy || e.attrs?.type_only));
+    for (const comp of stronglyConnected(strict, { edgeTypes: IMPORT, nodeTypes: ['module'] })) {
       const members = comp.filter((id) => modIds.has(id));
       if (members.length < o.min_size) continue;
-      const cycle = shortestCycle(graph, members, IMPORT) ?? members.slice(0, 2);
+      const cycle = shortestCycle(strict, members, IMPORT) ?? members.slice(0, 2);
       const paths = cycle.map((id) => pathOf(graph, id));
       const tests = testsOn(graph, members);
       out.push(draft({
