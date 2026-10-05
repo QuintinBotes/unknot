@@ -205,6 +205,14 @@ A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
 
 Shows the objective, risk, required roles, scope, commit or diff hash, policy digest and expiry. You type the slice id to confirm, then the approver key's passphrase. Records an Ed25519 signature over that binding. Stage defaults from the slice state: `plan` while awaiting approval, `change` when `REVIEW_READY`, `rollback` when `ACCEPTED`. When the `change` stage is fully approved the slice becomes `ACCEPTED`; in `governed` or `campaign` mode Unknot also commits in the slice worktree. It never pushes or merges. A high or critical slice cannot be approved by the person who proposed it.
 
+### `unknot approve --lane <LN-id> --as <approver> [--role <role>]` (human)
+
+Approves the changes of every slice of a lane that is `REVIEW_READY`, one change approval per slice bound to its own diff, with one confirmation and one passphrase. Read `unknot lane review <LN-id>` first.
+
+### `unknot lane approve <CMP-id> --as <approver> [--kinds deletion,tests] [--max-files N] [--max-lines N] [--expires 72h]` (human), `lane status [LN-id | CMP-id]`, `lane review <LN-id>`, `lane revoke <LN-id> [--reason "..."]` (human)
+
+A lane is one signed plan approval for the low-risk slices of a campaign: low risk, one required role, no protected paths. `approve` lists what it covers and what it leaves out, then signs it; inside it the agent applies and verifies covered slices without asking per slice (`/unknot:lane`), and `apply finish` refuses a patch that is not deletion-only or test-only within the caps (defaults: both kinds, 5 files, 60 lines, never above the configured limits). `status` shows each lane, whether it is still valid and the state of its slices; `review` prints the diffs of its slices that are ready for review. A replanned slice, a configuration change, expiry or `revoke` ends coverage. See [security-model.md](security-model.md#approvals).
+
 ### `unknot apply <slice> [start | finish | replan | abandon] [--reason "..."]`
 
 - `start` (default): needs mode `assist` or higher, no uncommitted changes to tracked files in the main checkout (untracked files and `.unknot/` are ignored), satisfied preconditions, and a fully approved plan. A plan approval is bound to the commit at `HEAD` when you approved, so a new commit between `approve` and `apply` makes it stale and you approve again. Creates the worktree and branch from the approved commit, runs `commands.test_unit` there as a baseline (it must pass; with none configured, behaviour preservation will need human attestation), and moves the slice to `PATCHING`. Edits are then confined to that worktree and the slice scope by the hooks.
@@ -232,7 +240,7 @@ For a slice in `PATCHING`, `VERIFICATION_FAILED` or `REVIEW_READY`: marks it `RO
 
 ### `unknot run start <command> | end [id] | show [id]`
 
-Run lifecycle. Hooks enforce policy only while a run is active. Normally `/unknot:` commands start and end runs for you. `end` is human-only because ending a run lifts enforcement; `start` and `show` are blocked from an agent's shell too. Flags: `--slice <id>`, `--supersede`, `--outcome <text>`, `--json`.
+Run lifecycle. Hooks enforce policy only while a run is active, and only in the session that started it. Normally `/unknot:` commands start and end runs for you; a read-only command's run left open by an interrupted turn ends with your next message. `end` is human-only because ending a run lifts enforcement; `start` and `show` are blocked from an agent's shell too. Flags: `--slice <id>`, `--supersede`, `--outcome <text>`, `--json`.
 
 ## Learning
 

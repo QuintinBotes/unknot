@@ -68,6 +68,9 @@ export function looksGenerated(text) {
   return GENERATED_MARK.test(comment.join('\n'));
 }
 
+/** Test files and test directories, by path (the census's own rule). */
+export const isTestFile = (path) => matchAny(path, TEST);
+
 export function languageOf(path) {
   const base = path.split('/').pop();
   if (/^Dockerfile(\..+)?$|\.dockerfile$/i.test(base)) return 'dockerfile';

@@ -80,7 +80,7 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   const U = `${K.REPO_ROOT}/bin/unknot`;
   const denied = [
     `${U} approve UK-1`, `node ${U} approve UK-1`, `unknot approve UK-1`, `bin/unknot approve UK-1`, `${U} keys generate me`, `${U} config accept`, `${U} run end run-1`,
-    `${U} policy sign x`, `${U} shred`, `${U} unlock`, `cd /tmp && ${U} approve UK-1`, `ls; ${U} approve UK-1`, `echo ok | ${U} approve UK-1`, `env X=1 ${U} approve UK-1`,
+    `${U} policy sign x`, `${U} shred`, `${U} unlock`, `${U} lane approve CMP-1 --as alice`, `unknot lane revoke LN-1`, `${U} approve --lane LN-1 --as alice`, `cd /tmp && ${U} approve UK-1`, `ls; ${U} approve UK-1`, `echo ok | ${U} approve UK-1`, `env X=1 ${U} approve UK-1`,
     `bash -c '${U} approve UK-1'`, `UNKNOT_HOME=/tmp/h ${U} status`, `sqlite3 .unknot/state/unknot.db "delete from events"`, `python3 -c "import sqlite3; sqlite3.connect('.unknot/state/unknot.db')"`,
     'cat ~/.config/unknot/approvers/alice.pem', 'cp ~/.config/unknot/approvers/alice.pem /tmp/k',
     'echo x > .unknot/config.yaml', 'echo x >> .unknot/state/unknot.db', 'rm -rf .unknot/state', 'mv .unknot/config.yaml /tmp/', 'cp /tmp/evil .unknot/config.yaml', 'tee .unknot/config.yaml < /tmp/evil', 'touch .unknot/decisions.jsonl', 'truncate -s 0 .unknot/state/unknot.db', 'chmod 777 .unknot/config.yaml', 'ln -sf /tmp/evil .unknot/config.yaml', 'install /tmp/evil .unknot/config.yaml', 'rsync /tmp/evil .unknot/config.yaml',
@@ -90,7 +90,7 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   }
 
   test('legitimate inspection of the project is not blocked', () => {
-    for (const cmd of ['ls .unknot', 'cat .unknot/config.yaml', 'git status', `${U} status`, 'grep -r TODO src', 'sqlite3 --version']) assert.equal(bash(cmd), null, cmd);
+    for (const cmd of ['ls .unknot', 'cat .unknot/config.yaml', 'git status', `${U} status`, 'grep -r TODO src', 'sqlite3 --version', `${U} lane status`, `${U} lane review LN-1`]) assert.equal(bash(cmd), null, cmd);
   });
 
   test('text that only mentions .unknot while writing elsewhere is not state access', () => {

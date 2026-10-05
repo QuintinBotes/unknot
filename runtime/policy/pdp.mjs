@@ -73,8 +73,8 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
   }
   if (op.op === 'exec') {
     const cmd = op.command;
-    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock)\b/.test(cmd)) {
-      return deny('approval.human_only', 'approvals, keys, config acceptance and ending runs are done by a human in their own terminal');
+    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b/.test(cmd)) {
+      return deny('approval.human_only', "approvals, lanes, keys, config acceptance and ending runs are done by a person in a separate terminal window (Claude Code's ! prefix is not interactive); hand the exact command to the user");
     }
     if (/(^|[\s;|&])(sqlite3?|python3?|node|perl|ruby)\b[^\n]*\.unknot\/state/.test(cmd) || /\.config\/unknot|UNKNOT_HOME=/.test(cmd)) {
       return deny('state.protected', 'direct access to Unknot state or key material is not allowed');

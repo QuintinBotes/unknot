@@ -82,6 +82,8 @@ The (human) steps need a separate terminal window: Claude Code's `!` prefix has 
 7. `/unknot:verify UK-0001`. Runs the proof obligations and writes a proof bundle.
 8. (human) Read the bundle and the diff, then approve the change: `unknot approve UK-0001 --role code-owner --as <name>`. The slice becomes `ACCEPTED`. Unknot does not merge or push. You open the pull request from the slice branch.
 
+**Fewer steps for low-risk work.** For a campaign of deletions or new tests (dead code, missing tests), approve a lane once instead of each plan: (human) `unknot lane approve CMP-0001 --as <name>`. Claude then applies and verifies every slice that fits (`/unknot:lane`): low risk, no protected paths, and a patch that only deletes code or only changes tests, within a size cap. You still accept the changes, all at once after reading them: (human) `unknot lane review LN-…`, then `unknot approve --lane LN-… --as <name>`.
+
 If an assumption in the plan turns out wrong, `/unknot:apply UK-0001 replan` returns the slice to planning. `/unknot:rollback UK-0001` discards an unaccepted slice, or prepares a revert branch for an accepted one.
 
 ## Commands
@@ -97,6 +99,7 @@ If an assumption in the plan turns out wrong, `/unknot:apply UK-0001 replan` ret
 | `/unknot:next [campaign]` | Select the smallest unblocked slice | None |
 | `/unknot:apply <slice>` | Patch one approved slice in its worktree | Worktree only |
 | `/unknot:verify <slice>` | Run proof obligations, emit a proof bundle | Run artifacts |
+| `/unknot:lane [LN-id]` | Apply and verify the slices a signed lane covers | Worktrees only |
 | `/unknot:architecture [scope]` | C4 and topology views, style classification | `.unknot/docs/architecture/` (plan mode or above) |
 | `/unknot:database [scope]` | Ownership, schema, migration hazards, recovery | None |
 | `/unknot:infrastructure [scope]` | IaC, plans, drift, IAM, network exposure | None |

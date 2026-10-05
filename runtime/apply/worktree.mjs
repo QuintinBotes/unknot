@@ -109,9 +109,12 @@ export function diffStat(path) {
   const ex = excludes(path);
   const tracked = git(path, ['diff', '--numstat', '--no-ext-diff', '--no-textconv', 'HEAD', '--', '.', ...ex], { check: false }).stdout;
   const files = new Map();
+  let added = 0;
   for (const line of tracked.split('\n').filter(Boolean)) {
     const [a, d, p] = line.split('\t');
     files.set(p, (a === '-' ? 0 : Number(a)) + (d === '-' ? 0 : Number(d)));
+    // A binary change counts as an addition: it is not a deletion-only patch.
+    added += a === '-' ? 1 : Number(a);
   }
   const untracked = git(path, ['ls-files', '-z', '--others', '--exclude-standard', '--', '.', ...ex], { check: false }).stdout.split('\0').filter(Boolean);
   for (const p of untracked) {
@@ -122,10 +125,11 @@ export function diffStat(path) {
       lines = 0;
     }
     files.set(p, lines);
+    added += Math.max(lines, 1);
   }
   let total = 0;
   for (const v of files.values()) total += v;
-  return { files: files.size, lines: total, paths: [...files.keys()].sort() };
+  return { files: files.size, lines: total, added, paths: [...files.keys()].sort() };
 }
 
 /**
