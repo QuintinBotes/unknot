@@ -79,7 +79,9 @@ function codeFacts(file, text) {
     };
   }
   let unreachable = new Map();
-  if (!failed) {
+  // Control flow over a file whose brackets do not balance (a bad merge, a syntax error) is
+  // guesswork: a "dead" claim there was a parse artefact on an unfamiliar repository.
+  if (!failed && tk.issues.length === 0 && bad === 0) {
     try {
       unreachable = findUnreachable(tokens, n, match, analysis.functions);
     } catch {

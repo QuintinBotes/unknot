@@ -97,6 +97,18 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
         : importsAny('koa', '@koa/router', 'koa-router') ? 'koa' : 'http';
 
   const hasChildProcess = imports.has('child_process') || imports.has('node:child_process');
+  // Local names bound to child_process: namespaces (`import * as cp`, `const cp = require(...)`)
+  // and directly imported functions (`import { exec }`).
+  const cpNamespaces = new Set();
+  const cpNamed = new Set();
+  for (const imp of analysis.imports) {
+    if (imp.specifier !== 'child_process' && imp.specifier !== 'node:child_process') continue;
+    for (const b of imp.bindings ?? []) {
+      if (b.imported === '*' || b.imported === 'default') cpNamespaces.add(b.local);
+      else cpNamed.add(b.local);
+    }
+    if (imp.local) cpNamespaces.add(imp.local);
+  }
   const bindingBefore = (i) => {
     let j = i;
     while (isP(j - 1, '.') && at(j - 2).t === 'id') j -= 2;
@@ -475,6 +487,9 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
       switch (tk.v) {
         case 'exec': case 'execSync': {
           if (!call || !hasChildProcess) break;
+          // Only calls through child_process count: `/re/.exec(text)` and `db.exec(sql)` are
+          // not shell commands (an unfamiliar repository had RegExp.exec flagged).
+          if (afterDot ? !(at(i - 2).t === 'id' && cpNamespaces.has(at(i - 2).v)) : !cpNamed.has(tk.v)) break;
           const a0 = splitArgs(i + 1)[0];
           if (a0 && !(a0.e - a0.s === 1 && (at(a0.s).t === 'str' || at(a0.s).t === 'tpl'))) addSignal('exec-nonliteral', tk.l, `${tk.v}() with a non-literal command`);
           break;

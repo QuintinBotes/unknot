@@ -724,9 +724,6 @@ const duplicatedCode = define({
   },
 });
 
-const SPECULATIVE_RE = /(Factory|Manager|Strategy|Provider|Adapter)$/;
-const SPECULATIVE_SNAKE_RE = /_(factory|manager|strategy|provider|adapter)$/;
-
 const speculativeGenerality = define({
   name: 'speculative-generality',
   kinds: ['code.speculative-generality'],
@@ -738,9 +735,9 @@ const speculativeGenerality = define({
       const d = base(graph, node, {
         kind: 'code.speculative-generality',
         title: `${what} ${nameOf(node)} has ${implementations} implementation(s) and ${consumers} consumer(s)`,
-        summary: `name suggests a pluggable abstraction; ${implementations} implementation(s), ${consumers} importing module(s)`,
+        summary: `abstract ${what.toLowerCase()} with ${implementations} implementation(s) and ${consumers} importing module(s)`,
         measurements: { 'factory.products': implementations, 'interface.implementations': implementations, 'module.consumers': consumers, 'symbol.references': graph.in(node.id).length },
-        thresholds: { max_consumers: o.max_consumers, implementations: 1, note: 'heuristic: judged from the name and graph shape alone' },
+        thresholds: { max_consumers: o.max_consumers, implementations: 1, note: 'heuristic: abstract classes judged from the graph shape' },
         benefit: 1.5,
         cost: 2,
         evidence: 0.6,
@@ -762,23 +759,21 @@ const speculativeGenerality = define({
       });
     };
 
+    // Speculative generality is an abstraction with one (or no) implementation. A concrete
+    // class named *Manager or *Factory that is instantiated and used is not one: the name
+    // alone flagged Django model managers, script classes and bundled adapters on
+    // unfamiliar repositories, so only abstract classes are judged now.
+    const abstractClass = (c) => c.attrs?.abstract === true
+      || (Array.isArray(c.attrs?.bases) && c.attrs.bases.some((b) => /(^|\.)(ABC|ABCMeta|Protocol)$/.test(String(b))))
+      || graph.children(c.id).some((m) => (m.attrs?.decorators ?? []).some((d) => /(^|\.)abstract(method|property)?$/.test(String(d))));
     for (const c of codeSymbols(graph, ['class'])) {
-      if (!SPECULATIVE_RE.test(nameOf(c))) continue;
+      if (!abstractClass(c)) continue;
       const mod = moduleOf(graph, c);
       const impls = new Set(graph.in(c.id, ['EXTENDS', 'IMPLEMENTS']).map((e) => e.from)).size;
       const consumers = mod ? importersOf(graph, mod.id).size : 0;
       if (impls > 1 || consumers > o.max_consumers) continue;
       if (mod) flaggedModules.add(mod.id);
       emit(c, mod, impls, consumers, 'Class');
-    }
-    for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-      if (isTestModule(m) || flaggedModules.has(m.id)) continue;
-      const stem = baseName(m.path ?? '');
-      if (!SPECULATIVE_RE.test(stem) && !SPECULATIVE_SNAKE_RE.test(stem)) continue;
-      const classes = graph.children(m.id, 'class');
-      const consumers = importersOf(graph, m.id).size;
-      if (classes.length > 1 || consumers > o.max_consumers) continue;
-      emit(m, m, classes.length, consumers, 'Module');
     }
     return out;
   },

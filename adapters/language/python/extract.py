@@ -265,6 +265,17 @@ class Analyzer(object):
         self.assign_of = {}
         # Occurrences of each name as a Name or attribute in the file: a function referenced
         # by value (`map(total)`, a callback, a registry dict) is used even with no call.
+        # Module-level string constants (GUC = "app.current_org"): interpolating one of these
+        # into SQL is not injection, because the value is fixed in the source.
+        self.str_consts = set()
+        for st in getattr(tree, 'body', []):
+            if isinstance(st, ast.Assign) and isinstance(st.value, ast.Constant) and isinstance(st.value.value, str):
+                for t in st.targets:
+                    if isinstance(t, ast.Name):
+                        self.str_consts.add(t.id)
+            elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and isinstance(st.value, ast.Constant) \
+                    and isinstance(st.value.value, str):
+                self.str_consts.add(st.target.id)
         self.name_counts = {}
         for node in ast.walk(tree):
             key = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
@@ -482,7 +493,9 @@ class Analyzer(object):
         a = n.args[0]
         how = None
         if isinstance(a, ast.JoinedStr) and any(isinstance(v, ast.FormattedValue) for v in a.values):
-            how = 'fstring'
+            fv = [v.value for v in a.values if isinstance(v, ast.FormattedValue)]
+            if not all(isinstance(x, ast.Name) and x.id in self.str_consts for x in fv):
+                how = 'fstring'
         elif isinstance(a, ast.BinOp) and isinstance(a.op, ast.Mod) and isinstance(a.left, ast.Constant) \
                 and isinstance(a.left.value, str):
             how = 'percent'

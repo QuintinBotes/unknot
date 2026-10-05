@@ -26,6 +26,22 @@ const ASSIGNMENT =
 
 const PLACEHOLDER = /^(?:\$\{?|<|%|\{\{|changeme|change_me|example|xxx+|\*+|your[_-]|replace|dummy|test|password|secret|null|none|true|false|undefined|env\.|process\.env)/i;
 
+// Words that mark a credential as documentation or a dev default, not a live secret.
+const PLACEHOLDER_WORD = /(change[_-]?(me|it|this|in[_-]?prod)|changeme|example|placeholder|dummy|sample|your[_-]|xxx|todo|fixme|redacted|insecure|not[_-]?a[_-]?secret|fake[_-])/i;
+
+/**
+ * Token-shaped matches that are fillers (`ghp_secretsecret…`), URL passwords that are
+ * environment interpolations (`${DB_PASSWORD:-changeme}`), or dev defaults with
+ * placeholder words (`change_in_production`). Real tokens are random, so a low-entropy
+ * body is a placeholder. Found on unfamiliar repositories (tests, compose files, editor tasks).
+ */
+function looksPlaceholder(kind, value) {
+  if (kind === 'url-credentials') return /^\$\{?[A-Za-z_]/.test(value) || PLACEHOLDER_WORD.test(value);
+  if (kind === 'aws-access-key-id' || kind === 'jwt' || kind === 'slack-webhook') return false;
+  const body = value.replace(/^(?:gh[pousr]_|github_pat_|glpat-|xox[abposr]-|sk_live_|rk_live_|AIza|sk-ant-|sk-(?:proj-|svcacct-)?|npm_)/, '');
+  return body.length >= 12 && entropy(body) < 3.0;
+}
+
 function entropy(s) {
   const counts = new Map();
   for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);
@@ -39,15 +55,20 @@ function entropy(s) {
 
 /**
  * @param {string} text
- * @param {{extraPatterns?: string[]}} [opts] extra regex sources from config `security.redact_patterns`
+ * @param {{extraPatterns?: string[], precise?: boolean}} [opts] extra regex sources from config
+ *   `security.redact_patterns`; `precise` drops placeholders (for findings, never for redaction)
  * @returns {{kind: string, start: number, end: number}[]} non-overlapping, sorted
  */
-export function findSecrets(text, { extraPatterns = [] } = {}) {
+export function findSecrets(text, { extraPatterns = [], precise = false } = {}) {
   if (typeof text !== 'string' || text.length === 0) return [];
   const hits = [];
   for (const [kind, re] of RULES) {
     re.lastIndex = 0;
-    for (const m of text.matchAll(re)) hits.push({ kind, start: m.index, end: m.index + m[0].length });
+    for (const m of text.matchAll(re)) {
+      // Redaction stays conservative (over-redacting is safe); findings ask for `precise`.
+      if (precise && looksPlaceholder(kind, m[0])) continue;
+      hits.push({ kind, start: m.index, end: m.index + m[0].length });
+    }
   }
   ASSIGNMENT.lastIndex = 0;
   for (const m of text.matchAll(ASSIGNMENT)) {

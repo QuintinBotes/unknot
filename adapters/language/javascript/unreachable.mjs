@@ -91,9 +91,19 @@ export function findUnreachable(tokens, n, match, functions) {
         if (isP(i + 1, '(') && isP(closeOf(i + 1) + 1, '{')) return { end: clamp(closeOf(closeOf(i + 1) + 1)), term: null };
         break;
       case 'function': case 'class': {
-        // Declarations end at the close of the first top-level `{` after the header.
+        // Declarations end at the close of the body `{`. Type syntax in the header is not
+        // the body: generic arguments (`extends Base<{ a: 1 }>`) and an object-type return
+        // annotation (`function f(): { a: string } {`) both contain braces (found on an
+        // unfamiliar repository: the real body was then read as a bare block).
         let k = i + 1;
-        while (k < limit && !isP(k, '{') && !isP(k, ';')) k = isGroup(k) ? closeOf(k) + 1 : k + 1;
+        while (k < limit && !isP(k, '{') && !isP(k, ';')) {
+          if (isP(k, '<')) {
+            const r = U.skipAngle(k);
+            k = r > 0 ? r : k + 1;
+          } else if (isP(k, ':') && t.v === 'function') {
+            k = U.skipType(k + 1, { body: true });
+          } else k = isGroup(k) ? closeOf(k) + 1 : k + 1;
+        }
         return { end: clamp(isP(k, '{') ? closeOf(k) : k), term: null };
       }
       default:

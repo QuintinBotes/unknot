@@ -100,6 +100,16 @@ export function makeUtil(tokens, n, match) {
         if (v === ')' || v === ']' || v === '}') return j - 1;
         if (v === ';') return stmt ? j : j - 1;
         if (v === ',' && !stmt) return j - 1;
+        // A TypeScript generic call (`createThunk<A, B>(…)`): the commas between the angle
+        // brackets belong to the type arguments, not to the enclosing declaration list.
+        if (v === '<' && j > s && (tokens[j - 1].t === 'id' || (tokens[j - 1].t === 'p' && tokens[j - 1].v === '.'))) {
+          const r = skipAngle(j);
+          if (r > 0 && r < n && tokens[r].t === 'p' && (tokens[r].v === '(' || tokens[r].v === '`')) {
+            pv = tokens[r - 1];
+            j = r;
+            continue;
+          }
+        }
       } else if (pv && j > s && t.l > endLine(pv) && isValueEnd(pv) && startsValue(t)) {
         return j - 1;
       }
@@ -171,7 +181,7 @@ export function makeUtil(tokens, n, match) {
       if (t.t === 'p') {
         const v = t.v;
         if (v === '<') depth++;
-        else if (v === '>') { depth--; if (depth === 0) return j + 1; }
+        else if (v === '>' || v === '>>' || v === '>>>') { depth -= v.length; if (depth <= 0) return depth === 0 ? j + 1 : -1; }
         else if (v === '(' || v === '[' || v === '{') { j = match[j] + 1; continue; }
         else if (v === ';' || v === ')' || v === ']' || v === '}' || v === '&&' || v === '||') return -1;
       }

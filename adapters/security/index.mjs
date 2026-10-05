@@ -8,7 +8,7 @@ import { nodeFact, prov } from '../../runtime/graph/facts.mjs';
 import { findSecrets, redact } from '../../runtime/core/redact.mjs';
 
 export const ID = 'security';
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 1024 * 1024;
 const MAX_SECRETS_PER_FILE = 200;
@@ -92,7 +92,7 @@ export default {
   extract(file, text) {
     if (!file?.path || typeof text !== 'string') return [];
     if (SKIP_KINDS.has(file.kind) || (file.size ?? 0) > MAX_BYTES || text.length > MAX_BYTES || LOCKFILE.test(file.path)) return [];
-    const hits = findSecrets(text);
+    const hits = findSecrets(text, { precise: true });
     if (!hits.length) return [];
     // Kind and line only: the offset is used to compute the line and then discarded.
     const secrets = hits.slice(0, MAX_SECRETS_PER_FILE).map((h) => ({ kind: h.kind, line: lineAt(text, h.start) }));

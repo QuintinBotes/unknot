@@ -236,32 +236,36 @@ test('duplicated-code: one finding per clone group; small, dissimilar, test and 
   assert.equal(grouped[0].measurements['duplication.instances'], 3);
 });
 
-test('speculative-generality: wrapper-named class or module with one implementation and few consumers', () => {
+test('speculative-generality: an abstract class with one implementation and few consumers; concrete wrapper names are not judged', () => {
   const facts = [
     mod('src/g.js'),
-    sym('class', 'src/g.js', 'WidgetFactory', { kind: 'class' }),
+    sym('class', 'src/g.js', 'WidgetFactory', { kind: 'class', abstract: true }),
+    sym('class', 'src/g.js', 'DefaultWidgetFactory', { kind: 'class' }),
+    edge('EXTENDS', 'class:src/g.js#DefaultWidgetFactory', 'class:src/g.js#WidgetFactory'),
     imp('src/use1.js', 'src/g.js'),
     mod('src/use1.js'),
-    // several consumers: not speculative
+    // abstract, but several consumers: not speculative
     mod('src/busy.js'),
-    sym('class', 'src/busy.js', 'JobManager', { kind: 'class' }),
+    sym('class', 'src/busy.js', 'JobManager', { kind: 'class', abstract: true }),
     ...['u1', 'u2', 'u3'].flatMap((u) => [mod(`src/${u}.js`), imp(`src/${u}.js`, 'src/busy.js')]),
-    // several implementations: a real strategy family
+    // abstract with several implementations: a real strategy family
     mod('src/strat.js'),
-    sym('class', 'src/strat.js', 'PricingStrategy', { kind: 'class' }),
+    sym('class', 'src/strat.js', 'PricingStrategy', { kind: 'class', abstract: true }),
     sym('class', 'src/strat.js', 'FlatPricing', { kind: 'class' }),
     sym('class', 'src/strat.js', 'TieredPricing', { kind: 'class' }),
     edge('EXTENDS', 'class:src/strat.js#FlatPricing', 'class:src/strat.js#PricingStrategy'),
     edge('EXTENDS', 'class:src/strat.js#TieredPricing', 'class:src/strat.js#PricingStrategy'),
-    // plain name
-    mod('src/plain.js'),
-    sym('class', 'src/plain.js', 'Widget', { kind: 'class' }),
-    // module named like a provider
-    mod('src/auth_provider.js'),
-    imp('src/use1.js', 'src/auth_provider.js'),
+    // a concrete class named like a wrapper (a Django model manager, a script's helper): not judged
+    mod('src/managers.py'),
+    sym('class', 'src/managers.py', 'TenantManager', { kind: 'class', bases: ['models.Manager'] }),
+    // Python ABC base with one implementation
+    mod('src/pay.py'),
+    sym('class', 'src/pay.py', 'Gateway', { kind: 'class', bases: ['ABC'] }),
+    sym('class', 'src/pay.py', 'StripeGateway', { kind: 'class', bases: ['Gateway'] }),
+    edge('EXTENDS', 'class:src/pay.py#StripeGateway', 'class:src/pay.py#Gateway'),
   ];
   const out = run('local.speculative-generality', facts);
-  assert.deepEqual(keys(out), ['class:src/g.js#WidgetFactory', 'module:src/auth_provider.js']);
+  assert.deepEqual(keys(out), ['class:src/g.js#WidgetFactory', 'class:src/pay.py#Gateway']);
   assert.ok(out.every((d) => d.factors.evidence === 0.6));
   assert.ok(out[0].uncertainties.some((u) => /low/i.test(u)));
   assert.ok(out[0].patterns.includes('anti-pattern.speculative-generality'));
@@ -437,7 +441,7 @@ test('diagnose() accepts every draft: findings validate against the schema', asy
     fn('src/x.js', 'long', { lines: 150, cyclomatic: 30, cognitive: 40, max_nesting: 6, params: 8, exported: false }),
     contains('src/x.js', 'long'),
     sym('class', 'src/x.js', 'BigThing', { methods: 30, lines: 700, kind: 'class' }),
-    sym('class', 'src/x.js', 'ThingFactory', { kind: 'class' }),
+    sym('class', 'src/x.js', 'ThingFactory', { kind: 'class', abstract: true }),
     sym('interface', 'src/x.js', 'Port', { kind: 'interface' }),
     sym('class', 'src/x.js', 'Adapter1', { kind: 'class' }),
     edge('IMPLEMENTS', 'class:src/x.js#Adapter1', 'interface:src/x.js#Port'),

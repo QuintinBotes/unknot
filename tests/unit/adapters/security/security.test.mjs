@@ -9,7 +9,7 @@ const file = (path, extra = {}) => ({ path, size: 10, kind: 'config', blob: 'x',
 
 test('adapter shape', () => {
   assert.equal(adapter.id, 'security');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.kind, 'security');
   assert.equal(adapter.capabilities.network, false);
   assert.deepEqual(adapter.capabilities.executes, ['gitleaks', 'semgrep', 'trivy', 'osv-scanner']);
@@ -22,7 +22,7 @@ test('extract records kind and line, never the value', () => {
   facts.forEach(assertFact);
   assert.equal(facts[0].id, 'file:conf/app.env');
   assert.deepEqual(facts[0].attrs.secrets, [{ kind: 'aws-access-key-id', line: 3 }]);
-  assert.equal(facts[0].provenance.extractor, 'security@0.1.0');
+  assert.equal(facts[0].provenance.extractor, 'security@0.1.1');
   assert.equal(facts[0].provenance.confidence, 'medium');
   assert.equal(facts[0].provenance.source_type, 'ast');
   assert.ok(!JSON.stringify(facts).includes(AWS));
