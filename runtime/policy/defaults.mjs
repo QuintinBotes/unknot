@@ -31,6 +31,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     max_turns: null,
     max_tokens: null,
     max_cost_usd: null,
+    pricing: null,
     workers: null,
   },
   quality: { forbid_new_cycles: true, public_api_compatibility: 'required', max_complexity_increase: 0 },

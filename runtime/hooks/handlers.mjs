@@ -11,6 +11,7 @@ import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../core/injection.m
 import { findProjectRoot, isInitialized } from '../core/project.mjs';
 import { findSecrets } from '../core/redact.mjs';
 import { charge } from '../policy/budget.mjs';
+import { chargeModelUsage } from '../policy/usage.mjs';
 import { capabilityForAgent, issueCapability, profileFor, revokeCapabilities } from '../policy/capability.mjs';
 import { alwaysOn, decide, toOperation, DOC_PATHS } from '../policy/pdp.mjs';
 import { appendEvent } from '../state/ledger.mjs';
@@ -93,6 +94,7 @@ export async function onPreToolUse(event) {
   const capability = event.agent_id ? capabilityForAgent(ctx, run.id, event.agent_id) : null;
   const d = decide({ ctx, config, run, slice, actor: { agent_id: event.agent_id, agent_type: event.agent_type }, capability, op, pluginRoot: PLUGIN_ROOT });
   try {
+    chargeModelUsage(ctx, run, event.transcript_path, { agentId: event.agent_id, pricing: run.budget?.pricing ?? null });
     charge(ctx, run, 'tool_calls', 1, { agentId: event.agent_id });
     if (d.decision === 'allow' && op.op === 'fs.read') charge(ctx, run, 'files_read', 1, { agentId: event.agent_id });
     if (d.decision === 'allow' && d.charge?.network_requests) charge(ctx, run, 'network_requests', d.charge.network_requests, { agentId: event.agent_id });

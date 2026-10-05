@@ -162,6 +162,20 @@
             "null"
           ],
           "minimum": 0
+        },
+        "pricing": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "USD per million tokens, used to charge max_cost_usd from transcript usage",
+          "additionalProperties": false,
+          "properties": {
+            "input_per_mtok": { "type": "number", "minimum": 0 },
+            "output_per_mtok": { "type": "number", "minimum": 0 },
+            "cache_write_per_mtok": { "type": "number", "minimum": 0 },
+            "cache_read_per_mtok": { "type": "number", "minimum": 0 }
+          }
         }
       }
     },
