@@ -96,7 +96,13 @@ correct and 2 wrong (stale copies of a main module, now handled), and 20 of 22 n
 invalid (structural Protocols, now excluded). Two of the live sessions lost their map to a CLI
 crash when output was piped into `head` (fixed), and the full write path on the TypeScript
 library showed that its tests need loopback and run `ps`, which the macOS sandbox refuses
-(now explained, and loopback is an opt-in setting).
+(now explained, and loopback is an opt-in setting). Rerun with loopback on and those four
+test files excluded, it completed end to end through live sessions: a slice planned from a
+real finding and approved, a refactorer agent editing only in the worktree, the project's
+2,604 unit tests and its TypeScript typecheck passing in the sandbox, all ten proof
+obligations passing, the change approved and ACCEPTED, the main checkout untouched and the
+signed ledger intact. That run also found linked `node_modules` being staged into the patch
+(fixed in 0.1.6).
 
 ## What the loop does not do
 
