@@ -164,7 +164,7 @@ Read-only reports built from the graph. `database`: engines, migrations by frame
 Queries the graph. Flag `--limit N` (default 50) applies to every listing; a flag that needs a value and has none is an error. `--json` for all but `stats` and `node`, which always print JSON. `node` includes provenance of each fact. Wherever an id is expected a module path works (`src/x.cs` for `module:src/x.cs`).
 
 - `edges [TYPE] [--type T[,T2]] [--from <id|path>] [--to <id|path>]`: edges filtered by type, source and target.
-- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph.
+- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph. Every member is listed; each component then shows its elementary cycles (shortest first, at most `--limit`), and the edges to cut (a small greedy set whose removal leaves no cycle, declared-only edges first). An edge held only by an injected member that is never used is marked `(declared only: <module> member <Name> is never used)`. `--json` is a list of `{size, members, cycles, cycles_truncated, cut}`.
 - `hubs [EDGE] [--type T1,T2] [--within] [scope...]`: top fan-in and fan-out over the union of the edge types (default `IMPORTS`). Only in-scope modules are ranked; fan-in counts sources anywhere, or only in-scope ones with `--within`.
 - `neighbourhood <id|path|TypeName> [--depth N] [--type T,...]`: the subgraph around a node, depth 1 to 3 (default 1).
 

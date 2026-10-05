@@ -158,6 +158,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         modules: cand.modules,
         robust: Boolean(cand.robust),
         metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))),
+        ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         ...(cand.details?.reverse_targets ? { reverse_dependency_targets: cand.details.reverse_targets } : {}),
       },
       treatment: sel.treatment,

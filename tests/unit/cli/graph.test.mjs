@@ -33,6 +33,8 @@ before(() => {
       mod('src/cat/C.cs', { namespace: 'Shop.Catalog' }),
       mod('src/ord/X.cs', { namespace: 'Shop.Orders' }),
       mod('src/ord/Y.cs', { namespace: 'Shop.Orders' }),
+      mod('src/dec/P.cs'),
+      mod('src/dec/Q.cs'),
       mod('tests/AlphaTests.cs', { is_test: true }),
       mod(LONG),
       imp('src/cat/A.cs', 'src/cat/B.cs'),
@@ -41,6 +43,8 @@ before(() => {
       imp('src/ord/X.cs', 'src/ord/Y.cs'),
       imp('src/ord/Y.cs', 'src/ord/X.cs'),
       imp('src/ord/X.cs', 'src/cat/A.cs'),
+      imp('src/dec/P.cs', 'src/dec/Q.cs'),
+      edgeFact('IMPORTS', 'module:src/dec/Q.cs', 'module:src/dec/P.cs', { declared_only: true, unused_member: 'Audit' }, p),
       edgeFact('TESTS', 'module:tests/AlphaTests.cs', 'module:src/cat/A.cs', {}, p),
       edgeFact('CALLS', 'module:src/ord/Y.cs', 'module:src/cat/A.cs', {}, p),
       edgeFact('IMPORTS', `module:${LONG}`, 'module:src/cat/A.cs', {}, p),
@@ -80,14 +84,26 @@ test('a flag that needs a value and has none is an error, not NaN', () => {
 });
 
 test('cycles: --limit applies, scope narrows to the in-scope subgraph, an empty scope warns', () => {
-  assert.equal(json('cycles').length, 2);
+  const members = (...a) => json('cycles', ...a).map((c) => c.members);
+  assert.equal(json('cycles').length, 3);
   assert.equal(json('cycles', '--limit', '1').length, 1);
-  assert.deepEqual(json('cycles', 'src/cat'), [['module:src/cat/A.cs', 'module:src/cat/B.cs']]);
-  assert.deepEqual(json('cycles', 'ns:Shop.Orders'), [['module:src/ord/X.cs', 'module:src/ord/Y.cs']]);
+  assert.deepEqual(members('src/cat'), [['module:src/cat/A.cs', 'module:src/cat/B.cs']]);
+  assert.deepEqual(members('ns:Shop.Orders'), [['module:src/ord/X.cs', 'module:src/ord/Y.cs']]);
   assert.deepEqual(json('cycles', 'src/cat/C.cs'), []);
   const none = graph('cycles', 'src/nothing');
   assert.match(none.err, /matched 0/);
   assert.match(none.out, /no cycles/);
+});
+
+test('cycles: lists the cycle, the edge to cut and marks a declared-only edge', () => {
+  const [c] = json('cycles', 'src/dec');
+  assert.equal(c.size, 2);
+  assert.equal(c.cycles.length, 1);
+  assert.deepEqual(c.cut.map((e) => [e.from, e.to, e.declared_only, e.unused_member]), [['module:src/dec/Q.cs', 'module:src/dec/P.cs', true, 'Audit']]);
+  const text = graph('cycles', 'src/dec').out;
+  assert.match(text, /src\/dec\/Q\.cs → src\/dec\/P\.cs \(declared only: src\/dec\/P\.cs member Audit is never used\)/);
+  assert.match(text, /src\/dec\/P\.cs → src\/dec\/Q\.cs → src\/dec\/P\.cs/);
+  assert.doesNotMatch(text, /…/);
 });
 
 test('hubs: union of edge types, scope ranks in-scope nodes, --within counts only in-scope sources', () => {

@@ -168,3 +168,64 @@ test('link-only name sets are not left in persisted module attrs', () => {
     assert.equal(m.attrs.decl_only, undefined);
   }
 });
+
+// An injected member nobody uses, in the shapes it takes in practice, and the uses that must stay normal.
+const unusedForms = {
+  attrOwnLine: '        [Dependency]\n        public Tool Tool { get; set; }',
+  attrArgs: '        [Dependency(Required = true)]\n        public Tool Tool { get; set; }',
+  attrName: '        [Dependency("main")]\n        public Tool Tool { get; set; }',
+  twoBrackets: '        [Obsolete]\n        [Dependency]\n        public Tool Tool { get; set; }',
+  oneBracket: '        [Obsolete, Dependency(Required = true)]\n        public Tool Tool { get; set; }',
+  virtualProp: '        [Dependency]\n        public virtual Tool Tool { get; set; }',
+  protectedProp: '        [Inject]\n        protected Tool Tool { get; set; }',
+  internalProp: '        [Inject]\n        internal Tool Tool { get; set; }',
+  splitBody: '        [Dependency]\n        public Tool Tool\n        {\n            get;\n            set;\n        }',
+  splitAccessors: '        [Dependency]\n        public Tool Tool\n        {\n            get;\n            private set;\n        }',
+  fieldInject: '        [Inject] private Tool _tool;',
+  fieldInjectOwnLine: '        [Inject]\n        private Tool _tool;',
+  ctorField: '        private readonly Tool _tool;\n        public Host(Tool tool) { _tool = tool; }',
+  ctorThis: '        private readonly Tool _tool;\n        public Host(Tool tool) { this._tool = tool; }',
+  ctorGuard: '        private readonly Tool _tool;\n        public Host(Tool tool)\n        {\n            _tool = tool ?? throw new ArgumentNullException(nameof(tool));\n        }',
+  ctorSplit: '        private readonly Tool _tool;\n        public Host(\n            Tool tool)\n        {\n            _tool = tool;\n        }',
+  nameofType: '        [Dependency]\n        public Tool Tool { get; set; }\n        string N() { return nameof(Tool); }',
+  nameofMember: '        private readonly Tool _tool;\n        public Host(Tool tool) { _tool = tool; }\n        string N() { return nameof(_tool); }',
+};
+const usedForms = {
+  call: '        [Dependency]\n        public Tool Tool { get; set; }\n        void Go() { Tool.Run(); }',
+  access: '        [Dependency]\n        public Tool Tool { get; set; }\n        int Go() { return Tool.Count; }',
+  passedOn: '        [Dependency]\n        public Tool Tool { get; set; }\n        void Go() { Other(Tool); }',
+  nullCond: '        [Inject] private Tool _tool;\n        void Go() { _tool?.Run(); }',
+  ctorUsed: '        private readonly Tool _tool;\n        public Host(Tool tool) { _tool = tool ?? throw new ArgumentNullException(nameof(tool)); }\n        void Go() { _tool.Run(); }',
+  ctorParamUsed: '        private readonly Tool _tool;\n        public Host(Tool tool) { _tool = tool; tool.Init(); }',
+  arrow: '        [Dependency]\n        public virtual Tool Tool { get; set; }\n        int Go() => Tool.Count;',
+};
+
+test('declared-only: the forms an injected-but-unused member takes', () => {
+  const missed = [];
+  for (const [name, body] of Object.entries(unusedForms)) {
+    const g = build({ 'S/Tool.cs': cls('Shop.Svc', 'Tool'), 'S/Host.cs': cls('Shop.Svc', 'Host', body) });
+    const e = g.edge('S/Host.cs', 'S/Tool.cs');
+    assert.ok(e, `${name}: edge`);
+    if (!e.attrs.declared_only || !e.attrs.unused_member) missed.push(name);
+  }
+  assert.deepEqual(missed, []);
+});
+
+test('declared-only: a member that is used stays a normal edge', () => {
+  const wrong = [];
+  for (const [name, body] of Object.entries(usedForms)) {
+    const g = build({ 'S/Tool.cs': cls('Shop.Svc', 'Tool'), 'S/Host.cs': cls('Shop.Svc', 'Host', body) });
+    const e = g.edge('S/Host.cs', 'S/Tool.cs');
+    assert.ok(e, `${name}: edge`);
+    if (e.attrs.declared_only) wrong.push(name);
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test('declared-only: a using alias of the type does not make an unused member used', () => {
+  const g = build({
+    'S/Tool.cs': cls('Shop.Svc', 'Tool'),
+    'S/Host.cs': cls('Shop.Svc', 'Host', '        [Dependency]\n        public Tool Tool { get; set; }', 'using ToolAlias = Shop.Svc.Tool;\n'),
+  });
+  assert.equal(g.edge('S/Host.cs', 'S/Tool.cs').attrs.declared_only, true);
+});
