@@ -90,7 +90,7 @@ function codeFacts(file, text) {
   const degraded = tk.issues.length > 0 || bad > 0 || failed;
   const p = mk(path, degraded);
 
-  let fw = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [] };
+  let fw = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
   try {
     if (!failed) fw = detectFrameworks({ path, tokens, n, match, analysis });
   } catch {
@@ -222,6 +222,8 @@ function codeFacts(file, text) {
     calls: analysis.calls,
     directives: analysis.directives,
     ...(tk.jsxElements > 0 && { has_jsx: true }),
+    ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
+    ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
   };
   if (degraded) attrs.parse_issues = tk.issues.concat(bad ? [`bracket mismatches: ${bad}`] : [], failed ? ['structure pass failed'] : []).slice(0, 10);
   if (truncated) attrs.truncated = true;

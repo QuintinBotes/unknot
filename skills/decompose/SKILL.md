@@ -24,6 +24,10 @@ infer one from the code, and never pick one to make a treatment available.
 yields retain, modularize in place and the frontend modular monolith, but never service
 extraction or micro-frontends.
 
+To read one recommendation in full, use the `decomposition_get` tool with its DEC id. Do not
+read `.unknot/` with shell commands or interpreters: hooks deny that, and the tool returns
+the same document.
+
 ## 3. Present each candidate
 
 For each recommendation (DEC id) show:

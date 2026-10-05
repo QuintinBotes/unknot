@@ -268,6 +268,45 @@ export function linkFacts(ctx) {
     const pkg = nearestPackage(path);
     if (pkg) out.push(edgeFact('CONTAINS', pkg.id, `module:${path}`, {}, P(pkg.path, 1)));
   }
+  // MongoDB collections: resolve each binding used for a read or write to the module that
+  // defines the collection (through imports and re-exports), so data affinity and the
+  // database detectors see which modules share a collection.
+  const collectionOf = new Map(); // `${path}\0${binding}` -> definition
+  for (const [path, attrs] of mods) for (const c of attrs.mongo_collections ?? []) if (c.binding) collectionOf.set(`${path}\0${c.binding}`, { ...c, path });
+  const tables = new Set();
+  const mongoEdges = new Set();
+  const table = (c, path) => {
+    if (tables.has(c.name)) return;
+    tables.add(c.name);
+    out.push(nodeFact('table', c.name, { name: c.name, path, attrs: { engine: 'mongodb', kind: 'collection', orm: c.orm ?? null, defined_in: path } }, P(path, c.line ?? 1, c.orm === 'driver' ? 'medium' : 'high')));
+  };
+  for (const [path, attrs] of [...mods].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    for (const c of attrs.mongo_collections ?? []) table(c, path);
+    for (const o of attrs.mongo_ops ?? []) {
+      let c = null;
+      if (o.name) c = { name: o.name, orm: 'driver', line: o.line };
+      else {
+        c = collectionOf.get(`${path}\0${o.binding}`) ?? null;
+        if (!c) {
+          const imp = attrs.imports.find((i) => (i.bindings ?? []).some((b) => b.local === o.binding));
+          const b = imp?.bindings.find((x) => x.local === o.binding);
+          const r = imp ? resolvedImports.get(path)?.get(imp.specifier) : null;
+          if (r?.t === 'module') {
+            const hit = resolveExport(r.path, b.imported);
+            if (hit) c = collectionOf.get(`${hit.path}\0${hit.local}`) ?? null;
+          }
+        }
+      }
+      if (!c) continue;
+      if (o.name) table(c, path);
+      const type = o.kind === 'write' ? 'MUTATES' : 'QUERIES';
+      const key = `${type}\0${path}\0${c.name}`;
+      if (mongoEdges.has(key)) continue;
+      mongoEdges.add(key);
+      out.push(edgeFact(type, `module:${path}`, `table:${c.name}`, { line: o.line, kind: o.op, via: 'mongodb' }, P(path, o.line, 'medium')));
+    }
+  }
+
   const workspaceNames = R.pkgByName;
   for (const pkg of packages) {
     for (const [group, deps] of Object.entries(pkg.attrs.dependencies ?? {})) {

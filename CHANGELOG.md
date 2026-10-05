@@ -4,6 +4,21 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.4] - 2026-10-05
+
+### Added
+
+- MongoDB collections in JavaScript and TypeScript: Meteor `new Mongo.Collection('x')`,
+  Mongoose `mongoose.model('X')` and the driver's `db.collection('x')`, with reads and writes
+  resolved through imports and re-exports to the defining module. They become `table` nodes
+  with `QUERIES` and `MUTATES` edges, so data affinity and the database detectors cover
+  MongoDB applications.
+
+### Fixed
+
+- The decompose skill reads recommendations with the `decomposition_get` tool instead of
+  trying to read `.unknot/` from the shell, which policy denies.
+
 ## [0.1.3] - 2026-10-05
 
 ### Fixed

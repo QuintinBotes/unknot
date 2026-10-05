@@ -81,12 +81,15 @@ export function conventionRoutes(path, exportNames, req) {
 /**
  * @param {{ path: string, tokens: object[], n: number, match: Int32Array, analysis: object }} input
  */
+const MONGO_READS = new Set(['find', 'findOne', 'findAsync', 'findOneAsync', 'aggregate', 'countDocuments', 'estimatedDocumentCount', 'distinct', 'findById', 'exists']);
+const MONGO_WRITES = new Set(['insert', 'insertAsync', 'update', 'updateAsync', 'upsert', 'upsertAsync', 'remove', 'removeAsync', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'replaceOne', 'bulkWrite', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'findByIdAndUpdate', 'findByIdAndDelete', 'create']);
+
 export function detectFrameworks({ path, tokens, n, match, analysis }) {
   const U = makeUtil(tokens, n, match);
   const { at, isP, isId, splitArgs, literalOf, objectEntries } = U;
   const imports = new Set(analysis.imports.map((i) => i.specifier));
   const importsAny = (...names) => names.some((x) => [...imports].some((s) => s === x || s.startsWith(`${x}/`)));
-  const res = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [] };
+  const res = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
 
   const serverFramework = importsAny('express') ? 'express'
     : importsAny('fastify') ? 'fastify'
@@ -369,6 +372,51 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
     }
   }
 
+  // MongoDB collections (Meteor `new Mongo.Collection('x')`, Mongoose `mongoose.model('X')`,
+  // the driver's `db.collection('x')`) and the reads and writes made through them. Bindings
+  // are resolved to their definitions in link; per file, only names that are defined here or
+  // imported are kept, so `array.find(...)` on a local value is not a query.
+  function mongo() {
+    const defs = res.mongo.collections;
+    const ops = res.mongo.ops;
+    const imported = new Set(analysis.imports.flatMap((i) => (i.bindings ?? []).map((b) => b.local)));
+    for (let i = 1; i < n; i++) {
+      const tk = tokens[i];
+      if (tk.t !== 'id') continue;
+      // new Mongo.Collection('name') / new Meteor.Collection('name')
+      if (isId(i - 1, 'new') && (tk.v === 'Mongo' || tk.v === 'Meteor') && isP(i + 1, '.') && isId(i + 2, 'Collection') && isP(i + 3, '(')) {
+        const a0 = splitArgs(i + 3)[0];
+        const name = a0 ? literalOf(a0.s, a0.e) : null;
+        const binding = bindingBefore(i - 1);
+        if (name && defs.length < 200) defs.push({ binding, name, line: tk.l, orm: 'meteor' });
+        continue;
+      }
+      // mongoose.model('Name', schema)
+      if (tk.v === 'model' && isP(i - 1, '.') && isId(i - 2, 'mongoose') && isP(i + 1, '(')) {
+        const a0 = splitArgs(i + 1)[0];
+        const name = a0 ? literalOf(a0.s, a0.e) : null;
+        if (name && defs.length < 200) defs.push({ binding: bindingBefore(i - 2), name, line: tk.l, orm: 'mongoose' });
+        continue;
+      }
+      if (!isP(i - 1, '.') || !isP(i + 1, '(')) continue;
+      const kind = MONGO_READS.has(tk.v) ? 'read' : MONGO_WRITES.has(tk.v) ? 'write' : null;
+      if (!kind) continue;
+      // db.collection('name').find(...)
+      if (isP(i - 2, ')') && match[i - 2] !== undefined && isId(match[i - 2] - 1, 'collection') && isP(match[i - 2] - 2, '.')) {
+        const a0 = splitArgs(match[i - 2])[0];
+        const name = a0 ? literalOf(a0.s, a0.e) : null;
+        if (name && ops.length < 500) ops.push({ name, op: tk.v, kind, line: tk.l });
+        continue;
+      }
+      // Binding.find(...), but not this.x.find or a.b.find
+      if (at(i - 2).t === 'id' && !isP(i - 3, '.')) {
+        const b = at(i - 2).v;
+        if (b === 'this' || b === 'Meteor') continue;
+        if ((imported.has(b) || defs.some((d) => d.binding === b)) && ops.length < 500) ops.push({ binding: b, op: tk.v, kind, line: tk.l });
+      }
+    }
+  }
+
   function stores() {
     const zustand = importsAny('zustand');
     const add = (kind, name, binding, line) => {
@@ -477,6 +525,7 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   jsxRoutes();
   routeArrays();
   messaging();
+  mongo();
   stores();
   securitySignals();
   return res;
