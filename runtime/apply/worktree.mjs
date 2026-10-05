@@ -90,9 +90,15 @@ function linkedIn(path) {
   });
 }
 
-/** Pathspecs that keep linked dependency directories out of every diff. */
+/**
+ * Pathspecs that keep linked dependency directories out of every diff. Ones git already
+ * ignores need none, and must not get one: `git add` refuses an exclude that names an ignored
+ * path (a `.gitignore` with `node_modules` and no trailing slash matches the symlink).
+ */
 function excludes(path) {
-  return linkedIn(path).map((rel) => `:(exclude)${rel}`);
+  return linkedIn(path)
+    .filter((rel) => git(path, ['check-ignore', '-q', '--', rel], { check: false }).status !== 0)
+    .map((rel) => `:(exclude)${rel}`);
 }
 
 /**
@@ -185,4 +191,17 @@ export function editablePathsFor(root, worktree) {
     }
   }
   return [...new Set(out)];
+}
+
+/**
+ * Tracked files at the top of the main checkout. Tools that search upward for a manifest
+ * (cargo's workspace root, npm workspaces, pytest's rootdir) reach the main checkout from a
+ * slice worktree; the sandbox hides it, and "not permitted" is an error where "not found" is
+ * not (live suite: cargo failed in a crate without `[workspace]`). These are the committed
+ * files the worktree already holds (apply requires a clean main checkout), so the sandbox may
+ * show them; untracked files there (.env) stay hidden.
+ */
+export function trackedRootFiles(root) {
+  const out = git(root, ['ls-tree', '-z', 'HEAD'], { check: false }).stdout ?? '';
+  return out.split('\0').filter(Boolean).map((e) => /^\d+ (\w+) \w+\t(.*)$/s.exec(e)).filter((m) => m && m[1] === 'blob').map((m) => m[2]);
 }

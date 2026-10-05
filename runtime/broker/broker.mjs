@@ -14,7 +14,7 @@ import { UnknotError } from '../core/errors.mjs';
 import { isInside, realpathLenient } from '../core/paths.mjs';
 import { redact } from '../core/redact.mjs';
 import { charge } from '../policy/budget.mjs';
-import { editablePathsFor } from '../apply/worktree.mjs';
+import { editablePathsFor, trackedRootFiles } from '../apply/worktree.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { detectSandbox, wrap } from './sandbox.mjs';
@@ -166,10 +166,11 @@ export async function brokerExec(ctx, req) {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const tmp = mkdtempSync(join(tmpdir(), `unknot-${(run?.id ?? 'adhoc').replace(/[^a-z0-9-]/gi, '')}-`));
   const sandboxKind = detectSandbox();
-  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false });
+  const wt = /^(.*\/\.unknot\/worktrees\/[^/]+)(\/|$)/.exec(realCwd);
+  const rootFiles = wt ? trackedRootFiles(ctx.root) : [];
+  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false });
   const env = minimalEnv({ tmp });
   // In a slice worktree, editable Python installs must resolve to the worktree's code.
-  const wt = /^(.*\/\.unknot\/worktrees\/[^/]+)(\/|$)/.exec(realCwd);
   if (wt) {
     const paths = editablePathsFor(ctx.root, wt[1]);
     if (paths.length) env.PYTHONPATH = paths.join(delimiter);

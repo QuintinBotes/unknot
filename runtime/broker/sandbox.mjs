@@ -76,6 +76,10 @@ export function detectSandbox() {
   return 'none';
 }
 
+// File names a sandbox profile can carry; a tracked name with quotes or control characters is
+// simply not shown.
+const expressible = (names) => names.filter((n) => typeof n === 'string' && n && !n.includes('/') && !/["\\\n\r\0]/.test(n));
+
 function sbplString(p) {
   if (/["\\\n\r\0]/.test(p)) throw new UnknotError('UK_SCOPE_VIOLATION', `path cannot be expressed in a sandbox profile: ${p}`);
   return `"${p}"`;
@@ -88,7 +92,7 @@ function sbplString(p) {
  * With `hideRoot` (the main checkout, when the command runs in a slice worktree) only the
  * working directory and MAIN_CHECKOUT_READABLE stay readable there.
  */
-export function macosProfile({ writable, network, sockets = [], hideRoot = null, cwd = null, loopback = false }) {
+export function macosProfile({ writable, network, sockets = [], hideRoot = null, rootFiles = [], cwd = null, loopback = false }) {
   const home = realpathLenient(homedir());
   const lines = ['(version 1)', '(allow default)'];
   if (!network) {
@@ -115,6 +119,10 @@ export function macosProfile({ writable, network, sockets = [], hideRoot = null,
     const keep = [realpathLenient(cwd), ...writable.map((p) => realpathLenient(p)).filter((p) => p.startsWith(`${root}/`)), ...MAIN_CHECKOUT_READABLE.map((d) => join(root, d))];
     readSet = [...new Set(keep)];
     lines.push(`(allow file-read* ${readSet.map((p) => `(subpath ${sbplString(p)})`).join(' ')})`);
+    // Tracked top-level files, for tools that search upward for a manifest (trackedRootFiles).
+    const top = expressible(rootFiles).map((f) => join(root, f));
+    if (top.length) lines.push(`(allow file-read* ${top.map((p) => `(literal ${sbplString(p)})`).join(' ')})`);
+    readSet.push(...top);
     // getcwd and path resolution list the directories between the root and the working
     // directory: those directories themselves (names, never file contents) stay readable.
     const ancestors = [];
@@ -158,7 +166,7 @@ const isRealDir = (p) => {
  * Wrap an argv for the sandbox.
  * @returns {{file: string, args: string[], sandbox: string}}
  */
-export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, cwd = null, loopback = false } = {}) {
+export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, rootFiles = [], cwd = null, loopback = false } = {}) {
   const tmp = realpathLenient(tmpdir());
   // System temp locations exist per platform (/private/tmp only on macOS); binding a path
   // that does not exist makes bubblewrap refuse to start (caught by the Linux CI job).
@@ -166,7 +174,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
   const allWritable = [...new Set([...writable, ...system].map((p) => realpathLenient(p)))];
   const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
-    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, cwd, loopback }), ...argv], sandbox: kind };
+    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, rootFiles, cwd, loopback }), ...argv], sandbox: kind };
   }
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());
@@ -182,6 +190,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
       const root = realpathLenient(hide);
       args.push('--tmpfs', root);
       for (const d of MAIN_CHECKOUT_READABLE) args.push('--ro-bind-try', join(root, d), join(root, d));
+      for (const f of expressible(rootFiles)) args.push('--ro-bind-try', join(root, f), join(root, f));
       args.push('--ro-bind', realpathLenient(cwd), realpathLenient(cwd));
     }
     for (const p of allWritable) if (p !== '/tmp') args.push('--bind', p, p);
@@ -193,7 +202,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     for (const d of new Set(hiddenDirs)) args.push('--tmpfs', d);
     // Mount points inside a tmpfs are created on demand, so a project inside a hidden
     // directory can be put back on top of it.
-    const readSet = hide ? [realpathLenient(cwd), ...MAIN_CHECKOUT_READABLE.map((d) => join(realpathLenient(hide), d)).filter((p) => existsSync(p))] : [cwd];
+    const readSet = hide ? [realpathLenient(cwd), ...[...MAIN_CHECKOUT_READABLE, ...expressible(rootFiles)].map((d) => join(realpathLenient(hide), d)).filter((p) => existsSync(p))] : [cwd];
     const back = reexposed(hiddenDirs, readSet, allWritable);
     for (const p of back.read) if (!back.write.includes(p)) args.push('--ro-bind', p, p);
     for (const p of back.write) args.push('--bind', p, p);

@@ -285,3 +285,55 @@ test('Linux: a project inside a hidden directory is readable and writable; the r
     assert.ok(!r.stdout.includes('config secret'));
   });
 });
+
+// Tools that search upward for a manifest (cargo's workspace root) reach the main checkout
+// from a slice worktree; its tracked top-level files are readable, untracked ones are not.
+test('the main checkout\'s tracked top-level files are readable from a worktree; names a profile cannot carry are skipped', () => {
+  const prof = macosProfile({ writable: ['/p/.unknot/worktrees/UK-1'], network: false, hideRoot: '/p', rootFiles: ['Cargo.toml', 'we"ird', 'sub/x'], cwd: '/p/.unknot/worktrees/UK-1' });
+  assert.ok(prof.includes('(literal "/p/Cargo.toml")'));
+  assert.ok(!prof.includes('we"ird') && !prof.includes('/p/sub/x'));
+  const a = wrap(['true'], { kind: 'linux-bwrap', writable: ['/p/.unknot/worktrees/UK-1'], hideRoot: '/p', rootFiles: ['Cargo.toml'], cwd: '/p/.unknot/worktrees/UK-1' }).args.join(' ');
+  assert.ok(a.includes('--ro-bind-try /p/Cargo.toml /p/Cargo.toml'));
+});
+
+const upwardSearch = async (base, run) => {
+  const { execFileSync } = await import('node:child_process');
+  const { trackedRootFiles } = await import('../../../runtime/apply/worktree.mjs');
+  const root = join(base, 'repo');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'Cargo.toml'), '[package]\nname = "x"\n');
+  writeFileSync(join(root, 'src/lib.rs'), '');
+  const g = (...a) => execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...a]);
+  g('init', '-q');
+  g('add', '.');
+  g('commit', '-qm', 'i');
+  writeFileSync(join(root, '.env'), 'SECRET=hunter2\n');
+  const wt = join(root, '.unknot/worktrees/UK-1');
+  g('worktree', 'add', '-q', '--detach', wt);
+  return run(['/bin/sh', '-c', 'cat ../../../Cargo.toml; cat ../../../.env'], { writable: [wt], hideRoot: root, rootFiles: trackedRootFiles(root), cwd: wt }, { cwd: wt });
+};
+
+test('macOS: from a worktree, the main checkout\'s committed manifest is readable and its .env is not', { skip: detectSandbox() !== 'macos-sandbox-exec' }, async () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-up-')));
+  try {
+    const r = await upwardSearch(base, (argv, opts, spawn) => {
+      const w = wrap(argv, opts);
+      return spawnSync(w.file, w.args, { encoding: 'utf8', ...spawn });
+    });
+    assert.match(r.stdout, /name = "x"/, r.stderr);
+    assert.ok(!r.stdout.includes('hunter2'));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('Linux: from a worktree, the main checkout\'s committed manifest is readable and its .env is not', bwrapSkip, async () => {
+  const base = realpathSync(mkdtempSync(join(homedir(), '.uk-bwrap-')));
+  try {
+    const r = await upwardSearch(base, bwrapRun);
+    assert.match(r.stdout, /name = "x"/, r.stderr);
+    assert.ok(!r.stdout.includes('hunter2'));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
