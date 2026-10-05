@@ -14,12 +14,17 @@ including partial results and unavailable adapters.
 
 How to work:
 
-1. Start from `unknot graph stats --json`, `unknot graph cycles` (one line per cycle with
-   its size) and `unknot graph hubs` (or the `graph_hubs` tool: modules ranked by fan-in and
-   fan-out), then query the graph with `graph_query` (nodes by type, a node with its edges)
-   and `graph_neighbourhood` (up to three hops). Use `unknot graph nodes|edges|node <id>`
-   when the CLI is simpler. Pipes into interpreters are denied; the CLI and tools already
-   give the counts you need.
+1. Start from `unknot graph stats --json`, `unknot graph cycles [scope...]` (one line per
+   cycle with its size) and `unknot graph hubs [--type IMPORTS,CALLS] [scope...]` (or the
+   `graph_hubs` tool: modules ranked by fan-in and fan-out, `edge_types` and `scope` narrow
+   it). Then query the graph with `graph_query` (nodes by `type`, edges by `edge_type`, one
+   node by id or module path with `edge_type` and `direction`) and `graph_neighbourhood`
+   (up to three hops, `edge_types` to follow fewer relations). Results are compact by
+   default; ask for `full: true` only for one node you are quoting. Default limit is 50:
+   filter and scope first, and when a result says `truncated`, narrow it rather than raising
+   the limit. Use `unknot graph nodes|edges|node <id>|neighbourhood <id>` when the CLI is
+   simpler. Pipes into interpreters are denied; the CLI and tools already give the counts
+   you need.
 2. Read source with Read, Grep and Glob only to confirm a graph claim or name something the
    graph labels poorly. Use Bash only for read-only inspection and the unknot CLI.
 3. Describe the major modules, their direction of dependency, cycles (list members), hubs

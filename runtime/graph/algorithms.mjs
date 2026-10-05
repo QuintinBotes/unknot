@@ -8,20 +8,21 @@ import { Graph } from './graph.mjs';
 const DEFAULT_EDGES = ['IMPORTS'];
 
 /** Sorted ids of the nodes an algorithm should see, optionally limited by node type. */
-function universe(graph, nodeTypes) {
+function universe(graph, nodeTypes, nodeFilter) {
   const types = nodeTypes ? new Set(nodeTypes) : null;
   const ids = [];
-  for (const n of graph.nodeMap.values()) if (!types || types.has(n.type)) ids.push(n.id);
+  for (const n of graph.nodeMap.values()) if ((!types || types.has(n.type)) && (!nodeFilter || nodeFilter(n))) ids.push(n.id);
   return ids.sort();
 }
 
 /**
  * Strongly connected components via iterative Tarjan. Only components that are real
  * cycles are returned: size > 1, or a single node with a self-loop. Each component is a
- * sorted id list, and the list of components is sorted by first member.
+ * sorted id list, and the list of components is sorted by first member. `nodeFilter`
+ * (node => boolean) restricts the graph to the nodes it accepts: cycles of that subgraph.
  */
-export function stronglyConnected(graph, { edgeTypes = DEFAULT_EDGES, nodeTypes } = {}) {
-  const ids = universe(graph, nodeTypes);
+export function stronglyConnected(graph, { edgeTypes = DEFAULT_EDGES, nodeTypes, nodeFilter } = {}) {
+  const ids = universe(graph, nodeTypes, nodeFilter);
   const idx = new Map(ids.map((id, i) => [id, i]));
   const n = ids.length;
   const succOf = (v) => {
@@ -284,22 +285,81 @@ export function topoOrder(nodes, edges) {
   throw err;
 }
 
+
 /**
- * The top nodes by fan-in and by fan-out over one edge type (distinct neighbours, self loops
- * ignored), for the cartographer's report. `hubs` above is the threshold filter detectors use.
- * @returns {{fan_in: {id, n}[], fan_out: {id, n}[]}}
+ * The top nodes by fan-in and by fan-out over one or several edge types (distinct neighbours
+ * across the union, self loops ignored), for the cartographer's report. `hubs` above is the
+ * threshold filter detectors use. With `nodeFilter` only accepted nodes are ranked; their
+ * neighbours may be anywhere unless `within` is set, which counts only accepted neighbours.
+ * @returns {{edge_type: string, edge_types: string[], fan_in: {id, n}[], fan_out: {id, n}[]}}
  */
-export function rankHubs(graph, { edgeType = 'IMPORTS', nodeType = 'module', limit = 15 } = {}) {
+export function rankHubs(graph, { edgeType = 'IMPORTS', edgeTypes, nodeType = 'module', limit = 15, nodeFilter, within = false } = {}) {
+  const types = edgeTypes?.length ? edgeTypes : [edgeType];
+  const wanted = new Set(types);
+  const accept = (id) => !nodeFilter || nodeFilter(graph.node(id));
   const inn = new Map();
   const out = new Map();
-  for (const e of graph.edges(edgeType)) {
-    if (e.from === e.to) continue;
+  for (const e of graph.edges()) {
+    if (!wanted.has(e.type) || e.from === e.to) continue;
     if (nodeType && (graph.node(e.from)?.type !== nodeType || graph.node(e.to)?.type !== nodeType)) continue;
-    if (!inn.has(e.to)) inn.set(e.to, new Set());
-    if (!out.has(e.from)) out.set(e.from, new Set());
-    inn.get(e.to).add(e.from);
-    out.get(e.from).add(e.to);
+    const fromIn = accept(e.from);
+    const toIn = accept(e.to);
+    if (within && !(fromIn && toIn)) continue;
+    if (toIn) {
+      if (!inn.has(e.to)) inn.set(e.to, new Set());
+      inn.get(e.to).add(e.from);
+    }
+    if (fromIn) {
+      if (!out.has(e.from)) out.set(e.from, new Set());
+      out.get(e.from).add(e.to);
+    }
   }
   const rank = (m) => [...m].map(([id, s]) => ({ id, n: s.size })).sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1)).slice(0, limit);
-  return { edge_type: edgeType, fan_in: rank(inn), fan_out: rank(out) };
+  return { edge_type: types.join(','), edge_types: types, fan_in: rank(inn), fan_out: rank(out) };
+}
+
+/**
+ * Nodes a user-supplied reference names: an exact id, a module path (`src/x.cs` for
+ * `module:src/x.cs`), a type name a module declares, or a bare file name.
+ */
+export function resolveRef(graph, ref) {
+  if (graph.node(ref)) return [ref];
+  if (graph.node(`module:${ref}`)) return [`module:${ref}`];
+  const mods = graph.nodes('module');
+  const byType = mods.filter((n) => Array.isArray(n.attrs?.types) && n.attrs.types.includes(ref));
+  if (byType.length) return byType.map((n) => n.id).sort();
+  return mods
+    .filter((n) => {
+      const base = (n.path ?? '').split('/').pop();
+      return base === ref || base.replace(/\.[^.]+$/, '') === ref;
+    })
+    .map((n) => n.id)
+    .sort();
+}
+
+/** Breadth-first subgraph around `roots` (both directions), bounded to `nodeCap` nodes. */
+export function neighbourhood(graph, roots, { depth = 1, edgeTypes, nodeCap = 300 } = {}) {
+  const seen = new Set(roots);
+  const edges = new Map();
+  let frontier = [...roots];
+  for (let d = 0; d < depth && frontier.length && seen.size < nodeCap; d++) {
+    const next = [];
+    for (const id of frontier) {
+      for (const e of [...graph.out(id, edgeTypes), ...graph.in(id, edgeTypes)]) {
+        edges.set(e.id, e);
+        for (const end of [e.from, e.to]) {
+          if (!seen.has(end) && seen.size < nodeCap) {
+            seen.add(end);
+            next.push(end);
+          }
+        }
+      }
+    }
+    frontier = next;
+  }
+  return {
+    nodes: [...seen].map((id) => graph.node(id)).filter(Boolean),
+    edges: [...edges.values()].filter((e) => seen.has(e.from) && seen.has(e.to)),
+    capped: seen.size >= nodeCap,
+  };
 }
