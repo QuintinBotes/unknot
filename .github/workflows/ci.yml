@@ -31,6 +31,16 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ matrix.node }}
+      - name: Install bubblewrap and allow user namespaces (Linux sandbox tests)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Probe the bubblewrap sandbox
+        if: runner.os == 'Linux'
+        run: bwrap --ro-bind / / --unshare-net true && echo bwrap-ok
       - name: Unit, golden, adversarial and integration tests
         run: npm test
       - name: Benchmark smoke

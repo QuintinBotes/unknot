@@ -84,3 +84,115 @@ test('the plugin directory stays readable even when it sits inside a hidden dire
     if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
   }
 });
+
+// Linux (bubblewrap). Fixtures live under the real home directory, not /tmp: the sandbox
+// mounts a fresh tmpfs over /tmp, which would make every "unreadable" assertion pass trivially.
+const bwrapSkip = { skip: detectSandbox() !== 'linux-bwrap' };
+const bwrapRun = (argv, opts, spawn = {}) => {
+  const w = wrap(argv, opts);
+  return spawnSync(w.file, w.args, { encoding: 'utf8', timeout: 30000, ...spawn });
+};
+const withHomeDir = (fn) => {
+  const base = realpathSync(mkdtempSync(join(homedir(), '.uk-bwrap-')));
+  try {
+    return fn(base);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+};
+
+test('Linux: in a worktree, main-checkout files are hidden, the worktree is usable and tests run', bwrapSkip, () => {
+  withHomeDir((base) => {
+    const root = join(base, 'proj');
+    const wt = join(root, '.unknot/worktrees/UK-1');
+    mkdirSync(join(wt, 'test'), { recursive: true });
+    mkdirSync(join(root, '.git'), { recursive: true });
+    writeFileSync(join(root, '.env'), 'TOKEN=main-checkout-secret\n');
+    writeFileSync(join(root, '.git/HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(wt, 'note.txt'), 'worktree-ok\n');
+    writeFileSync(join(wt, 'test/a.test.mjs'), "import { test } from 'node:test'; test('x', () => {});\n");
+    const opts = { writable: [wt], hideRoot: root, cwd: wt };
+    const env = bwrapRun(['/bin/cat', join(root, '.env')], opts, { cwd: wt });
+    assert.notEqual(env.status, 0);
+    assert.ok(!env.stdout.includes('main-checkout-secret'));
+    assert.match(bwrapRun(['/bin/cat', join(wt, 'note.txt')], opts, { cwd: wt }).stdout, /worktree-ok/);
+    assert.match(bwrapRun(['/bin/cat', join(root, '.git/HEAD')], opts, { cwd: wt }).stdout, /refs\/heads\/main/);
+    const t = bwrapRun([process.execPath, '--test'], opts, { cwd: wt });
+    assert.equal(t.status, 0, t.stdout + t.stderr);
+  });
+});
+
+test('Linux: writes succeed only inside writable paths', bwrapSkip, () => {
+  withHomeDir((base) => {
+    const ok = join(base, 'ok');
+    mkdirSync(ok);
+    const opts = { writable: [ok] };
+    assert.equal(bwrapRun(['/bin/sh', '-c', `echo x > '${ok}/f'`], opts).status, 0);
+    assert.ok(existsSync(join(ok, 'f')));
+    const outside = join(base, 'outside.txt');
+    assert.notEqual(bwrapRun(['/bin/sh', '-c', `echo x > '${outside}'`], opts).status, 0);
+    assert.ok(!existsSync(outside));
+  });
+});
+
+test('Linux: secret home files and directories, and the Unknot home, are unreadable; missing ones do not break the sandbox', bwrapSkip, () => {
+  withHomeDir((base) => {
+    const prev = { HOME: process.env.HOME, UNKNOT_HOME: process.env.UNKNOT_HOME };
+    const uh = join(base, 'unknot-home');
+    process.env.HOME = base; // os.homedir() reads HOME
+    process.env.UNKNOT_HOME = uh;
+    try {
+      mkdirSync(join(base, '.ssh'));
+      mkdirSync(uh);
+      writeFileSync(join(base, '.ssh/id'), 'ssh-secret\n');
+      writeFileSync(join(base, '.netrc'), 'netrc-secret\n');
+      writeFileSync(join(uh, 'state'), 'unknot-secret\n');
+      writeFileSync(join(base, 'plain.txt'), 'plain-ok\n'); // no .aws, .claude, ... exist here
+      for (const f of ['.ssh/id', '.netrc', 'unknot-home/state']) {
+        const r = bwrapRun(['/bin/cat', join(base, f)], { writable: [] });
+        assert.ok(!/secret/.test(r.stdout), `${f} leaked: ${r.stdout}`);
+      }
+      const ok = bwrapRun(['/bin/cat', join(base, 'plain.txt')], { writable: [] });
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.match(ok.stdout, /plain-ok/);
+    } finally {
+      for (const [k, v] of Object.entries(prev)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+});
+
+test('Linux: the network is cut but loopback works inside the private namespace', bwrapSkip, () => {
+  const own = "const s=require('net').createServer(c=>c.end()).listen(0,'127.0.0.1',()=>require('net').connect(s.address().port,'127.0.0.1').on('connect',()=>{console.log('ok');process.exit(0)}).on('error',e=>{console.log(e.code);process.exit(0)})).on('error',e=>{console.log(e.code);process.exit(0)})";
+  const remote = "const s=require('net').connect({host:'192.0.2.1',port:80});s.setTimeout(3000,()=>{console.log('TIMEOUT');process.exit(0)});s.on('error',(e)=>{console.log(e.code);process.exit(0)});s.on('connect',()=>{console.log('CONNECTED');process.exit(0)})";
+  assert.match(bwrapRun([process.execPath, '-e', own], { writable: [] }).stdout, /ok/);
+  const t0 = Date.now();
+  const r = bwrapRun([process.execPath, '-e', remote], { writable: [] }).stdout;
+  assert.match(r, /ENETUNREACH|EADDRNOTAVAIL|EHOSTUNREACH|TIMEOUT/);
+  assert.ok(!r.includes('CONNECTED'));
+  assert.ok(Date.now() - t0 < 10000, 'fails fast');
+});
+
+test('Linux: the plugin directory stays readable even when it sits inside a hidden directory', bwrapSkip, () => {
+  const plugin = realpathSync(new URL('../../../', import.meta.url).pathname).replace(/\/$/, '');
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(plugin, '..');
+  try {
+    const r = bwrapRun(['/bin/cat', join(plugin, 'package.json')], { writable: [] });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /"name": "unknot"/);
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
+  }
+});
+
+test('bubblewrap only hides paths that exist (a tmpfs on a missing path fails inside the read-only root)', () => {
+  const prev = process.env.UNKNOT_HOME;
+  process.env.UNKNOT_HOME = '/nonexistent-unknot-home';
+  try {
+    const a = wrap(['true'], { kind: 'linux-bwrap', writable: [] }).args.join(' ');
+    assert.ok(!a.includes('/nonexistent-unknot-home'));
+    assert.ok(!a.includes('--ro-bind /dev/null /nonexistent'));
+  } finally {
+    if (prev === undefined) delete process.env.UNKNOT_HOME; else process.env.UNKNOT_HOME = prev;
+  }
+});

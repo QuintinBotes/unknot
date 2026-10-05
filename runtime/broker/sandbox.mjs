@@ -5,7 +5,7 @@
 // macOS: sandbox-exec with a generated SBPL profile. Linux: bubblewrap when installed.
 // Elsewhere: no sandbox, which `doctor` reports and `security.require_os_sandbox` refuses.
 
-import { accessSync, constants, lstatSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -139,9 +139,16 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
       args.push('--ro-bind', realpathLenient(cwd), realpathLenient(cwd));
     }
     for (const p of allWritable) if (p !== '/tmp') args.push('--bind', p, p);
-    for (const d of [...SECRET_HOME_DIRS.map((x) => join(home, x)), ...envSecretDirs()]) args.push('--tmpfs', d);
-    for (const f of SECRET_HOME_FILES) args.push('--ro-bind-try', '/dev/null', join(home, f));
-    args.push('--tmpfs', realpathLenient(unknotHome()));
+    // bwrap creates mount points on demand, which fails (EROFS) inside the read-only root:
+    // only paths that exist can be hidden. A path that does not exist cannot be read anyway.
+    // Resolved first, so a symlinked secret directory is hidden at its real location.
+    const present = (p) => (existsSync(p) ? realpathLenient(p) : null);
+    const hiddenDirs = [...SECRET_HOME_DIRS.map((x) => join(home, x)), ...envSecretDirs(), unknotHome()].map(present).filter((p) => p && isRealDir(p));
+    for (const d of new Set(hiddenDirs)) args.push('--tmpfs', d);
+    for (const f of SECRET_HOME_FILES) {
+      const real = present(join(home, f));
+      if (real && !isRealDir(real)) args.push('--ro-bind', '/dev/null', real);
+    }
     args.push('--ro-bind', PLUGIN_ROOT, PLUGIN_ROOT); // after the tmpfs mounts: see macosProfile
     if (!network) args.push('--unshare-net');
     return { file: 'bwrap', args: [...args, '--', ...argv], sandbox: kind };
