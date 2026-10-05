@@ -45,10 +45,21 @@ describe('hostile repository content cannot become authority', () => {
 
   test('a repo-provided "unknot" or bin/unknot is not the plugin CLI', async () => {
     const s = scene({ files: { 'bin/unknot': '#!/bin/sh\necho pwned\n' } });
-    for (const command of ['bin/unknot status', './bin/unknot status', 'node bin/unknot status', `node ${s.p.dir}/bin/unknot status`, 'unknot status', `${s.p.dir}/bin/unknot status`]) {
+    for (const command of ['bin/unknot status', './bin/unknot status', 'node bin/unknot status', `node ${s.p.dir}/bin/unknot status`, `${s.p.dir}/bin/unknot status`]) {
       assert.ok(denies(await pre(s, 'Bash', { command })), command);
     }
     assert.equal(await pre(s, 'Bash', { command: `${U} status` }), null);
+    // A bare `unknot` resolves to the plugin CLI when nothing else on PATH shadows it
+    // (hooks do not see plugin bin dirs on their own PATH; the Bash tool does).
+    assert.equal(await pre(s, 'Bash', { command: 'unknot status' }), null);
+    const saved = process.env.PATH;
+    chmodSync(join(s.p.dir, 'bin/unknot'), 0o755);
+    try {
+      process.env.PATH = `${join(s.p.dir, 'bin')}:${saved}`;
+      assert.ok(denies(await pre(s, 'Bash', { command: 'unknot status' })), 'a repo unknot earlier on PATH is refused');
+    } finally {
+      process.env.PATH = saved;
+    }
   });
 
   test('a poisoned .env cannot be read via Read, Grep, Glob or a symlink from src', async () => {

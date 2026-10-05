@@ -115,7 +115,7 @@ const DENY_TOOLS = [
 ];
 
 const DENY_UNKNOT = [
-  'bin/unknot status', './bin/unknot status', 'unknot status', 'node bin/unknot status', 'node ./bin/unknot status', `node ${R}/bin/../bin/unknot-x status`, '/tmp/bin/unknot status', `node /tmp/${UK} status`,
+  'bin/unknot status', './bin/unknot status', 'node bin/unknot status', 'node ./bin/unknot status', `node ${R}/bin/../bin/unknot-x status`, '/tmp/bin/unknot status', `node /tmp/${UK} status`,
   ...['approve', 'keys', 'config', 'run', 'policy', 'audit', 'gc', 'shred', 'daemon', 'unlock'].flatMap((s) => [`${UK} ${s}`, `${UK} ${s} x`, `node ${UK} ${s} x`, `${UK} 'ap'"prove" x`.replace('approve', s)]),
   `${UK} $(echo approve)`, `${UK} status $(echo x)`,
 ];
