@@ -50,7 +50,7 @@ async function runPython(items, ctx) {
 
 export default {
   id: 'python',
-  version: '0.1.1',
+  version: '0.1.2',
   kind: 'language',
   capabilities: {
     files: ['**/*.py', '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'],

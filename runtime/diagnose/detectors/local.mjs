@@ -246,12 +246,17 @@ const longParameterList = define({
   run(graph, o) {
     const out = [];
     for (const n of codeSymbols(graph)) {
-      const p = n.attrs.params;
-      if (typeof p !== 'number' || p <= o.params) continue;
+      // Count what callers must get right: required parameters when the adapter knows
+      // them (optional keyword-only parameters cannot be passed in the wrong order), but
+      // still flag very long lists outright (dogfood FB14).
+      const total = n.attrs.params;
+      const required = Number.isInteger(n.attrs.params_required) ? n.attrs.params_required : total;
+      if (typeof total !== 'number' || (required <= o.params && total < 2 * o.params + 1)) continue;
+      const p = required > o.params ? required : total;
       if (graph.out(n.id, 'EXPOSES').length || (n.attrs.decorators ?? []).some((d) => /route|get|post|put|patch|delete|api|endpoint|task|command/i.test(d))) continue; // framework entry point: parameters are injected
       const d = base(graph, n, {
         kind: 'code.long-parameter-list',
-        title: `${nameOf(n)} takes ${p} parameters (threshold ${o.params})`,
+        title: required > o.params ? `${nameOf(n)} takes ${p} ${p === total ? '' : 'required '}parameters (threshold ${o.params})` : `${nameOf(n)} takes ${total} parameters, ${required} required (threshold ${o.params}; very long lists are flagged regardless)`,
         summary: `${p} parameters${Array.isArray(n.attrs.param_names) ? `: ${n.attrs.param_names.slice(0, 8).join(', ')}` : ''}`,
         measurements: { 'function.params': p },
         thresholds: { params: o.params, note: 'heuristic: argument-order mistakes grow with arity, but the limit is a convention' },

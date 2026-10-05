@@ -36,9 +36,9 @@ each repository and writes one JSON report per repository plus a summary.
 | FB8 | 2 | 269 of 545 tervin findings were long React components (JSX markup inflates lines) | Component threshold 150 lines (functions 80) | — |
 | FB9 | 2 | A Dockerfile "built from image `app.core.database`": a Python `from … import` inside a BuildKit heredoc was read as `FROM` | Heredocs parsed; only real Dockerfile instructions accepted | false positive gone |
 | FB10 | 3 | circuit-breaker's suite passed alone (139/139) but failed under Unknot | Brokered commands get a private `TMPDIR` outside the project (tests created scratch git repos nested inside the analysed repo) | baseline and verification pass in the sandbox |
-| FB11 | 3 | An unreachable `return finish();` in circuit-breaker was found by reading the code, not by Unknot | Unreachable-code detection in the JS/TS and Python adapters plus a detector | see tests |
+| FB11 | 3 | An unreachable `return finish();` in circuit-breaker was found by reading the code, not by Unknot | Unreachable-code detection in the JS/TS and Python adapters plus a detector | flags exactly circuit-breaker `diffHash` line 334; no others on forge or fullstack-app |
 | FB13 | live | In a real Claude Code session `unknot diagnose` was denied: hooks resolved `unknot` on their own PATH, which lacks plugin `bin/` directories | Bare `unknot` resolves to the plugin CLI unless another `unknot` shadows it on PATH | live session runs `/unknot:diagnose` |
-| FB14 | 4 | Most long-parameter-list findings on forge were keyword-only, defaulted Python parameters (injection seams, client settings) | Python adapter reports required parameters; the detector measures positional plus required keyword-only parameters, and still flags very long lists | see below |
+| FB14 | 4 | Most long-parameter-list findings on forge were keyword-only, defaulted Python parameters (injection seams, client settings) | Python adapter reports required parameters; the detector measures positional plus required keyword-only parameters, and still flags very long lists | default settings: forge 107 → 35, fullstack-app 11 → 0 |
 
 ## Round summaries
 
@@ -69,6 +69,10 @@ precision of 0.44; Unknot proposed raising the threshold to 9 (above the largest
 value, below the smallest accepted one); after the proposal was accepted like a human
 would, open findings of that kind went from 107 to 20 and the accepted findings stayed
 visible. The pattern behind the rejections became FB14, a detector fix for everyone.
+
+**Round 5** — re-measured after FB11 and FB14 with default settings: forge 418 open
+findings (from 1,999 in round 1), fullstack-app 113 (from 329), circuit-breaker 31 (from 55),
+zero detector errors, cold map of forge 9.5 s and re-map 2.6 s.
 
 ## What the loop does not do
 

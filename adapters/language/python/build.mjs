@@ -91,7 +91,7 @@ export function buildFacts(path, raw, text, quality) {
     const attrs = sym.type === 'class'
       ? { ...common, kind: 'class', bases: r.bases, methods: methodCounts.get(qual) ?? 0 }
       : {
-        ...common, kind: r.kind, params: r.params.length, param_names: r.params, cyclomatic: r.cyclomatic,
+        ...common, kind: r.kind, params: r.params.length, ...(Number.isInteger(r.params_required) && { params_required: r.params_required }), param_names: r.params, cyclomatic: r.cyclomatic,
         cognitive: r.cognitive, max_nesting: r.max_nesting, async: r.async, returns: r.returns, calls: r.calls,
         class: sym.type === 'method' ? r.parent : null,
         // Lexical reader does not track control flow, so it reports none.

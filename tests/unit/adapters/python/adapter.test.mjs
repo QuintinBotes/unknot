@@ -21,7 +21,7 @@ for (const mode of MODES) {
 
   test(`[${mode.name}] adapter descriptor and fact validity`, { skip }, async () => {
     assert.equal(adapter.id, 'python');
-    assert.equal(adapter.version, '0.1.1');
+    assert.equal(adapter.version, '0.1.2');
     assert.equal(adapter.kind, 'language');
     assert.deepEqual(adapter.capabilities.executes, ['python3']);
     assert.equal(adapter.capabilities.network, false);
@@ -294,4 +294,23 @@ test('test-file detection', async () => {
     'src/attest.py': false, 'contest.py': false,
   });
   assert.ok(loadFixture('pkg_src').length > 0);
+});
+
+test('required parameters exclude optional keyword-only ones and self (dogfood FB14)', { skip: !process.env.PATH }, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const script = fileURLToPath(new URL('../../../../adapters/language/python/extract.py', import.meta.url));
+  const src = [
+    'class S:',
+    '    def __init__(self, *, session, audit=None, clock=None, reader=None):',
+    '        pass',
+    'def h(a, b, c=1, *, d, e=None):',
+    '    pass',
+  ].join('\n');
+  const r = spawnSync('python3', ['-I', '-S', script], { input: JSON.stringify([{ path: 'm.py', text: src }]), encoding: 'utf8' });
+  if (r.error) return; // python3 missing: covered by the lexical path elsewhere
+  const out = JSON.parse(r.stdout.trim().split('\n')[0]);
+  const fns = Object.fromEntries(out.functions.map((f) => [f.name, f]));
+  assert.equal(fns.__init__.params_required, 1, 'only `session` is required');
+  assert.equal(fns.h.params_required, 3, 'a, b and keyword-only d');
 });

@@ -357,6 +357,15 @@ class Analyzer(object):
             params.append('**' + a.kwarg.arg)
         if in_class and params and params[0] in ('self', 'cls') and 'staticmethod' not in names:
             params = params[1:]
+        # Required parameters: positional ones without a default, and keyword-only ones
+        # without a default. Optional keyword-only parameters (`*, x=None`) cannot be
+        # passed in the wrong order, so they do not count toward a long parameter list.
+        positional = a.posonlyargs + a.args
+        n_pos_defaults = len(a.defaults)
+        required_pos = positional[:len(positional) - n_pos_defaults] if n_pos_defaults else positional
+        required = [p.arg for p in required_pos] + [k.arg for k, d in zip(a.kwonlyargs, a.kw_defaults) if d is None]
+        if in_class and required and required[0] in ('self', 'cls') and 'staticmethod' not in names:
+            required = required[1:]
         kind = 'method' if in_class else 'function'
         for want in ('staticmethod', 'classmethod', 'property'):
             if in_class and want in names:
@@ -367,7 +376,7 @@ class Analyzer(object):
             cc, cog, depth = 1, 0, 0
         end = getattr(n, 'end_lineno', n.lineno) or n.lineno
         rec = {'name': n.name, 'qual': qual, 'parent': parent, 'in_class': in_class, 'kind': kind,
-               'start_line': n.lineno, 'end_line': end, 'params': params, 'cyclomatic': cc, 'cognitive': cog,
+               'start_line': n.lineno, 'end_line': end, 'params': params, 'params_required': len(required), 'cyclomatic': cc, 'cognitive': cog,
                'max_nesting': depth, 'decorators': decs, 'async': isinstance(n, ast.AsyncFunctionDef),
                'returns': unparse(n.returns, 120) if n.returns is not None else None, 'calls': [],
                'unreachable': unreachable_in(n)}
