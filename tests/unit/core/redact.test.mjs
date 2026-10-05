@@ -16,3 +16,10 @@ test('precise mode drops placeholders for findings; redaction stays conservative
     assert.equal(findSecrets(t, { precise: true }).length, 1, t);
   }
 });
+
+test('findings ignore labelled fixtures, sequential fillers and optional-chain reads (fresh-audit regressions)', () => {
+  for (const t of ["token: 'jira-token'", 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'const apiKey = signature?.apiKey;']) {
+    assert.equal(findSecrets(t, { precise: true }).length, 0, t);
+  }
+  assert.equal(findSecrets("token: 'jira-token'").length, 1, 'redaction still covers labelled values');
+});

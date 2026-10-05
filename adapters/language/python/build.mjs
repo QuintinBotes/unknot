@@ -5,6 +5,17 @@
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { frameworkFacts } from './frameworks.mjs';
 
+/** Dotted module paths in string literals: from the AST, or by pattern when read lexically. */
+function dottedStrings(raw, text) {
+  if (Array.isArray(raw?.dotted_strings)) return raw.dotted_strings.slice(0, 200);
+  const out = new Set();
+  for (const m of String(text ?? '').matchAll(/["']([A-Za-z_]\w*(?:\.[A-Za-z_]\w*){1,8})["']/g)) {
+    out.add(m[1]);
+    if (out.size >= 200) break;
+  }
+  return [...out].sort();
+}
+
 export const EXTRACTOR = 'python@0.1.0';
 const MAX_FACTS = 5000;
 
@@ -84,6 +95,7 @@ export function buildFacts(path, raw, text, quality) {
       security_signals: raw.security,
       parse_quality: quality,
       ...(entryScript && { entry_script: true }),
+      ...(dottedStrings(raw, text).length && { dotted_strings: dottedStrings(raw, text) }),
       ...(djangoImport && isDjangoConventionPath(path) && { django_convention: true }),
     },
   }, pv(1));

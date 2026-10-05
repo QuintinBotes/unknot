@@ -262,3 +262,16 @@ test('dependency-cycle ignores lazy and type-only imports', async () => {
   assert.equal(count([...mods, imp('a.py', 'b.py'), imp('b.py', 'a.py', { lazy: true })]), 0);
   assert.equal(count([...mods, imp('a.py', 'b.py'), imp('b.py', 'a.py', { type_only: true })]), 0);
 });
+
+test('a module named by dotted path in settings is referenced (fresh-audit regression)', async () => {
+  const { default: adapter } = await import('../../../../adapters/language/python/index.mjs');
+  const files = { 'config/settings.py': 'REST_FRAMEWORK = {"DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.SessionAuthentication"]}\n', 'apps/core/authentication.py': 'class SessionAuthentication:\n    pass\n', 'apps/__init__.py': '', 'apps/core/__init__.py': '' };
+  const items = Object.entries(files).map(([path, text]) => ({ file: { path, language: 'python' }, text }));
+  const { spawnSync } = await import('node:child_process');
+  const exec = async (argv, { input }) => { const r = spawnSync(argv[0], argv.slice(1), { input, encoding: 'utf8' }); return { record: { exit_code: r.status }, stdout: Buffer.from(r.stdout), stderr: Buffer.from(r.stderr), stdoutTail: r.stdout, stderrTail: r.stderr }; };
+  for (const ctx of [{ options: {}, exec }, { options: {} }]) { // AST, then the lexical fallback
+  const out = await adapter.extractBatch(items, ctx);
+  const facts = adapter.link({ files: new Map(Object.keys(files).map((p) => [p, { path: p }])), factsByFile: out, options: {} });
+  assert.ok(facts.some((f) => f.type === 'REFERENCES' && f.from === 'module:config/settings.py' && f.to === 'module:apps/core/authentication.py'));
+  }
+});

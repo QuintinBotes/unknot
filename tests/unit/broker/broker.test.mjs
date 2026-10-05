@@ -430,3 +430,10 @@ describe('OS sandbox enforcement (macOS)', { skip: process.platform !== 'darwin'
     }
   });
 });
+
+test('a command that exits before reading its input fails cleanly instead of crashing (live-session regression)', async () => {
+  const { brokerExec } = await import('../../../runtime/broker/broker.mjs');
+  const p2 = K.makeProject();
+  const r = await brokerExec(p2.ctx, { argv: [process.execPath, '-e', 'process.exit(3)'], cwd: p2.dir, origin: 'configured', input: 'x'.repeat(4 * 1024 * 1024), config: K.cfg({}) });
+  assert.equal(r.record.exit_code, 3);
+});

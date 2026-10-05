@@ -39,8 +39,11 @@ function looksPlaceholder(kind, value) {
   if (kind === 'url-credentials') return /^\$\{?[A-Za-z_]/.test(value) || PLACEHOLDER_WORD.test(value);
   if (kind === 'aws-access-key-id' || kind === 'jwt' || kind === 'slack-webhook') return false;
   const body = value.replace(/^(?:gh[pousr]_|github_pat_|glpat-|xox[abposr]-|sk_live_|rk_live_|AIza|sk-ant-|sk-(?:proj-|svcacct-)?|npm_)/, '');
-  return body.length >= 12 && entropy(body) < 3.0;
+  return body.length >= 12 && (entropy(body) < 3.0 || SEQUENTIAL.test(body));
 }
+
+// `abcdefghijklmnop…0123456789`: a filler made of runs, not a random token.
+const SEQUENTIAL = /abcdefgh|bcdefghi|01234567|12345678|qwertyui|(.)\1{7}/i;
 
 function entropy(s) {
   const counts = new Map();
@@ -76,7 +79,9 @@ export function findSecrets(text, { extraPatterns = [], precise = false } = {}) 
     if (PLACEHOLDER.test(value) || entropy(value) < 3.2) continue;
     // `token = secrets.token_urlsafe(32)` or `password: req.body.password` is code, not a
     // secret: a credential value has no call parentheses, member access chains or templates.
-    if (/[()[\]{}$]|^[A-Za-z_][\w]*(\.[A-Za-z_]\w*)+$|^[A-Za-z_]+$/.test(value)) continue;
+    if (/[()[\]{}$]|^[A-Za-z_][\w]*((\?|!)?\.[A-Za-z_]\w*)+$|^[A-Za-z_]+$/.test(value)) continue;
+    // Findings only: a value that contains its own label (`token: 'jira-token'`) is a fixture.
+    if (precise && value.toLowerCase().replace(/[_-]/g, '').includes(m[1].toLowerCase().replace(/[_-]/g, '').replace(/^(client|auth|access|private)/, ''))) continue;
     const start = m.index + m[0].length - value.length;
     hits.push({ kind: `assigned-${m[1].toLowerCase().replace(/[_-]/g, '')}`, start, end: start + value.length });
   }

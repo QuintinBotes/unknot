@@ -4,6 +4,26 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.7] - 2026-10-05
+
+From a second, unbiased audit: a fresh simple random sample of 110 findings across eleven
+repositories, checked against the source. 83 true (75%), 5 factually wrong (5%), 22 true but
+not worth flagging (20%). The five wrong ones are fixed here.
+
+### Fixed
+
+- A child process that exits before reading its input no longer crashes the CLI with EPIPE
+  (live sessions on Python repositories lost their map this way); the failure is recorded
+  and the Python adapter falls back to its lexical reader.
+- Modules named by dotted path in strings (Django and DRF settings, Celery routes) are
+  referenced, in AST and lexical extraction alike.
+- Secret findings ignore optional-chain reads (`signature?.apiKey`), values that contain
+  their own label (`token: 'jira-token'`) and sequential fillers; redaction is unchanged.
+- Package entries declared under `dist/` map back to `src/` for implementation-leakage.
+- Terraform providers are judged only by infrastructure.floating-versions (lock files,
+  reusable modules), not again as unpinned build inputs.
+- Re-export facades (`__init__.py`, index barrels) are not unstable dependencies.
+
 ## [0.1.6] - 2026-10-05
 
 ### Fixed

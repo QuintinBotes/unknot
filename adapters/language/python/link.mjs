@@ -295,5 +295,20 @@ export function link(ctx) {
     if (dir === undefined) continue;
     emit(edgeFact('CONTAINS', byDir.get(dir).packageId, `module:${path}`, {}, pvFor(path, 1)));
   }
+  // Modules named by dotted path in strings (settings such as DRF authentication classes,
+  // Celery task routes, entry-point tables): referenced, though nothing imports them.
+  for (const [path, mod] of modules) {
+    for (const ref of mod.attrs?.dotted_strings ?? []) {
+      const parts = ref.split('.');
+      for (let n = parts.length; n >= 2; n--) {
+        const hits = index.get(parts.slice(0, n).join('.'));
+        const target = hits?.[0]?.path;
+        if (target && target !== path) {
+          emit(edgeFact('REFERENCES', `module:${path}`, `module:${target}`, { via: 'dotted string' }, prov({ source_type: 'ast', source_ref: `${path}:1`, extractor: EXTRACTOR, confidence: 'medium' })));
+          break;
+        }
+      }
+    }
+  }
   return out;
 }

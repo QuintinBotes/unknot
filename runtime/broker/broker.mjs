@@ -204,6 +204,10 @@ export async function brokerExec(ctx, req) {
       clearTimeout(timer);
       resolvePromise({ code, signal, streams, timedOut, durationMs: Number((process.hrtime.bigint() - started) / 1_000_000n) });
     });
+    // A child that exits before reading all of its input (a failing interpreter shim, a
+    // crash) makes the write fail with EPIPE; that is the command's failure, reported through
+    // its exit code and stderr, never a crash of the CLI (a live session lost a map this way).
+    child.stdin.on('error', () => {});
     if (input !== undefined) child.stdin.end(input);
     else child.stdin.end();
   });

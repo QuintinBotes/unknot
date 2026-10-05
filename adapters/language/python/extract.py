@@ -296,6 +296,13 @@ class Analyzer(object):
                     and isinstance(st.value.value, str):
                 self.str_consts.add(st.target.id)
         self.name_counts = {}
+        # Dotted module paths in strings (Django/DRF settings, Celery, entry-point maps):
+        # link resolves them to repository modules, which are then referenced, not dead.
+        self.dotted_strings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(self.dotted_strings) < 200 \
+                    and DOTTED_RE.match(node.value):
+                self.dotted_strings.add(node.value)
         for node in ast.walk(tree):
             key = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
             if key is not None:
@@ -547,6 +554,9 @@ class Analyzer(object):
             self.add_sec('sql_injection', line, name=dotted(f) or f.attr, how=how)
 
 
+DOTTED_RE = re.compile(r'^[A-Za-z_]\w*(\.[A-Za-z_]\w*){1,8}$')
+
+
 def analyze(path, text):
     tree = ast.parse(text, filename='<unknot>')
     an = Analyzer(path, text, tree)
@@ -555,7 +565,8 @@ def analyze(path, text):
     sloc = sum(1 for ln in lines if ln.strip() and not ln.strip().startswith('#'))
     return {'path': path, 'loc': len(lines), 'sloc': sloc, 'functions': an.functions, 'classes': an.classes,
             'imports': an.imports, 'calls': an.module_calls, 'calls_detail': an.detail, 'sql': an.sql,
-            'env': an.env, 'security': an.security, 'entry_script': is_entry_script(text, tree)}
+            'env': an.env, 'security': an.security, 'entry_script': is_entry_script(text, tree),
+            'dotted_strings': sorted(an.dotted_strings)}
 
 
 def process(item):

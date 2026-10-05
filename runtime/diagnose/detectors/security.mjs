@@ -234,6 +234,9 @@ const unpinned = {
       const dep = g.node(e.to);
       const from = g.node(e.from);
       if (!dep || !from || dep.attrs.local) continue;
+      // Terraform providers are judged by infrastructure.floating-versions, which knows lock
+      // files and that reusable modules state minimum versions.
+      if (dep.attrs.kind === 'provider') continue;
       const wf = from.type === 'job' ? g.node(from.attrs.workflow) : from;
       const key = wf?.path ?? from.path ?? from.id;
       if (!byPath.has(key)) byPath.set(key, { wf: wf ?? from, deps: new Map() });

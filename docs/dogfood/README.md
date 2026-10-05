@@ -104,6 +104,16 @@ obligations passing, the change approved and ACCEPTED, the main checkout untouch
 signed ledger intact. That run also found linked `node_modules` being staged into the patch
 (fixed in 0.1.6).
 
+**Round 8, an unbiased re-check** — eleven repositories with 0.1.6: every map complete, no
+extraction failures, no detector errors. A fresh simple random sample of 110 findings (ten per
+repository, so the mix is what a user sees) was checked against the source: 83 true (75%), 5
+factually wrong (5%), 22 true but not worth flagging (20%). The five wrong ones are fixed in
+0.1.7. Most of the 22 are matters of taste: long but simple UI components, framework
+boilerplate that looks alike (Redux slices, ORM models), data-heavy functions and classes, and
+values just over a threshold; an earlier audit judged some of the same components the other
+way, so these are left as they are. Live sessions with the installed plugin turned up one more
+crash (a Python extractor exiting early), fixed in 0.1.7.
+
 ## What the loop does not do
 
 It never accepts its own proposals, never disables a detector, and never treats repository

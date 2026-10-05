@@ -244,6 +244,9 @@ const unstableDependency = define({
       const b = mi.get(e.to);
       if (!a || !b || a.instability == null || b.instability == null) continue;
       if (a.instability > o.stable_max || b.instability < o.unstable_min || a.ca < o.min_dependents) continue;
+      // A re-export facade (package __init__, index barrel) depends on its submodules by
+      // construction; "stable depends on volatile" says nothing about it.
+      if (isFacade(graph, e.from)) continue;
       const ctx = pathOf(graph, e.from);
       emit({
         key: `sdp:${e.from}->${e.to}`, level: 'module', fromLabel: ctx, toLabel: pathOf(graph, e.to), fromI: a.instability, toI: b.instability,
@@ -389,6 +392,13 @@ const shotgunSurgery = define({
 // ---------------------------------------------------------------------------------------
 
 const baseSeg = (p) => p.split('/').pop();
+const FACADE_FILE = /(^|\/)(__init__\.py|index\.(m?[jt]sx?|cjs))$/;
+/** A barrel: an index/__init__ module that defines nothing itself. */
+function isFacade(graph, id) {
+  const m = graph.node(id);
+  if (!m || !FACADE_FILE.test(m.path ?? '')) return false;
+  return !graph.children(id).some((c) => ['function', 'method', 'class'].includes(c.type));
+}
 const isPrivateSeg = (s) => /^_[^_]/.test(s) || /^_$/.test(s);
 
 /** Packages with a directory and the entry files they declare (main/exports/bin/...). */
@@ -398,7 +408,13 @@ function packageEntries(graph) {
     const dir = p.attrs?.dir && p.attrs.dir !== '.' ? p.attrs.dir : (p.path?.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : '');
     const entries = new Set();
     const collect = (v) => {
-      if (typeof v === 'string') entries.add(`${dir ? `${dir}/` : ''}${v.replace(/^\.\//, '')}`.replace(/\.[^./]+$/, ''));
+      if (typeof v === 'string') {
+        const rel = `${dir ? `${dir}/` : ''}${v.replace(/^\.\//, '')}`.replace(/(\.d)?\.[^./]+$/, '');
+        entries.add(rel);
+        // Built output maps back to its source (tsup/tsc: dist/index.js <- src/index.ts).
+        const src = rel.replace(/(^|\/)(dist|lib|build|out)\//, '$1src/');
+        if (src !== rel) entries.add(src);
+      }
       else if (Array.isArray(v)) v.forEach(collect);
       else if (v && typeof v === 'object') Object.values(v).forEach(collect);
     };
