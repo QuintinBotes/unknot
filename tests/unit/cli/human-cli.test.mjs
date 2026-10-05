@@ -61,19 +61,28 @@ test('requireHumanTTY: a terminal with agent markers is called an agent session;
   assert.equal(withEnv({}, true, () => denial('approving a slice', ['approve'])), null);
 });
 
-test('humanCommand: the command, plus the path and install route when unknot is not a stable command', () => {
+test('humanCommand: the full path first until the stable command is installed; install is offered once, never for itself', () => {
   const dir = tmp();
-  const saved = process.env.PATH;
+  const home = tmp();
+  const saved = { PATH: process.env.PATH, HOME: process.env.HOME };
   try {
     process.env.PATH = dir;
+    process.env.HOME = home;
     const text = humanCommand('config diff');
-    assert.equal(text.split('\n')[0], 'unknot config diff');
-    assert.ok(text.includes(`If unknot is not found in your terminal: node ${BIN} config diff, or install it once: node ${BIN} cli install`));
+    assert.equal(text.split('\n')[0], `node ${BIN} config diff`, 'a bare unknot would fail in a new terminal');
+    assert.equal(text.split(`node ${BIN} cli install`).length, 2, 'the install command appears once');
+    assert.equal(humanCommand('cli install'), `node ${BIN} cli install`);
+    mkdirSync(join(home, '.local/bin'), { recursive: true });
+    writeFileSync(join(home, '.local/bin/unknot'), '#!/usr/bin/env node\n// unknot-cli-shim: test\n');
+    assert.equal(humanCommand('config diff'), 'unknot config diff', 'once the shim is installed the short form works');
+    rmSync(join(home, '.local/bin/unknot'));
     writeFileSync(join(dir, 'unknot'), '#!/bin/sh\n');
-    assert.equal(humanCommand(['config', 'diff']), 'unknot config diff');
+    assert.equal(humanCommand(['config', 'diff']), 'unknot config diff', 'a stable unknot on PATH');
   } finally {
-    process.env.PATH = saved;
+    process.env.PATH = saved.PATH;
+    process.env.HOME = saved.HOME;
     rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
   }
 });
 

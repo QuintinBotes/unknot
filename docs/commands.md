@@ -138,9 +138,9 @@ Detector problems are listed, not hidden.
 
 Prints a finding as JSON keyed by the ten questions: `1_what`, `2_evidence` (each item with its provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
 
-### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`
+### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`, `decompose prune`
 
-See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since); `show` prints one with its metrics, evidence, rejections and readiness table.
+See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<namespace>` or `seed:<module or type>~N`, as for every command; a scope that matches nothing writes no records and says so. A candidate that comes back unchanged (same target, drivers and members) keeps its DEC id. `list` shows the saved records (stale when the graph changed since; superseded, with the reason, when an older version wrote it or a later run replaced it); `prune [--dry-run]` removes the superseded records and says which, keeping any that a campaign or slice references; `show` prints one with its metrics, evidence, rejections and readiness table.
 
 | Flag | Meaning |
 |---|---|
@@ -164,7 +164,7 @@ Read-only reports built from the graph. `database`: engines, migrations by frame
 Queries the graph. Flag `--limit N` (default 50) applies to every listing; a flag that needs a value and has none is an error. `--json` for all but `stats` and `node`, which always print JSON. `node` includes provenance of each fact. Wherever an id is expected a module path works (`src/x.cs` for `module:src/x.cs`).
 
 - `edges [TYPE] [--type T[,T2]] [--from <id|path>] [--to <id|path>]`: edges filtered by type, source and target.
-- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph.
+- `cycles [EDGE] [scope...]`: strongly connected components over one edge type (default `IMPORTS`), computed on the in-scope subgraph. Every member is listed; each component then shows its elementary cycles (shortest first, at most `--limit`), and the edges to cut (a small greedy set whose removal leaves no cycle, declared-only edges first). An edge held only by an injected member that is never used is marked `(declared only: <module> member <Name> is never used)`. `--json` is a list of `{size, members, cycles, cycles_truncated, cut}`.
 - `hubs [EDGE] [--type T1,T2] [--within] [scope...]`: top fan-in and fan-out over the union of the edge types (default `IMPORTS`). Only in-scope modules are ranked; fan-in counts sources anywhere, or only in-scope ones with `--within`.
 - `neighbourhood <id|path|TypeName> [--depth N] [--type T,...]`: the subgraph around a node, depth 1 to 3 (default 1).
 

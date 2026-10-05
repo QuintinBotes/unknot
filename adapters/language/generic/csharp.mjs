@@ -13,6 +13,10 @@ const BEFORE_PARAM = /[(,]\s*(?:(?:this|ref|in|out|params|readonly)\s+)*$/;
 const AFTER_MEMBER = /^(?:\s*<[^;{}()=]*>)?\??\s+([A-Za-z_]\w*)\s*(\{\s*(?:\[[^\]]*\]\s*)*(?:get|set|init)\b|;|=(?![=>]))/;
 const AFTER_PARAM = /^(?:\s*<[^;{}()=]*>)?\??\s+([A-Za-z_]\w*)\s*(?=[,)]|=\s*(?:null|default)\s*[,)])/;
 const USING_LINE = /^[ \t]*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?[\w.]+\s*;|\bnamespace\s+[\w.]+/gm;
+// `nameof(x)` names a symbol without using it.
+const NAMEOF = /\bnameof\s*\(\s*[\w.]+\s*\)/g;
+const NAMEOF_BEFORE = /\bnameof\s*\(\s*(?:[\w]+\s*\.\s*)*$/;
+const GUARD = '(?:\\s*\\?\\?\\s*throw\\s+new\\s+[\\w.]+\\s*\\([^;]*\\))?';
 const blank = (m) => m.replace(/[^\n]/g, ' ');
 
 /** Escape for use inside a RegExp. */
@@ -48,6 +52,7 @@ export function csharpRefs(lx, an) {
     for (const off of offs) {
       if (spans.length && off < spans[spans.length - 1][1]) continue; // the member's own name, when it equals the type's
       const before = code.slice(Math.max(0, off - 160), off);
+      if (NAMEOF_BEFORE.test(before)) continue; // nameof(Tool) is a compile-time mention
       const after = code.slice(off + name.length, off + name.length + 200);
       const mm = AFTER_MEMBER.exec(after);
       if (mm && (ATTRIBUTED.test(before) || PRIVATE.test(before))) {
@@ -66,10 +71,10 @@ export function csharpRefs(lx, an) {
     }
     if (!ok || !members.size) continue;
     // Usage is checked on the text with strings intact: interpolation holes (`{_member}`) count as uses.
-    let masked = lx.plain;
+    let masked = lx.plain.replace(USING_LINE, blank).replace(NAMEOF, blank);
     for (const [a, b] of spans) masked = masked.slice(0, a) + ' '.repeat(b - a) + masked.slice(b);
-    // Constructor injection: `member = param;` keeps neither of them in use.
-    masked = masked.replace(/(?:\bthis\s*\.\s*)?\b(\w+)\s*=\s*(\w+)\s*;/g, (all, l, r) => (members.has(l) && params.has(r) ? ' '.repeat(all.length) : all));
+    // Constructor injection: `member = param;` (or `param ?? throw ...;`) keeps neither of them in use.
+    masked = masked.replace(new RegExp(`(?:\\bthis\\s*\\.\\s*)?\\b(\\w+)\\s*=\\s*(\\w+)${GUARD}\\s*;`, 'g'), (all, l, r) => (members.has(l) && params.has(r) ? ' '.repeat(all.length) : all));
     const used = (n) => new RegExp(`\\b${esc(n)}\\b`).test(masked);
     if ([...params].some(used) || [...members].some(used)) continue;
     declOnly[name] = [...members].sort().join(', ');

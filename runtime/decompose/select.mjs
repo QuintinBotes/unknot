@@ -64,6 +64,29 @@ const EVIDENCE_FOR = {
   'tests.present': 'tests that cover the scope',
 };
 
+const DRIVER_NEEDS = { independent_deploy: 'independent deployment', independent_scale: 'independent scaling', availability_isolation: 'availability isolation', security_isolation: 'security isolation', technology_divergence: 'a different technology stack', team_autonomy: 'team autonomy', build_time: 'a faster build' };
+const TREATMENT_WORDS = { T0: 'retaining', T1: 'modularizing in place', T2: 'modularizing in place', T4: 'modularizing in place', T5: 'an additive contract change', T6: 'annotating data ownership', T8: 'modularizing in place', T9: 'a read-only BFF endpoint' };
+
+/** The predicates a treatment fails (signal, value, threshold; one per signal), from an evaluation's checked list. */
+function failedPredicates(e, c) {
+  const items = new Map([...(c.applicability_signals ?? []), ...(c.preconditions ?? []), ...(c.contraindications ?? [])].map((i) => [i.id, i]));
+  const seen = new Set();
+  return e.checked.filter((x) => x.predicate && ((x.kind === 'applicability' && x.result === 'false') || (x.kind === 'precondition' && x.result === 'false') || (x.kind === 'contraindication' && x.result === 'true' && items.get(x.id)?.hard)))
+    .filter((x) => !seen.has(x.predicate.metric) && seen.add(x.predicate.metric))
+    .map((x) => ({ kind: x.kind, signal: x.predicate.metric, value: x.value, op: x.predicate.op, threshold: x.predicate.value, id: x.id }));
+}
+
+const predicateText = (f) => `${f.signal}=${f.value} (${f.kind === 'contraindication' ? 'contraindicated when' : 'need'} ${f.op} ${f.threshold})`;
+
+/** A rejection line: failed predicates first, then the evidence that is missing, then any other note. */
+function rejection(failed, gaps, ...notes) {
+  const parts = [];
+  if (failed.length) parts.push(`failed: ${failed.map(predicateText).join('; ')}`);
+  if (gaps.length) parts.push(`evidence missing: ${gaps.join(', ')}`);
+  parts.push(...notes.filter(Boolean));
+  return parts.join('; ');
+}
+
 /**
  * Per-predicate readiness of the given treatments: each applicability signal, precondition
  * and contraindication with its measured value, threshold and whether it holds. An
@@ -119,23 +142,25 @@ export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
   const viable = [];
   for (const e of evaluations) {
     if (e.treatment === 'T0') continue;
+    const failed = failedPredicates(e, cards.get(e.treatment));
+    const extra = { ...(failed.length ? { failed_predicates: failed.map(({ id, kind, ...f }) => f) } : {}), ...(e.gaps.length ? { evidence_needed: e.gaps } : {}) };
     if (e.fit === 'contraindicated') {
       const seam = e.checked.find((x) => x.kind === 'precondition' && x.id === 'requests-interceptable' && x.result === 'false');
-      const reasons = e.reasons.filter((r) => r.startsWith('contraindicated') || r.startsWith('precondition')).map((r) => (seam && r.startsWith('precondition') && /routable seam/.test(r) ? SEAM_REASON : r));
-      rejected.push({ treatment: e.treatment, reason: reasons.join('; ') || 'contraindicated' });
+      const other = e.reasons.filter((r) => r.startsWith('contraindicated') || r.startsWith('precondition')).filter((r) => !failed.length || /routable seam/.test(r));
+      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps, ...other.map((r) => (seam && /routable seam/.test(r) ? SEAM_REASON : r))) || 'contraindicated', ...extra });
       continue;
     }
     if (e.fit === 'not_applicable') {
-      rejected.push({ treatment: e.treatment, reason: 'no applicability signal is present' });
+      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps, 'no applicability signal is present'), ...extra });
       continue;
     }
     const serves = SATISFIES[e.treatment].filter((d) => drivers.includes(d));
     if (!DRIVER_FREE.has(e.treatment) && !serves.length) {
-      rejected.push({ treatment: e.treatment, reason: drivers.length ? `does not serve the recorded driver(s): ${drivers.join(', ')}` : 'no decomposition driver is recorded (spec §15A.2)' });
+      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps, drivers.length ? `does not serve the recorded driver(s): ${drivers.join(', ')}` : 'no decomposition driver is recorded (spec §15A.2)'), ...extra });
       continue;
     }
     if (e.fit === 'insufficient_evidence') {
-      rejected.push({ treatment: e.treatment, reason: `insufficient evidence: ${e.gaps.join(', ') || 'unmeasured conditions'}`, evidence_needed: e.gaps });
+      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps) || 'insufficient evidence: unmeasured conditions', ...extra });
       continue;
     }
     viable.push({ ...e, serves });
@@ -171,6 +196,7 @@ export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
   }
   const retain = evaluations.find((e) => e.treatment === 'T0');
   const treatment = chosen ? chosen.treatment === 'T3' && sequence[0] === 'T6' ? 'T6' : chosen.treatment : 'T0';
+  const drivers_not_served = driversNotServed({ treatment: chosen?.treatment ?? 'T0', serves: chosen?.serves ?? [], drivers, evaluations, rejected });
   const gaps = [...new Set(evaluations.flatMap((e) => e.gaps))];
   const favouring = chosen ? chosen.checked.filter((c) => c.kind === 'applicability' && c.result === 'true') : [];
   const confidence = !chosen ? 'medium' : favouring.length >= 2 && gaps.length <= 2 ? 'high' : favouring.length >= 1 ? 'medium' : 'low';
@@ -179,6 +205,7 @@ export function selectTreatment({ target, signals, drivers, thresholds = {} }) {
     sequence,
     card: chosen?.card ?? retain?.card ?? 'decomposition.retain',
     serves: chosen?.serves ?? [],
+    drivers_not_served,
     favoring_signals: favouring.map((c) => ({ signal: c.predicate.metric, value: c.value, source: `measured (${c.id})` })),
     contraindications_checked: (chosen ?? retain)?.checked.filter((c) => c.kind === 'contraindication').map((c) => ({ id: c.id, result: c.result === 'true' ? 'fail' : c.result === 'false' ? 'pass' : 'unknown', value: c.value })) ?? [],
     rejected_treatments: rejected,
@@ -196,4 +223,21 @@ function selectionReason({ treatment, chosen, favouring, drivers }) {
   const why = `${treatment} is the least invasive treatment that fits the measured evidence${chosen.serves.length ? ` and serves ${chosen.serves.join(', ')}` : ''}${names ? ` (favouring: ${names})` : ''}`;
   const notRetain = chosen.serves.length ? `retaining does not serve the recorded driver(s) ${chosen.serves.join(', ')}` : drivers.length ? 'retaining leaves the structural cost this treatment removes in place' : 'a treatment that needs no driver fits, so documenting alone would leave the measured coupling unaddressed';
   return `${why}; not retained because ${notRetain}`;
+}
+
+/**
+ * A recorded driver the chosen treatment does not serve, though a more invasive treatment
+ * would: say so (and why that treatment was not taken) instead of listing only what is served.
+ */
+export function driversNotServed({ treatment, serves, drivers, evaluations, rejected }) {
+  const out = [];
+  for (const driver of drivers) {
+    if (serves.includes(driver)) continue;
+    const would = evaluations.map((e) => e.treatment).filter((t) => t !== 'T0' && INVASIVENESS[t] > INVASIVENESS[treatment] && SATISFIES[t]?.includes(driver))
+      .sort((a, b) => INVASIVENESS[a] - INVASIVENESS[b] || a.localeCompare(b));
+    if (!would.length) continue;
+    const why = would.map((t) => `${t} ${rejected.find((r) => r.treatment === t) ? `was rejected: ${rejected.find((r) => r.treatment === t).reason}` : 'was not chosen'}`).join(' | ');
+    out.push({ driver, would_be_served_by: would, reason: `${TREATMENT_WORDS[treatment] ?? treatment} does not give ${DRIVER_NEEDS[driver] ?? driver}; ${would.join(', ')} would, but ${why}` });
+  }
+  return out;
 }

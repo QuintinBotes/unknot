@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Graph } from '../../../runtime/graph/graph.mjs';
 import {
-  stronglyConnected, shortestCycle, impactCone, fanIn, fanOut, instability, condense, hubs, topoOrder,
+  stronglyConnected, shortestCycle, cycleBreakdown, impactCone, fanIn, fanOut, instability, condense, hubs, topoOrder,
 } from '../../../runtime/graph/algorithms.mjs';
 
 function graphOf(edges, type = 'module') {
@@ -171,4 +171,35 @@ test('resolveRef and neighbourhood: ids, module paths, declared types and bounde
   assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2 }).nodes.length, 3);
   assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2, edgeTypes: ['CALLS'] }).nodes.length, 1);
   assert.equal(neighbourhood(g, ['module:src/x.cs'], { depth: 2, nodeCap: 2 }).capped, true);
+});
+
+test('cycleBreakdown: elementary cycles shortest first, cut set breaks them all', () => {
+  const g = graphOf([['a', 'b'], ['b', 'a'], ['b', 'c'], ['c', 'a'], ['c', 'd'], ['d', 'c']]);
+  const r = cycleBreakdown(g, ['a', 'b', 'c', 'd']);
+  assert.deepEqual(r.cycles.map((c) => c.nodes), [['a', 'b'], ['c', 'd'], ['a', 'b', 'c']]);
+  assert.equal(r.truncated, false);
+  const cutKeys = new Set(r.cut.map((e) => `${e.from}>${e.to}`));
+  const rest = graphOf([]);
+  for (const id of ['a', 'b', 'c', 'd']) rest.addNode(id, 'module');
+  for (const e of g.edges('IMPORTS')) if (!cutKeys.has(`${e.from}>${e.to}`)) rest.addEdge('IMPORTS', e.from, e.to);
+  assert.deepEqual(stronglyConnected(rest), []);
+});
+
+test('cycleBreakdown: declared-only edges are cut first and marked', () => {
+  const g = graphOf([['a', 'b'], ['b', 'c']]);
+  g.addEdge('IMPORTS', 'c', 'a', { declared_only: true, unused_member: 'Foo', line: 7 });
+  const r = cycleBreakdown(g, ['a', 'b', 'c']);
+  assert.deepEqual(r.cut.map((e) => [e.from, e.to, e.declared_only, e.unused_member]), [['c', 'a', true, 'Foo']]);
+  assert.equal(r.cycles[0].edges.find((e) => e.from === 'c').declared_only, true);
+  assert.equal(r.cycles[0].edges.find((e) => e.from === 'a').declared_only, false);
+});
+
+test('cycleBreakdown: caps the cycle list and says so', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+  const g = graphOf(ids.flatMap((x) => ids.filter((y) => y !== x).map((y) => [x, y])));
+  const r = cycleBreakdown(g, ids, { maxCycles: 6 });
+  assert.equal(r.cycles.length, 6);
+  assert.equal(r.truncated, true);
+  assert.ok(r.cycles.every((c, i, l) => !i || l[i - 1].length <= c.length));
+  assert.ok(r.cut.length >= 4);
 });

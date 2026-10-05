@@ -55,5 +55,5 @@ test('polyglot monorepo: with independent_deploy the frontend still needs eviden
     assert.ok(rec.evidence_gaps.length > 0);
   }
   const fe = d.details.find((x) => x.target === 'frontend');
-  assert.ok(fe.rejected_treatments.some((x) => x.treatment === 'T7' && /insufficient evidence/.test(x.reason)));
+  assert.ok(fe.rejected_treatments.some((x) => x.treatment === 'T7' && /evidence missing: /.test(x.reason)));
 });

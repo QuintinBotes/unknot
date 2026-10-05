@@ -1,8 +1,8 @@
 // CLI plumbing shared by every command: argument parsing, who is acting, run lifecycle,
 // output (always redacted), and TTY-only prompts for human decisions.
 
-import { openSync, readSync, closeSync, writeSync, existsSync, realpathSync } from 'node:fs';
-import { userInfo } from 'node:os';
+import { openSync, readSync, closeSync, writeSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
@@ -78,10 +78,21 @@ export function stableUnknot(env = process.env) {
  */
 export function humanCommand(args = '') {
   const a = Array.isArray(args) ? args.join(' ') : String(args);
-  const cmd = `unknot${a ? ` ${a}` : ''}`;
-  if (stableUnknot()) return cmd;
+  if (stableUnknot() || shimInstalled()) return `unknot${a ? ` ${a}` : ''}`;
+  // Until the stable command exists, a bare `unknot` fails in a normal terminal, so the full
+  // path comes first; installing the command is offered once, and never for the install itself.
   const abs = cliPath();
-  return `${cmd}\nIf unknot is not found in your terminal: node ${abs}${a ? ` ${a}` : ''}, or install it once: node ${abs} cli install`;
+  const full = `node ${abs}${a ? ` ${a}` : ''}`;
+  return /^cli\s+install\b/.test(a) ? full : `${full}\n(To type just \`unknot ...\` next time, install the command once: node ${abs} cli install)`;
+}
+
+/** Whether `unknot cli install` wrote its shim to the default directory (what `unknot cli status` reports). */
+export function shimInstalled(dir = join(process.env.HOME || homedir(), '.local', 'bin')) {
+  try {
+    return readFileSync(join(dir, 'unknot'), 'utf8').includes('// unknot-cli-shim');
+  } catch {
+    return false;
+  }
 }
 
 export function requireHumanTTY(what, { args = process.argv.slice(2) } = {}) {

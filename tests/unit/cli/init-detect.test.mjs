@@ -104,3 +104,40 @@ test('Azure pipelines in a subdirectory and their templates are protected; compo
     assert.ok(!d.protectedPaths.some((p) => /Directory\.Build/.test(p)));
   });
 });
+
+test('a command the guidance says not to run is not proposed; test projects are listed instead', () => {
+  repo({
+    'src/Shop.sln': '',
+    'src/Shop.Orders.UnitTests/Shop.Orders.UnitTests.csproj': '<Project/>',
+    'src/Shop.Billing.Tests/Shop.Billing.Tests.csproj': '<Project/>',
+    'AGENTS.md': '## Validating\n\nBuild with `dotnet build src/Shop.sln`. Do not use dotnet test to run all tests in the solution. If needed, test individual unit test projects only.\n',
+  }, (d) => {
+    assert.deepEqual(d.commands.build, ['dotnet', 'build', 'src/Shop.sln']);
+    assert.equal(d.commands.test_unit, undefined);
+    assert.ok(d.notes.some((n) => /^test_unit not proposed: AGENTS\.md \(Validating\) says "Do not use dotnet test/.test(n)));
+    assert.ok(d.notes.some((n) => /run one at a time instead: .*Shop\.Billing\.Tests\.csproj.*Shop\.Orders\.UnitTests\.csproj|run one at a time instead: .*Shop\.Orders\.UnitTests\.csproj/.test(n)));
+    assert.ok(!d.notes.some((n) => /mentions: dotnet test/.test(n)), 'the forbidden form is not offered as a hint');
+  });
+});
+
+test('nested checkouts and agent worktrees are not scanned', () => {
+  repo({
+    'src/Shop.sln': '',
+    '.claude/worktrees/agent-1/src/Other.sln': '',
+    '.claude/worktrees/agent-1/pipelines/ci.yml': 'trigger: [main]\nstages:\n  - stage: a\n',
+    'copy/.git': 'gitdir: /elsewhere\n',
+    'copy/pipelines/ci.yml': 'trigger: [main]\nstages:\n  - stage: a\n',
+  }, (d) => {
+    assert.ok(!d.notes.some((n) => /Other\.sln|\.claude|copy\//.test(n)), d.notes.join('\n'));
+    assert.ok(!d.protectedPaths.some((p) => /\.claude|copy\//.test(p)));
+  });
+});
+
+test('pipeline folders under one proposed path give one note', () => {
+  const yml = 'trigger: [main]\nstages:\n  - stage: a\n';
+  repo({ 'pipelines/a/ci.yml': yml, 'pipelines/b/ci.yml': yml, 'pipelines/c/deploy.yml': yml }, (d) => {
+    const notes = d.notes.filter((n) => /pipelines\/\*\*/.test(n));
+    assert.equal(notes.length, 1, notes.join('\n'));
+    assert.match(notes[0], /3 files/);
+  });
+});

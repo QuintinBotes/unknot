@@ -77,8 +77,8 @@ const EVIDENCE_CAP = 20;
 /** Ids a favouring signal was measured on: its own evidence, else the candidate's members. */
 function evidenceFor(signal, cand) {
   const own = cand.details?.evidence?.[signal];
-  if (own?.length) return own.slice(0, EVIDENCE_CAP);
-  return MEMBER_SIGNAL.test(signal) ? cand.modules.slice(0, EVIDENCE_CAP) : [];
+  if (own?.length) return [...new Set(own)].slice(0, EVIDENCE_CAP);
+  return MEMBER_SIGNAL.test(signal) ? [...new Set(cand.modules)].slice(0, EVIDENCE_CAP) : [];
 }
 
 function provenanceFor(config, cliDrivers, allDrivers, given) {
@@ -115,7 +115,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   for (const t of targets) {
     const modules = (t === 'frontend' ? front : source.filter((n) => !isFrontendModule(graph, n))).map((n) => n.id);
     const affinity = buildAffinity(graph, { modules, weights: d.weights });
-    const found = findCandidates(graph, affinity, { sizeBand: d.size_band, robustness: d.thresholds.robustness });
+    const found = findCandidates(graph, affinity, { sizeBand: d.size_band, robustness: d.thresholds.robustness, eligible: modules });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
     analyses[t] = { modules: modules.length, affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
@@ -140,12 +140,14 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
     const id = existing ?? (dryRun ? 'new' : ctx.store.nextId('DEC', 4));
     const card0 = card(sel.card);
-    const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason }) => ({ treatment, reason }));
+    const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
     const rec = {
       schema_version: '1.0',
       id: id === 'new' ? 'DEC-0000' : id,
       fingerprint,
       graph_generation: gen,
+      // The run that wrote it, so an agent explaining the record can cite a real run.
+      run_id: run?.id ?? null,
       scope: { entries: scope, matched: res.matched, total: res.total },
       target: t,
       driver: allDrivers,
@@ -158,7 +160,11 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         modules: cand.modules,
         robust: Boolean(cand.robust),
         metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))),
+        ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         ...(cand.details?.reverse_targets ? { reverse_dependency_targets: cand.details.reverse_targets } : {}),
+        ...(cand.folded ? { folded_siblings: cand.folded } : {}),
+        ...(cand.details?.owners ? { owners: cand.details.owners, ...(cand.details.unowned ? { unowned_modules: cand.details.unowned } : {}) } : {}),
+        ...(cand.broken_by ? { robustness_detail: { stability: cand.stability, threshold: d.thresholds.robustness, broken_by: cand.broken_by } } : {}),
       },
       treatment: sel.treatment,
       favoring_signals: sel.favoring_signals.map((f) => ({
@@ -166,6 +172,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         evidence: evidenceFor(f.signal, cand),
         source: f.signal.startsWith('driver.') ? 'recorded driver (configuration or --driver)' : `measured: ${f.signal}, graph generation ${gen}`,
       })),
+      ...(sel.drivers_not_served.length ? { drivers_not_served: sel.drivers_not_served } : {}),
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
       readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),

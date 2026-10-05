@@ -8,6 +8,13 @@
     "schema_version": {
       "const": "1.0"
     },
+    "run_id": {
+      "description": "The decompose run that wrote this record.",
+      "oneOf": [
+        { "type": "string", "pattern": "^run-[a-z0-9-]+$" },
+        { "type": "null" }
+      ]
+    },
     "id": {
       "type": "string",
       "pattern": "^DEC-\\d{4,}$"
@@ -64,6 +71,81 @@
           "maxItems": 5,
           "description": "Members with the highest fan-in"
         },
+        "cycle_detail": {
+          "type": "object",
+          "description": "The largest import cycle wholly inside the candidate (boundary.internal_cycle_size): its members, elementary cycles (shortest first, capped; each lists nodes in order, the closing edge implied), and edges whose removal breaks it, declared-only edges first",
+          "properties": {
+            "scope": {
+              "const": "internal"
+            },
+            "size": {
+              "type": "integer"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cycles": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "cycles_truncated": {
+              "type": "boolean"
+            },
+            "cut": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "declared_only": {
+                    "type": "boolean",
+                    "description": "Held only by an injected member that is never used"
+                  },
+                  "unused_member": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "closes": {
+                    "type": "integer",
+                    "description": "Listed cycles this edge closes"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "declared_only"
+                ]
+              }
+            },
+            "declared_only": {
+              "type": "integer",
+              "description": "How many edges to cut are declared-only"
+            }
+          },
+          "required": [
+            "scope",
+            "size",
+            "members",
+            "cycles",
+            "cycles_truncated",
+            "cut"
+          ]
+        },
         "reverse_dependency_targets": {
           "type": "array",
           "items": {
@@ -83,6 +165,101 @@
             "additionalProperties": false
           },
           "maxItems": 10
+        },
+        "folded_siblings": {
+          "type": "array",
+          "description": "Modules outside the clustered members that only members import and that share a member's directory; folded into the candidate",
+          "items": {
+            "type": "object",
+            "properties": {
+              "module": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "module",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "owners": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Owners of the members and their share of the candidate, so owners.count reads with ownership.alignment",
+          "items": {
+            "type": "object",
+            "properties": {
+              "owner": {
+                "type": "string"
+              },
+              "modules": {
+                "type": "integer"
+              },
+              "share": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "owner",
+              "modules",
+              "share"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "unowned_modules": {
+          "type": "integer",
+          "description": "Members with no recorded owner"
+        },
+        "robustness_detail": {
+          "type": "object",
+          "description": "Why a candidate below the robustness threshold is not robust: the runs that moved members",
+          "properties": {
+            "stability": {
+              "type": "number"
+            },
+            "threshold": {
+              "type": "number"
+            },
+            "broken_by": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "run": {
+                    "type": "string"
+                  },
+                  "seed": {
+                    "type": "integer"
+                  },
+                  "moved": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "moved_total": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "run",
+                  "seed",
+                  "moved",
+                  "moved_total"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "broken_by"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -164,6 +341,37 @@
           "reason": {
             "type": "string",
             "minLength": 1
+          },
+          "failed_predicates": {
+            "type": "array",
+            "description": "Predicates the treatment failed, in the order the reason leads with them",
+            "items": {
+              "type": "object",
+              "properties": {
+                "signal": {
+                  "type": "string"
+                },
+                "value": {},
+                "op": {
+                  "type": "string"
+                },
+                "threshold": {}
+              },
+              "required": [
+                "signal",
+                "value",
+                "op",
+                "threshold"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "evidence_needed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Signals not measured that the treatment's decision waits on"
           }
         },
         "required": [
@@ -342,6 +550,33 @@
     "retain_reason": {
       "type": "string",
       "description": "Why the boundary is retained (T0 records only)"
+    },
+    "drivers_not_served": {
+      "type": "array",
+      "description": "Recorded drivers the chosen treatment does not serve although a more invasive treatment would",
+      "items": {
+        "type": "object",
+        "properties": {
+          "driver": {
+            "$ref": "#/$defs/driver"
+          },
+          "would_be_served_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/treatment"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "driver",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

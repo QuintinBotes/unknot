@@ -1,13 +1,14 @@
 // /unknot:decompose [scope] [--target backend|frontend|auto] [--driver id]... (spec §15A.11)
-//   decompose list                 saved records, stale when the graph was rebuilt since
+//   decompose list                 saved records: stale when the graph was rebuilt since, superseded when replaced
 //   decompose show <DEC-id>        one record, with its readiness table
+//   decompose prune [--dry-run]    remove superseded records (never one a campaign or slice references)
 //   --summary                      one line per candidate
 //   --dry-run                      compute and print; write nothing, allocate no ids
 //   --driver-source / --driver-quote   where, and in whose words, the --driver was stated
 
 import { UnknotError } from '../../core/errors.mjs';
 import { decompose } from '../../decompose/index.mjs';
-import { listRecords, showRecord, summaryLine } from '../../decompose/records.mjs';
+import { listRecords, pruneRecords, showRecord, summaryLine } from '../../decompose/records.mjs';
 import { output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
@@ -19,15 +20,22 @@ function showText(rec) {
   const c = rec.candidate;
   const m = c.metrics ?? {};
   const lines = [
-    `${rec.id}  ${c.name}  (${rec.target}, ${c.modules.length} modules, naming basis: ${c.name_basis ?? 'path'})${rec.stale ? '  STALE: the graph was rebuilt since this was written' : ''}`,
+    `${rec.id}  ${c.name}  (${rec.target}, ${c.modules.length} modules, naming basis: ${c.name_basis ?? 'path'})${rec.stale ? '  STALE: the graph was rebuilt since this was written' : ''}${rec.superseded ? `  SUPERSEDED: ${rec.superseded}` : ''}`,
     `Treatment ${rec.treatment}, confidence ${rec.confidence}. ${rec.selection_reason ?? rec.retain_reason ?? ''}`,
     `Drivers: ${rec.driver.join(', ') || 'none recorded'}`,
   ];
   for (const p of rec.driver_provenance ?? []) lines.push(`  ${p.driver}: ${p.source ?? 'no source'}${p.quote ? ` - "${p.quote}"` : ' (no quote: the person\'s words are not recorded)'}`);
   if (rec.scope) lines.push(`Scope: ${rec.scope.entries.length ? rec.scope.entries.join(' ') : 'everything'} (${rec.scope.matched} of ${rec.scope.total} modules)`);
   lines.push('', `Top files: ${(c.top_files ?? []).join(', ') || '-'}`);
+  if (c.folded_siblings?.length) lines.push(`Folded siblings: ${c.folded_siblings.map((f) => `${f.module.replace(/^module:/, '')} (${f.reason})`).join('; ')}`);
+  if (c.owners?.length) lines.push(`Owners (${c.owners.length}${m['owners.count'] > c.owners.length ? ` of ${m['owners.count']}` : ''}): ${c.owners.map((o) => `${o.owner} ${o.modules} modules, ${Math.round(o.share * 100)}%`).join(', ')}${c.unowned_modules ? `; ${c.unowned_modules} unowned` : ''}`);
+  if (c.robustness_detail) lines.push(`Not robust (stability ${c.robustness_detail.stability}, need ${c.robustness_detail.threshold}): ${c.robustness_detail.broken_by.map((b) => `${b.run} (seed ${b.seed}) moved ${b.moved_total}: ${b.moved.slice(0, 3).map((x) => x.replace(/^module:/, '')).join(', ')}${b.moved_total > 3 ? ', ...' : ''}`).join('; ') || 'no single run isolates it'}`);
   lines.push(`Boundary: cohesion ${cell(m['boundary.cohesion'])}, coupling ${cell(m['boundary.coupling'])}, stability ${cell(m['boundary.stability'])}, reverse deps ${cell(m['boundary.reverse_deps'])} (tests: ${cell(m['boundary.reverse_deps_test'])})`);
   if (c.reverse_dependency_targets?.length) lines.push(`Reverse dependency targets: ${c.reverse_dependency_targets.map((t) => `${t.module.replace(/^module:/, '')} x${t.edges}`).join(', ')}`);
+  if (rec.drivers_not_served?.length) {
+    lines.push('', 'Drivers not served:');
+    for (const d of rec.drivers_not_served) lines.push(`  ${d.driver}: ${d.reason}`);
+  }
   if (rec.favoring_signals.length) {
     lines.push('', 'Favouring signals:');
     for (const f of rec.favoring_signals) lines.push(`  ${f.signal}=${f.value}  [${f.source}]  evidence: ${(f.evidence ?? []).slice(0, 5).map((e) => e.replace(/^module:/, '')).join(', ') || '-'}${(f.evidence ?? []).length > 5 ? ` (+${f.evidence.length - 5})` : ''}`);
@@ -54,11 +62,17 @@ export async function run({ positional, flags }) {
       flags[k] = true;
     }
   }
-  const sub = rest[0] === 'list' || rest[0] === 'show' ? rest.shift() : null;
+  const sub = ['list', 'show', 'prune'].includes(rest[0]) ? rest.shift() : null;
   if (sub === 'list') {
     const rows = listRecords(ctx);
     if (flags.json) return output(rows, { json: true });
-    return output(table(rows.map((r) => ({ ...r, stale: r.stale === null ? '?' : r.stale ? 'stale' : '' })), ['id', 'name', 'target', 'treatment', 'confidence', 'size', 'stale']));
+    return output(table(rows.map((r) => ({ ...r, stale: r.stale === null ? '?' : r.stale ? 'stale' : '', superseded: r.superseded ? 'superseded' : '', why: r.superseded ?? '' })), ['id', 'name', 'target', 'treatment', 'confidence', 'size', 'stale', 'superseded', 'why']));
+  }
+  if (sub === 'prune') {
+    const res = pruneRecords(ctx, { dryRun: Boolean(flags.dry_run) });
+    if (flags.json) return output(res, { json: true });
+    const lines = [...res.removed.map((r) => `${res.dry_run ? 'would remove' : 'removed'} ${r.id}  ${r.name}: ${r.reason}`), ...res.kept.map((r) => `kept ${r.id}  ${r.name}: ${r.reason} (superseded: ${r.superseded})`)];
+    return output(lines.length ? lines.join('\n') : 'nothing superseded');
   }
   if (sub === 'show') {
     if (!rest[0]) throw new UnknotError('UK_SCHEMA_INVALID', 'usage: unknot decompose show <DEC-id> [--json]');
