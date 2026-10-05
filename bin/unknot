@@ -3,6 +3,15 @@
 // a dynamic import, which CommonJS allows.
 'use strict';
 
+// A reader that stops early (`unknot map --json | head`) closes stdout. Writing then raises
+// EPIPE, which must not abort the command: a map interrupted that way was never saved.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (err && err.code === 'EPIPE') return;
+    throw err;
+  });
+}
+
 import('../runtime/cli/main.mjs')
   .then(({ main }) => main(process.argv.slice(2)))
   .then((code) => {
