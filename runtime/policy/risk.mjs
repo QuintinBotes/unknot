@@ -9,7 +9,7 @@ const DB_PATHS = ['**/migrations/**', '**/migrate/**', '**/*.sql', '**/schema.pr
 const INFRA_PATHS = ['**/*.tf', '**/*.tfvars', '**/terraform/**', '**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**', '**/kustomize/**', '**/cloudformation/**', '**/*.bicep', '**/Pulumi.*', '**/cdk/**'];
 const IAM_HINT = /iam|role|policy|permission|rbac|serviceaccount|service_account|identity/i;
 const NET_HINT = /firewall|security_group|securitygroup|ingress|egress|route|dns|certificate|gateway|networkpolicy|load_?balancer|vpc|subnet|nat/i;
-export const DEP_MANIFESTS = ['**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/requirements*.txt', '**/pyproject.toml', '**/poetry.lock', '**/go.mod', '**/go.sum', '**/Cargo.toml', '**/Cargo.lock', '**/pom.xml', '**/build.gradle*', '**/Gemfile*', '**/composer.*'];
+export const DEP_MANIFESTS = ['**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/requirements*.txt', '**/pyproject.toml', '**/poetry.lock', '**/go.mod', '**/go.sum', '**/Cargo.toml', '**/Cargo.lock', '**/pom.xml', '**/build.gradle*', '**/Gemfile*', '**/composer.*', '**/*.csproj', '**/*.fsproj', '**/*.vbproj', '**/Directory.Packages.props', '**/packages.config'];
 const RECOVERY_HINT = /backup|snapshot|retention|vault|replica|failover|restore|pitr/i;
 
 const raise = (state, risk, reason) => {

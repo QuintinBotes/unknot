@@ -90,7 +90,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `mode` | `observe`, `plan`, `assist`, `governed`, `campaign` | `plan` | Authority level. See below. |
 | `scope.include` | list of globs | `[]` | Repository paths in scope. Empty means everything. |
 | `scope.exclude` | list of globs | `vendor/**`, `node_modules/**`, `dist/**`, `build/**`, `generated/**`, `**/node_modules/**`, `.git/**`, `.unknot/**` | Paths never mapped or edited. |
-| `protected_paths` | list of globs | `.github/workflows/**`, `**/auth/**`, `**/crypto/**`, `**/migrations/**` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. |
+| `protected_paths` | list of globs | `.github/workflows/**`, `**/auth/**`, `**/crypto/**`, `**/migrations/**` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. `unknot init` also proposes Azure DevOps pipeline directories (found up to depth 4, with the templates they reference) and, for .NET repositories, `Directory.Build.*`, `Directory.Packages.props`, `global.json` and `NuGet.config`. |
 | `generated_paths` | list of globs | `[]` | Treated as generated: never edited as source. `**/vendor/**`, `**/node_modules/**` and `**/dist/**` are always treated this way inside a worktree. |
 | `commands` | map of name to argument list | `{}` | Project commands run through the broker. See below. |
 | `limits` | map | see below | Budgets. |

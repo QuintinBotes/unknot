@@ -333,7 +333,7 @@ describe('classifyRisk (spec 20)', () => {
     for (const t of ['T1', 'T2', 'T4', 'T5', 'T8']) assert.equal(classify({ ...ch('src/a.js'), treatment: t }).risk, 'medium', t);
     assert.equal(classify(ch('src/a.js'), { module_boundary: true }).risk, 'medium');
     assert.equal(classify(ch('src/a.js'), { internal_contract: true }).risk, 'medium');
-    for (const f of ['package.json', 'svc/pnpm-lock.yaml', 'requirements-dev.txt', 'go.mod', 'Cargo.lock', 'pom.xml']) assert.equal(classify(ch(f)).risk, 'medium', f);
+    for (const f of ['package.json', 'svc/pnpm-lock.yaml', 'requirements-dev.txt', 'go.mod', 'Cargo.lock', 'pom.xml', 'src/Orders/Orders.csproj', 'Lib/Lib.fsproj', 'a/Directory.Packages.props', 'src/packages.config']) assert.equal(classify(ch(f)).risk, 'medium', f);
     assert.equal(classify(ch('src/a.js'), { dependency_change: true }).risk, 'medium');
   });
 
