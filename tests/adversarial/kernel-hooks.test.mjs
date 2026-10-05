@@ -3,7 +3,7 @@
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as K from '../helpers/kernel.mjs';
 
