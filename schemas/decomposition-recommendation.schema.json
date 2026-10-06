@@ -181,7 +181,7 @@
             "additionalProperties": false
           },
           "maxItems": 10,
-          "description": "Deprecated since 0.2.0: the same list as outbound_dependency_targets. Removed in 0.3.0."
+          "description": "Written by releases before 0.3.0 (now outbound_dependency_targets); read for older records only."
         },
         "folded_siblings": {
           "type": "array",

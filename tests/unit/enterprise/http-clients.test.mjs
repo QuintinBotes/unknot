@@ -126,7 +126,7 @@ test('decompose: a candidate whose members use a typed client has contracts.pres
   assert.equal(scopeSignals(bare, [])['contracts.present'], 0);
 
   // Extraction is no longer rejected for missing contracts once a client names the routes.
-  const signals = { 'tests.present': 3, 'boundary.robust': 1, 'cycle.size': 0, 'boundary.shared_table_writers': 0, 'boundary.cross_joins': 0, 'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.reverse_deps': 0, 'boundary.calls_per_request_p95': 1, 'requests.interceptable': 1, 'traces.available': 1, 'layer.violations': 2, 'boundary.interface_count': 3, 'boundary.size': 8, 'owners.count': 1, 'driver.any': 1 };
+  const signals = { 'tests.present': 3, 'boundary.robust': 1, 'cycle.size': 0, 'boundary.shared_table_writers': 0, 'boundary.cross_joins': 0, 'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.outbound_dependencies': 0, 'boundary.calls_per_request_p95': 1, 'requests.interceptable': 1, 'traces.available': 1, 'layer.violations': 2, 'boundary.interface_count': 3, 'boundary.size': 8, 'owners.count': 1, 'driver.any': 1 };
   const reasons = (extra) => selectTreatment({ target: 'backend', signals: { ...signals, ...extra }, drivers: ['independent_deploy'] }).rejected_treatments.map((x) => x.reason).join('\n');
   assert.match(reasons({}), /evidence missing: [^\n]*contracts\.present/);
   assert.match(reasons({ 'contracts.present': 0 }), /failed: contracts\.present=0/);

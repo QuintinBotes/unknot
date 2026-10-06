@@ -49,7 +49,6 @@ describe('a record names each metric once', () => {
     const m = rec.candidate.metrics;
     assert.ok(m['boundary.outbound_dependencies'] > m['boundary.outbound_dependency_modules']);
     assert.ok(m['boundary.outbound_dependency_modules'] > 0);
-    assert.equal(m['boundary.outbound_dependencies'], m['boundary.reverse_deps'], 'the 0.1.x alias carries the same value');
   });
 
   test('records on every golden fixture are consistent', async () => {

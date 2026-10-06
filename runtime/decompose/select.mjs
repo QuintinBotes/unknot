@@ -120,16 +120,8 @@ export function readinessFor({ target, signals, thresholds = {}, treatments }) {
  * @param {string[]} p.drivers recorded driver ids
  * @returns recommendation core (treatment, evaluations, rejected, gaps, confidence)
  */
-// Metrics renamed for clarity, with the 0.1.x name still accepted until 0.3.0.
-const RENAMED = { 'boundary.outbound_dependencies': 'boundary.reverse_deps', 'boundary.outbound_dependencies_test': 'boundary.reverse_deps_test' };
-const withRenames = (signals) => {
-  const out = { ...signals };
-  for (const [now, before] of Object.entries(RENAMED)) if (out[now] === undefined && out[before] !== undefined) out[now] = out[before];
-  return out;
-};
-
 export function selectTreatment({ target, signals: given, drivers, thresholds = {} }) {
-  const signals = withRenames(given);
+  const signals = given;
   const cards = new Map([...treatmentCards(target)].map(([t, c]) => [t, withThresholds(c, thresholds)]));
   // Missing tests do not rule out a behaviour-preserving treatment; they put a
   // characterization slice in front of it (spec §32 Scenario A). Evaluate as if tests

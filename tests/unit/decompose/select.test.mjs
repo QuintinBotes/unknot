@@ -4,7 +4,7 @@ import { selectTreatment } from '../../../runtime/decompose/select.mjs';
 
 const base = {
   'tests.present': 3, 'boundary.robust': 1, 'cycle.size': 0, 'boundary.shared_table_writers': 0, 'boundary.cross_joins': 0,
-  'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.reverse_deps': 0,
+  'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.outbound_dependencies': 0,
   'boundary.calls_per_request_p95': 1, 'requests.interceptable': 1, 'traces.available': 1, 'layer.violations': 2,
   'boundary.interface_count': 3, 'boundary.size': 8, 'owners.count': 1, 'contracts.present': 1,
 };

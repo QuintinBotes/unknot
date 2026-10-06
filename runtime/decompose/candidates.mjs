@@ -220,20 +220,18 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   }
   m['boundary.interface_count'] = ifn.size;
   // Outbound: imports from the candidate into the rest, i.e. what the candidate depends on.
-  // `reverse_deps*` are the 0.1.x names of the same numbers, kept until 0.3.0.
-  m['boundary.outbound_dependencies'] = m['boundary.reverse_deps'] = reverseEdges.length;
-  m['boundary.outbound_dependencies_test'] = m['boundary.reverse_deps_test'] = reverseTest.length;
+  m['boundary.outbound_dependencies'] = reverseEdges.length;
+  m['boundary.outbound_dependencies_test'] = reverseTest.length;
   // The same imports counted by the distinct modules they reach: 25 import edges into 2 modules
   // is two measures with two names, not one name with two values.
   m['boundary.outbound_dependency_modules'] = reverseTargets.size;
   if (lowReverse) {
-    m['boundary.outbound_dependencies_low_confidence'] = m['boundary.reverse_deps_low_confidence'] = lowReverse;
+    m['boundary.outbound_dependencies_low_confidence'] = lowReverse;
     gaps.push(`${lowReverse} import(s) from the candidate into the rest were resolved only by namespace (low confidence) and are not counted in outbound_dependencies`);
   }
   details.reverse_targets = [...reverseTargets].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([module, edges]) => ({ module, edges }));
   details.evidence = {
     'boundary.outbound_dependencies': reverseEdges,
-    'boundary.reverse_deps': reverseEdges,
     'boundary.interface_count': [...ifn].sort(),
   };
   m['boundary.size'] = members.size;

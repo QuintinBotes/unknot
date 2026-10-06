@@ -127,8 +127,8 @@ describe('folded siblings', () => {
   test('a folded module stops counting as a reverse dependency', () => {
     const outside = boundaryMetrics(g, new Set(ids(['orders/a', 'orders/b'])), { tableOwners: new Map(), sccs: [], candidateOf: () => null, self: 0 });
     const folded = boundaryMetrics(g, new Set(ids(['orders/a', 'orders/b', 'orders/helper', 'orders/deep'])), { tableOwners: new Map(), sccs: [], candidateOf: () => null, self: 0 });
-    assert.equal(outside.metrics['boundary.reverse_deps'], 3);
-    assert.equal(folded.metrics['boundary.reverse_deps'], 2);
+    assert.equal(outside.metrics['boundary.outbound_dependencies'], 3);
+    assert.equal(folded.metrics['boundary.outbound_dependencies'], 2);
   });
 });
 
@@ -136,7 +136,7 @@ describe('folded siblings', () => {
 
 const base = {
   'tests.present': 3, 'boundary.robust': 1, 'cycle.size': 0, 'boundary.shared_table_writers': 0, 'boundary.cross_joins': 0,
-  'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.reverse_deps': 0,
+  'boundary.cross_transactions': 0, 'ownership.alignment': 0.95, 'module.co_change_leak': 0.05, 'boundary.outbound_dependencies': 0,
   'boundary.calls_per_request_p95': 1, 'requests.interceptable': 0, 'traces.available': 1, 'layer.violations': 2,
   'boundary.interface_count': 3, 'boundary.size': 8, 'owners.count': 1, 'contracts.present': 1, 'module.consumers': 4,
   'driver.any': 1, 'driver.independent_deploy': 1,
@@ -145,13 +145,13 @@ const select = (signals) => selectTreatment({ target: 'backend', signals: { ...b
 
 describe('rejection reasons', () => {
   test('a treatment that fails two predicates leads with both, signal, value and threshold', () => {
-    const t3 = select({ 'boundary.reverse_deps': 12, 'ownership.alignment': 0.3 }).rejected_treatments.find((x) => x.treatment === 'T3');
+    const t3 = select({ 'boundary.outbound_dependencies': 12, 'ownership.alignment': 0.3 }).rejected_treatments.find((x) => x.treatment === 'T3');
     assert.match(t3.reason, /^failed: ownership\.alignment=0\.3 \(contraindicated when < 0\.8\); boundary\.outbound_dependencies=12 \(contraindicated when > 3\)/);
     assert.deepEqual(t3.failed_predicates.map((f) => [f.signal, f.value, f.op, f.threshold]).slice(0, 2), [['ownership.alignment', 0.3, '<', 0.8], ['boundary.outbound_dependencies', 12, '>', 3]]);
   });
 
   test('missing evidence follows the failed predicates', () => {
-    const t3 = select({ 'boundary.cross_transactions': undefined, 'boundary.reverse_deps': 12 }).rejected_treatments.find((x) => x.treatment === 'T3');
+    const t3 = select({ 'boundary.cross_transactions': undefined, 'boundary.outbound_dependencies': 12 }).rejected_treatments.find((x) => x.treatment === 'T3');
     const failed = t3.reason.indexOf('failed:');
     const missing = t3.reason.indexOf('evidence missing:');
     assert.ok(failed === 0 && missing > failed, t3.reason);
@@ -159,7 +159,7 @@ describe('rejection reasons', () => {
   });
 
   test('--summary and show carry the same line', () => {
-    const r = select({ 'boundary.reverse_deps': 12 });
+    const r = select({ 'boundary.outbound_dependencies': 12 });
     const rec = { id: 'DEC-0001', candidate: { name: 'Shop.Orders', modules: ['a', 'b'] }, treatment: r.treatment, confidence: 'medium', rejected_treatments: r.rejected_treatments };
     const next = summaryLine(rec).next_rejected;
     const [t, ...reason] = next.split(': ');

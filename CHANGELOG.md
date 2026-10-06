@@ -4,7 +4,7 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-06
 
 ### Added
 
@@ -14,6 +14,10 @@ All notable changes are documented here. The format follows
 - `unknot workspace map` links a client route in one repository to the endpoint that serves it in another (#30), by method plus path template (`{id}` and `{orderId}` match; slashes, query strings and the method's case do not matter; an endpoint for any method answers every client method), with a `CONSUMES` edge from the client `contract` node to the `endpoint` node. Client routes nothing serves are listed as unmatched in `workspace map` and `workspace graph`, and `unknot graph edges <node> --workspace` shows the links of a node in the combined graph.
 
 - A documented runtime import for decompose evidence (#36): `unknot import runtime <file> [--source <label>]` reads CSV or JSON rows (`caller, callee, operation, count, p95_ms, error_rate, window`), matches each caller and callee onto a module, symbol, route or service node, stores the rows with their window, source and import time, and reports the matched rows and the first 20 unmatched with why. Importing the same file again changes nothing; a newer import with the same source replaces the older. `decompose` measures `runtime.cross_boundary_calls`, `runtime.cross_boundary_p95_ms` and `runtime.cross_boundary_error_rate` for each candidate, labelled observed with their window (`runtime_evidence` in the record), and static evidence alone now caps an extraction (T3, T6, T7) at `medium` until `runtime.boundary_coverage` (the share of the candidate's boundary edges that runtime rows connect) reaches 0.5. The format, matching rules and an export recipe for an OpenTelemetry-compatible trace backend are in `docs/runtime-evidence.md`.
+
+### Removed
+
+- The deprecated 0.1.x names `boundary.reverse_deps`, `boundary.reverse_deps_test`, `boundary.reverse_deps_low_confidence` and the record field `reverse_dependency_targets`, as announced in 0.2.0: use `boundary.outbound_dependencies*` and `outbound_dependency_targets`. Pattern cards that still use the old names no longer match. Records written by earlier releases still display.
 
 ## [0.2.3] - 2026-10-06
 
