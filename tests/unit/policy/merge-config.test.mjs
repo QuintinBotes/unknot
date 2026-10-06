@@ -381,3 +381,11 @@ test('an unaccepted edit can only raise prices; organization pricing replaces', 
   const org = applyOrgPolicy(repo, { limits: { pricing: { input_per_mtok: 1, output_per_mtok: 2 } } });
   assert.deepEqual(org.config.limits.pricing, { input_per_mtok: 1, output_per_mtok: 2 });
 });
+
+describe('repository.publishes_api', () => {
+  test('an organization true overrides a repository false; false never loosens a true', () => {
+    assert.equal(merged(K.cfg({ repository: { publishes_api: false } }), { repository: { publishes_api: true } }).repository.publishes_api, true);
+    assert.equal(merged(K.cfg({ repository: { publishes_api: true } }), { repository: { publishes_api: false } }).repository.publishes_api, true);
+    assert.equal(merged(K.cfg({ repository: { publishes_api: false } }), {}).repository.publishes_api, false);
+  });
+});

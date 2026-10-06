@@ -5,6 +5,7 @@ import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
 import { staleSlices } from '../../plan/staleness.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { humanSteps } from '../../policy/human-steps.mjs';
+import { provenDeletion } from '../../policy/proven.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { output, table } from '../util.mjs';
 import { readMappedScopes } from '../../graph/mapped-scopes.mjs';
@@ -38,6 +39,14 @@ export async function run({ flags }, { unknotOnPath } = {}) {
   } catch {
     // older store
   }
+  // Open slices that are proven deletions, with why; the others with what stands in the way.
+  const proven = { qualifying: [], not_qualifying: [] };
+  for (const s of slices.filter((x) => !['ACCEPTED', 'ABANDONED', 'ROLLED_BACK'].includes(x.state))) {
+    const row = ctx.store.get('SELECT body FROM slices WHERE id = ?', s.id);
+    const v = provenDeletion(ctx, { id: s.id, body: JSON.parse(row.body) }, { config });
+    if (v.qualifies) proven.qualifying.push({ id: s.id, reasons: v.reasons });
+    else proven.not_qualifying.push({ id: s.id, problems: v.problems });
+  }
   const scopes = readMappedScopes(ctx.store);
   const status = {
     mode: config.mode,
@@ -50,6 +59,7 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     blockers: slices.filter((s) => s.state.startsWith('BLOCKED') || s.state === 'NEEDS_REPLAN' || s.state === 'VERIFICATION_FAILED'),
     awaiting_approval: slices.filter((s) => s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY').map((s) => s.id),
     open_obligations,
+    proven_deletion: proven,
     stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
     for_you: humanSteps(ctx, cfg, unknotOnPath === undefined ? {} : { unknotOnPath }),
@@ -68,6 +78,11 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     'Slices:',
     table(slices, ['id', 'campaign_id', 'state', 'risk']),
   ];
+  if (proven.qualifying.length || proven.not_qualifying.length) {
+    lines.push('', 'Proven deletions (one approval from approvals.proven_deletion; a person still signs at a terminal):');
+    for (const q of proven.qualifying) lines.push(`  ${q.id}: proven deletion: yes (${q.reasons.join('; ')})`);
+    for (const q of proven.not_qualifying) lines.push(`  ${q.id}: proven deletion: no (${q.problems.join('; ')})`);
+  }
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (see the block at the end)`);
   for (const s of status.stale_evidence.slices) lines.push(`Stale evidence: slice ${s.slice_id} was planned from ${s.findings.map((f) => f.finding_id).join(', ')}, no longer reported by the current map; re-plan or abandon it.`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);

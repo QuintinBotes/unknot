@@ -26,7 +26,7 @@ export async function run({ positional, flags }) {
   const obligations = ctx.store.all('SELECT id, kind, status, requires_human, evidence_id, body FROM proof_obligations WHERE slice_id = ? ORDER BY CAST(substr(id, 4) AS INTEGER)', s.id).map((o) => ({ id: o.id, kind: o.kind, status: o.status, human: Boolean(o.requires_human), evidence: o.evidence_id, description: JSON.parse(o.body).description }));
   const approvals = ctx.store.all('SELECT id, stage, role, approver, expires_at, revoked_at, revoked_reason FROM approvals WHERE slice_id = ?', s.id);
   const { sliceStanding } = await import('../../policy/lanes.mjs');
-  const st = sliceStanding(s, config);
+  const st = sliceStanding(s, config, ctx);
   const stale = staleEvidence(ctx, s.body);
-  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(stale.length && { stale_evidence: stale }), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
+  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
 }

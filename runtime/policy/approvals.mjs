@@ -9,6 +9,11 @@ import { UnknotError } from '../core/errors.mjs';
 import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 
+/** The role a proven deletion needs by default: satisfied by any registered approver. */
+export const ANY_APPROVER = 'any-approver';
+/** Whether a registered approver may sign as `role` (any registered approver may as ANY_APPROVER). */
+export const holdsRole = (reg, role) => Boolean(reg) && (role === ANY_APPROVER || reg.roles.includes(role));
+
 export const STAGES = Object.freeze(['plan', 'change', 'rollback']);
 
 /** The digest of a slice's approvable content: everything except its lifecycle fields. */
@@ -46,7 +51,7 @@ function statement(binding, role, approver) {
 export function recordApproval(ctx, { config, slice, binding, role, approver, privateKey, actor }) {
   const reg = config.approvers?.[approver];
   if (!reg) throw new UnknotError('UK_POLICY_DENIED', `${approver} is not a registered approver in .unknot/config.yaml`);
-  if (!reg.roles.includes(role)) throw new UnknotError('UK_POLICY_DENIED', `${approver} does not hold role ${role}`);
+  if (!holdsRole(reg, role)) throw new UnknotError('UK_POLICY_DENIED', `${approver} does not hold role ${role}`);
   const pub = publicKeyOf(privateKey);
   if (keyFingerprint(pub) !== keyFingerprint(reg.public_key)) {
     throw new UnknotError('UK_POLICY_DENIED', `the unlocked key is not ${approver}'s registered key`);
@@ -96,7 +101,7 @@ export function evaluateApprovals(ctx, { config, slice, current, needed }) {
     const reasons = [];
     const reg = config.approvers?.[r.approver];
     if (!reg) reasons.push('approver no longer registered');
-    else if (!reg.roles.includes(r.role)) reasons.push('approver no longer holds the role');
+    else if (!holdsRole(reg, r.role)) reasons.push('approver no longer holds the role');
     else if (!verifyText(reg.public_key, statement(binding, r.role, r.approver), r.signature)) reasons.push('signature does not verify');
     for (const f of BOUND_FIELDS) if ((binding[f] ?? null) !== (current[f] ?? null)) reasons.push(`${f} changed`);
     if (new Date(binding.expires_at) <= now()) reasons.push('expired');

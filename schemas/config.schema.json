@@ -191,6 +191,15 @@
         }
       }
     },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publishes_api": {
+          "type": "boolean"
+        }
+      }
+    },
     "quality": {
       "type": "object",
       "additionalProperties": false,
@@ -389,6 +398,13 @@
           }
         },
         "critical": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "proven_deletion": {
           "type": "array",
           "items": {
             "type": "string",
