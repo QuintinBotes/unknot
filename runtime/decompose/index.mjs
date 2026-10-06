@@ -14,6 +14,7 @@ import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { buildAffinity } from './affinity.mjs';
+import { workspaceLinks } from '../enterprise/workspace.mjs';
 import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
 import { fingerprintIndex, fingerprintOf, currentGeneration, loadRecords, predecessorOf } from './records.mjs';
@@ -140,12 +141,13 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   const gen = currentGeneration(ctx);
   const heuristics = [`weights structural=${d.weights.structural} data=${d.weights.data} evolutionary=${d.weights.evolutionary} semantic=${d.weights.semantic}`, `ownership_alignment>=${d.thresholds.ownership_alignment}`, `co_change_leak<=${d.thresholds.co_change_leak}`, `chatty_calls_p95<=${d.thresholds.chatty_calls_p95}`, `robustness>=${d.thresholds.robustness}`, `size_band=${d.size_band.join('-')}`];
   const provenance = allDrivers.length ? provenanceFor(config, drivers, allDrivers, driverProvenance) : [];
+  const workspace = workspaceLinks(ctx);
   const work = [];
   const analyses = {};
   for (const t of targets) {
     const modules = (t === 'frontend' ? front : source.filter((n) => !isFrontendModule(graph, n))).map((n) => n.id);
     const affinity = buildAffinity(graph, { modules, weights: d.weights });
-    const found = findCandidates(graph, affinity, { sizeBand: d.size_band, robustness: d.thresholds.robustness, eligible: modules });
+    const found = findCandidates(graph, affinity, { sizeBand: d.size_band, robustness: d.thresholds.robustness, eligible: modules, workspace });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
     analyses[t] = { modules: modules.length, affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
@@ -205,6 +207,8 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         // Modules outside the candidate that it imports: the candidate depends on them.
         ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets } : {}),
+        ...(cand.details?.contracts ? { contracts: cand.details.contracts } : {}),
+        ...(cand.details?.workspace ? { workspace: cand.details.workspace } : {}),
         ...(cand.folded ? { folded_siblings: cand.folded } : {}),
         ...(cand.details?.owners ? { owners: cand.details.owners, ...(cand.details.unowned ? { unowned_modules: cand.details.unowned } : {}) } : {}),
         ...(cand.broken_by ? { robustness_detail: { stability: cand.stability, threshold: d.thresholds.robustness, broken_by: cand.broken_by } } : {}),

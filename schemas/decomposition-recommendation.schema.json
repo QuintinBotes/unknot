@@ -298,6 +298,35 @@
           },
           "maxItems": 10,
           "description": "Modules outside the candidate that it imports (the candidate depends on them), with the number of import edges to each; the most imported first."
+        },
+        "contracts": {
+          "type": "array",
+          "description": "The routes the candidate has contract evidence for. A route another repository calls or serves, as a workspace map linked them, names those repositories and the time of that map.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "route": { "type": "string" },
+              "source": { "type": "string" },
+              "clients": { "type": "integer" },
+              "interfaces": { "type": "array", "items": { "type": "string" } },
+              "client_repositories": { "type": "array", "items": { "type": "string" }, "description": "Other repositories whose clients call this route" },
+              "served_by": { "type": "array", "items": { "type": "string" }, "description": "Other repositories that serve a route this candidate calls" },
+              "workspace_mapped_at": { "type": "string", "description": "When the workspace map that linked the repositories ran" }
+            },
+            "required": ["route", "source", "clients", "interfaces"],
+            "additionalProperties": false
+          }
+        },
+        "workspace": {
+          "type": "object",
+          "description": "The workspace map behind the cross-repository routes in contracts.",
+          "properties": {
+            "repository": { "type": "string" },
+            "mapped_at": { "type": "string" },
+            "stale": { "type": "boolean", "description": "True when this repository was mapped after the workspace map" }
+          },
+          "required": ["repository", "mapped_at", "stale"],
+          "additionalProperties": false
         }
       },
       "required": [
