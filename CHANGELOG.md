@@ -4,6 +4,13 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- Guidance no longer turns an exception into a repository-wide ban (#25). A sentence is a forbidden command or path only when phrased as a prohibition aimed at the reader ("do not run X", "don't use X", "never X", "X is forbidden / not allowed", "avoid X"); "X will only fail there" and "the sandbox cannot build" are descriptions and are not. Rules under a heading or in a sentence that scopes them to a named actor or environment ("Exception: ci-bot sandbox", "if you are the release bot", "in CI") are recorded with `scope` and `enforced: false`, shown in `guidance_get`, and not applied repository-wide. A command the guidance both requires and forbids repository-wide is reported in `flagged` with both sources and is not enforced; `init`, `apply` and the policy checks skip unenforced rules, and `init` says so. Cursor `.mdc` rules (`globs:`) and Copilot `.github/instructions/*.instructions.md` (`applyTo:`) apply only to paths their globs match.
+- `guidance_get` no longer walks the repository (#26). Guidance files are found by their known names and locations along the requested path's ancestor directories, and parsed files are cached by mtime. The full listing uses `git ls-files` in a git work tree.
+
 ## [0.2.1] - 2026-10-06
 
 ### Changed
