@@ -44,7 +44,7 @@ Only these metric names may appear in predicates. Values are numbers; booleans a
 | `tests.present`, `tests.characterization` | Tests covering scope (count); characterization tests exist (0/1) |
 | `contracts.present` | API/event/schema contracts exist for the boundary (0/1) |
 | `traces.available`, `metrics.available` | Runtime evidence imported (0/1) |
-| `boundary.calls_per_request_p95`, `boundary.cross_transactions`, `boundary.cross_joins`, `boundary.shared_table_writers`, `boundary.reverse_deps`, `boundary.interface_count`, `boundary.size`, `boundary.robust` | Decomposition candidate metrics (spec §15A.4) |
+| `boundary.calls_per_request_p95`, `boundary.cross_transactions`, `boundary.cross_joins`, `boundary.shared_table_writers`, `boundary.outbound_dependencies` (imports from the candidate into the rest; `boundary.reverse_deps` is its 0.1.x name, accepted until 0.3.0), `boundary.interface_count`, `boundary.size`, `boundary.robust` | Decomposition candidate metrics (spec §15A.4) |
 | `requests.interceptable` | Traffic for the capability passes a routable seam (HTTP/queue entry) (0/1) |
 | `service.count`, `service.deploy_coupling`, `service.scaling_divergence`, `service.fan_out_p95` | Services in scope; share of releases deployed together; CV of load; downstream services per request |
 | `ci.per_unit_pipeline`, `ci.present` | Independent pipeline per deployable; any CI (0/1) |

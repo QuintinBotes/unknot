@@ -90,7 +90,7 @@ test('T0 has no contraindications and T3 has at least five hard predicate contra
   const hard = dec.T3.contraindications.filter((c) => c.hard === true && c.predicate);
   assert.ok(hard.length >= 5, `T3 hard contraindications: ${hard.length}`);
   const t3 = new Set(dec.T3.contraindications.map((c) => c.id));
-  for (const id of ['cross-boundary-transactions', 'shared-table-writers', 'low-ownership-alignment', 'chatty-boundary', 'reverse-dependencies', 'not-robust']) {
+  for (const id of ['cross-boundary-transactions', 'shared-table-writers', 'low-ownership-alignment', 'chatty-boundary', 'outbound-dependencies', 'not-robust']) {
     assert.ok(t3.has(id), `T3 missing ${id}`);
   }
   const pre = new Set(dec.T3.preconditions.map((c) => c.id));

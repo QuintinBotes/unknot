@@ -52,9 +52,9 @@ contraindications:
     description: "Heuristic: more than 5 cross-boundary calls per request at p95."
     predicate: { metric: boundary.calls_per_request_p95, op: '>', value: 5 }
     hard: true
-  - id: reverse-dependencies
-    description: "Heuristic: more than 3 edges back from the candidate into the remainder."
-    predicate: { metric: boundary.reverse_deps, op: '>', value: 3 }
+  - id: outbound-dependencies
+    description: "Heuristic: more than 3 imports from the candidate into the rest of the system (what it would still depend on once extracted)."
+    predicate: { metric: boundary.outbound_dependencies, op: '>', value: 3 }
     hard: true
   - id: not-robust
     description: The candidate boundary is unstable.

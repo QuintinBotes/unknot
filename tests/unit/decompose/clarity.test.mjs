@@ -146,8 +146,8 @@ const select = (signals) => selectTreatment({ target: 'backend', signals: { ...b
 describe('rejection reasons', () => {
   test('a treatment that fails two predicates leads with both, signal, value and threshold', () => {
     const t3 = select({ 'boundary.reverse_deps': 12, 'ownership.alignment': 0.3 }).rejected_treatments.find((x) => x.treatment === 'T3');
-    assert.match(t3.reason, /^failed: ownership\.alignment=0\.3 \(contraindicated when < 0\.8\); boundary\.reverse_deps=12 \(contraindicated when > 3\)/);
-    assert.deepEqual(t3.failed_predicates.map((f) => [f.signal, f.value, f.op, f.threshold]).slice(0, 2), [['ownership.alignment', 0.3, '<', 0.8], ['boundary.reverse_deps', 12, '>', 3]]);
+    assert.match(t3.reason, /^failed: ownership\.alignment=0\.3 \(contraindicated when < 0\.8\); boundary\.outbound_dependencies=12 \(contraindicated when > 3\)/);
+    assert.deepEqual(t3.failed_predicates.map((f) => [f.signal, f.value, f.op, f.threshold]).slice(0, 2), [['ownership.alignment', 0.3, '<', 0.8], ['boundary.outbound_dependencies', 12, '>', 3]]);
   });
 
   test('missing evidence follows the failed predicates', () => {

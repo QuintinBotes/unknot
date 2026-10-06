@@ -173,7 +173,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         robust: Boolean(cand.robust),
         metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
-        ...(cand.details?.reverse_targets ? { reverse_dependency_targets: cand.details.reverse_targets } : {}),
+        // Modules outside the candidate that it imports: the candidate depends on them.
+        // reverse_dependency_targets is the 0.1.x name, kept until 0.3.0.
+        ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets, reverse_dependency_targets: cand.details.reverse_targets } : {}),
         ...(cand.folded ? { folded_siblings: cand.folded } : {}),
         ...(cand.details?.owners ? { owners: cand.details.owners, ...(cand.details.unowned ? { unowned_modules: cand.details.unowned } : {}) } : {}),
         ...(cand.broken_by ? { robustness_detail: { stability: cand.stability, threshold: d.thresholds.robustness, broken_by: cand.broken_by } } : {}),
