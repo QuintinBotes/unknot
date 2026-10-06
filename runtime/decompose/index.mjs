@@ -148,7 +148,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     // A boundary whose members changed gets a new id; it names the record it replaces. A record
     // a rerun rewrites keeps the link it had.
     const kept = existing && prior.find((r) => r.id === existing && r.supersedes);
-    const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules }, claimed);
+    const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules, self: existing }, claimed);
     if (pred) claimed.add(pred.id);
     const card0 = card(sel.card);
     const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
