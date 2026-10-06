@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- A decomposition candidate is named after the namespace or folder that a strict majority of its members share, with outliers noted (`Shop.Orders.Checkout (+1 from Shop.Notifications)`), instead of the members' common prefix, which could name a much larger parent namespace. The common prefix is used only when nothing holds a majority (#39).
+
 ## [0.2.2] - 2026-10-06
 
 ### Fixed

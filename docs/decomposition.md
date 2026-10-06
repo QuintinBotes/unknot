@@ -77,7 +77,7 @@ A record's fingerprint is the sha256 of the target, the sorted drivers and the s
 
 ### Names
 
-A candidate is named by the dominant namespace (module attribute `namespace` or `package`) when at least half of its members share it, taking the longest such prefix. Otherwise it is named by the dominant directory below the members' common directory prefix. `candidate.name_basis` says which. When two candidates in one run would share a name, the hub file is appended: `Shop.Catalog (hub ProductService.cs)`. `candidate.top_files` lists up to five members by fan-in.
+A candidate is named after what most of it is: the deepest namespace (module attribute `namespace` or `package`) that a strict majority of its members share, with the members elsewhere noted, as in `Shop.Orders.Checkout (+1 from Shop.Notifications)`. Without a namespace majority, the deepest directory a strict majority share is used the same way. When nothing holds a majority (an even split), the name is the members' common prefix: the namespace, or the common directory prefix with its dominant child. Adding one outlier module to a rerun changes only the note, never the base name. `candidate.name_basis` says which. When two candidates in one run would share a name, the hub file is appended: `Shop.Catalog (hub ProductService.cs)`. `candidate.top_files` lists up to five members by fan-in.
 
 ### Reading the output
 

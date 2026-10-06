@@ -47,7 +47,7 @@ the same document.
 
 For each recommendation (DEC id) show:
 
-- candidate name (and `name_basis`), size and `top_files`; treatment and its sequence (retain,
+- candidate name (and `name_basis`; a note such as `(+1 from Shop.Notifications)` lists members outside the namespace or folder most members share), size and `top_files`; treatment and its sequence (retain,
   modularize in place, extract module, then service or micro-frontend only when justified);
 - boundary metrics: cohesion, coupling, stability, and reverse dependencies (low-confidence
   and test-module edges are counted apart; `outbound_dependency_targets`, what the candidate depends on, lets you check);

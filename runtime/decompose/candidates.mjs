@@ -80,26 +80,49 @@ const namespaceOf = (graph, id) => {
   return [a.namespace, a.package].find((v) => typeof v === 'string' && v) ?? null;
 };
 
-/**
- * Name a candidate: the longest namespace prefix shared by at least half of its members;
- * otherwise the dominant directory below their common directory prefix.
- * @returns {{name: string, basis: 'namespace'|'directory'}}
- */
-export function describeName(modules, graph = null) {
+const OUTLIER_LIST = 3;
+
+/** `base (+n from A, B)`: the outliers grouped by where they live, largest first. */
+function withOutliers(base, outliers) {
+  if (!outliers.length) return base;
+  const from = new Map();
+  for (const o of outliers) from.set(o, (from.get(o) ?? 0) + 1);
+  const ranked = [...from].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([w]) => w);
+  return `${base} (+${outliers.length} from ${ranked.slice(0, OUTLIER_LIST).join(', ')}${ranked.length > OUTLIER_LIST ? `, +${ranked.length - OUTLIER_LIST} more` : ''})`;
+}
+
+/** The deepest prefix of `paths` (arrays of segments) that a strict majority of `total` members share. */
+function majorityPrefix(paths, total) {
   const counts = new Map();
-  for (const m of modules) {
-    const ns = namespaceOf(graph, m);
-    if (!ns) continue;
-    const seg = ns.split('.');
+  for (const seg of paths) {
     for (let i = 1; i <= seg.length; i++) {
-      const pre = seg.slice(0, i).join('.');
-      counts.set(pre, (counts.get(pre) ?? 0) + 1);
+      const key = seg.slice(0, i).join('\u0000');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  const shared = [...counts].filter(([, c]) => c * 2 >= modules.length);
-  if (shared.length) {
-    shared.sort((a, b) => b[0].split('.').length - a[0].split('.').length || b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { name: shared[0][0], basis: 'namespace' };
+  const held = [...counts].filter(([, c]) => c * 2 > total).map(([k, c]) => [k.split('\u0000'), c]);
+  held.sort((a, b) => b[0].length - a[0].length || b[1] - a[1] || a[0].join('.').localeCompare(b[0].join('.')));
+  return held[0]?.[0] ?? null;
+}
+
+const startsWith = (seg, prefix) => prefix.every((p, i) => seg[i] === p);
+
+/**
+ * Name a candidate after what most of it is: the deepest namespace held by a strict majority
+ * of its members, with the members elsewhere noted (`Shop.Orders (+1 from Shop.Billing)`).
+ * Without a namespace majority, the deepest directory a strict majority share gets the same
+ * treatment. When neither holds a majority (an even split) the name is the members' common
+ * prefix: the dominant directory below the common directory prefix. `base` is the name
+ * without the outlier note.
+ * @returns {{name: string, base: string, basis: 'namespace'|'directory'}}
+ */
+export function describeName(modules, graph = null) {
+  const spaces = modules.map((m) => namespaceOf(graph, m));
+  const ns = majorityPrefix(spaces.filter(Boolean).map((s) => s.split('.')), modules.length);
+  if (ns) {
+    const outliers = modules.map((m, i) => (spaces[i] && startsWith(spaces[i].split('.'), ns) ? null : spaces[i] ?? m.replace(/^module:/, '').split('/').slice(0, -1).join('/'))).filter((x) => x !== null);
+    const base = ns.join('.');
+    return { name: withOutliers(base, outliers), base, basis: 'namespace' };
   }
   const parts = modules.map((m) => m.replace(/^module:/, '').split('/').slice(0, -1));
   let prefix = parts[0] ?? [];
@@ -108,13 +131,20 @@ export function describeName(modules, graph = null) {
     while (i < prefix.length && prefix[i] === p[i]) i++;
     prefix = prefix.slice(0, i);
   }
+  const dir = majorityPrefix(parts, modules.length);
+  if (dir && dir.length > prefix.length) {
+    const base = dir.join('/');
+    return { name: withOutliers(base, parts.filter((p) => !startsWith(p, dir)).map((p) => p.join('/') || '.')), base, basis: 'directory' };
+  }
   const below = new Map();
   for (const p of parts) {
     const k = p[prefix.length];
     if (k !== undefined) below.set(k, (below.get(k) ?? 0) + 1);
   }
-  const top = [...below].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
-  return { name: [...prefix, ...(top ? [top] : [])].join('/') || '.', basis: 'directory' };
+  const ranked = [...below].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = ranked.length < 2 || ranked[0][1] > ranked[1][1] ? ranked[0]?.[0] : undefined;
+  const base = [...prefix, ...(top ? [top] : [])].join('/') || '.';
+  return { name: base, base, basis: 'directory' };
 }
 
 /** Kept for callers that name a module list without a graph. */
