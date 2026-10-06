@@ -52,7 +52,18 @@ holds only the combined graph and cross-repository campaigns.
 unknot workspace list           # repositories and whether each is mapped
 unknot workspace map            # map every repository, then build the combined graph
 unknot workspace graph [--json] # summary: repositories, cross-repo edges, shared tables, coupling
+unknot workspace add <name> <path>   # propose a repository (a git root); never touches the accepted config
+unknot workspace remove <name>       # take one out of the proposal
 ```
+
+`add` and `remove` edit only the workspace section of the root's configuration proposal
+(`.unknot/config.proposed.yaml`, created from the accepted configuration or the `init` template
+when there is none) and record `workspace add` as the source of the line for `unknot config diff`.
+They reject a path that is not a git root, a name or path already listed, and a path inside the
+root's own `.unknot/`. A person then runs `unknot config diff` and `unknot config accept`. Until
+then `workspace list` and `workspace map` fail with `UK_WORKSPACE_UNACCEPTED` (the repositories
+are in an unaccepted proposal), distinct from the error for a root that lists none, and
+`unknot status` lists the accept step and says why.
 
 Combined-graph node ids encode the repository: `module:billing:src/a.ts`. Cross-repository
 edges are inferred from: a repository's named `package:` imported as `dependency:<name>`

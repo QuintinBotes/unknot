@@ -9,6 +9,9 @@ All notable changes are documented here. The format follows
 ### Fixed
 
 - Findings keep the detector's `confidence` (it was dropped when a finding was stored), so a proven deletion can qualify on a real unused-member finding (#46). Each proven-deletion problem names the measured value against what is needed (`confidence: low; needs medium or high`, `confidence: none recorded`, `evidence: 1 of 3 entries inferred`). Findings stored by earlier releases have no confidence until `diagnose` runs again. A test now runs the real map, diagnose and proven-deletion check in two languages.
+### Added
+
+- `unknot workspace add <name> <path>` and `workspace remove <name>` (#50) write the workspace repositories into the configuration proposal (never the accepted config), validating a git root, a unique name and path, and a path outside `.unknot/`, and record `workspace add` as the source for `config diff`. `workspace list` and `map` in a root whose repositories are only in an unaccepted proposal fail with the new error code `UK_WORKSPACE_UNACCEPTED`, and `status` says why the accept step is listed.
 
 ## [0.3.2] - 2026-10-06
 

@@ -46,6 +46,7 @@ export function readSources(paths, proposedText) {
 export function sourceLabel(e) {
   if (!e) return 'default';
   if (e.source === 'detected') return `detected: ${e.file}:${e.line}`;
+  if (e.source === 'workspace add') return 'workspace add';
   if (e.source === 'guidance') return `guidance: ${e.file}:${e.line} "${e.sentence}"`;
   return 'default';
 }
