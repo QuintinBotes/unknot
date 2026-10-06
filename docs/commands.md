@@ -111,11 +111,12 @@ Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, t
 
 ### `unknot map [scope...]`
 
-Builds or refreshes the graph. Scope arguments are path prefixes. Unchanged files are served from a cache keyed by content, adapter version and config digest.
+Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumulate: the project records the scopes it has mapped, and `unknot map B` after `unknot map A` maps both, so edges between them stay (unchanged files come from the cache, so the kept scopes cost little). `unknot map` with no scope maps the whole repository and records that; a scoped map after it still covers the whole repository. `--replace` maps exactly the given scopes and says which earlier ones it dropped. A recorded scope that no longer exists on disk is dropped with a notice. The output, `--json` (`scope`) and `unknot status` name the scopes the graph covers. Unchanged files are served from a cache keyed by content, adapter version and config digest.
 
 | Flag | Meaning |
 |---|---|
 | `--adapter a,b` | Run only these adapters. |
+| `--replace` | Map only the given scopes and forget the earlier ones. |
 | `--no-history` | Skip git history (co-change facts). |
 | `--json` | Summary as JSON. |
 

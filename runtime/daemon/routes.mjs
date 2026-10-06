@@ -115,12 +115,13 @@ const handlers = {
   },
 
   map: async (c) => {
-    only(c.body, ['scope', 'adapters', 'history']);
+    only(c.body, ['scope', 'adapters', 'history', 'replace']);
+    if (c.body.replace !== undefined && typeof c.body.replace !== 'boolean') throw bad('"replace" must be a boolean', { field: 'replace' });
     if (c.body.history !== undefined && typeof c.body.history !== 'boolean') throw bad('"history" must be a boolean', { field: 'history' });
     const scope = optStrings(c.body, 'scope');
     const adapters = optStrings(c.body, 'adapters', { max: 64 });
     const summary = await inRun(c, 'map', { scope }, (run) =>
-      mapRepository(c.ctx, { config: c.cfg.config, configDigest: c.cfg.digest, run, scope, only: adapters.length ? adapters : null, history: c.body.history ?? true }),
+      mapRepository(c.ctx, { config: c.cfg.config, configDigest: c.cfg.digest, run, scope, replace: c.body.replace ?? false, only: adapters.length ? adapters : null, history: c.body.history ?? true }),
     );
     return { status: 200, body: summary };
   },

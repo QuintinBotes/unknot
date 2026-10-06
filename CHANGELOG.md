@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Scopes accumulate across maps (#22). `unknot map B` after `unknot map A` maps both, so edges between them no longer vanish silently; the recorded scopes live in store meta and unchanged files come from the per-file cache. `unknot map` with no scope maps and records the whole repository, `--replace` maps exactly the given scopes, and a recorded scope deleted from disk is dropped with a notice. `map` (text and `--json`) and `status` name the covered scopes and what was kept or dropped.
+
 ### Fixed
 
 - Upgrading in place no longer locks a running session out of its shell (#18). `schema_version` in the store now names the oldest release that can use it, and migrations that only add something (like 0.2.0's fact digest) leave it alone, so hooks of 0.1.12 to 0.2.0 keep working once a newer CLI has opened the store; a store a 0.2.0 CLI raised is lowered again. A future migration older releases cannot live with waits while their hooks ran in the project in the last 15 minutes, and says to reload plugins. Hooks that find a store newer than themselves still run reads and read-only commands, refuse the rest, and name the fix: reload plugins or start a new session.

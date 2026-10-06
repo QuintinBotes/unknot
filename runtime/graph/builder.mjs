@@ -13,6 +13,7 @@ import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { matchAny } from '../core/glob.mjs';
 import { parseScope } from '../core/scope.mjs';
+import { resolveScopes } from './mapped-scopes.mjs';
 import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
@@ -52,8 +53,10 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null, branchOk = null }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope: givenScope = [], replace = false, only = null, history = true, adapters = null, branchOk = null }) {
   const t0 = Date.now();
+  const scopes = resolveScopes(ctx, { scope: givenScope, replace });
+  const scope = scopes.effective;
   // Wall time per phase, so a slow map says where the time went (docs/benchmarks.md).
   const phases = {};
   let mark = t0;
@@ -289,7 +292,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   }
 
   lap('history_ms');
-  const ps = parseScope(scope);
+  notes.push(...scopes.notes);
+  const ps = parseScope(givenScope);
   if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
   const totalSource = coverage.reduce((n, c) => n + c.files, 0);
@@ -310,6 +314,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
   const projection = project(ctx, all, { commit, observedAt });
   lap('projection_ms');
+  ctx.store.meta('mapped_scopes', JSON.stringify(scopes.record));
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   // Derived facts are a function of the graph: an unchanged graph keeps the stored ones.
   const derivedDone = ctx.store.get("SELECT 1 AS ok FROM derived WHERE kind = '_done' AND generation = ?", projection.generation);
@@ -319,6 +324,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     commit,
     generation: projection.generation,
     status: failures.length || unavailable.length ? 'partial' : 'complete',
+    scope: { whole: scopes.record.whole, covered: scopes.record.scopes, kept: scopes.kept, dropped: scopes.dropped, missing: scopes.missing },
     files: stats.files,
     by_kind: stats.by_kind,
     cache: { hits: stats.cached, extracted: stats.extracted, hit_rate: stats.cached + stats.extracted ? +(stats.cached / (stats.cached + stats.extracted)).toFixed(3) : null },

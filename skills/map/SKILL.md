@@ -12,13 +12,17 @@ infrastructure) from adapters. It is read-only for source; it writes only `.unkn
 ## 1. Build the graph
 
 Run `unknot map $ARGUMENTS --json` (a scope is a path or glob; none means the whole
-repository). Optional flags only when the user asks: `--adapter <name>` to run one adapter,
+repository). Scopes accumulate: the project remembers the scopes it has mapped and maps their
+union with the new ones, so cross-scope edges stay; a map with no scope covers the whole
+repository. `--replace` maps only the given scopes and drops the earlier ones (use it only when
+the user asks). Optional flags only when the user asks: `--adapter <name>` to run one adapter,
 `--no-history` to skip git history.
 
 Report honestly:
 
 - how many nodes and edges were produced, and the mapped commit;
 - adapters that were unavailable or failed, and what is therefore missing;
+- which scopes the graph covers (`scope` in the summary), and any notice that earlier scopes were kept or dropped;
 - whether the map is partial (scope limit, budget, failed adapter). A partial map is stated as
   partial, never as the architecture. `partial` also means the dominant language has no
   dedicated adapter (see `unavailable` entries named `language:<name>` and the `coverage` list):
