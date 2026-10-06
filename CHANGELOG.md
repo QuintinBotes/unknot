@@ -13,6 +13,10 @@ All notable changes are documented here. The format follows
 ### Added
 
 - `unknot diagnose --objective <decompose|simplify|security>` (and `objective`/`all` on the MCP `findings_list`) ranks findings by relevance to the objective from one table in `runtime/diagnose/objectives.mjs`. For `decompose`, cycles, the unused dependencies that close them, co-change leaks, shared table writers, hubs and misplaced modules come first and generic code-style findings fold into one "N code-style findings hidden (--all to show)" line; `--all` lists them last. JSON carries `objective`, `hidden` and `hidden_kinds`. Output without `--objective` is unchanged, and `/unknot:decompose` uses the decompose objective (#31).
+### Added
+
+- `unknot status` (text and `--json`) and the MCP `status` tool print one block headed "For you, in your own terminal:" with every pending human step as a ready-to-paste command, in order: install the CLI (only when `unknot` does not resolve on a login shell's PATH; a failed or timed-out check counts as unknown, not missing), review and accept a waiting configuration, register an approver key, approve each slice awaiting approval with its role and name, end the active run by id. The human-only refusal and the skills point to this block (#33).
+- `unknot config diff` labels every changed line with its source: `detected: <file>:<line>` for commands found in build files, `guidance: <file>:<line> "<sentence>"` for rules inferred from repository guidance, `default` for template values. Guidance-derived lines (including a command guidance kept out of the proposal) are grouped and marked as needing a person's judgement. `unknot config accept --detected-only` accepts the proposal without them; it stays human-only and uses the same accept path. `init` records the sources in `.unknot/state/config.proposed.sources.json`; the proposal and the accepted config format are unchanged (#34).
 
 ## [0.2.2] - 2026-10-06
 

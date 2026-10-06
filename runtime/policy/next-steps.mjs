@@ -5,7 +5,7 @@
 export const NEXT_STEPS = Object.freeze({
   'state.protected': 'change Unknot state only through the unknot CLI (configuration: a person runs unknot config accept); reading it with cat, Read or unknot status is fine',
   'keys.protected': 'key material is handled only by a person, with unknot keys in their own terminal',
-  'approval.human_only': 'hand the exact command to the person, to run in a separate terminal window',
+  'approval.human_only': "give the person the block headed 'For you, in your own terminal:' from unknot status (or the status tool) to copy into a separate terminal window",
   'secrets.read': 'refer to the value as [REDACTED]; ask the person if the task needs a credential',
   'secrets.write': 'do not write credential files; ask the person',
   'scope.read_outside': 'during a run, read only inside the project; finish the Unknot command first',

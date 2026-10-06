@@ -19,6 +19,8 @@ integrity, store, adapters and their tool dependencies. It does not change anyth
 For every warn or fail give a concrete fix tied to the check, not generic advice. Typical
 cases:
 
+- For every step below that needs a person, run `unknot status` and tell them to copy the
+  block headed "For you, in your own terminal:" into a separate terminal window (not `!`).
 - Configuration not accepted or changed since acceptance: a person runs `unknot config diff`
   then `unknot config accept` in a separate terminal window (not `!`). The `unknot cli` check prints the CLI path and how to install the `unknot` command.
 - No approver registered: a person runs `unknot keys generate <name>`, pastes the printed
