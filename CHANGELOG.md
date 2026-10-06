@@ -4,6 +4,14 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- Store migrations are ordered and named (`runtime/state/migrations.mjs`), recorded in `meta`, and run in one transaction on open; a store newer than the runtime is refused.
+- Saved decomposition records, and slice and campaign bodies shown by tools, are upgraded on read when an older release wrote them (`runtime/state/upgrade.mjs`).
+- `scripts/upgrade-test.mjs` and the `upgrade from previous releases` CI job map a fixture project with each of the last five releases and upgrade it in place with the current checkout.
+
 ## [0.1.15] - 2026-10-06
 
 Fixes from a first attempt to build with Unknot on 0.1.13.

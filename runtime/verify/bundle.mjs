@@ -11,6 +11,7 @@ import { assertArtifact } from '../core/schema.mjs';
 import { stringifyYAML } from '../core/yaml.mjs';
 import { stagePatch } from '../apply/worktree.mjs';
 import { appendEvent } from '../state/ledger.mjs';
+import { upgradeDecomposition } from '../state/upgrade.mjs';
 
 const MEDIA = { json: 'application/json', yaml: 'application/yaml', md: 'text/markdown', patch: 'text/x-diff', jsonl: 'application/x-ndjson' };
 
@@ -52,7 +53,7 @@ export async function emitProofBundle(ctx, { cfg, run, slice, all, pair = null, 
     if (s.startsWith('F-')) return JSON.parse(ctx.store.get('SELECT body FROM findings WHERE id = ?', s)?.body ?? 'null');
     if (s.startsWith('DEC-')) {
       try {
-        return JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${s}.json`), 'utf8'));
+        return upgradeDecomposition(JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${s}.json`), 'utf8')));
       } catch {
         return { id: s, missing: true };
       }

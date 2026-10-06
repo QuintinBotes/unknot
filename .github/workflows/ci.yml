@@ -61,3 +61,21 @@ jobs:
           node-version: '22'
       - name: Validate plugin (strict)
         run: npx --yes @anthropic-ai/claude-code plugin validate --strict .
+
+  upgrade:
+    name: upgrade from previous releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every release tag is archived and run as the "old" version.
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Map with the last five releases, then upgrade the same project in place
+        run: node scripts/upgrade-test.mjs --count 5

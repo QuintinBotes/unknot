@@ -124,3 +124,5 @@ The `Live sessions` workflow runs it nightly with `--install fresh` (a new Claud
 ## Releasing
 
 Releases are built and attested by the workflow in `.github/workflows/release.yml`; the process is in [docs/release.md](docs/release.md).
+
+Before you tag, run `node scripts/upgrade-test.mjs` (the last five tags by default; `--tags v0.1.14,v0.1.15` or `--count N` to choose). It maps a fixture project with each earlier release, then runs the current checkout on the same project and checks the store migrated, finding fingerprints and decomposition ids carried over, changed classifications were re-extracted, and `status` and `doctor` are clean. CI runs it as `upgrade from previous releases`. A release that changes a stored shape must follow the upgrade policy in [docs/operations.md](docs/operations.md#5-upgrades-and-stored-shapes).
