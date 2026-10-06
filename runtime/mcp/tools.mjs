@@ -15,6 +15,7 @@ import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
+import { staleEvidence, staleSlices } from '../plan/staleness.mjs';
 import { loadConfig } from '../policy/config.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
@@ -94,12 +95,14 @@ export const TOOLS = {
     inputSchema: schema(),
     run(ctx) {
       const run = activeRun(ctx.store);
+      const stale = staleSlices(ctx);
       return {
         mode: loadConfig(ctx).config.mode,
         active_run: run ? { id: run.id, command: run.command, state: run.state, slice_id: run.slice_id ?? null, campaign_id: run.campaign_id ?? null } : null,
         graph: { generation: Number(ctx.store.meta('generation') ?? 0), mapped_commit: ctx.store.meta('mapped_commit') || null, mapped_at: ctx.store.meta('mapped_at') ?? null },
         findings_by_status: countBy(ctx, 'findings', 'status'),
         slices_by_state: countBy(ctx, 'slices', 'state'),
+        ...(stale.length && { stale_slices: stale }),
       };
     },
   },
@@ -254,7 +257,8 @@ export const TOOLS = {
         a.id,
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
-      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+      const stale = staleEvidence(ctx, body);
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(stale.length && { stale_evidence: stale }), obligations, approvals };
     },
   },
 

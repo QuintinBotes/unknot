@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { staleEvidence } from '../plan/staleness.mjs';
 import { abandon, finishApply, loadSlice, replan, startApply } from '../apply/apply.mjs';
 import { canonicalJSON } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
@@ -80,7 +81,7 @@ const sliceRow = (ctx, id) => {
   return row;
 };
 
-const sliceView = (row) => ({ id: row.id, campaign_id: row.campaign_id, state: row.state, risk: row.risk, branch: row.branch, baseline_commit: row.baseline_commit, diff_hash: row.diff_hash, version: row.version, body: JSON.parse(row.body) });
+const sliceView = (row, stale = []) => ({ id: row.id, campaign_id: row.campaign_id, state: row.state, risk: row.risk, branch: row.branch, baseline_commit: row.baseline_commit, diff_hash: row.diff_hash, version: row.version, body: JSON.parse(row.body), ...(stale.length && { stale_evidence: stale }) });
 
 const ok = (body, version) => ({ status: 200, body, headers: version === undefined ? {} : { etag: etagFor(version) } });
 
@@ -165,7 +166,7 @@ const handlers = {
 
   getSlice: (c) => {
     const row = sliceRow(c.ctx, c.params.id);
-    return ok(sliceView(row), row.version);
+    return ok(sliceView(row, staleEvidence(c.ctx, JSON.parse(row.body))), row.version);
   },
 
   // Spec §16.3: approval stays with humans who hold keys. This is a hard refusal, not a
