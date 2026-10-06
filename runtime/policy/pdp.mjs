@@ -10,6 +10,7 @@ import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.
 import { unknotHome } from '../core/project.mjs';
 import { profileFor } from './capability.mjs';
 import { COMMANDS } from '../state/runs.mjs';
+import { basenameOf, effectiveCommands, parseShell } from '../core/shell.mjs';
 import { judgeShell } from './commands.mjs';
 import { modeRank } from './defaults.mjs';
 
@@ -59,6 +60,37 @@ export function toOperation(toolName, input = {}, cwd) {
  * Protections that apply whenever the project is initialised, run or no run: the
  * runtime's own state, configuration, decisions and keys are never model-writable.
  */
+const HUMAN_ONLY_TEXT = /\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b/;
+// Commands whose arguments and input are data: words in them name nothing that runs. Anything
+// else (a shell, eval, xargs, an interpreter, a package runner) may run text as code.
+const DATA_ONLY = new Set(['cat', 'echo', 'printf', 'tee', 'gh', 'git', 'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut', 'tr', 'ls', 'mkdir', 'touch', 'cp', 'mv', 'diff', 'jq', 'true', 'cd', 'pwd', 'test', '[']);
+
+/**
+ * Does this command run a human-only unknot subcommand? Judged on the commands that would run
+ * (wrappers such as `bash -c`, `eval`, `env` and `sudo` unwrapped), so a heredoc body or a quoted
+ * argument that only mentions one is data. When the text mentions one and the command cannot be
+ * read that precisely (unparseable, a computed command word, an interpreter, a git alias), it
+ * counts as running it.
+ */
+function humanOnlyCommand(cmd) {
+  if (!HUMAN_ONLY_TEXT.test(cmd)) return false;
+  const parsed = parseShell(cmd);
+  if (!parsed.ok) return true;
+  for (const c of effectiveCommands(parsed)) {
+    const word = c.argv[0];
+    if (!word || word.dynamic) return true;
+    const name = basenameOf(word);
+    if (name === 'unknot') {
+      if (HUMAN_ONLY_TEXT.test(`unknot ${c.argv.slice(1).map((w) => w.value).join(' ')}`)) return true;
+      continue;
+    }
+    if (!DATA_ONLY.has(name)) return true;
+    // git and gh run shell text through aliases (`!cmd`) and git rebase --exec.
+    if ((name === 'git' || name === 'gh') && c.argv.some((w) => /alias|^!|^--exec|^-x$/.test(w.value))) return true;
+  }
+  return false;
+}
+
 export function alwaysOn(ctx, op, { pluginRoot } = {}) {
   const home = realpathLenient(unknotHome());
   if (op.op === 'fs.read' || op.op === 'fs.write') {
@@ -76,7 +108,7 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
   }
   if (op.op === 'exec') {
     const cmd = op.command;
-    if (/\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b/.test(cmd)) {
+    if (humanOnlyCommand(cmd)) {
       return deny('approval.human_only', "approvals, lanes, keys, config acceptance and ending runs are done by a person in a separate terminal window (Claude Code's ! prefix is not interactive); hand the exact command to the user");
     }
     if (/(^|[\s;|&])(sqlite3?|python3?|node|perl|ruby)\b[^\n]*\.unknot\/state/.test(cmd) || /\.config\/unknot|UNKNOT_HOME=/.test(cmd)) {

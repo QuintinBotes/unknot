@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- The human-only rule judges the commands that would run, not the words in the command text (#40): a heredoc body, a quoted argument or a commit message that mentions `unknot approve` is data. `bash -c`, `eval`, `env` and similar wrappers are unwrapped and still refused, and when the text mentions a human-only command and the command cannot be read that precisely (a shell or interpreter reading text as code, a package runner, a git or gh alias, a computed command word, an unparseable line), it is refused as before.
+
 ## [0.2.2] - 2026-10-06
 
 ### Fixed
