@@ -11,6 +11,7 @@ const MARKERS = [
   ['pipe-to-shell', /\b(curl|wget|fetch)\b[^\n|]{0,200}\|\s*(ba|z|da|k)?sh\b/i],
   ['destructive', /\brm\s+-[a-z]*r[a-z]*f?\s+(\/|~|\$HOME|\*)|\bdrop\s+(table|database)\b|\bterraform\s+destroy\b|\bgit\s+push\s+--force\b/i],
   ['approval-claim', /\b(this (change|slice|pr) (is|has been) (pre-?)?approved|approval (is )?(not required|granted)|skip (the )?(approval|review|verification|tests))\b/i],
+  ['self-approval', /\b(agents?|ais?|assistants?|claude|you|bots?)\s+(may|can|could|are (allowed|permitted|authori[sz]ed) to|is (allowed|permitted) to)\s+(approve|merge|sign off)\b|\bauto-?approv|\b(approve|merge|sign off)\s+(on\s+)?(their|its|your|own)\s+own\b|\bbypass(ing)?\s+(the\s+)?(approvals?|sandbox|policy|hooks?)\b/i],
 ];
 
 /** @returns {{kind: string, excerpt: string}[]} */
