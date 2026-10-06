@@ -8,6 +8,7 @@ import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
+import { runtimeBoundary } from './runtime-evidence.mjs';
 
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
@@ -381,5 +382,10 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const perRequest = services.flatMap((sv) => graph.out(sv.id, 'RUNTIME_CALLS').map((e) => e.attrs.per_request_p95 ?? 0));
   if (perRequest.length) m['boundary.calls_per_request_p95'] = Math.max(...perRequest);
   else if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
+  // Measured traffic across the boundary (imported tables or traces), with the window it covers.
+  const rt = runtimeBoundary(graph, members);
+  Object.assign(m, rt.metrics);
+  gaps.push(...rt.gaps);
+  if (rt.runtime) details.runtime = rt.runtime;
   return { metrics: m, gaps, details };
 }

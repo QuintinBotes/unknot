@@ -7,6 +7,7 @@ import { parseArgs } from './util.mjs';
 export const COMMANDS = {
   init: 'Detect tools and propose .unknot/config.proposed.yaml',
   map: 'Build or refresh the system graph [scope]',
+  import: 'Import a runtime call table (counts, p95, errors) as decompose evidence runtime <file> [--source label]',
   diagnose: 'Find and rank simplification opportunities [scope]',
   explain: 'Evidence, uncertainty, alternatives and pattern fit for a finding <F-id>',
   decompose: 'Find decomposition boundaries and pick the least invasive treatment [scope]',
