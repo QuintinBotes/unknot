@@ -13,7 +13,7 @@ import { frameworkInfo } from './frameworks.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -153,6 +153,10 @@ function extract(file, text, ctx) {
     const r = csharpRefs(lx, an);
     attrs.refs = r.refs;
     if (Object.keys(r.declOnly).length) attrs.decl_only = r.declOnly;
+    if (Object.keys(r.declPublic).length) attrs.decl_public = r.declPublic;
+    attrs.words = r.words;
+    attrs.accessed = r.accessed;
+    if (r.publicMembers.length) attrs.public_members = r.publicMembers;
   }
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
@@ -433,7 +437,7 @@ function link(ctx) {
       for (const e of cs.edges) {
         resolved.add(e.to);
         push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
-          spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member }),
+          spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member, member_visibility: e.member_visibility }),
         }, prov_(path, e.line)));
       }
       for (const imp of cs.externals) {
@@ -443,6 +447,9 @@ function link(ctx) {
       }
       delete a.refs;
       delete a.decl_only;
+      delete a.decl_public;
+      delete a.words;
+      delete a.accessed;
     }
     for (const imp of a.language === 'csharp' ? [] : a.imports ?? []) {
       const r = resolve(path, a, imp);

@@ -35,6 +35,25 @@ export function laneProblems(slice, config) {
   return problems;
 }
 
+/**
+ * Why a slice has its risk, who must approve it, and whether a lane could cover it (and if not,
+ * what stands in the way), for plan output and slice views. Computed from the slice as stored.
+ */
+export function sliceStanding(slice, config) {
+  const c = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {} });
+  const needed = requiredApprovals(c, config);
+  const problems = laneProblems({ ...slice, state: slice.state === 'PLANNED' ? 'AWAITING_APPROVAL' : slice.state }, config);
+  return {
+    risk: slice.risk,
+    risk_reasons: c.reasons.length ? c.reasons : ['no risk factor found'],
+    approvals: needed,
+    lane: problems.length ? { eligible: false, problems } : { eligible: true, problems: [] },
+  };
+}
+
+/** One line: `lane: eligible` or `lane: not eligible (medium risk; needs a+b ...)`. */
+export const laneLine = (st) => (st.lane.eligible ? 'lane: eligible' : `lane: not eligible (${st.lane.problems.join('; ')})`);
+
 /** The lane a person would sign for a campaign, with the slices it covers and those it leaves out. */
 export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, maxFiles = LANE_DEFAULTS.max_changed_files, maxLines = LANE_DEFAULTS.max_diff_lines, expiry = LANE_DEFAULTS.expiry }) {
   const bad = kinds.filter((k) => !LANE_KINDS.includes(k));

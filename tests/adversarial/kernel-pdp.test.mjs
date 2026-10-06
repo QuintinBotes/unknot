@@ -98,6 +98,8 @@ describe('human-only commands cannot be reached through shell tricks', () => {
       "cat >> notes.md <<'EOF'\nThe state lives in .unknot/config.yaml\nEOF",
       'echo "see .unknot/decisions.jsonl" >> notes.md',
       "printf '%s\\n' '.unknot is local state' > docs/x.md",
+      'cp .unknot/docs/proposals/x.json /tmp/x.json',
+      'cp .unknot/config.yaml /tmp/config-copy.yaml',
     ]) assert.equal(bash(cmd), null, cmd);
   });
 
@@ -119,6 +121,13 @@ describe('human-only commands cannot be reached through shell tricks', () => {
     'for x in .unknot/config.yaml; do echo hi > $x; done',
     "sed -i s/plan/campaign/ .unk''not/config.yaml",
     'echo hi | tee -a .unknot/decisions.jsonl',
+    // A copy may read .unknot; it may not write into it, however the destination is spelled.
+    'cp -t .unknot /tmp/x',
+    'cp --target-directory=.unknot/state /tmp/x',
+    'cp .unknot/config.yaml .unknot/decisions.jsonl',
+    "cp /tmp/x .unk''not/config.yaml",
+    'D=.unknot/config.yaml; cp /tmp/x "$D"',
+    'cp /tmp/x .unknot/conf*.yaml',
   ];
   for (const cmd of viaProgram) test(`denies ${JSON.stringify(cmd)}`, () => assert.equal(bash(cmd)?.decision, 'deny'));
 });

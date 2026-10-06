@@ -229,3 +229,65 @@ test('declared-only: a using alias of the type does not make an unused member us
   });
   assert.equal(g.edge('S/Host.cs', 'S/Tool.cs').attrs.declared_only, true);
 });
+
+// A public member can be used from another file, so the marker is decided across the repository.
+const hostWith = (member) => cls('Shop.Svc', 'Host', `        [Dependency]\n        ${member}`);
+
+test('declared-only: a public member nobody else touches stays marked, with its visibility', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger'),
+    'S/Host.cs': hostWith('public Ledger Ledger { get; set; }'),
+    'S/Other.cs': cls('Shop.Svc', 'Other', '        Ledger Log() { return null; }\n        void F() { var x = 1; }'),
+  });
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.equal(a.declared_only, true);
+  assert.equal(a.member_visibility, 'public');
+  assert.equal(a.unused_member, 'Ledger');
+});
+
+test('declared-only: a private member is marked private', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger'),
+    'S/Host.cs': cls('Shop.Svc', 'Host', '        private readonly Ledger _log;\n        public Host(Ledger log) { _log = log; }'),
+  });
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.equal(a.declared_only, true);
+  assert.equal(a.member_visibility, 'private');
+});
+
+test('declared-only: a public member used from another file is an ordinary edge', () => {
+  for (const use of ['void F(Host service) { service.Ledger.Write(); }', 'Host Make() { return new Host { Ledger = null }; }', 'void F(Host h) { h?.Ledger?.Write(); }']) {
+    const g = build({
+      'S/Ledger.cs': cls('Shop.Svc', 'Ledger'),
+      'S/Host.cs': hostWith('public Ledger Ledger { get; set; }'),
+      'S/Other.cs': cls('Shop.Svc', 'Other', `        ${use}`),
+    });
+    assert.ok(!g.edge('S/Host.cs', 'S/Ledger.cs').attrs.declared_only, use);
+  }
+  // A member whose name is no type is also reached by a bare name (a derived class).
+  const g = build({
+    'S/Audit.cs': cls('Shop.Svc', 'Audit'),
+    'S/Host.cs': hostWith('public Audit Journal { get; set; }'),
+    'S/Derived.cs': cls('Shop.Svc', 'Derived : Host', '        void F() { Journal.Write(); }'),
+  });
+  assert.ok(!g.edge('S/Host.cs', 'S/Audit.cs').attrs.declared_only);
+});
+
+test('declared-only: a mention of the type alone does not count as use of the member elsewhere', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public void Write() { }'),
+    'S/Host.cs': hostWith('public Ledger Ledger { get; set; }'),
+    'S/Other.cs': cls('Shop.Svc', 'Other', '        void F(Ledger log) { log.Write(); }'),
+  });
+  assert.equal(g.edge('S/Host.cs', 'S/Ledger.cs').attrs.declared_only, true);
+});
+
+test('public injected members are recorded for the API check and link-only sets are dropped', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger'),
+    'S/Host.cs': hostWith('public Ledger Ledger { get; set; }\n        private readonly Ledger _x;'),
+  });
+  const m = g.factsByFile.get('S/Host.cs').find((f) => f.type === 'module');
+  assert.deepEqual(m.attrs.public_members, ['Ledger']);
+  for (const k of ['decl_public', 'words', 'accessed']) assert.equal(m.attrs[k], undefined, k);
+});

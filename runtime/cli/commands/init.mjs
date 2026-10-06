@@ -284,13 +284,39 @@ export async function run({ flags }) {
     approvals: { expiry: '72h' },
     telemetry: { enabled: false },
   };
-  writeFileSync(ctx.paths.proposedConfig, stringifyYAML(proposed));
-  appendEvent(ctx, { type: 'config.proposed', actor, payload: { commands: Object.keys(d.commands) } });
+  // With a configuration already accepted, a fresh default proposal would drop its mode and
+  // approvers on acceptance. Propose the accepted one plus what is newly detected instead.
+  const acceptedText = ctx.store.meta('accepted_config_text');
+  let update = null;
+  if (acceptedText) {
+    const { parseConfigText } = await import('../../policy/config.mjs');
+    const accepted = parseConfigText(acceptedText, '<accepted>');
+    const commands = Object.fromEntries(Object.entries(d.commands).filter(([k]) => !accepted.commands?.[k]));
+    const paths = proposed.protected_paths.filter((p) => !(accepted.protected_paths ?? []).includes(p));
+    update = { added_commands: commands, added_protected_paths: paths };
+    Object.keys(proposed).forEach((k) => delete proposed[k]);
+    Object.assign(proposed, accepted, { commands: { ...(accepted.commands ?? {}), ...commands }, protected_paths: [...(accepted.protected_paths ?? []), ...paths] });
+  }
+  const nothingNew = update && !Object.keys(update.added_commands).length && !update.added_protected_paths.length;
+  if (!nothingNew) {
+    writeFileSync(ctx.paths.proposedConfig, stringifyYAML(proposed));
+    appendEvent(ctx, { type: 'config.proposed', actor, payload: { commands: Object.keys(d.commands), ...(update && { added_commands: Object.keys(update.added_commands), added_protected_paths: update.added_protected_paths }) } });
+  }
   // .unknot/ itself is ignored only when someone excluded it; its own .gitignore covers local state.
   const ignored = spawnSync('git', ['check-ignore', '-q', '--', '.unknot/config.yaml'], { cwd: ctx.root, stdio: 'ignore' }).status === 0;
   const state_dir = { path: '.unknot', ignored, exclude_line: '.unknot/' };
+  const head = !update
+    ? ['Wrote .unknot/config.proposed.yaml (mode: plan). Nothing else was changed, and nothing is activated.']
+    : nothingNew
+      ? ['A configuration is already accepted and has everything detected here; no new proposal was written.']
+      : [
+        'A configuration is already accepted. Wrote .unknot/config.proposed.yaml: the accepted configuration (its mode and approvers unchanged) plus what was detected now:',
+        ...Object.entries(update.added_commands).map(([k, v]) => `  + command ${k} = ${v.join(' ')}`),
+        ...update.added_protected_paths.map((p) => `  + protected path ${p}`),
+        'It applies only once a person accepts it.',
+      ];
   const msg = [
-    'Wrote .unknot/config.proposed.yaml (mode: plan). Nothing else was changed, and nothing is activated.',
+    ...head,
     `Detected commands: ${Object.entries(d.commands).map(([k, v]) => `${k} = ${v.join(' ')}`).join('; ') || 'none'}.`,
     ...d.notes,
     '',
@@ -302,5 +328,5 @@ export async function run({ flags }) {
     `To review the proposal: ${humanCommand('config diff')}`,
     'To accept it (a person, in a separate terminal window): unknot config accept. To register as an approver: unknot keys generate <name>, then add the printed block under approvers:.',
   ];
-  output(flags.json ? { proposed, detected: d, state_dir } : msg.join('\n'), { json: flags.json });
+  output(flags.json ? { proposed, detected: d, state_dir, ...(update && { update: { ...update, written: !nothingNew } }) } : msg.join('\n'), { json: flags.json });
 }

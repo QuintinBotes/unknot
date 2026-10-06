@@ -13,6 +13,7 @@ import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
 import { loadConfig } from '../policy/config.mjs';
+import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
 import { activeRun } from '../state/runs.mjs';
 
@@ -243,7 +244,8 @@ export const TOOLS = {
         'SELECT id, stage, role, approver, key_fingerprint, binding_hash, expires_at, created_at, revoked_at, revoked_reason FROM approvals WHERE slice_id = ? ORDER BY created_at',
         a.id,
       );
-      return { slice: body, meta, obligations, approvals };
+      const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
+      return { slice: body, meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
     },
   },
 

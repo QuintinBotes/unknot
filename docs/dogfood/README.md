@@ -69,6 +69,10 @@ each repository and writes one JSON report per repository plus a summary.
 | FB40 | 11 | After upgrading, helper files of a test project were still decomposition candidate members, although the new rules made them test code | The per-file extraction cache was keyed on content, adapter version and options but not on the census classification, so unchanged files kept their old `is_test`; the classification is now part of the key. Test projects are also recognised by their project file name or `<IsTestProject>` | a unit test that turns a project into a test project without touching the file; the first re-map after upgrading re-extracts once, the next is fully cached |
 | FB41 | 11 | Files in a subfolder used only by a candidate stayed outside it and were its main reverse-dependency targets | Folding reaches below a directory where the candidate has several members, and absorbs a whole cluster used only by it | unit tests |
 | FB42 | 11 | A record whose members changed got a new id, and a reader comparing versions lost the thread | The new record names the one it replaces | unit tests |
+| FB43 | 11 | Building with Unknot: the cheapest change it knew of (delete an injected member nobody uses) was marked in the graph but produced no finding to plan from, and the API check would have failed its removal | A finding per unused injected member; the marking is checked across the repository; removing such a public member passes the API check with a note | nopCommerce: 2 findings, both confirmed by hand; one planned into a low-risk, lane-eligible one-file slice |
+| FB44 | 11 | Commands naming `.unknot` were still refused after the fix in round 10: once the person installed the `unknot` shim, or after an update inside a running session, the first `unknot` on PATH was not the plugin's exact path, and the refusal showed only the generic reason | The shim and sibling versions of the plugin count as its CLI, a look-alike in the project does not; a plain copy out of `.unknot` is allowed; refusals give the real reason | adversarial and unit tests |
+| FB45 | 11 | A one-file deletion came out medium risk with no reason given, so it could not go in a lane and nobody could see why | Plans and slice views give the risk reasons, the roles and lane eligibility | unit tests; the nopCommerce slice reads "low: no risk factor found; lane: eligible" |
+| FB46 | 11 | The accepted configuration still lacked the commands a later `init` found, and nothing said so; re-running `init` would have proposed a default config that, accepted, resets the mode and drops approvers | `init` proposes the accepted configuration plus what is new; `status` and `doctor` report a waiting proposal | an end-to-end test of the proposal and the notice |
 
 ## Round summaries
 
@@ -176,6 +180,12 @@ fixed before release.
 reason it failed was worth more than the item: a cache that outlived a change in classification
 (FB40). The fresh clones used to re-measure every round had hidden it; this round's re-measure
 upgrades a mapped clone in place instead.
+
+**Round 13, a first build attempt on 0.1.13** — moving from assessment to changing code found the
+seams between features rather than bugs inside them: the graph knew the safest change but
+diagnose did not offer it (FB43), the hook fix from round 10 failed once the person followed
+Unknot's own advice and installed the CLI shim (FB44), risk came without reasons (FB45), and
+re-running `init` could have undone an accepted configuration (FB46).
 
 ## What the loop does not do
 

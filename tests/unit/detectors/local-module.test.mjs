@@ -38,7 +38,7 @@ const keys = (drafts) => drafts.map((d) => d.key).sort();
 // ---------------------------------------------------------------------------------------
 
 test('every detector declares id, version, category and kinds', () => {
-  const localIds = ['long-function', 'complex-function', 'deep-nesting', 'long-parameter-list', 'large-class', 'large-module', 'dead-code', 'unreachable-code', 'one-implementation-interface', 'duplicated-code', 'speculative-generality'];
+  const localIds = ['long-function', 'complex-function', 'deep-nesting', 'long-parameter-list', 'large-class', 'large-module', 'dead-code', 'unused-injected-member', 'unreachable-code', 'one-implementation-interface', 'duplicated-code', 'speculative-generality'];
   const moduleIds = ['dependency-cycle', 'unstable-dependency', 'hub-module', 'shotgun-surgery', 'implementation-leakage', 'oversized-api', 'low-cohesion-package', 'layer-bypass'];
   assert.deepEqual(local.map((d) => d.id), localIds.map((n) => `local.${n}`));
   assert.deepEqual(module_.map((d) => d.id), moduleIds.map((n) => `module.${n}`));
@@ -288,6 +288,28 @@ test('dependency-cycle: one finding per component with the shortest cycle, none 
   assert.deepEqual(run('module.dependency-cycle', [...files, imp('src/d.js', 'src/e.js'), imp('src/a.js', 'src/b.js')]), []);
 });
 
+test('unused-injected-member: one finding per declared-only edge, ranked higher inside a component', () => {
+  const files = ['a', 'b', 'c', 'd', 'e'].map((n) => mod(`src/${n}.cs`));
+  const unused = { declared_only: true, unused_member: 'Ledger', member_visibility: 'public', line: 7 };
+  const facts = [...files, imp('src/a.cs', 'src/b.cs'), imp('src/b.cs', 'src/c.cs'), imp('src/c.cs', 'src/a.cs', unused), imp('src/b.cs', 'src/a.cs'), imp('src/d.cs', 'src/e.cs', { declared_only: true, unused_member: '_log', member_visibility: 'private' })];
+  const out = run('local.unused-injected-member', facts);
+  assert.equal(out.length, 2);
+  const inScc = out.find((d) => d.scope[0] === 'src/c.cs');
+  const alone = out.find((d) => d.scope[0] === 'src/d.cs');
+  assert.equal(inScc.kind, 'code.unused-injected-member');
+  assert.deepEqual(inScc.scope, ['src/c.cs']);
+  assert.match(inScc.title, /src\/c\.cs holds src\/a\.cs only through the unused member Ledger/);
+  assert.match(inScc.title, /closes 1 of 2 cycles in a 3-module component/);
+  assert.equal(inScc.measurements['cycle.closed'], 1);
+  assert.equal(inScc.measurements['member.public'], true);
+  assert.match(inScc.smallest_simplification, /Remove the member Ledger from src\/c\.cs \(and its registration if any\)/);
+  assert.ok(inScc.evidence.some((e) => e.source_ref === 'src/c.cs:7'));
+  assert.equal(alone.measurements['cycle.closed'], undefined);
+  assert.ok(inScc.factors.benefit > alone.factors.benefit);
+  assert.ok(priority(inScc.factors).score > priority(alone.factors).score);
+  assert.deepEqual(run('local.unused-injected-member', [...files, imp('src/a.cs', 'src/b.cs')]), []);
+});
+
 test('dependency-cycle: a cycle closed only by an unused member says so and ranks lower; a surviving cycle lists unused links', () => {
   const files = ['a', 'b', 'c'].map((n) => mod(`src/${n}.cs`));
   const unused = { declared_only: true, unused_member: '_orders' };
@@ -452,6 +474,9 @@ test('diagnose() accepts every draft: findings validate against the schema', asy
 
   const clone = { other: 'src/dup2.js', similarity: 0.7, lines: 20, ranges: [[3, 22, 4, 23]] };
   const facts = [
+    mod('src/u.cs'),
+    mod('src/v.cs'),
+    imp('src/u.cs', 'src/v.cs', { declared_only: true, unused_member: 'Ledger', member_visibility: 'public' }),
     mod('src/x.js', { sloc: 1500, clones: [{ ...clone, other: 'src/dup2.js' }] }),
     mod('src/dup2.js', { clones: [{ other: 'src/x.js', similarity: 0.7, lines: 20, ranges: [[4, 23, 3, 22]] }] }),
     fn('src/x.js', 'long', { lines: 150, cyclomatic: 30, cognitive: 40, max_nesting: 6, params: 8, exported: false }),
@@ -481,7 +506,7 @@ test('diagnose() accepts every draft: findings validate against the schema', asy
     for (const draft of d.detect({ graph, options: config.detectors?.[d.id] ?? {} })) drafts.push({ draft, d });
   }
   const kinds = new Set(drafts.map((x) => x.draft.kind));
-  for (const k of ['code.long-function', 'code.complex-function', 'code.deep-nesting', 'code.long-parameter-list', 'code.large-class', 'code.large-module', 'code.dead-code', 'code.duplicated-code', 'code.speculative-generality', 'code.one-implementation-interface', 'module.dependency-cycle', 'module.layer-bypass']) {
+  for (const k of ['code.long-function', 'code.complex-function', 'code.deep-nesting', 'code.long-parameter-list', 'code.large-class', 'code.large-module', 'code.dead-code', 'code.unused-injected-member', 'code.duplicated-code', 'code.speculative-generality', 'code.one-implementation-interface', 'module.dependency-cycle', 'module.layer-bypass']) {
     assert.ok(kinds.has(k), `missing ${k}; got ${[...kinds].join(', ')}`);
   }
   for (const { draft, d } of drafts) {

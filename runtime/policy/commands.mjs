@@ -5,8 +5,8 @@
 // that builds, tests, installs or mutates goes through the broker (`unknot verify`,
 // `unknot exec`), which runs it without a shell, in the sandbox, as evidence.
 
-import { accessSync, constants } from 'node:fs';
-import { delimiter, join, normalize } from 'node:path';
+import { accessSync, constants, readFileSync, realpathSync } from 'node:fs';
+import { basename, delimiter, dirname, join, normalize, sep } from 'node:path';
 import { basenameOf, effectiveCommands, parseShell } from '../core/shell.mjs';
 
 const READ_ONLY = new Set([
@@ -143,7 +143,7 @@ function judgeUnknot(rest) {
 }
 
 /** Decide one effective command. Returns null when allowed, else a reason string. */
-function judge(cmd, { pluginRoot }) {
+function judge(cmd, { pluginRoot, projectRoot }) {
   if (cmd.context?.viaWrapper && PRIVILEGE.has(cmd.context.viaWrapper)) return `\`${cmd.context.viaWrapper}\` changes who runs the command and is not allowed`;
   if (!cmd.argv.length) return cmd.assignments.length ? 'bare variable assignments are not allowed' : null;
   const head = cmd.argv[0];
@@ -156,7 +156,7 @@ function judge(cmd, { pluginRoot }) {
   const flag = EXEC_FLAGS[name] && args.find((w) => EXEC_FLAGS[name].test(w.value));
   if (flag) return `${name} ${flag.value} can run programs or write files`;
   const viaNode = name === 'node' && args[0] && !args[0].dynamic && isUnknotBin(args[0].value, pluginRoot);
-  if (name === 'unknot' && !resolvesToPlugin(head.value, pluginRoot)) return '`unknot` does not resolve to this plugin\'s CLI';
+  if (name === 'unknot' && !resolvesToPlugin(head.value, pluginRoot, projectRoot)) return `\`unknot\` does not resolve to this plugin's CLI${firstOnPath('unknot') ? ` (${firstOnPath('unknot')} comes first on PATH)` : ''}`;
   if (name === 'unknot' || viaNode) return judgeUnknot(name === 'unknot' ? args : args.slice(1));
   if (name === 'git') {
     let i = 0;
@@ -201,20 +201,62 @@ function isUnknotBin(path, pluginRoot) {
   return Boolean(pluginRoot) && normalize(path) === join(pluginRoot, 'bin', 'unknot');
 }
 
-function resolvesToPlugin(word, pluginRoot) {
-  if (!pluginRoot) return false;
-  if (word.includes('/')) return isUnknotBin(word, pluginRoot);
+const SEMVER = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
+
+/**
+ * Another installed version of this same plugin: after an update inside a running session,
+ * PATH still names the previous version's bin/. Both live in the user's plugin cache, side by
+ * side, not in the repository.
+ */
+function isSiblingVersion(path, pluginRoot) {
+  const p = normalize(path);
+  const verDir = dirname(dirname(p));
+  return SEMVER.test(basename(pluginRoot)) && basename(p) === 'unknot' && basename(dirname(p)) === 'bin' && SEMVER.test(basename(verDir)) && dirname(verDir) === dirname(normalize(pluginRoot));
+}
+
+/**
+ * The command `unknot cli install` writes for this plugin: it runs the newest installed version.
+ * It counts only outside the project under analysis (a repository could ship a look-alike) and
+ * only when it points at this plugin's installation.
+ */
+function isShim(path, pluginRoot, projectRoot) {
+  try {
+    const real = realpathSync(path);
+    const root = projectRoot ? realpathSync(projectRoot) : null;
+    if (root && (real === root || real.startsWith(`${root}${sep}`))) return false;
+    const text = readFileSync(real, 'utf8');
+    if (!text.startsWith('#!/usr/bin/env node\n// unknot-cli-shim')) return false;
+    const field = (name) => {
+      const m = new RegExp(`^const ${name} = (.*);$`, 'm').exec(text);
+      return m ? JSON.parse(m[1]) : null;
+    };
+    const versions = field('VERSIONS_DIR');
+    if (versions && SEMVER.test(basename(pluginRoot)) && normalize(versions) === dirname(normalize(pluginRoot))) return true;
+    return field('FALLBACK') === join(pluginRoot, 'bin', 'unknot');
+  } catch {
+    return false;
+  }
+}
+
+function firstOnPath(word) {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir) continue;
-    const candidate = join(dir, word);
     try {
-      accessSync(candidate, constants.X_OK);
-      // The first `unknot` on PATH is the one the shell would run: it must be ours.
-      return isUnknotBin(candidate, pluginRoot);
+      accessSync(join(dir, word), constants.X_OK);
+      return join(dir, word);
     } catch {
       // not in this PATH entry
     }
   }
+  return null;
+}
+
+function resolvesToPlugin(word, pluginRoot, projectRoot) {
+  if (!pluginRoot) return false;
+  if (word.includes('/')) return isUnknotBin(word, pluginRoot);
+  const candidate = firstOnPath(word);
+  // The first `unknot` on PATH is the one the shell would run: it must be ours.
+  if (candidate) return isUnknotBin(candidate, pluginRoot) || isSiblingVersion(candidate, pluginRoot) || isShim(candidate, pluginRoot, projectRoot);
   // Hooks run with Claude Code's own PATH, which does not include plugin bin directories;
   // the Bash tool's PATH does (dogfood FB13). With no other `unknot` visible, the bare name
   // resolves to the plugin's CLI.
@@ -229,7 +271,7 @@ function resolvesToPlugin(word, pluginRoot) {
 /**
  * @returns {{allow: boolean, reasons: string[], commands: object[], writes: string[], reads: string[]}}
  */
-export function judgeShell(command, { pluginRoot } = {}) {
+export function judgeShell(command, { pluginRoot, projectRoot } = {}) {
   const parsed = parseShell(command);
   if (!parsed.ok) return { allow: false, reasons: [`cannot verify this command statically (${parsed.reason})`], commands: [], writes: [], reads: [] };
   const commands = effectiveCommands(parsed);
@@ -238,7 +280,7 @@ export function judgeShell(command, { pluginRoot } = {}) {
   const reads = [];
   const args = [];
   for (const cmd of commands) {
-    const why = judge(cmd, { pluginRoot });
+    const why = judge(cmd, { pluginRoot, projectRoot });
     if (why) reasons.push(why);
     for (const r of cmd.redirects ?? []) {
       const target = r.target;

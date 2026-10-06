@@ -1,6 +1,7 @@
 // /unknot:status — campaigns, slices, approvals, blockers and stale evidence.
 
 import { head } from '../../apply/git.mjs';
+import { waitingProposal } from '../../policy/config.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
@@ -29,6 +30,7 @@ export async function run({ flags }) {
     awaiting_approval: slices.filter((s) => s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY').map((s) => s.id),
     open_obligations,
     stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale },
+    proposal_waiting: waitingProposal(ctx),
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
@@ -44,5 +46,6 @@ export async function run({ flags }) {
   ];
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (in a separate terminal window: ${humanCommand('approve <slice> --role <role> --as <name>')})`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
+  if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it, in a separate terminal window: ${humanCommand('config diff')}`);
   output(lines.join('\n'));
 }
