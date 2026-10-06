@@ -92,19 +92,21 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
     for (const c of shell.commands) {
       const name = c.argv[0]?.value?.split('/').pop();
       if (name === 'cp' && cpOperands(c)) touched.push(cpOperands(c).at(-1).value);
-      else if (['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'touch', 'dd', 'install', 'rsync'].includes(name)) {
+      else if (TARGET_WRITERS.has(name) || ['cp', 'dd', 'rsync'].includes(name)) {
         touched.push(...c.argv.slice(1).filter((w) => !w.dynamic).map((w) => w.value));
       }
     }
     for (const t of touched) {
       const rel = relFrom(ctx.root, realpathLenient(resolve(op.cwd ?? ctx.root, t)));
-      if (rel !== null && isStatePath(rel)) return deny('state.protected', `${rel} is Unknot state; use the unknot CLI`);
+      if (rel !== null && coversState(rel)) return deny('state.protected', `${rel || 'the project root'} ${isStatePath(rel) ? 'is' : 'contains'} Unknot state; use the unknot CLI`);
     }
   }
   return null;
 }
 
 const STATE_MENTION = /\.unknot(\/|\b)/i;
+// Programs whose every argument is a path they may write (options included, harmlessly).
+const TARGET_WRITERS = new Set(['rm', 'mv', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'touch', 'install', 'mkdir', 'rmdir']);
 // Programs that only print what they are given (no option of theirs writes a file).
 const PRINTERS = new Set(['cat', 'echo', 'printf']);
 
@@ -137,10 +139,19 @@ function mentionsState(cmd, shell) {
     if (ctx.pipeline || ctx.substitution || ctx.viaWrapper || ctx.fromStdin || c.assignments.length) return false;
     if (!c.redirects.every((r) => (r.heredoc !== undefined ? !r.heredocDynamic : !r.target?.dynamic && !r.target?.glob))) return false;
     if (PRINTERS.has(name)) return !(name === 'printf' && c.argv.some((w) => /^-v/.test(w.value)));
-    return name === 'cp' && Boolean(cpOperands(c));
+    if (name === 'cp') return Boolean(cpOperands(c));
+    // Every argument of these is a path they write: the write check judges each one.
+    return TARGET_WRITERS.has(name) && c.argv.slice(1).every((w) => !w.dynamic && !w.glob);
   });
   if (!readsOnly) return true;
   return shell.commands.some((c) => [c.argv[0]?.value ?? '', ...c.redirects.filter((r) => r.heredoc === undefined).map((r) => r.target?.value ?? ''), ...(nameOf(c) === 'cp' ? [cpOperands(c).at(-1).value] : [])].some((t) => STATE_MENTION.test(t)));
+}
+
+// A path that is Unknot state, or a directory holding some (`rm -rf .unknot`, `chmod -R .`).
+const STATE_ROOTS = ['.unknot/config.yaml', '.unknot/decisions.jsonl', '.unknot/.gitignore', '.unknot/state', '.unknot/cas', '.unknot/runs', '.unknot/campaigns', '.unknot/slices', '.unknot/telemetry', '.unknot/decompositions'];
+function coversState(rel) {
+  const r = rel.toLowerCase().replace(/\/+$/, '');
+  return isStatePath(r) || STATE_ROOTS.some((s) => s === r || r === '' || s.startsWith(`${r}/`));
 }
 
 // Compared case-insensitively: on case-insensitive filesystems `.unknot/DECISIONS.jsonl`

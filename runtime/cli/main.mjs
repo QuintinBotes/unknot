@@ -35,7 +35,7 @@ export const COMMANDS = {
   config: 'Show or accept configuration (show|diff|accept)',
   run: 'Run lifecycle (start <command>|end [id]|show)',
   audit: 'Ledger integrity and export (verify|export)',
-  policy: 'Organization policy bundles (keygen|sign|trust|verify|effective)',
+  policy: 'Organization policy bundles (keygen|sign|trust|verify|effective) and recent refusals (denials)',
   backup: 'Encrypted backup of Unknot state (create|verify|restore --to)',
   daemon: 'Start the local API daemon',
   workspace: 'Multi-repository workspace (list|map|graph)',
