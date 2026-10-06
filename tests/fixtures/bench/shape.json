@@ -2,8 +2,8 @@
   "seed": 20260101,
   "filesPerModule": 50,
   "subdirsPerModule": 5,
-  "languageMix": { "ts": 0.45, "py": 0.3, "go": 0.25 },
+  "languageMix": { "ts": 0.3, "py": 0.2, "cs": 0.2, "java": 0.15, "go": 0.15 },
   "importsPerFile": [2, 4],
-  "incrementalTouchedFiles": 5,
-  "sizes": { "quick": 300, "1k": 1000, "10k": 10000, "100k": 100000 }
+  "incrementalTouchedFiles": 10,
+  "sizes": { "quick": 300, "1k": 1000, "10k": 10000, "50k": 50000, "100k": 100000, "250k": 250000, "1m": 1000000 }
 }

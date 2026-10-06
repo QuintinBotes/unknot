@@ -50,8 +50,17 @@ function evidenceReader(ctx, config) {
  */
 async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null }) {
   const t0 = Date.now();
+  // Wall time per phase, so a slow map says where the time went (docs/benchmarks.md).
+  const phases = {};
+  let mark = t0;
+  const lap = (name) => {
+    const now = Date.now();
+    phases[name] = now - mark;
+    mark = now;
+  };
   const observedAt = nowISO();
   const cen = census(ctx.root, { config, scope });
+  lap('census_ms');
   const commit = cen.commit;
   // `adapters` replaces the registry; tests use it to stand in a failing extractor.
   const { loaded, unavailable } = adapters ? { loaded: adapters, unavailable: [] } : await loadAdapters(config, only);
@@ -151,6 +160,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     stats.adapters[adapter.id] = { files: files.length, extracted, cached: files.length - misses.length };
   }
 
+  lap('extraction_ms');
   const fileFacts = [...perFile.values()].flat();
   const global = [];
   for (const adapter of loaded) {
@@ -161,6 +171,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  lap('link_ms');
   const readText = evidenceReader(ctx, config);
   // Discovery is cached like extraction: keyed by everything its result can depend on
   // (adapter version and options, the blobs of the files it reads, the evidence files'
@@ -213,6 +224,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  lap('discovery_ms');
   let historyStats = null;
   if (history && cen.repo) {
     try {
@@ -242,6 +254,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     }
   }
 
+  lap('history_ms');
   const ps = parseScope(scope);
   if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
@@ -255,7 +268,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   });
 
   const all = [...fileFacts, ...global];
+  lap('coverage_ms');
   const projection = project(ctx, all, { commit, observedAt });
+  lap('projection_ms');
   const summary = {
     commit,
     generation: projection.generation,
@@ -274,6 +289,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     edges: projection.edges,
     history: historyStats,
     duration_ms: Date.now() - t0,
+    phases,
     config_digest: configDigest,
   };
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
