@@ -395,6 +395,13 @@
             "pattern": "^[a-z][a-z0-9-]*$"
           }
         },
+        "proven_deletion": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
         "critical_min_approvers": {
           "type": "integer",
           "minimum": 2

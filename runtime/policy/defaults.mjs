@@ -52,6 +52,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     medium: ['code-owner', 'affected-owner'],
     high: ['code-owner', 'specialist-owner'],
     critical: ['code-owner', 'specialist-owner'],
+    proven_deletion: ['any-approver'],
     critical_min_approvers: 2,
     expiry: '72h',
   },

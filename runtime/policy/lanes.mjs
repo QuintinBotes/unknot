@@ -15,20 +15,22 @@ import { matchAny } from '../core/glob.mjs';
 import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.mjs';
 import { isTestCode } from '../graph/census.mjs';
 import { appendEvent } from '../state/ledger.mjs';
-import { sliceDigest } from './approvals.mjs';
+import { holdsRole, sliceDigest } from './approvals.mjs';
+import { provenDeletion } from './proven.mjs';
 import { classifyRisk, requiredApprovals } from './risk.mjs';
 
 export const LANE_KINDS = Object.freeze(['deletion', 'tests']);
 export const LANE_DEFAULTS = Object.freeze({ kinds: ['deletion', 'tests'], max_changed_files: 5, max_diff_lines: 60, expiry: '72h' });
 
-const neededFor = (slice, config) => requiredApprovals(classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {} }), config);
+const classify = (slice, config, ctx) => classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven: ctx ? provenDeletion(ctx, slice, { config }) : null });
+const neededFor = (slice, config, ctx) => requiredApprovals(classify(slice, config, ctx), config);
 
 /** Why a slice cannot be in a lane (empty when it can). */
-export function laneProblems(slice, config) {
+export function laneProblems(slice, config, ctx = null) {
   const problems = [];
   if (slice.state !== 'AWAITING_APPROVAL') problems.push(`state ${slice.state}`);
   if (slice.risk !== 'low') problems.push(`${slice.risk} risk`);
-  const needed = neededFor(slice, config);
+  const needed = neededFor(slice, config, ctx);
   if (needed.roles.length !== 1 || needed.min_approvers > 1) problems.push(`needs ${needed.roles.join('+')} from ${needed.min_approvers} approver(s)`);
   const touched = (slice.body.scope?.include ?? []).filter((g) => matchAny(g.replace(/\*+/g, 'x'), config.protected_paths, { nocase: true }));
   if (touched.length) problems.push(`protected paths ${touched.join(', ')}`);
@@ -39,11 +41,13 @@ export function laneProblems(slice, config) {
  * Why a slice has its risk, who must approve it, and whether a lane could cover it (and if not,
  * what stands in the way), for plan output and slice views. Computed from the slice as stored.
  */
-export function sliceStanding(slice, config) {
-  const c = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {} });
+export function sliceStanding(slice, config, ctx = null) {
+  const proof = ctx ? provenDeletion(ctx, slice, { config }) : null;
+  const c = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven: proof });
   const needed = requiredApprovals(c, config);
-  const problems = laneProblems({ ...slice, state: slice.state === 'PLANNED' ? 'AWAITING_APPROVAL' : slice.state }, config);
+  const problems = laneProblems({ ...slice, state: slice.state === 'PLANNED' ? 'AWAITING_APPROVAL' : slice.state }, config, ctx);
   return {
+    ...(proof && { proven_deletion: { qualifies: proof.qualifies, reasons: proof.reasons, problems: proof.problems } }),
     risk: slice.risk,
     risk_reasons: c.reasons.length ? c.reasons : ['no risk factor found'],
     approvals: needed,
@@ -53,6 +57,9 @@ export function sliceStanding(slice, config) {
 
 /** One line: `lane: eligible` or `lane: not eligible (medium risk; needs a+b ...)`. */
 export const laneLine = (st) => (st.lane.eligible ? 'lane: eligible' : `lane: not eligible (${st.lane.problems.join('; ')})`);
+
+/** One line: `proven deletion: yes (reasons)` or `proven deletion: no (what stands in the way)`; empty without a verdict. */
+export const provenLine = (st) => (st.proven_deletion ? (st.proven_deletion.qualifies ? `proven deletion: yes (${st.proven_deletion.reasons.join('; ')})` : `proven deletion: no (${st.proven_deletion.problems.join('; ')})`) : '');
 
 /** The lane a person would sign for a campaign, with the slices it covers and those it leaves out. */
 export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, maxFiles = LANE_DEFAULTS.max_changed_files, maxLines = LANE_DEFAULTS.max_diff_lines, expiry = LANE_DEFAULTS.expiry }) {
@@ -70,8 +77,8 @@ export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, m
   let role = null;
   for (const row of rows) {
     const slice = { ...row, body: JSON.parse(row.body) };
-    const problems = laneProblems(slice, cfg.config);
-    const r = problems.length ? null : neededFor(slice, cfg.config).roles[0];
+    const problems = laneProblems(slice, cfg.config, ctx);
+    const r = problems.length ? null : neededFor(slice, cfg.config, ctx).roles[0];
     if (r && role && r !== role) problems.push(`needs role ${r}, not ${role}`);
     if (problems.length) excluded.push({ id: slice.id, problems });
     else {
@@ -100,7 +107,7 @@ export function recordLane(ctx, { config, lane, approver, privateKey, actor }) {
   if (!Object.keys(lane.slices).length) throw new UnknotError('UK_POLICY_DENIED', `no slice of ${lane.campaign_id} fits a lane`);
   const reg = config.approvers?.[approver];
   if (!reg) throw new UnknotError('UK_POLICY_DENIED', `${approver} is not a registered approver in .unknot/config.yaml`);
-  if (!reg.roles.includes(lane.role)) throw new UnknotError('UK_POLICY_DENIED', `${approver} does not hold role ${lane.role}, which these slices need`);
+  if (!holdsRole(reg, lane.role)) throw new UnknotError('UK_POLICY_DENIED', `${approver} does not hold role ${lane.role}, which these slices need`);
   const pub = publicKeyOf(privateKey);
   if (keyFingerprint(pub) !== keyFingerprint(reg.public_key)) throw new UnknotError('UK_POLICY_DENIED', `the unlocked key is not ${approver}'s registered key`);
   const row = {
@@ -142,7 +149,7 @@ export function laneValidity(lane, cfg) {
   if (lane.body.policy_digest !== cfg.digest) reasons.push('the configuration changed since it was approved');
   const reg = cfg.config.approvers?.[lane.approver];
   if (!reg) reasons.push('approver no longer registered');
-  else if (!reg.roles.includes(lane.body.role)) reasons.push('approver no longer holds the role');
+  else if (!holdsRole(reg, lane.body.role)) reasons.push('approver no longer holds the role');
   else if (!verifyText(reg.public_key, statement(lane.body, lane.approver), lane.signature)) reasons.push('signature does not verify');
   return reasons;
 }
@@ -159,9 +166,9 @@ export function laneFor(ctx, { cfg, slice }) {
     const signed = lane.body.slices[slice.id];
     if (!signed) why.push(`${slice.id} is not in it`);
     else if (signed !== sliceDigest(slice.body)) why.push(`${slice.id} changed since it was approved`);
-    const problems = laneProblems({ ...slice, state: 'AWAITING_APPROVAL' }, cfg.config);
+    const problems = laneProblems({ ...slice, state: 'AWAITING_APPROVAL' }, cfg.config, ctx);
     if (problems.length) why.push(...problems);
-    else if (neededFor(slice, cfg.config).roles[0] !== lane.body.role) why.push(`${slice.id} now needs a different role`);
+    else if (neededFor(slice, cfg.config, ctx).roles[0] !== lane.body.role) why.push(`${slice.id} now needs a different role`);
     if (!why.length) return { lane, reasons: [] };
     reasons.push(`${lane.id}: ${why.join('; ')}`);
   }

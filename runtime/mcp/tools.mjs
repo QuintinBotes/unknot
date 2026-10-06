@@ -268,9 +268,9 @@ export const TOOLS = {
         'SELECT id, stage, role, approver, key_fingerprint, binding_hash, expires_at, created_at, revoked_at, revoked_reason FROM approvals WHERE slice_id = ? ORDER BY created_at',
         a.id,
       );
-      const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
+      const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config, ctx);
       const stale = staleEvidence(ctx, body);
-      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(stale.length && { stale_evidence: stale }), obligations, approvals };
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), obligations, approvals };
     },
   },
 

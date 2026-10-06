@@ -14,6 +14,7 @@ import { getFinding } from '../diagnose/engine.mjs';
 import { topoOrder } from '../graph/algorithms.mjs';
 import { sliceDigest } from '../policy/approvals.mjs';
 import { riskRank } from '../policy/defaults.mjs';
+import { provenDeletion } from '../policy/proven.mjs';
 import { classifyRisk, DEP_MANIFESTS, requiredApprovals } from '../policy/risk.mjs';
 import { matchAny } from '../core/glob.mjs';
 import { appendEvent } from '../state/ledger.mjs';
@@ -90,7 +91,7 @@ export function createSlice(ctx, { config, campaignId, draft, actor }) {
   }
   const reached = scopeHits(guide, body.scope.include);
   body.guidance = guide.files.map((f) => ({ file: f.file, scope: f.scope, ...(reached.some((r) => r.file === f.file) && { protects: [...new Set(reached.filter((r) => r.file === f.file).map((r) => r.glob))] }) }));
-  const risk = classifyRisk(body, { config, surfaces: body.surfaces ?? {} });
+  const risk = classifyRisk(body, { config, surfaces: body.surfaces ?? {}, proven: provenDeletion(ctx, body, { config }) });
   body.risk = risk.risk;
   if (body.irreversible && riskRank(body.risk) < riskRank('critical')) body.risk = 'critical';
   const needed = requiredApprovals(risk, config);

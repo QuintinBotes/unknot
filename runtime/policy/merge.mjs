@@ -84,6 +84,13 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   for (const risk of ['low', 'medium', 'high', 'critical']) {
     if (org.approvals?.[risk]) set(`approvals.${risk}`, union(c.approvals[risk], org.approvals[risk]));
   }
+  if (org.approvals?.proven_deletion) {
+    // 'any-approver' is the loosest value: a role list beats it, and two role lists add up.
+    const a = get(c, 'approvals.proven_deletion') ?? ['any-approver'];
+    const b = org.approvals.proven_deletion;
+    const loose = (l) => l.includes('any-approver');
+    set('approvals.proven_deletion', loose(a) && !loose(b) ? b : loose(b) && !loose(a) ? a : union(a, b));
+  }
   if (org.approvals?.critical_min_approvers) {
     set('approvals.critical_min_approvers', Math.max(c.approvals.critical_min_approvers ?? 2, org.approvals.critical_min_approvers));
   }
