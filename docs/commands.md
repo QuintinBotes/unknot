@@ -25,7 +25,7 @@ Some commands (`explain`, `slice`, `config show`, `graph stats|node`, `pattern s
 {"error": {"code": "UK_POLICY_DENIED", "class": "policy-denied", "message": "...", "run_id": null, "slice_id": null, "retryable": false, "details": {}}}
 ```
 
-Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIALIZED`, `UK_ADAPTER_UNSUPPORTED`, `UK_BASELINE_INVALID`, `UK_SCOPE_VIOLATION`, `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_APPROVAL_STALE`, `UK_BUDGET_EXCEEDED`, `UK_TOOL_FAILED`, `UK_EVIDENCE_INCONCLUSIVE`, `UK_VERIFICATION_FAILED`, `UK_STATE_CONFLICT`, `UK_RECOVERY_REQUIRED`, `UK_INTEGRITY`. Set `UNKNOT_DEBUG=1` to print stack traces.
+Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIALIZED`, `UK_ADAPTER_UNSUPPORTED`, `UK_BASELINE_INVALID`, `UK_SCOPE_VIOLATION`, `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_APPROVAL_STALE`, `UK_BUDGET_EXCEEDED`, `UK_TOOL_FAILED`, `UK_EVIDENCE_INCONCLUSIVE`, `UK_VERIFICATION_FAILED`, `UK_STATE_CONFLICT`, `UK_RECOVERY_REQUIRED`, `UK_INTEGRITY`, `UK_WORKSPACE_UNACCEPTED`. Set `UNKNOT_DEBUG=1` to print stack traces.
 
 **Exit codes.**
 
@@ -197,9 +197,9 @@ Lists, shows or evaluates pattern cards against signals you supply. `fit` return
 
 Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval, open obligations and stale evidence (expired runtime facts, expired approvals). Flag: `--json`.
 
-### `unknot workspace list | map [--no-history] | graph`
+### `unknot workspace list | map [--no-history] | graph | add <name> <path> | remove <name>`
 
-For explicitly linked repositories in `workspace.repositories`. See [operations.md](operations.md). `--json` supported.
+For explicitly linked repositories in `workspace.repositories`. `add` and `remove` change only the configuration proposal, which a person accepts; `list` and `map` fail with `UK_WORKSPACE_UNACCEPTED` while the repositories are only in an unaccepted proposal. See [operations.md](operations.md). `--json` supported.
 
 ## Deciding and planning
 

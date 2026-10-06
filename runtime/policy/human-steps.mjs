@@ -3,8 +3,9 @@
 // step it lists still needs a TTY and a passphrase in the person's own terminal.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
+import { parseYAML } from '../core/yaml.mjs';
 import { cliPath } from '../cli/util.mjs';
 import { activeRun } from '../state/runs.mjs';
 
@@ -44,11 +45,20 @@ function defaultName() {
  */
 let pathCheck = null; // { at, value }: the login-shell check, kept for ten minutes in long-lived processes
 
+function proposalListsRepositories(ctx) {
+  try {
+    return (parseYAML(readFileSync(ctx.paths.proposedConfig, 'utf8'))?.workspace?.repositories ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function humanSteps(ctx, cfg, { unknotOnPath } = {}) {
   const steps = [];
   const proposal = existsSync(ctx.paths.proposedConfig);
   if (proposal || ['unaccepted', 'changed'].includes(cfg.acceptance)) {
-    steps.push({ step: 'accept_config', commands: ['unknot config diff', 'unknot config accept'], note: proposal ? 'review the proposal, then accept it' : 'review the configuration file, then accept it' });
+    const workspace = proposal && !(cfg.config.workspace?.repositories ?? []).length && proposalListsRepositories(ctx);
+    steps.push({ step: 'accept_config', commands: ['unknot config diff', 'unknot config accept'], note: workspace ? 'review the proposal, then accept it: it lists workspace repositories, and `unknot workspace list` and `map` need it accepted' : proposal ? 'review the proposal, then accept it' : 'review the configuration file, then accept it' });
   }
   const approvers = cfg.config.approvers ?? {};
   const name = defaultName();

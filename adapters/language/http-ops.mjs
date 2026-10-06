@@ -8,6 +8,12 @@
 // verb, which markers carry a route or a base path, and how the path joins. The adapters find
 // the markers in their own structures and hand them to the functions here. Which library a
 // marker comes from is never consulted.
+//
+// A route group is part of the same rule: an object created with a path prefix (from the app or
+// another group, or built with one, or mounted somewhere with one) that routes are registered
+// on. Every prefix up the chain joins the route. The adapters find the group calls in their own
+// structures; the spelling is the `groups` row of SYNTAX, the chain walk and the cross-file
+// resolution (a group handed to a registration function, or mounted from another file) are here.
 
 import { edgeFact, nodeFact } from '../../runtime/graph/facts.mjs';
 
@@ -21,15 +27,38 @@ const UPPER = VERB.toUpperCase();
  * route; `base` names carry a base path on a type; `serverRoute` says a route-only marker is
  * not a client route (it may be a parameter marker there); `rooted` says a route that starts
  * with `/` replaces the base; `tokens` expands `[controller]` and `[action]`.
+ *
+ * `groups` spells route groups: `derive` names are calls `parent.Name("/prefix")` that return a
+ * group below the receiver; `scoped` names are calls `parent.Name("/prefix", func(g) { ... })`
+ * whose callback registers on `g`; `create` maps the name of a constructor to the keyword that
+ * carries its prefix (`null`: none); `mount` rows are calls `parent.name(...)` that place a child
+ * group below the parent, `child` and `prefix` being a position or a keyword, `replaces` saying
+ * the mount prefix overrides the child's own; `receiverArg` says `g.Fn()` hands `g` to `Fn` as its
+ * first parameter (extension methods); `exports` says a module-level group may be mounted from
+ * another file.
  */
 export const SYNTAX = {
-  csharp: { kind: 'attribute', verb: new RegExp(`^(?:Http)?(${VERB})$`), route: ['Route'], base: ['Route'], rooted: true, tokens: true },
+  csharp: {
+    kind: 'attribute', verb: new RegExp(`^(?:Http)?(${VERB})$`), route: ['Route'], base: ['Route'], rooted: true, tokens: true,
+    groups: { derive: ['MapGroup'], receiverArg: true },
+  },
   java: {
     kind: 'annotation', verb: new RegExp(`^(?:(${UPPER})|(${VERB})Mapping)$`), mapped: ['RequestMapping'], lined: ['RequestLine'],
     route: ['Path'], serverRoute: true, base: ['RequestMapping', 'Path'],
   },
-  typescript: { kind: 'decorator', verb: new RegExp(`^(${VERB}|All)$`), base: ['Controller', 'Client', 'Route', 'Path'] },
-  python: { kind: 'decorator', verb: new RegExp(`^(${VERB.toLowerCase()})$`), base: ['controller', 'client', 'route', 'prefix'], baseAttrs: ['base_path', 'prefix', 'path', 'base_url'] },
+  typescript: {
+    kind: 'decorator', verb: new RegExp(`^(${VERB}|All)$`), base: ['Controller', 'Client', 'Route', 'Path'],
+    groups: { create: { Router: null }, mount: [{ name: 'use', prefix: 0, child: 1 }], exports: true },
+  },
+  python: {
+    kind: 'decorator', verb: new RegExp(`^(${VERB.toLowerCase()})$`), base: ['controller', 'client', 'route', 'prefix'], baseAttrs: ['base_path', 'prefix', 'path', 'base_url'],
+    groups: {
+      create: { APIRouter: 'prefix', Blueprint: 'url_prefix' },
+      mount: [{ name: 'include_router', child: 0, prefix: 'prefix' }, { name: 'register_blueprint', child: 0, prefix: 'url_prefix', replaces: true }],
+      exports: true,
+    },
+  },
+  go: { groups: { derive: ['Group'], scoped: ['Route'], create: { NewRouter: null }, mount: [{ name: 'Mount', prefix: 0, child: 1 }] } },
 };
 SYNTAX.kotlin = SYNTAX.java;
 SYNTAX.javascript = SYNTAX.typescript;
@@ -268,4 +297,239 @@ export function serverInterfaces(factsByFile, extractorPrefix, pv) {
     factsByFile.set(path, facts.filter((f) => !(f.kind === 'node' && f.type === 'contract' && f.attrs?.kind === 'client_operation' && !used.has(f.id))));
   }
   return out;
+}
+
+// ---- route groups ------------------------------------------------------------------------
+
+const GROUP_DEPTH = 8;
+const MAX_VARIANTS = 16;
+const MAX_CALLS = 600;
+
+const joinPrefix = (...parts) => parts.filter((p) => p != null && p !== '').map((p) => String(p).trim()).join('/');
+
+/**
+ * The route groups of one file. An adapter reports what it saw (`group`, `param`, `mount`,
+ * `call`) under keys of its own choosing, then asks what a registration receiver stands for.
+ * `own` is the prefix a group was created with (`null` when it is not a literal), `parent` the
+ * key of the group it hangs below. A key that names no group is a root: an app, with no prefix.
+ * @param {string} lang
+ */
+export function createGroups(lang) {
+  const syn = SYNTAX[lang]?.groups ?? {};
+  const nodes = new Map();
+  const mounts = [];
+  const calls = [];
+  const groups = {
+    syn,
+    has: (key) => nodes.has(key),
+    /** A group created with prefix `own`, below `parent`; `module` for one that another file may mount. */
+    group(key, { own = '', parent = null, name = null, module = false }) {
+      nodes.set(key, { own, up: parent ? { parent, prefix: '' } : null, name, module });
+    },
+    /** Parameter `index` of the function `fn`: whatever group a caller hands in. */
+    param(key, { fn, index, ext = false }) {
+      if (!nodes.has(key)) nodes.set(key, { param: { fn, index, ext } });
+    },
+    /** `parent` mounts the local group `child` below `prefix` (`null`: not a literal). */
+    mount(child, parent, prefix, replaces = false) {
+      const g = nodes.get(child);
+      if (!g || g.param) return;
+      if (replaces && prefix !== null) g.own = '';
+      g.up = { parent, prefix };
+    },
+    /** `parent` mounts a group declared in another file, named `name` and imported from the module `hint`, below `prefix`. */
+    mountImported(name, hint, parent, prefix) {
+      if (mounts.length < MAX_CALLS) mounts.push({ name, hint: hint ?? null, parent, prefix });
+    },
+    /** The prefix up the chain from `key`, the open end only another file can supply, and whether a prefix was not a literal. */
+    resolve(key) {
+      let prefix = '';
+      let unresolved = false;
+      let open = null;
+      let cur = key;
+      for (let i = 0; cur && i < GROUP_DEPTH * 2; i++) {
+        const g = nodes.get(cur);
+        if (!g) break;
+        if (g.param) { open = { kind: 'param', ...g.param }; break; }
+        if (g.own === null) unresolved = true;
+        else prefix = joinPrefix(g.own, prefix);
+        if (!g.up) {
+          if (g.module && syn.exports && g.name) open = { kind: 'export', name: g.name };
+          break;
+        }
+        if (g.up.prefix === null) unresolved = true;
+        else prefix = joinPrefix(g.up.prefix, prefix);
+        cur = g.up.parent;
+      }
+      return { prefix, open, unresolved };
+    },
+    /** The compact form of a resolution that a call or a mount carries to the link step; `below` is a prefix that joins under it. */
+    ref(key, below = '') {
+      const r = key ? groups.resolve(key) : { prefix: '', open: null, unresolved: false };
+      return { p: joinPrefix(r.prefix, below), o: r.open, u: r.unresolved || below === null };
+    },
+    /** A call of `fn` that hands the group keys `recv` and `args` over (`null`: an expression that is no name). */
+    call(fn, recv, args) {
+      if (calls.length >= MAX_CALLS || (recv == null && args.every((a) => a == null))) return;
+      calls.push({ fn, recv, args });
+    },
+    /** The link-only attributes of the module fact, once the whole file has been read (a mount may come after the call that uses it). */
+    moduleAttrs() {
+      const seen = new Set();
+      const calls_ = [];
+      for (const c of calls) {
+        const rec = { fn: c.fn, r: c.recv == null ? null : groups.ref(c.recv), a: c.args.map((a) => (a == null ? null : groups.ref(a))) };
+        const k = JSON.stringify(rec);
+        if (!seen.has(k)) { seen.add(k); calls_.push(rec); }
+      }
+      const mounts_ = mounts.map((m) => ({ name: m.name, hint: m.hint, ...groups.ref(m.parent, m.prefix) }));
+      return { ...(calls_.length ? { route_calls: calls_ } : {}), ...(mounts_.length ? { route_mounts: mounts_ } : {}) };
+    },
+  };
+  return groups;
+}
+
+/** The attributes an endpoint fact carries for the group resolution `res`, so the link step can finish its route. */
+export function routeGroupAttrs(res) {
+  if (!res) return {};
+  return { ...(res.unresolved || res.open?.kind === 'param' ? { prefix_unresolved: true } : {}), ...(res.open ? { route_group: { ...res.open, unresolved: res.unresolved } } : {}) };
+}
+
+/** The parameters of a function, in order, from its parameter list: `{ name, ext }`, `ext` for a C# `this` parameter. */
+export function paramNames(text, lang) {
+  const parts = [];
+  const s = String(text ?? '');
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if ('([{<'.includes(c)) depth++;
+    else if (')]}>'.includes(c) && s[i - 1] !== '=') depth--;
+    else if (c === ',' && depth <= 0) { parts.push(s.slice(from, i)); from = i + 1; }
+  }
+  parts.push(s.slice(from));
+  const out = [];
+  for (const part of parts) {
+    const t = part.replace(/=[\s\S]*$/, '').replace(/\[[^\]]*\]/g, ' ').trim();
+    if (!t) continue;
+    const words = t.split(/\s+/);
+    out.push({ name: lang === 'go' ? words[0] : words[words.length - 1], ext: words[0] === 'this' });
+  }
+  return out;
+}
+
+const tailOf = (path) => {
+  const parts = String(path).replace(/\.[A-Za-z]+$/, '').split('/');
+  const last = parts.pop();
+  return /^(?:index|__init__|mod)$/.test(last) ? (parts.pop() ?? last) : last;
+};
+const hintMatches = (hint, path) => {
+  const segs = String(hint).split(/[./\\]/).filter(Boolean);
+  return segs.length > 0 && segs[segs.length - 1] === tailOf(path);
+};
+
+/**
+ * Finish the routes whose group prefix is only known in another file: a route registered on a
+ * parameter of a registration function takes the prefix of every call in the repository that
+ * hands a group to that function, and a route on a group another file mounts takes the mount's
+ * prefix. Run from an adapter's link step; it replaces the per-file lists in `factsByFile` and
+ * drops the link-only attributes. A parameter that no call gives a group to leaves the endpoint
+ * as declared with `prefix_unresolved`.
+ * @param {Map<string, object[]>} factsByFile
+ * @param {string} extractorPrefix `name@` of the adapter that wrote the facts
+ * @param {(p: string) => string} norm the adapter's path normaliser
+ */
+export function routeGroups(factsByFile, extractorPrefix, norm) {
+  const own = (f) => String(f.provenance?.extractor ?? '').startsWith(extractorPrefix);
+  const hasLink = (f) => f.kind === 'node' && own(f) && ((f.type === 'module' && (f.attrs.route_calls || f.attrs.route_mounts)) || (f.type === 'endpoint' && f.attrs?.route_group));
+  const calls = new Map();
+  const mounts = [];
+  const defs = new Map();
+  const exported = new Map();
+  const touched = [];
+  for (const [path, facts] of factsByFile) {
+    let any = false;
+    for (const f of facts) {
+      if (f.kind !== 'node' || !own(f)) continue;
+      if (hasLink(f)) any = true;
+      if (f.type === 'module') {
+        for (const c of f.attrs.route_calls ?? []) {
+          if (!calls.has(c.fn)) calls.set(c.fn, []);
+          calls.get(c.fn).push({ ...c, path });
+        }
+        for (const m of f.attrs.route_mounts ?? []) mounts.push({ ...m, path });
+      } else if (f.type === 'function' || f.type === 'method') {
+        const name = String(f.name).split('.').pop();
+        if (!defs.has(name)) defs.set(name, new Set());
+        defs.get(name).add(f.path ?? path);
+      } else if (f.type === 'endpoint' && f.attrs?.route_group?.kind === 'export') {
+        if (!exported.has(f.attrs.route_group.name)) exported.set(f.attrs.route_group.name, new Set());
+        exported.get(f.attrs.route_group.name).add(path);
+      }
+    }
+    if (any) touched.push(path);
+  }
+  if (!touched.length) return;
+
+  const dir = (p) => p.slice(0, Math.max(0, p.lastIndexOf('/')));
+  const dedupe = (list) => {
+    const seen = new Set();
+    return list.filter((v) => { const k = `${v.prefix}|${v.unresolved}`; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, MAX_VARIANTS);
+  };
+  const through = (ref, path, depth, seen) => {
+    const outer = ref.o ? outerOf(ref.o, path, depth + 1, seen) : [{ prefix: '', unresolved: false }];
+    return outer.map((v) => ({ prefix: joinPrefix(v.prefix, ref.p), unresolved: v.unresolved || ref.u }));
+  };
+  function outerOf(open, path, depth, seen) {
+    const key = `${open.kind}|${open.fn ?? open.name}|${open.index ?? ''}|${path}`;
+    if (depth > GROUP_DEPTH || seen.has(key)) return [{ prefix: '', unresolved: true }];
+    const next = new Set(seen).add(key);
+    let out = [];
+    if (open.kind === 'param') {
+      const several = (defs.get(open.fn)?.size ?? 0) > 1;
+      for (const c of calls.get(open.fn) ?? []) {
+        if (several && c.path !== path && dir(c.path) !== dir(path)) continue;
+        const ref = open.ext && c.r ? (open.index === 0 ? c.r : c.a[open.index - 1]) : c.a[open.index];
+        if (ref) out.push(...through(ref, c.path, depth, next));
+      }
+      if (!out.length) out = [{ prefix: '', unresolved: true }];
+    } else {
+      const total = exported.get(open.name)?.size ?? 0;
+      for (const m of mounts) {
+        if (m.name !== open.name || m.path === path) continue;
+        if (m.hint ? !hintMatches(m.hint, path) : total !== 1) continue;
+        out.push(...through(m, m.path, depth, next));
+      }
+      if (!out.length) out = [{ prefix: '', unresolved: false }];
+    }
+    return dedupe(out);
+  }
+
+  for (const path of touched) {
+    const rewrites = new Map();
+    const kept = [];
+    const made = new Set();
+    for (const f of factsByFile.get(path)) {
+      if (!hasLink(f)) kept.push(f);
+      else if (f.type === 'module') {
+        delete f.attrs.route_calls;
+        delete f.attrs.route_mounts;
+        kept.push(f);
+      } else {
+        const { route_group: open, prefix_unresolved: _u, ...attrs } = f.attrs;
+        const ids = [];
+        const { unresolved: own_, ...end } = open;
+        for (const v of outerOf(end, path, 0, new Set()).map((x) => ({ ...x, unresolved: x.unresolved || own_ }))) {
+          const route = norm(joinPrefix(v.prefix, attrs.path));
+          const key = `${attrs.method} ${route}`;
+          ids.push(`endpoint:${key}`);
+          if (made.has(key)) continue;
+          made.add(key);
+          kept.push({ ...f, id: `endpoint:${key}`, name: key, attrs: { ...attrs, path: route, ...(v.unresolved ? { prefix_unresolved: true } : {}) } });
+        }
+        if (!rewrites.has(f.id)) rewrites.set(f.id, ids);
+      }
+    }
+    factsByFile.set(path, kept.flatMap((f) => (f.kind === 'edge' && own(f) && rewrites.has(f.to) ? rewrites.get(f.to).map((to) => ({ ...f, to })) : [f])));
+  }
 }

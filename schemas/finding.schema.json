@@ -147,6 +147,10 @@
         ]
       }
     },
+    "confidence": {
+      "description": "How sure the detector is of the finding as a whole (absent on findings stored before 0.3.3).",
+      "enum": ["low", "medium", "high"]
+    },
     "blast_radius": {
       "$ref": "slice.schema.json#/$defs/blast_radius"
     },

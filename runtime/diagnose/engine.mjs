@@ -87,6 +87,7 @@ function finalize(draft, detector, signals, config) {
     fingerprint,
     key,
     evidence: (draft.evidence ?? []).map((e) => ({ ref: e.ref, label: e.label ?? 'observed', summary: e.summary ?? '', source_ref: e.source_ref ?? null })),
+    ...(['low', 'medium', 'high'].includes(draft.confidence) && { confidence: draft.confidence }),
     measurements: draft.measurements ?? {},
     thresholds: draft.thresholds ?? {},
     why_accidental: draft.why_accidental ?? '',

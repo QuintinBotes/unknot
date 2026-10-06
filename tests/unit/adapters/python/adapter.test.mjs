@@ -21,7 +21,7 @@ for (const mode of MODES) {
 
   test(`[${mode.name}] adapter descriptor and fact validity`, { skip }, async () => {
     assert.equal(adapter.id, 'python');
-    assert.equal(adapter.version, '0.1.10');
+    assert.equal(adapter.version, '0.1.11');
     assert.equal(adapter.kind, 'language');
     assert.deepEqual(adapter.capabilities.executes, ['python3']);
     assert.equal(adapter.capabilities.network, false);

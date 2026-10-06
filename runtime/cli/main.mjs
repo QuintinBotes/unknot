@@ -40,7 +40,7 @@ export const COMMANDS = {
   policy: 'Organization policy bundles (keygen|sign|trust|verify|effective) and recent refusals (denials)',
   backup: 'Encrypted backup of Unknot state (create|verify|restore --to)',
   daemon: 'Start the local API daemon',
-  workspace: 'Multi-repository workspace (list|map|graph)',
+  workspace: 'Multi-repository workspace (list|map|graph|add|remove)',
   gc: 'Apply retention to runs and cache',
   learn: 'Feedback loop: metrics and detector calibration (report), threshold proposals (propose)',
 };

@@ -4,7 +4,7 @@
 // module, Django include()) is deliberately not attempted here.
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
-import { SYNTAX, clientFacts, clientPath, operations, readMarker, typeBase, urlPath } from '../http-ops.mjs';
+import { SYNTAX, clientFacts, clientPath, createGroups, operations, readMarker, routeGroupAttrs, typeBase, urlPath } from '../http-ops.mjs';
 
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
 
@@ -82,8 +82,9 @@ function classBase(rec) {
  * @param {Map<string,{id:string,type:string,rec:object}>} a.symbols by qualified name
  * @param {(line:number)=>object} a.pv heuristic provenance factory
  * @param {(line:number)=>object} a.pvModel provenance for ORM mapping facts
+ * @param {object} a.moduleAttrs attributes of the module fact; the route group inputs for link() are added to them
  */
-export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
+export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, moduleAttrs }) {
   const facts = [];
   const detail = raw.calls_detail ?? [];
   const importedModules = new Set(raw.imports.map((i) => i.module.split('.')[0]));
@@ -92,22 +93,74 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
   const symId = (qual) => symbols.get(qual)?.id ?? moduleId;
 
   // --- Flask / FastAPI ---------------------------------------------------------------
+  // Route groups (see SYNTAX.python.groups): a router or blueprint created with a prefix, mounted
+  // below an app or another router with another, and handed to functions that register on it.
   const vars = new Map();
+  const gs = createGroups('python');
+  const create = gs.syn.create ?? {};
   for (const c of detail) {
     if (!c.assign || c.scope || c.owner_class) continue;
     const l = lastSeg(c.name);
-    if (l === 'Flask') vars.set(c.assign, { framework: 'flask', prefix: '' });
-    else if (l === 'Blueprint') vars.set(c.assign, { framework: 'flask', prefix: lit(c.kwargs.url_prefix) ?? '' });
-    else if (l === 'FastAPI') vars.set(c.assign, { framework: 'fastapi', prefix: '' });
-    else if (l === 'APIRouter') vars.set(c.assign, { framework: 'fastapi', prefix: lit(c.kwargs.prefix) ?? '' });
+    const framework = l === 'Flask' || l === 'Blueprint' ? 'flask' : l === 'FastAPI' || l === 'APIRouter' ? 'fastapi' : null;
+    if (!framework) continue;
+    vars.set(c.assign, { framework });
+    const kw = Object.hasOwn(create, l) ? create[l] : undefined;
+    // An app is a root; a router or blueprint is a group, whose prefix may be a variable.
+    if (kw === undefined) gs.group(`v:${c.assign}`, {});
+    else gs.group(`v:${c.assign}`, { own: kw && c.kwargs[kw] !== undefined ? lit(c.kwargs[kw]) : '', name: c.assign, module: true });
   }
+  const funcParams = (scope) => (scope ? symbols.get(scope)?.rec.params ?? null : null);
+  const ownerSkips = (scope) => symbols.get(scope)?.type === 'method' && ['self', 'cls'].includes(funcParams(scope)?.[0]);
+  /** The group key a name stands for in a scope: a module-level group, or a parameter of the function the scope is. */
+  const lookup = (name, scope) => {
+    const params = funcParams(scope);
+    const index = params ? params.indexOf(name) : -1;
+    if (index >= 0) {
+      const shift = ownerSkips(scope) ? 1 : 0;
+      const key = `p:${scope}:${index}`;
+      if (index >= shift) gs.param(key, { fn: lastSeg(scope), index: index - shift });
+      return index >= shift ? key : null;
+    }
+    return vars.has(name) ? `v:${name}` : null;
+  };
+  const imports = raw.imports ?? [];
+  /** What an imported name refers to: the name it has where it is declared and the module it comes from. */
+  const imported = (ref) => {
+    const [head, ...rest] = ref.split('.');
+    for (const imp of imports) {
+      if (imp.kind === 'from') {
+        for (const n of imp.names ?? []) {
+          if ((n.as ?? n.name) !== head) continue;
+          return rest.length ? { name: rest[rest.length - 1], hint: `${imp.module}.${n.name}` } : { name: n.name, hint: imp.module };
+        }
+      } else if (imp.kind === 'import' && (imp.as ?? imp.module.split('.')[0]) === head && rest.length) {
+        return { name: rest[rest.length - 1], hint: rest.length > 1 ? rest[rest.length - 2] : imp.as ? imp.module : imp.module };
+      }
+    }
+    return null;
+  };
+  const mountRows = gs.syn.mount ?? [];
   for (const c of detail) {
     const l = lastSeg(c.name);
-    const target = c.args[0]?.ref ? vars.get(c.args[0].ref) : null;
-    if (!target) continue;
-    if (l === 'register_blueprint' && lit(c.kwargs.url_prefix) !== null) target.prefix = c.kwargs.url_prefix;
-    else if (l === 'include_router' && lit(c.kwargs.prefix) !== null) target.prefix = c.kwargs.prefix + target.prefix;
+    const row = c.name.includes('.') ? mountRows.find((r) => r.name === l) : null;
+    const arg = c.args[row?.child]?.ref;
+    if (row && arg) {
+      const prefix = c.kwargs[row.prefix] === undefined ? '' : lit(c.kwargs[row.prefix]);
+      const parent = lookup(recvOf(c.name), c.scope);
+      const child = arg.includes('.') ? null : lookup(arg, c.scope);
+      if (child && gs.has(child)) gs.mount(child, parent, prefix, row.replaces && c.kwargs[row.prefix] !== undefined);
+      else {
+        const imp = imported(arg);
+        if (imp) gs.mountImported(imp.name, imp.hint, parent, prefix);
+      }
+      continue;
+    }
+    if ((gs.syn.create && Object.hasOwn(gs.syn.create, l)) || HTTP_VERBS.has(l)) continue;
+    // A call that hands a group to a function: the groups among its positional arguments.
+    const args = c.args.map((a) => (a?.ref && !a.ref.includes('.') ? (lookup(a.ref, c.scope) ?? '') : null));
+    if (args.some((a) => a !== null)) gs.call(l, null, args);
   }
+  if (moduleAttrs) Object.assign(moduleAttrs, gs.moduleAttrs()); // link-only: link() finishes cross-file prefixes and removes them
   const fallback = importedModules.has('fastapi') ? 'fastapi' : importedModules.has('flask') ? 'flask' : null;
   const seenEndpoints = new Set();
   const classOf = (sym) => (sym.type === 'method' ? symbols.get(sym.rec.parent) : null);
@@ -117,6 +170,7 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
     const owner = classOf(sym);
     // In an abstract or Protocol class, or with a body that does nothing, a decorated method declares a call.
     const client = Boolean(owner) && (abstractClass(owner.rec, symbols) || sym.rec.stub === true);
+    const scope = sym.rec.parent && symbols.get(sym.rec.parent)?.type === 'function' ? sym.rec.parent : null;
     for (const d of sym.rec.decorators ?? []) {
       const verb = lastSeg(d.name);
       const recv = recvOf(d.name);
@@ -142,16 +196,18 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
         continue;
       }
       if (!recv || !(HTTP_VERBS.has(verb) || verb === 'route' || verb === 'api_route')) continue;
-      const info = vars.get(recv) ?? (fallback ? { framework: fallback, prefix: '' } : null);
+      const key = lookup(recv, scope);
+      const info = vars.get(recv) ?? (fallback ? { framework: fallback } : key ? { framework: 'router' } : null);
       if (!info) continue;
       if (route === null) continue;
+      const group = key ? gs.resolve(key) : null;
       const methods = HTTP_VERBS.has(verb) ? [verb.toUpperCase()]
         : strings(d.kwargs.methods).map((m) => m.toUpperCase()).concat([]).sort();
-      const full = normalizeRoute(`${info.prefix}/${route}`);
+      const full = normalizeRoute(`${group?.prefix ?? ''}/${route}`);
       for (const method of methods.length ? methods : ['GET']) {
         const key = `${method} ${full}`;
         const id = `endpoint:${key}`;
-        const attrs = { framework: info.framework, method, path: full, handler: sym.id, router: recv };
+        const attrs = { framework: info.framework, method, path: full, handler: sym.id, router: recv, ...routeGroupAttrs(group) };
         if (!seenEndpoints.has(`${id}|${sym.id}`)) {
           seenEndpoints.add(`${id}|${sym.id}`);
           facts.push(nodeFact('endpoint', key, { name: key, path, attrs }, pv(d.line)));

@@ -65,7 +65,8 @@
           "type": "boolean"
         },
         "metrics": {
-          "type": "object"
+          "type": "object",
+          "description": "Measured numbers, one value per name; includes contracts.present and clients.count when measured (absent: unmeasured)"
         },
         "name": {
           "type": "string",

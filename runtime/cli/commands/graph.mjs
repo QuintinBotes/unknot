@@ -181,7 +181,7 @@ export async function run({ positional, flags }) {
       const share = new Map();
       for (const y of b.cycles) for (const e of y.edges) share.set(key(e), (share.get(key(e)) ?? 0) + 1);
       const cycles = b.cycles.map((y) => ({ ...y, cut_candidates: [...y.edges].sort((a, z) => share.get(key(z)) - share.get(key(a)) || key(a).localeCompare(key(z))).slice(0, 3).map((e) => ({ ...e, in_cycles: share.get(key(e)) })) }));
-      return { size: c.length, members: c, cycles, cycles_truncated: b.truncated, cut: b.cut };
+      return { size: c.length, members: c, cycles, cycles_truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(stored && { finding: stored[i].finding, ...(stored[i].reason && { reason: stored[i].reason }) }) };
     });
     if (flags.json) return output(comps, { json: true });
     if (!comps.length) return output('no cycles');
@@ -196,7 +196,8 @@ export async function run({ positional, flags }) {
         `    ${[...y.nodes, y.nodes[0]].map(nameOf).join(' → ')}${y.edges.some((e) => e.declared_only) ? ' (has declared-only edges)' : ''}`,
         `      cut here: ${y.cut_candidates.map((e) => `${edgeText(e)} (in ${e.in_cycles} of the listed cycles)`).join('; ')}`,
       ]),
-      `  edges to cut (${c.cut.length}; removing them leaves no cycle):`,
+      ...(c.finding === false ? [`  no finding: ${c.reason}`] : []),
+      `  edges to cut (${c.cut.length}${c.cut_heuristic ? ', by ordering heuristic' : ''}; removing them leaves no cycle):`,
       ...c.cut.map((e) => `    ${edgeText(e)}${e.closes ? ` [closes ${e.closes}]` : ''}`),
     ]);
     const note = all.length > comps.length ? `\n(${comps.length} of ${all.length} cycles; raise --limit)` : '';

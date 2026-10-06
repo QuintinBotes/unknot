@@ -5,7 +5,8 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR } from './config.mjs';
-import { serverInterfaces } from '../http-ops.mjs';
+import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { joinPath } from './frameworks.mjs';
 import { createResolver, normalize as normalizePath } from './resolver.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberReach, withSemantic } from '../generic/members.mjs';
@@ -404,6 +405,7 @@ export function linkFacts(ctx) {
       }
     }
   }
+  routeGroups(ctx.factsByFile, 'javascript@', joinPath);
   for (const f of serverInterfaces(ctx.factsByFile, 'javascript@', (p, line) => P(p, line, 'medium'))) out.push(f);
   return out;
 }
