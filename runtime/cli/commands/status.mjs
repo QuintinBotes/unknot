@@ -5,6 +5,7 @@ import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
+import { readMappedScopes } from '../../graph/mapped-scopes.mjs';
 import { open } from './_shared.mjs';
 
 /** One line on the identifier-like string constants in the graph: how many, of which sub-kinds, and what was cut. */
@@ -35,11 +36,12 @@ export async function run({ flags }) {
   } catch {
     // older store
   }
+  const scopes = readMappedScopes(ctx.store);
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,
     active_run: run ? { id: run.id, command: run.command, started_at: run.started_at, slice: run.slice_id } : null,
-    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout, ...(constants && { constants }) },
+    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout, ...(scopes && { scope: scopes }), ...(constants && { constants }) },
     findings: Object.fromEntries(findings.map((f) => [f.status, f.n])),
     campaigns,
     slices,
@@ -53,6 +55,7 @@ export async function run({ flags }) {
   const lines = [
     `Mode: ${status.mode}${run ? ` · active run ${run.id} (${run.command})` : ''}${cfg.notice ? `\nConfig: ${cfg.notice}` : ''}`,
     `Graph: generation ${status.graph.generation ?? '—'} at ${mapped?.slice(0, 12) || '—'}${status.graph.stale ? ` (STALE: HEAD is ${current?.slice(0, 12)}; run unknot map)` : ''}`,
+    ...(scopes ? [`Covers: ${scopes.whole ? 'the whole repository' : scopes.scopes.join(', ')}`] : []),
     ...(constants ? [constantsLine(constants)] : []),
     `Findings: ${Object.entries(status.findings).map(([k, v]) => `${v} ${k}`).join(', ') || 'none (run unknot diagnose)'}`,
     '',
