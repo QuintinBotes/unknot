@@ -22,6 +22,7 @@ export async function run({ positional, flags }) {
     return output([
       `Mapped ${r.repositories.length} repositories into ${r.nodes} workspace nodes and ${r.edges} edges.`,
       `Cross-repository edges: ${a.cross_repo_edges.total}${a.cross_repo_edges.total ? ` (${Object.entries(a.cross_repo_edges.by_via).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}.`,
+      ...(a.client_operations?.total ? [`Client operations: ${a.client_operations.total} (${a.client_operations.linked} linked to an endpoint in another repository, ${a.client_operations.internal} served in their own repository, ${a.client_operations.unmatched.length} unmatched).`, ...a.client_operations.unmatched.map((u) => `  unmatched: ${u.route} in ${u.repo}${u.interfaces.length ? ` (${u.interfaces.join(', ')})` : ''}`)] : []),
       a.shared_database ? `SHARED DATABASE: ${a.shared_tables.map((t) => t.table).join(', ')}` : 'No tables are shared between repositories.',
     ].join('\n'));
   }
@@ -37,6 +38,7 @@ export async function run({ positional, flags }) {
       '',
       `Cross-repository edges: ${s.cross_repo_edges.total} (${Object.entries(s.cross_repo_edges.by_type).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'})`,
       ...s.repo_dependencies.map((d) => `  ${d.from} -> ${d.to} via ${d.via.join(', ')} (${d.edges})`),
+      ...(s.client_operations.total ? [`Client operations: ${s.client_operations.total} (${s.client_operations.linked} linked, ${s.client_operations.internal} internal, ${s.client_operations.unmatched.length} unmatched)`, ...s.client_operations.unmatched.map((u) => `  unmatched: ${u.route} in ${u.repo}${u.interfaces.length ? ` (${u.interfaces.join(', ')})` : ''}`)] : []),
       s.shared_database ? `Shared tables: ${s.shared_tables.map((t) => `${t.table} (owner ${t.owner_repo})`).join(', ')}` : 'Shared tables: none',
       ...(s.release_coupling.length ? ['Release coupling:', ...s.release_coupling.map((h) => `  ${h.hint}`)] : []),
       `Catalog: ${s.catalog.services.length} services, ${s.catalog.unmapped_code_roots.length} unmapped code roots, ${s.catalog.services_without_owner.length} without owner, ${s.catalog.owners_without_services.length} owners without services`,

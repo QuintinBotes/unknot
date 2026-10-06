@@ -13,7 +13,8 @@ import { brokerExec } from '../broker/broker.mjs';
 import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/approvals.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
 import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
-import { modeRank } from '../policy/defaults.mjs';
+import { modeRank, riskRank } from '../policy/defaults.mjs';
+import { provenDeletion, reclassifySlice, settleProven } from '../policy/proven.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
@@ -41,13 +42,14 @@ export function currentBinding(ctx, slice, stage, { cfg, commit, diffHash = null
   });
 }
 
-export function neededApprovals(slice, config) {
-  return requiredApprovals(classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {} }), config);
+export function neededApprovals(slice, config, ctx = null) {
+  const proven = ctx ? provenDeletion(ctx, slice, { config }) : null;
+  return requiredApprovals(classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven }), config);
 }
 
 export function approvalStatus(ctx, slice, stage, { cfg, commit, diffHash }) {
   const current = currentBinding(ctx, slice, stage, { cfg, commit, diffHash });
-  return evaluateApprovals(ctx, { config: cfg.config, slice, current, needed: neededApprovals(slice, cfg.config) });
+  return evaluateApprovals(ctx, { config: cfg.config, slice, current, needed: neededApprovals(slice, cfg.config, ctx) });
 }
 
 /**
@@ -89,6 +91,13 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   for (const pre of slice.body.preconditions) {
     const p = ctx.store.get('SELECT state FROM slices WHERE id = ?', pre);
     if (!p || p.state !== 'ACCEPTED') throw new UnknotError('UK_POLICY_DENIED', `precondition ${pre} is ${p?.state ?? 'missing'}, not ACCEPTED`, { slice_id: sliceId });
+  }
+  // A slice planned as a proven deletion whose findings have since gone stale is judged as it
+  // stands now: reclassified (risk only goes up here), which also voids approvals given to the old plan.
+  const now = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven: provenDeletion(ctx, slice, { config }) });
+  if (riskRank(now.risk) > riskRank(slice.risk)) {
+    reclassifySlice(ctx, { config, slice, reason: 'the slice no longer qualifies for its planned risk' });
+    slice = loadSlice(ctx, sliceId);
   }
   assertCleanBaseline(ctx.root);
   const commit = head(ctx.root);
@@ -139,7 +148,7 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
 
 /** Stage the patch, bind its hash, move to VERIFYING. */
 export function finishApply(ctx, { cfg, run, sliceId, actor }) {
-  const slice = loadSlice(ctx, sliceId);
+  let slice = loadSlice(ctx, sliceId);
   if (slice.state !== 'PATCHING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}, not PATCHING`, { slice_id: sliceId });
   if (diffStat(slice.worktree).files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
   const { patch, diff_hash, files } = stagePatch(slice.worktree, slice.baseline_commit);
@@ -155,6 +164,9 @@ export function finishApply(ctx, { cfg, run, sliceId, actor }) {
       throw new UnknotError('UK_POLICY_DENIED', `the patch leaves lane ${lane.id}: ${fit.problems.join('; ')}. Shrink it to fit, run \`unknot apply ${sliceId} replan --reason "..."\`, or a person approves this slice's plan (unknot approve ${sliceId} --stage plan)`, { slice_id: sliceId, details: { policy: 'lane.fit', lane: lane.id, problems: fit.problems } });
     }
   }
+  // A proven deletion must still be one when the patch exists: a line added, or a second file, ends it.
+  const proven = settleProven(ctx, { config: cfg.config, slice, stat, actor });
+  if (proven.lost) slice = loadSlice(ctx, sliceId);
   const dir = join(ctx.paths.runs, run.id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'diff.patch'), patch);
@@ -171,7 +183,7 @@ export function finishApply(ctx, { cfg, run, sliceId, actor }) {
   // Any previous verification described a different diff.
   ctx.store.run("UPDATE proof_obligations SET status = 'open', evidence_id = NULL, version = version + 1 WHERE slice_id = ? AND requires_human = 0", sliceId);
   appendEvent(ctx, { type: 'apply.finished', run_id: run.id, slice_id: sliceId, actor, payload: { diff_hash, files, stat, patch_ref: ref } });
-  return { diff_hash, files, stat };
+  return { diff_hash, files, stat, ...(proven.lost && { proven_deletion_lost: proven.problems }) };
 }
 
 export function replan(ctx, { run, sliceId, actor, reason }) {

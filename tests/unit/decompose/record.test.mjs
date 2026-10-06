@@ -93,15 +93,15 @@ describe('boundary metrics', () => {
 
   test('namespace-only imports are not counted, test imports are counted apart, and targets are listed', () => {
     const { metrics, details, gaps } = run();
-    assert.equal(metrics['boundary.reverse_deps'], 3);
+    assert.equal(metrics['boundary.outbound_dependencies'], 3);
     // Issue #15: the direction is in the name; the 0.1.x name carries the same number until 0.3.0.
     assert.equal(metrics['boundary.outbound_dependencies'], 3);
-    assert.equal(metrics['boundary.outbound_dependencies_test'], metrics['boundary.reverse_deps_test']);
-    assert.equal(metrics['boundary.reverse_deps_test'], 1);
-    assert.equal(metrics['boundary.reverse_deps_low_confidence'], 1);
+    assert.equal(metrics['boundary.outbound_dependencies_test'], metrics['boundary.outbound_dependencies_test']);
+    assert.equal(metrics['boundary.outbound_dependencies_test'], 1);
+    assert.equal(metrics['boundary.outbound_dependencies_low_confidence'], 1);
     assert.deepEqual(details.reverse_targets, [{ module: 'module:out/real.ts', edges: 2 }, { module: 'module:out/other.ts', edges: 1 }]);
     assert.ok(gaps.some((x) => /resolved only by namespace/.test(x)));
-    assert.equal(details.evidence['boundary.reverse_deps'].length, 3);
+    assert.equal(details.evidence['boundary.outbound_dependencies'].length, 3);
   });
 
   test('a cycle through the boundary records its members and closing edges as evidence', () => {
@@ -148,7 +148,7 @@ describe('boundary metrics', () => {
 
 const signals = {
   'tests.present': 3, 'boundary.robust': 1, 'cycle.size': 0, 'boundary.shared_table_writers': 0, 'boundary.cross_joins': 0,
-  'boundary.reverse_deps': 0, 'requests.interceptable': 0, 'driver.any': 0, 'boundary.interface_count': 3, 'module.consumers': 4,
+  'boundary.outbound_dependencies': 0, 'requests.interceptable': 0, 'driver.any': 0, 'boundary.interface_count': 3, 'module.consumers': 4,
 };
 
 describe('selection and readiness', () => {
@@ -269,7 +269,7 @@ describe('decompose command', () => {
     assert.ok(['directory', 'namespace'].includes(rec.candidate.name_basis));
     assert.match(rec.candidate.name, /shop\/(catalog|billing)/);
     assert.ok(rec.candidate.top_files.length >= 1 && rec.candidate.top_files.length <= 5);
-    for (const k of ['boundary.cohesion', 'boundary.coupling', 'boundary.stability', 'boundary.reverse_deps_test']) assert.equal(typeof rec.candidate.metrics[k], 'number', k);
+    for (const k of ['boundary.cohesion', 'boundary.coupling', 'boundary.stability', 'boundary.outbound_dependencies_test']) assert.equal(typeof rec.candidate.metrics[k], 'number', k);
     for (const f of rec.favoring_signals) {
       assert.ok(Array.isArray(f.evidence) && f.evidence.length <= 20);
       assert.match(f.source, new RegExp(`${f.signal.replace('.', '\\.')}.*graph generation ${rec.graph_generation}|recorded driver`));

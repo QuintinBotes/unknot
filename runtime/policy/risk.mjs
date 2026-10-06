@@ -19,19 +19,26 @@ const raise = (state, risk, reason) => {
 
 /**
  * @param {object} slice slice body (spec §17.3 schema)
- * @param {{config: object, surfaces?: object}} opts surfaces are measured facts about the
- *   change (from the graph or the diff): public_api, internal_contract, module_boundary,
- *   tenant_boundary, data_movement, destructive_infra.
+ * @param {{config: object, surfaces?: object, proven?: {qualifies: boolean, reasons?: string[]}|null}} opts surfaces are
+ *   measured facts about the change (from the graph or the diff): public_api, internal_contract,
+ *   module_boundary, tenant_boundary, data_movement, destructive_infra. `proven` is the verdict of
+ *   provenDeletion (policy/proven.mjs), computed from Unknot's own stored data and never from
+ *   what a slice says about itself: it only skips the medium factors below that a proven
+ *   deletion cannot trigger, and nothing high or critical.
  */
-export function classifyRisk(slice, { config, surfaces = {} } = {}) {
+export function classifyRisk(slice, { config, surfaces = {}, proven = null } = {}) {
   const state = { risk: 'low', reasons: [], specialists: new Set() };
+  const proof = proven?.qualifies === true;
+  if (proof) state.reasons.push(`proven deletion: ${(proven.reasons ?? []).join('; ')}`);
   const paths = [...(slice.changes ?? []).map((c) => c.path), ...(slice.scope?.include ?? [])].filter(Boolean);
   const any = (globs) => paths.some((p) => matchAny(p, globs, { nocase: true }));
   const text = JSON.stringify(slice.changes ?? []) + JSON.stringify(slice.objective ?? '');
 
-  if (slice.declared_risk && riskRank(slice.declared_risk) > 0) raise(state, slice.declared_risk, 'declared by the planner');
-  if (['T1', 'T2', 'T4', 'T5', 'T8'].includes(slice.treatment)) raise(state, 'medium', `treatment ${slice.treatment} changes module boundaries`);
-  if (surfaces.module_boundary || surfaces.internal_contract) raise(state, 'medium', 'module boundary or internal contract changes');
+  // A planner's 'medium' and the medium surfaces are the only factors a proven deletion lowers;
+  // a declared 'high' or 'critical' is still raised.
+  if (slice.declared_risk && riskRank(slice.declared_risk) > 0 && !(proof && slice.declared_risk === 'medium')) raise(state, slice.declared_risk, 'declared by the planner');
+  if (!proof && ['T1', 'T2', 'T4', 'T5', 'T8'].includes(slice.treatment)) raise(state, 'medium', `treatment ${slice.treatment} changes module boundaries`);
+  if (!proof && (surfaces.module_boundary || surfaces.internal_contract)) raise(state, 'medium', 'module boundary or internal contract changes');
   if (any(DEP_MANIFESTS) || surfaces.dependency_change) raise(state, 'medium', 'dependency manifest changes');
 
   if (surfaces.public_api) raise(state, 'high', 'public API surface changes');
@@ -72,13 +79,16 @@ export function classifyRisk(slice, { config, surfaces = {} } = {}) {
     state.specialists.add('security-owner');
   }
   if (slice.irreversible) raise(state, 'critical', 'irreversible step');
-  return { risk: state.risk, reasons: state.reasons, specialists: [...state.specialists].sort() };
+  return { risk: state.risk, reasons: state.reasons, specialists: [...state.specialists].sort(), ...(proof && { proven: true }) };
 }
 
 /** Roles that must approve, and how many distinct people. */
 export function requiredApprovals(classification, config) {
   const roles = new Set();
-  for (const r of config.approvals[classification.risk] ?? []) {
+  // A proven deletion that is still low risk is approved by whoever `approvals.proven_deletion`
+  // names (default: any registered approver); at any higher risk the normal roles apply.
+  const proven = classification.proven === true && classification.risk === 'low';
+  for (const r of proven ? config.approvals.proven_deletion ?? ['any-approver'] : config.approvals[classification.risk] ?? []) {
     if (r === 'specialist-owner') {
       const s = classification.specialists.length ? classification.specialists : ['security-owner'];
       s.forEach((x) => roles.add(x));

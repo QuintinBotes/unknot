@@ -181,7 +181,7 @@
             "additionalProperties": false
           },
           "maxItems": 10,
-          "description": "Deprecated since 0.2.0: the same list as outbound_dependency_targets. Removed in 0.3.0."
+          "description": "Written by releases before 0.3.0 (now outbound_dependency_targets); read for older records only."
         },
         "folded_siblings": {
           "type": "array",
@@ -431,6 +431,99 @@
         "medium",
         "low"
       ]
+    },
+    "runtime_evidence": {
+      "type": "object",
+      "description": "Measured traffic across the boundary from imported runtime tables or traces, labelled observed, with the window it covers and how much of the boundary it covers; the static-only confidence cap lifts when coverage reaches coverage_threshold.",
+      "properties": {
+        "label": {
+          "const": "observed"
+        },
+        "window": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cross_boundary_calls": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cross_boundary_p95_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cross_boundary_error_rate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "coverage_threshold": {
+          "type": "number"
+        },
+        "covered_edges": {
+          "type": "integer"
+        },
+        "boundary_edges": {
+          "type": "integer"
+        },
+        "cap": {
+          "enum": [
+            "lifted",
+            "applies"
+          ]
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "label",
+        "coverage_threshold",
+        "cap"
+      ],
+      "additionalProperties": false
+    },
+    "confidence_cap": {
+      "type": "string",
+      "description": "Present when static evidence alone lowered the confidence to medium: why."
     },
     "first_slice": {
       "type": "object"

@@ -17,6 +17,8 @@ import { resolveScopes } from './mapped-scopes.mjs';
 import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
+import { importFacts } from '../../adapters/runtime/imports.mjs';
+import { loadImports } from './runtime-imports.mjs';
 import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
@@ -200,10 +202,12 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   lap('extraction_ms');
   const fileFacts = [...perFile.values()].flat();
   const global = [];
+  // Files a semantic adapter (a SCIP index) covers, with what it decided about them; read by the language adapters' link.
+  const semantic = new Map();
   for (const adapter of loaded) {
     if (!adapter.link) continue;
     try {
-      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats }) ?? []).map(assertFact));
+      pushAll(global, (adapter.link({ root: ctx.root, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic }) ?? []).map(assertFact));
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -261,6 +265,16 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  // Imported runtime tables (`unknot import runtime`) are matched against the graph as mapped now.
+  const imports = loadImports(ctx.store);
+  if (imports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, importFacts(imports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<runtime-import>', adapter: 'runtime', error: String(err?.message ?? err) });
+    }
+  }
   lap('discovery_ms');
   let historyStats = null;
   if (history && cen.repo) {
@@ -298,6 +312,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
   const totalSource = coverage.reduce((n, c) => n + c.files, 0);
   coverage.forEach((c, i) => {
+    if (c.qualities?.semantic && c.qualities.lexical) notes.push(`language coverage: ${c.language} ${c.qualities.semantic} of ${c.files} source files are resolved by the SCIP index (semantic), ${c.qualities.lexical} are read lexically`);
     if (c.quality !== 'lexical') return;
     const dominant = i === 0;
     const reason = `no dedicated adapter for ${c.language} (${c.files} of ${totalSource} source files): lexical extraction; imports and type references are matched by name, not resolved by a compiler, and most calls are not seen`;
@@ -332,6 +347,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     unavailable,
     coverage,
     ...(checkout && { checkout }),
+    ...(stats.scip && { scip: stats.scip }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
@@ -349,8 +365,10 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
 }
 
 /**
- * Source files per language with the adapter that handled them and how: `syntax_tree`
- * (parsed), `degraded` (parsed with fallbacks) or `lexical` (name matching only). Most files first.
+ * Source files per language with the adapter that handled them and how: `semantic` (resolved by
+ * a compiler's index), `syntax_tree` (parsed), `degraded` (parsed with fallbacks) or `lexical`
+ * (name matching only). Most files first. `qualities` (files per quality) is present when a language
+ * is mixed or semantic.
  */
 export function languageCoverage(files, perFile, moduleBy) {
   const by = new Map();
@@ -358,7 +376,7 @@ export function languageCoverage(files, perFile, moduleBy) {
     if (f.kind !== 'source' || f.context) continue;
     const mod = (perFile.get(f.path) ?? []).find((x) => x.kind === 'node' && x.type === 'module');
     const pq = mod?.attrs?.parse_quality;
-    const quality = !mod ? 'none' : pq === 'lexical' ? 'lexical' : pq === 'degraded' ? 'degraded' : 'syntax_tree';
+    const quality = !mod ? 'none' : pq === 'lexical' ? 'lexical' : pq === 'degraded' ? 'degraded' : pq === 'semantic' ? 'semantic' : 'syntax_tree';
     const g = by.get(f.language) ?? { language: f.language, files: 0, adapters: new Map(), quals: new Map() };
     g.files++;
     const a = moduleBy.get(f.path) ?? 'none';
@@ -367,7 +385,7 @@ export function languageCoverage(files, perFile, moduleBy) {
     by.set(f.language, g);
   }
   const top = (m) => [...m].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1))[0][0];
-  return [...by.values()].sort((a, b) => b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals) }));
+  return [...by.values()].sort((a, b) => b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals), ...((g.quals.size > 1 || g.quals.has('semantic')) && { qualities: Object.fromEntries([...g.quals].sort(([x], [y]) => (x < y ? -1 : 1))) }) }));
 }
 
 function historyFacts(root, config, sourcePaths) {

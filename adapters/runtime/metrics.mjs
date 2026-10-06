@@ -86,7 +86,7 @@ function parseLabelString(s) {
   return out;
 }
 
-function csvRecords(text) {
+export function csvRecords(text) {
   const rows = [];
   let row = [];
   let field = '';

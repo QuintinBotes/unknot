@@ -297,6 +297,8 @@ export async function run({ flags }) {
     protected_paths: [...new Set(d.protectedPaths)],
     commands: d.commands,
     limits: { max_changed_files: 12, max_diff_lines: 500, max_runtime_minutes: 30, max_network_requests: 0 },
+    // Unknot cannot tell published library API from application code; a person sets false when accepting.
+    repository: { publishes_api: true },
     quality: { forbid_new_cycles: true, public_api_compatibility: 'required' },
     security: { secrets_scan: 'required', sast: 'required_for_high_risk', dependency_changes: 'approval_required' },
     database: { live_access: 'disabled', destructive_execution: 'forbidden' },
@@ -321,7 +323,7 @@ export async function run({ flags }) {
   }
   const nothingNew = update && !Object.keys(update.added_commands).length && !update.added_protected_paths.length;
   if (!nothingNew) {
-    const proposedText = stringifyYAML(proposed);
+    const proposedText = `# repository.publishes_api: true treats public members as possible library API, so removing one is never a proven deletion.\n# Set it to false only if this repository publishes no library API and its public members are internal.\n${stringifyYAML(proposed)}`;
     writeFileSync(ctx.paths.proposedConfig, proposedText);
     const entries = {};
     for (const k of Object.keys(proposed.commands ?? {})) if (d.sources.commands[k]) entries[`commands.${k}`] = d.sources.commands[k];

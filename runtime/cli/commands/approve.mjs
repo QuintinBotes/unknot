@@ -3,7 +3,7 @@
 // Human only: an interactive terminal, the slice id typed back, and the approver key's
 // passphrase. The signature binds the exact plan or diff (spec §20).
 
-import { approvalStatus, currentBinding, loadSlice } from '../../apply/apply.mjs';
+import { approvalStatus, currentBinding, loadSlice, neededApprovals } from '../../apply/apply.mjs';
 import { head } from '../../apply/git.mjs';
 import { UnknotError } from '../../core/errors.mjs';
 import { loadApproverKey } from '../../core/keys.mjs';
@@ -62,18 +62,22 @@ export async function run({ positional, flags }) {
   requireHumanTTY('approving a slice');
   if (flags.lane) return approveLane(flags);
   const sliceId = positional[0];
-  const role = flags.role;
   const approver = flags.as;
-  if (!sliceId || !role || !approver) throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot approve <slice> --role <role> --as <approver> [--stage plan|change|rollback]');
+  if (!sliceId || !approver) throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot approve <slice> --role <role> --as <approver> [--stage plan|change|rollback]');
   const { ctx, cfg, actor } = open(flags);
   const slice = loadSlice(ctx, sliceId);
+  // What the slice needs now, from Unknot's own data (a proven deletion needs approvals.proven_deletion).
+  const needed = neededApprovals(slice, cfg.config, ctx);
+  // A proven deletion needs no role: any registered approver may sign it as `any-approver`.
+  const role = flags.role ?? (needed.roles.length === 1 && needed.roles[0] === 'any-approver' ? 'any-approver' : null);
+  if (!role) throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot approve <slice> --role <role> --as <approver> [--stage plan|change|rollback]');
   const stage = flags.stage ?? (slice.state === 'REVIEW_READY' ? 'change' : slice.state === 'ACCEPTED' ? 'rollback' : 'plan');
   const commit = stage === 'plan' ? head(ctx.root) : slice.baseline_commit;
   const binding = currentBinding(ctx, slice, stage, { cfg, commit, diffHash: stage === 'plan' ? null : slice.diff_hash });
   output([
     `Approving ${sliceId} (${stage} stage) as ${approver} / ${role}`,
     `Objective: ${slice.body.objective}`,
-    `Risk: ${slice.risk}; required roles: ${slice.body.approvals.join(', ')}`,
+    `Risk: ${slice.risk}; required roles: ${needed.roles.join(', ')}${needed.roles.includes('any-approver') ? ' (a proven deletion: any registered approver)' : ''}`,
     `Scope: ${slice.body.scope.include.join(', ')}`,
     stage === 'plan' ? `Baseline commit: ${commit}` : `Diff: ${slice.diff_hash} (review .unknot/runs/*/diff.patch and the proof bundle first)`,
     `Policy digest: ${cfg.digest}`,

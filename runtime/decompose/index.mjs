@@ -17,6 +17,7 @@ import { buildAffinity } from './affinity.mjs';
 import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
 import { fingerprintIndex, fingerprintOf, currentGeneration, loadRecords, predecessorOf } from './records.mjs';
+import { capConfidence, runtimeSummary } from './runtime-evidence.mjs';
 import { readinessFor, selectTreatment } from './select.mjs';
 
 const OBLIGATION_KINDS = new Set(['characterization', 'parse', 'lint', 'typecheck', 'unit', 'integration', 'contract', 'architecture-fitness', 'security-scan', 'secrets-scan', 'migration-rehearsal', 'reconciliation', 'infra-plan', 'performance', 'smoke', 'rollback-rehearsal', 'human-review', 'api-compatibility', 'no-new-cycles', 'diff-budget', 'scope-check']);
@@ -167,6 +168,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
     delete signals.gaps;
     const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
+    const cap = capConfidence(cand.robust ? sel.confidence : 'low', sel.treatment, cand.details?.runtime);
     const fingerprint = fingerprintOf({ target: t, drivers: allDrivers, modules: cand.modules });
     const existing = known.get(fingerprint) ?? null;
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
@@ -199,11 +201,10 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         top_files: cand.top_files,
         modules: cand.modules,
         robust: Boolean(cand.robust),
-        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver)\./.test(k))),
+        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime)\./.test(k))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         // Modules outside the candidate that it imports: the candidate depends on them.
-        // reverse_dependency_targets is the 0.1.x name, kept until 0.3.0.
-        ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets, reverse_dependency_targets: cand.details.reverse_targets } : {}),
+        ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets } : {}),
         ...(cand.folded ? { folded_siblings: cand.folded } : {}),
         ...(cand.details?.owners ? { owners: cand.details.owners, ...(cand.details.unowned ? { unowned_modules: cand.details.unowned } : {}) } : {}),
         ...(cand.broken_by ? { robustness_detail: { stability: cand.stability, threshold: d.thresholds.robustness, broken_by: cand.broken_by } } : {}),
@@ -218,8 +219,10 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
       readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
-      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`)])],
-      confidence: cand.robust ? sel.confidence : 'low',
+      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
+      confidence: cand.robust ? cap.confidence : 'low',
+      ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
+      ...(cap.capped ? { confidence_cap: cap.reason } : {}),
       ...(sel.treatment === 'T0' ? { retain_reason: sel.retain_reason } : { selection_reason: sel.selection_reason }),
       first_slice: firstSlice(sel.treatment, cand, sel),
       proof_obligations: obligationsFor(sel),

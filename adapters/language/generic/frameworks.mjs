@@ -354,9 +354,81 @@ function ormTables(lx, an, lang) {
   return out;
 }
 
+// ---- typed HTTP clients (declarative interfaces whose methods carry route attributes) ----
+
+const CS_CLIENT_ATTR = /\[\s*(Get|Post|Put|Delete|Patch|Head|Options)\s*\(\s*@?"([^"\n]*)"/g;
+const JVM_CLIENT_ANN = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping|RequestLine|GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
+const LEADING_MARKERS = /^(?:\s*(?:\[[^\]]*\]|@\w+(?:\s*\((?:"(?:[^"\\\n]|\\.)*"|[^()"])*\))?))*/;
+
+/** A client route as written: no query string, Refit's catch-all `{**rest}` as a plain parameter. */
+const clientPath = (p) => normPath(String(p).replace(/[?#].*$/, '').replace(/\{\*\*?/g, '{'));
+
+/** The method name declared right after an attribute list: skip further attributes, take the name before `(`. */
+function declaredName(text) {
+  const rest = text.slice(LEADING_MARKERS.exec(text)[0].length);
+  return /^[^;{(]*?([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/.exec(rest)?.[1] ?? null;
+}
+
+/**
+ * Interfaces that declare calls to an HTTP API: C# Refit (`[Get("/x")]` on interface methods),
+ * Java and Kotlin Feign (`@FeignClient` interfaces with Spring mapping annotations or
+ * `@RequestLine("GET /x")`) and Retrofit (`@GET("x")` with the path as an argument, which
+ * tells it from JAX-RS where the path sits in `@Path`). Only the interface body is read, so a
+ * controller never appears here. `[Headers]` and other attributes carry no route and are skipped.
+ */
+function httpClients(lx, an, lang) {
+  const out = [];
+  if (lang !== 'csharp' && lang !== 'java' && lang !== 'kotlin') return out;
+  for (const t of an.types) {
+    if (t.kind !== 'interface' || !t.hasBody) continue;
+    const open = lx.plain.indexOf('{', t.nameOff);
+    if (open < 0 || open > t.end) continue;
+    const body = lx.plain.slice(open, t.end + 1);
+    const at = (i) => open + i;
+    const ops = [];
+    let framework = null;
+    let prefix = '';
+    if (lang === 'csharp') {
+      framework = 'refit';
+      for (const m of body.matchAll(CS_CLIENT_ATTR)) {
+        if (!real(lx, at(m.index))) continue;
+        const name = declaredName(body.slice(m.index + m[0].length).replace(/^[^\]]*\]/, ''));
+        ops.push({ method: m[1].toUpperCase(), path: clientPath(m[2]), name, line: lx.lineOf(at(m.index)) });
+      }
+    } else {
+      // Only the annotations and modifiers right before the declaration belong to it.
+      const before = lx.code.slice(Math.max(0, t.start - 400), t.start);
+      const head = lx.plain.slice(t.start - (before.length - Math.max(before.lastIndexOf(';'), before.lastIndexOf('{'), before.lastIndexOf('}')) - 1), t.start);
+      const feign = /@FeignClient\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/.exec(head);
+      const retrofit = [...body.matchAll(JVM_CLIENT_ANN)].some((m) => /^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(m[1]) && /^\s*"/.test(m[2] ?? ''));
+      if (!feign && !retrofit) continue;
+      framework = feign ? 'feign' : 'retrofit';
+      if (feign) prefix = /\bpath\s*=\s*"([^"]*)"/.exec(feign[1] ?? '')?.[1] ?? '';
+      for (const m of body.matchAll(JVM_CLIENT_ANN)) {
+        if (!real(lx, at(m.index))) continue;
+        let method = null;
+        let sub = '';
+        if (SPRING_VERB[m[1]]) { if (!feign) continue; method = SPRING_VERB[m[1]]; sub = pathArg(m[2]); }
+        else if (m[1] === 'RequestMapping') { if (!feign) continue; method = /RequestMethod\.(\w+)/.exec(m[2] ?? '')?.[1] ?? 'ANY'; sub = pathArg(m[2]); }
+        else if (m[1] === 'RequestLine') {
+          const rl = /^\s*"([A-Z]+)\s+([^"\s]*)/.exec(m[2] ?? '');
+          if (!rl) continue;
+          method = rl[1]; sub = rl[2];
+        } else if (!feign && /^\s*"/.test(m[2] ?? '')) { method = m[1]; sub = pathArg(m[2]); }
+        else continue;
+        const after = body.slice(m.index + m[0].length);
+        const name = declaredName(after) ?? (lang === 'kotlin' ? /\bfun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)/.exec(after.split(';')[0])?.[1] : null);
+        ops.push({ method, path: clientPath(joinPath(prefix, sub)), name: name ?? null, line: lx.lineOf(at(m.index)) });
+      }
+    }
+    if (ops.length) out.push({ type: t, framework, ops });
+  }
+  return out;
+}
+
 /**
  * Collect framework facts for one analysed file.
- * @returns {{ endpoints: object[], tables: object[], sql: object[], signals: object[] }}
+ * @returns {{ endpoints: object[], clients: object[], tables: object[], sql: object[], signals: object[] }}
  */
 export function frameworkInfo(lx, an, lang, path) {
   const endpoints = [];
@@ -369,5 +441,5 @@ export function frameworkInfo(lx, an, lang, path) {
     if (/(?:^|\/)config\/routes\.rb$/.test(path)) railsRoutes(lx, endpoints);
     else sinatraRoutes(lx, endpoints);
   }
-  return { endpoints, tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang) };
+  return { endpoints, clients: httpClients(lx, an, lang), tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang) };
 }

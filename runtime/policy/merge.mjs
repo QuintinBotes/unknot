@@ -8,7 +8,7 @@ import { LADDERS, MODES, modeRank } from './defaults.mjs';
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 // Top-level keys with an explicit tighten-only rule below (or org-only metadata).
-const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
+const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
 
 /** Deep-merge `over` onto `base` (plain override). Used for repo-over-defaults. */
 export function overlay(base, over) {
@@ -70,6 +70,7 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
     const keys = new Set([...Object.keys(c.limits.pricing), ...Object.keys(org.limits.pricing)]);
     set('limits.pricing', Object.fromEntries([...keys].map((k) => [k, Math.max(c.limits.pricing[k] ?? 0, org.limits.pricing[k] ?? 0)])));
   }
+  if (org.repository?.publishes_api === true) set('repository.publishes_api', true);
   if (org.quality?.forbid_new_cycles) set('quality.forbid_new_cycles', true);
   if (org.security?.require_os_sandbox) set('security.require_os_sandbox', true);
   if (org.security?.sandbox_loopback === false) set('security.sandbox_loopback', false);
@@ -83,6 +84,13 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   }
   for (const risk of ['low', 'medium', 'high', 'critical']) {
     if (org.approvals?.[risk]) set(`approvals.${risk}`, union(c.approvals[risk], org.approvals[risk]));
+  }
+  if (org.approvals?.proven_deletion) {
+    // 'any-approver' is the loosest value: a role list beats it, and two role lists add up.
+    const a = get(c, 'approvals.proven_deletion') ?? ['any-approver'];
+    const b = org.approvals.proven_deletion;
+    const loose = (l) => l.includes('any-approver');
+    set('approvals.proven_deletion', loose(a) && !loose(b) ? b : loose(b) && !loose(a) ? a : union(a, b));
   }
   if (org.approvals?.critical_min_approvers) {
     set('approvals.critical_min_approvers', Math.max(c.approvals.critical_min_approvers ?? 2, org.approvals.critical_min_approvers));

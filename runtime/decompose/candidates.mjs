@@ -8,6 +8,8 @@ import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
+import { contractEvidence } from './contracts.mjs';
+import { runtimeBoundary } from './runtime-evidence.mjs';
 
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
@@ -218,20 +220,18 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   }
   m['boundary.interface_count'] = ifn.size;
   // Outbound: imports from the candidate into the rest, i.e. what the candidate depends on.
-  // `reverse_deps*` are the 0.1.x names of the same numbers, kept until 0.3.0.
-  m['boundary.outbound_dependencies'] = m['boundary.reverse_deps'] = reverseEdges.length;
-  m['boundary.outbound_dependencies_test'] = m['boundary.reverse_deps_test'] = reverseTest.length;
+  m['boundary.outbound_dependencies'] = reverseEdges.length;
+  m['boundary.outbound_dependencies_test'] = reverseTest.length;
   // The same imports counted by the distinct modules they reach: 25 import edges into 2 modules
   // is two measures with two names, not one name with two values.
   m['boundary.outbound_dependency_modules'] = reverseTargets.size;
   if (lowReverse) {
-    m['boundary.outbound_dependencies_low_confidence'] = m['boundary.reverse_deps_low_confidence'] = lowReverse;
+    m['boundary.outbound_dependencies_low_confidence'] = lowReverse;
     gaps.push(`${lowReverse} import(s) from the candidate into the rest were resolved only by namespace (low confidence) and are not counted in outbound_dependencies`);
   }
   details.reverse_targets = [...reverseTargets].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([module, edges]) => ({ module, edges }));
   details.evidence = {
     'boundary.outbound_dependencies': reverseEdges,
-    'boundary.reverse_deps': reverseEdges,
     'boundary.interface_count': [...ifn].sort(),
   };
   m['boundary.size'] = members.size;
@@ -354,17 +354,24 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
   const consumers = new Set();
-  let contracts = 0;
   let endpointsTotal = 0;
   for (const id of members) {
     for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') consumers.add(e.from);
     const eps = [...graph.out(id, 'EXPOSES'), ...graph.children(id).flatMap((c) => graph.out(c.id, 'EXPOSES'))];
     endpointsTotal += eps.length;
-    contracts += eps.filter((e) => graph.node(e.to)?.attrs?.contract).length;
   }
   m['module.consumers'] = consumers.size;
   details.evidence['module.consumers'] = [...consumers].sort();
-  if (endpointsTotal) m['contracts.present'] = contracts > 0 ? 1 : 0;
+  // A contract is an OpenAPI or Pact description of a served endpoint, or a typed HTTP client
+  // (Refit, Feign, Retrofit) its callers use; the routes and the clients per route go in the record.
+  const contract = contractEvidence(graph, members);
+  if (endpointsTotal || contract.present) m['contracts.present'] = contract.present ? 1 : 0;
+  if (contract.present) {
+    details.contracts = contract.routes;
+    details.evidence['contracts.present'] = contract.evidence;
+    m['clients.count'] = contract.clients;
+    details.evidence['clients.count'] = contract.routes.flatMap((r) => r.interfaces).filter((x, i, a) => a.indexOf(x) === i).sort();
+  }
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
   const common = dirs.reduce((a, b) => {
     const x = a.split('/');
@@ -381,5 +388,10 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const perRequest = services.flatMap((sv) => graph.out(sv.id, 'RUNTIME_CALLS').map((e) => e.attrs.per_request_p95 ?? 0));
   if (perRequest.length) m['boundary.calls_per_request_p95'] = Math.max(...perRequest);
   else if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
+  // Measured traffic across the boundary (imported tables or traces), with the window it covers.
+  const rt = runtimeBoundary(graph, members);
+  Object.assign(m, rt.metrics);
+  gaps.push(...rt.gaps);
+  if (rt.runtime) details.runtime = rt.runtime;
   return { metrics: m, gaps, details };
 }

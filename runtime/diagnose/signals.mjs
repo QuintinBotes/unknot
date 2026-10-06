@@ -2,6 +2,8 @@
 // describe what evidence exists at all; scope signals describe the nodes a finding is
 // about. A signal that cannot be measured is left out, never defaulted.
 
+import { contractEvidence } from '../decompose/contracts.mjs';
+
 const DRIVERS = ['independent_deploy', 'independent_scale', 'availability_isolation', 'security_isolation', 'team_autonomy', 'technology_divergence', 'build_time'];
 
 export function globalSignals(graph, config) {
@@ -24,17 +26,17 @@ export function scopeSignals(graph, ids) {
   const s = {};
   let tests = 0;
   const owners = new Set();
-  let contracts = 0;
   const consumers = new Set();
   for (const id of set) {
     for (const e of graph.in(id, 'TESTS')) tests++;
     for (const e of graph.out(id, 'OWNED_BY')) owners.add(e.to);
     for (const e of graph.in(id, 'IMPORTS')) if (!set.has(e.from)) consumers.add(e.from);
-    for (const e of graph.out(id, 'EXPOSES')) if (graph.node(e.to)?.attrs?.contract) contracts++;
   }
   s['tests.present'] = tests;
   if (owners.size) s['owners.count'] = owners.size;
   s['module.consumers'] = consumers.size;
-  s['contracts.present'] = contracts > 0 ? 1 : 0;
+  const contract = contractEvidence(graph, set);
+  s['contracts.present'] = contract.present ? 1 : 0;
+  if (contract.present) s['clients.count'] = contract.clients;
   return s;
 }

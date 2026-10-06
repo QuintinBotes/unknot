@@ -12,7 +12,8 @@ import { UnknotError } from '../core/errors.mjs';
 import { forbiddenCommand, guidanceForScope, loadGuidance } from '../core/guidance.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { loadSlice, approvalStatus } from '../apply/apply.mjs';
-import { stagePatch } from '../apply/worktree.mjs';
+import { stagePatch, stagedStat } from '../apply/worktree.mjs';
+import { settleProven } from '../policy/proven.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
@@ -43,6 +44,8 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   if (staged.diff_hash !== slice.diff_hash) {
     throw new UnknotError('UK_STATE_CONFLICT', `the worktree changed after apply finish (diff ${staged.diff_hash.slice(0, 19)}… ≠ ${slice.diff_hash.slice(0, 19)}…); re-run apply finish`, { slice_id: sliceId });
   }
+  // Belt and braces: the staged patch is what was approved, so a proven deletion is checked against it again.
+  if (settleProven(ctx, { config, slice, stat: stagedStat(slice.worktree, slice.baseline_commit), actor }).lost) slice = loadSlice(ctx, sliceId);
   const changes = changedPaths(slice.worktree, slice.baseline_commit);
   const obligations = obligationsOf(ctx, sliceId).filter((o) => o.status !== 'pass' && !o.requires_human);
   const needsGraph = obligations.some((o) => ['cycles', 'api', 'complexity', 'parse'].includes(o.body.builtin));

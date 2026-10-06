@@ -59,7 +59,8 @@ const EVIDENCE_FOR = {
   'boundary.cross_joins': 'table access facts (SQL or ORM adapters)',
   'module.co_change_leak': 'commit history with enough co-changing commits',
   'ci.per_unit_pipeline': 'CI workflow facts with path filters',
-  'contracts.present': 'contract files (OpenAPI, pact) or a catalog naming the endpoints',
+  'contracts.present': 'contract files (OpenAPI, pact), a typed HTTP client interface (Refit, Feign, Retrofit) or a catalog naming the endpoints',
+  'clients.count': 'typed HTTP client interfaces (Refit, Feign, Retrofit) declaring the candidate routes, or traces naming the callers',
   'requests.interceptable': 'traces or a catalog naming the endpoints (evidence.traces, evidence.catalogs)',
   'tests.present': 'tests that cover the scope',
 };
@@ -119,16 +120,8 @@ export function readinessFor({ target, signals, thresholds = {}, treatments }) {
  * @param {string[]} p.drivers recorded driver ids
  * @returns recommendation core (treatment, evaluations, rejected, gaps, confidence)
  */
-// Metrics renamed for clarity, with the 0.1.x name still accepted until 0.3.0.
-const RENAMED = { 'boundary.outbound_dependencies': 'boundary.reverse_deps', 'boundary.outbound_dependencies_test': 'boundary.reverse_deps_test' };
-const withRenames = (signals) => {
-  const out = { ...signals };
-  for (const [now, before] of Object.entries(RENAMED)) if (out[now] === undefined && out[before] !== undefined) out[now] = out[before];
-  return out;
-};
-
 export function selectTreatment({ target, signals: given, drivers, thresholds = {} }) {
-  const signals = withRenames(given);
+  const signals = given;
   const cards = new Map([...treatmentCards(target)].map(([t, c]) => [t, withThresholds(c, thresholds)]));
   // Missing tests do not rule out a behaviour-preserving treatment; they put a
   // characterization slice in front of it (spec §32 Scenario A). Evaluate as if tests

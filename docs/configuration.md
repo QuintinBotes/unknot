@@ -59,6 +59,7 @@ The effective config is defaults, then the accepted repository config, then each
 | `limits.<name>` | Numeric limits only; the smaller value wins (a repository `null` means unlimited, so the org value applies). |
 | `quality.forbid_new_cycles` | Org `true` forces `true`. |
 | `quality.max_complexity_increase` | Smaller value wins. |
+| `repository.publishes_api` | Org `true` forces `true`. |
 | `security.require_os_sandbox`, `infrastructure.require_saved_plan` | Org `true` forces `true`. |
 | `security.sandbox_loopback` | Org `false` forces `false`. |
 | `quality.public_api_compatibility` | Stricter wins: `advisory` < `required`. |
@@ -164,6 +165,12 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 
 **Usage budgets.** On every PreToolUse hook during an active run, the runtime reads the session transcript named by the hook event (`transcript_path`) incrementally, at most 8 MB per call and complete lines only. It counts assistant API requests made after the run started: one turn per request, with entries sharing a message id counted once. Tokens are input plus output plus cache writes plus cache reads. Cost is tokens times `limits.pricing`. A breach denies the tool call (`UK_BUDGET_EXCEEDED`) and records a `budget.breach` ledger event. If the transcript cannot be read, or `max_cost_usd` is set without `pricing`, a `budget.unmeasured` event is recorded once per run and that budget is not enforced. Only usage in the transcript passed to the hook is counted; subagent sidecar transcripts may not be.
 
+### `repository`
+
+| Key | Type, default | Meaning |
+|---|---|---|
+| `publishes_api` | boolean, `true` | Whether the repository publishes a library API that outside consumers use. Unknot cannot tell, so a person decides when accepting the configuration; `init` proposes `true`. With `true`, a public member or a file that exports symbols in the derived public surface is never a proven deletion. With `false` ("public members are internal"), they do not disqualify; every other criterion still applies. An organization `true` overrides a repository `false`. |
+
 ### `quality`
 
 | Key | Type, default | Meaning |
@@ -207,10 +214,13 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 | `approvals.medium` | `[code-owner, affected-owner]` | |
 | `approvals.high` | `[code-owner, specialist-owner]` | `specialist-owner` expands to the slice's specialist roles (`security-owner`, `data-owner`, `platform-owner`); with none identified, `security-owner`. |
 | `approvals.critical` | `[code-owner, specialist-owner]` | Also needs at least `critical_min_approvers` different people. |
+| `approvals.proven_deletion` | `[any-approver]` | Roles that must approve a proven deletion: a one-file removal whose source findings are observed, live and not public (see below). `any-approver` is satisfied by any registered approver; a repository can tighten it, for example to `[code-owner]`. |
 | `approvals.critical_min_approvers` | `2` (minimum 2) | |
 | `approvals.expiry` | `72h` | How long an approval stays valid. |
 
-Role names are lowercase words with hyphens. A role in `approvals` is satisfied only by an approver who holds it.
+Role names are lowercase words with hyphens. A role in `approvals` is satisfied only by an approver who holds it; the one exception is `any-approver`, which any registered approver satisfies.
+
+A slice is a *proven deletion* only when Unknot's own stored data says so: its scope is one literal file; it plans no change besides removing code in that file; every source finding exists, is open (not resolved or stale), is an unused injected member, dead code or unreachable code at medium or high confidence with only observed evidence, proposes `code.remove-dead-code`, and (while `repository.publishes_api` is true) is not about a public member; the file (while that is true) exports nothing in the derived public surface; and no high or critical factor applies. Nothing the planner or an agent writes (objective, rationale, declared values) can make a slice qualify. For such a slice the planner's `medium` risk, module-boundary and internal-contract surfaces are not counted, so it is low risk and needs the roles in `approvals.proven_deletion`. A planner-declared `high`, public API, authentication, database, infrastructure, protected paths, guidance-protected paths, data movement, tenant boundary and irreversible steps still raise risk as before. The approval is still a person's signed approval at a terminal (`unknot approve <slice>`; `--role` may be left out for `any-approver`), and the change approval at REVIEW_READY is still a person's. When the patch is staged, a diff that adds a line or touches any other file ends the status: the reason is recorded, the slice is reclassified, approvals given to the proven plan are revoked, and the normal roles are needed again. `unknot status` and `unknot slice show` list each open slice with `proven deletion: yes (reasons)` or `proven deletion: no (what stands in the way)`.
 
 ```yaml
 approvers:

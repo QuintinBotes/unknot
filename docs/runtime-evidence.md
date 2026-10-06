@@ -1,6 +1,6 @@
 # Getting runtime evidence out of a hosted observability vendor
 
-Unknot never calls a vendor. It reads files you export and list under `evidence.traces`, `evidence.metrics` and `evidence.profiles` in `.unknot/config.yaml`. Without them, decomposition's runtime signals (chattiness, independent scaling, call coupling) stay unknown rather than zero. This page shows how to produce those files from a hosted vendor. Vendor details were taken from the vendors' own documentation (linked per section); anything not verified is said so.
+Unknot never calls a vendor. It reads files you export and list under `evidence.traces`, `evidence.metrics` and `evidence.profiles` in `.unknot/config.yaml`. Without them, decomposition's runtime signals (chattiness, independent scaling, call coupling) stay unknown rather than zero. For call volumes, latency and errors across a boundary there is also one plain table you can import directly (see "Import table" below). This page shows how to produce those files from a hosted vendor. Vendor details were taken from the vendors' own documentation (linked per section); anything not verified is said so.
 
 ## What Unknot needs
 
@@ -26,6 +26,90 @@ Recognised metric names (others are ignored): `cpu_cores`, `container_cpu_usage_
 A Prometheus API response names its metric by the series' `__name__` label, else a `metric` label, else a top-level `"metric"` key you add to the saved file. Aggregations such as `sum by (service) (...)` drop `__name__`, so add the key (see below). A response with no name anywhere yields no samples; Unknot does not guess.
 
 Span attributes are allowlisted at import; unknown attributes (often personal data) are dropped. Still strip secrets and personal data before saving: do not commit files that contain tokens, and keep query strings and user identifiers out of exports where you can.
+
+## Import table: call volumes, latency and errors
+
+`decompose` needs measured traffic across a boundary: how many calls cross it, how slow they are and how often they fail. The simplest way to give it that is one table, whatever produced it. Import it with:
+
+```
+unknot import runtime <file> [--source <label>] [--json]
+```
+
+The file is CSV (with a header) or JSON (an array of row objects, or `{"rows": [...]}`). An example is `tests/fixtures/runtime/import-table.csv`.
+
+| Column | Required | Meaning |
+|---|---|---|
+| `caller` | yes | Who makes the call (see "Naming a caller or callee"). |
+| `callee` | yes | Who receives it. |
+| `operation` | no | A label such as the method or span name. Rows for the same caller and callee combine. |
+| `count` | yes | Calls in the window: a non-negative integer. |
+| `p95_ms` | no | 95th percentile latency in milliseconds. Empty means not measured. |
+| `error_rate` | no | Failed calls as a ratio from 0 to 1 (not a percentage). Empty means not measured. |
+| `window` | yes | Over what time the numbers were taken: an ISO 8601 interval `2026-09-01T00:00:00Z/2026-09-08T00:00:00Z`, or a duration (`P7D`, `PT24H`, `7d`, `24h`) that ends when you import. |
+
+```csv
+caller,callee,operation,count,p95_ms,error_rate,window
+shop/orders/o0.js,shop/stock/s0.js,reserve,12000,45.5,0.012,P7D
+GET /v1/orders/{id},shop/stock/s0.js,read,90,15,0,P7D
+```
+
+### Naming a caller or callee
+
+Each side is matched onto a graph node, in this order:
+
+1. A route template, optionally with a method: `GET /v1/orders/{id}`. `{id}`, `:id` and `<int:id>` are the same parameter, whatever it is called. It matches an endpoint or route node, else a string constant with that exact value. A route without a method that fits several methods is ambiguous and is not guessed.
+2. A module path relative to the repository root: `shop/orders/o0.js`.
+3. A service name. It matches a service node from imported traces or a catalog, or a name you map to code in `.unknot/config.yaml`, which also makes a service node:
+
+   ```yaml
+   adapters:
+     runtime:
+       service_map:
+         orders-api: services/orders
+   ```
+
+4. A code symbol: `createOrder`, `Orders.create`, or `src/orders/create.ts#createOrder` when the bare name is defined in more than one place.
+
+A row whose caller or callee matches nothing is reported and left out; it never fails the import. A row that breaks the format (a negative count, a ratio above 1, an unreadable window) refuses the whole file and stores nothing, with the first 20 problems listed.
+
+### What is stored, and how it behaves
+
+- Matched rows become `RUNTIME_CALLS` edges between the matched nodes (the same edge type traces produce), with `calls`, `p95_ms`, `error_rate`, the window, the source label, the import time and an expiry (the window end plus `ttl_days`, default 14). `unknot status` lists them as stale when the expiry passes, and `decompose` stops using them then. One edge holds one caller and callee pair: rows for the pair, from any source, combine as calls added, the largest p95, an error rate weighted by calls, and the span of the windows. Do not import overlapping windows of the same traffic under two sources.
+- The rows are kept in the project's store and re-matched on every `unknot map`, so a re-map keeps them even when files move.
+- Importing the same file again with the same source changes nothing (it says "unchanged"). A different file with the same `--source` replaces the earlier import. A different source adds to the others. The default source is the file name.
+- The import command reads one file you name. The file must be inside the repository, outside `.unknot/`, and not a credential path (`.env`, keys, and so on).
+- The command runs `unknot map` for you so the graph carries the rows. It says how many rows matched, how many did not, and why for the first 20 that did not.
+
+### Exporting the table from an OpenTelemetry-compatible trace backend
+
+Any backend that stores OpenTelemetry spans can produce this table with one aggregation: group the server-side spans by calling service, called service and route, over a window you choose, and count them. This recipe is generic; check span and attribute names against what your instrumentation emits, because they vary.
+
+1. Choose the window, for example the last 7 days of normal traffic. Use the same start and end in the query and in the `window` column.
+2. Select the spans for calls that cross a service boundary. A call is a client span (kind `CLIENT`) and the server span (kind `SERVER`) that is its child; the caller is the client span's service (`service.name` of its resource), the callee is the server span's service, and the operation is the server span's route (the `http.route` attribute, a template such as `/v1/orders/{id}`, or `rpc.method`). Spans with no parent in another service are not calls between services.
+3. Group by caller, callee and route. For each group compute the span count (`count`), the 95th percentile of the server span duration in milliseconds (`p95_ms`) and the share of spans with error status or an HTTP status of 500 or above (`error_rate`, as a ratio).
+4. Write the groups as CSV with the header above, putting the route template in `operation` and the interval in `window`. Name the callee as the route (`GET /v1/orders/{id}`) when you want the row matched to an endpoint, or as the callee service name when you map services to code with `service_map`.
+
+If your backend can run SQL over exported spans (for example a trace table in a data warehouse), the query has this shape. Column names are placeholders for your schema:
+
+```sql
+SELECT
+  c.service_name                                             AS caller,
+  CONCAT(s.http_method, ' ', s.http_route)                   AS callee,
+  s.http_route                                               AS operation,
+  COUNT(*)                                                   AS count,
+  APPROX_PERCENTILE(s.duration_ms, 0.95)                     AS p95_ms,
+  AVG(CASE WHEN s.status = 'ERROR' OR s.http_status >= 500 THEN 1.0 ELSE 0.0 END) AS error_rate,
+  '2026-09-01T00:00:00Z/2026-09-08T00:00:00Z'                AS window
+FROM spans s
+JOIN spans c ON c.trace_id = s.trace_id AND c.span_id = s.parent_span_id
+WHERE s.kind = 'SERVER' AND c.kind = 'CLIENT'
+  AND c.service_name <> s.service_name
+  AND s.start_time >= TIMESTAMP '2026-09-01 00:00:00'
+  AND s.start_time <  TIMESTAMP '2026-09-08 00:00:00'
+GROUP BY 1, 2, 3
+```
+
+Percentile function names differ between engines (`APPROX_PERCENTILE`, `PERCENTILE_CONT`, `quantile`). If the backend exposes the same aggregation through an HTTP query API instead, run the equivalent query there and convert the result to CSV or JSON with the columns above. Sampled traces make `count` approximate: scale it by the sampling rate before importing, or say so in `--source` (for example `traces-sampled-10pct`). The export contains route templates and service names only; keep user identifiers and query strings out of it.
 
 ## Vendor-neutral recipes
 

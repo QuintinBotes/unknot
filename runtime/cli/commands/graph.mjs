@@ -7,10 +7,11 @@ import { MAX_CYCLES, readDerived } from '../../graph/derived.mjs';
 const ALL_CYCLES = 5000;
 import { EDGE_TYPES } from '../../graph/facts.mjs';
 import { Graph } from '../../graph/graph.mjs';
+import { graphFromDocument, loadWorkspaceGraph } from '../../enterprise/workspace.mjs';
 import { output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
-export const USAGE = 'usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X]|cycles [EDGE] [--max-cycles N|all] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)';
+export const USAGE = 'usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X] [--workspace]|cycles [EDGE] [--max-cycles N|all] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)';
 
 const usage = (message) => new UnknotError('UK_SCHEMA_INVALID', message);
 
@@ -105,6 +106,28 @@ export async function run({ positional, flags }) {
     const inn = ctx.store.all('SELECT type, src, label FROM edges WHERE dst = ? LIMIT ?', arg, limit);
     const facts = ctx.store.all(`SELECT source_type, source_ref, extractor, confidence FROM facts WHERE id IN (SELECT value FROM json_each(?))`, n.fact_ids);
     return output({ ...n, attrs: JSON.parse(n.attrs), out, in: inn, provenance: facts }, { json: true });
+  }
+  if (sub === 'edges' && flags.workspace) {
+    // The combined graph of `unknot workspace map`: ids carry the repository (`contract:app:GET /v1/orders/:id`);
+    // a repository-less id (`contract:GET /v1/orders/:id`) names that node in every repository.
+    const doc = loadWorkspaceGraph(ctx);
+    if (!doc) throw new UnknotError('UK_NOT_FOUND', 'no workspace graph yet; run unknot workspace map');
+    const g = graphFromDocument(doc);
+    const types = edgeTypesOf(arg && !EDGE_TYPES.has(arg) ? null : arg, flags);
+    const nodeArg = arg && !EDGE_TYPES.has(arg) ? arg : null;
+    let ids = null;
+    if (nodeArg) {
+      ids = new Set(g.nodes().filter((n) => n.id === nodeArg || n.attrs?.local_id === nodeArg).map((n) => n.id));
+      if (!ids.size) throw usage(`no node ${nodeArg} in the workspace graph (use the repository-qualified id, e.g. contract:<repo>:GET /v1/orders/:id)`);
+    }
+    const dir = flags.direction ?? 'both';
+    if (!['in', 'out', 'both'].includes(dir)) throw usage('--direction is in, out or both');
+    const rows = g.edges()
+      .filter((e) => (!types.length || types.includes(e.type)) && (!ids || (dir !== 'in' && ids.has(e.from)) || (dir !== 'out' && ids.has(e.to))))
+      .map((e) => ({ type: e.type, src: e.from, dst: e.to, label: e.attrs?.cross_repo ? `${e.attrs.via} ${e.attrs.from_repo}->${e.attrs.to_repo}${e.attrs.route ? ` ${e.attrs.route}` : ''}` : null }))
+      .sort((a, b) => `${a.src}${a.dst}${a.type}`.localeCompare(`${b.src}${b.dst}${b.type}`))
+      .slice(0, limit);
+    return output(flags.json ? rows : table(rows, ['type', 'src', 'dst', 'label']), { json: flags.json });
   }
   if (sub === 'edges') {
     // A first argument that is not an edge type names a node: its edges in both directions.

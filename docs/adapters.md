@@ -23,11 +23,40 @@ The tables below give the usual level. The per-fact `confidence` is authoritativ
 | `javascript` | JavaScript and TypeScript (`.js .mjs .cjs .jsx .ts .mts .cts .tsx`), `package.json`, `tsconfig*.json`, `jsconfig.json`, SvelteKit `+page.svelte` | A tokenizer and structural pass in this repository (not the TypeScript compiler). Imports, exports, functions, classes, per-function size and complexity, import resolution (relative paths, tsconfig and jsconfig settings, package `exports`). | Declarations and imports high; framework facts medium |
 | `python` | Python, `pyproject.toml`, requirements | `python3 -I -S` calling `ast.parse` on text piped in, run through the broker. Without `python3`, a lexical reader in JavaScript. | AST high; lexical fallback low |
 | `generic` | Go, Java, Kotlin, C#, Rust, Ruby, PHP, Scala, Swift, C, C++ and their build manifests (`go.mod`, `Cargo.toml`, Maven, Gradle, .NET, Bundler, Composer, SwiftPM, CMake) | Lexical: strips comments and strings, matches braces. No real parser. | Declarations and imports medium; per-function metrics and ORM guesses low |
+| `scip` | Any language, from a [SCIP](https://github.com/sourcegraph/scip) index you produced with an indexer (`index.scip`): C# through scip-dotnet (Roslyn), TypeScript, Java, Python through their indexers. Unknot reads the file; it never runs the indexer, a build or a package restore. | Observed, source type `lsp`, high: the compiler's own resolution (see [Semantic facts from a SCIP index](#semantic-facts-from-a-scip-index)) |
 | `literals` | Identifier-like string constants in source and config files of any language: metric names, configuration keys (`Section:Key`, nested JSON and YAML keys), routes, roles, queue names | One lexical scan. Nodes `constant:<value>` with `subkind` (`metric`, `config_key`, `route`, `role`, `queue`, `other`) inferred from the line and labelled inferred; `DEFINES` edges from the module holding a constant or key, `REFERENCES` edges from modules that use the string or its constant's name. No spaces, 3 to 120 characters, a separator or route shape; prose, log messages, URLs and format strings are skipped. Capped by `adapters.literals.max_per_file` (200) and `max_per_repo` (20000), with a notice; `map` and `status` report the count | Definitions and literal uses medium; name-based uses and sub-kinds low |
 | `quality` | Duplicated code, in any language | Token fingerprints with identifiers and literals collapsed, winnowed, compared across files | Medium (near-misses are included) |
 
 If the language isn't in the table it is census-counted and ignored. The same is true of any file an adapter cannot read: extraction failures are listed in the `map` summary (`PARTIAL`), never swallowed. Coverage is reported too: the summary's `coverage` lists, per language, the source files, the adapter and the parse quality (`syntax_tree`, `degraded`, `lexical`); when the language with most source files is only read lexically the map is `partial` with an `unavailable` entry `language:<name>`, and other lexical languages get a notice.
 An adapter may declare `capabilities.context_files`: repository-level files (the ownership adapter's `CODEOWNERS` locations) that are read even when the scope excludes them, and are never counted as in-scope files.
+
+### Semantic facts from a SCIP index
+
+Without an index, C# and most other languages are read lexically: names are matched, most calls are not seen, and an injected member can look used because another type has a member of the same name. A SCIP index carries what the compiler resolved. Unknot imports it when `index.scip` is at the repository root, or from the paths in the config (`adapters.scip.index`, one path or a list, relative to the repository; `adapters.scip.max_index_bytes` caps the size, default 2 GiB):
+
+```yaml
+adapters:
+  scip:
+    index: [build/index.scip]
+```
+
+You produce the index; these are the indexers' own commands, not Unknot's (`unknot doctor` prints them when no index is found):
+
+- C#: `dotnet tool install --global scip-dotnet`, then `scip-dotnet index` in the solution folder. scip-dotnet builds the projects through Roslyn, so it needs the .NET SDK and restored packages.
+- TypeScript and JavaScript: `npm install -g @sourcegraph/scip-typescript`, then `scip-typescript index` in the project folder (`--yarn-workspaces`, `--pnpm-workspaces` or `--infer-tsconfig` as the project needs).
+- Java and Kotlin (scip-java) and Python (scip-python): see each indexer's README.
+
+What it adds, per file the index covers (matched by repository path; documents for files outside the mapped scope are counted in a notice):
+
+- the module's `parse_quality` is `semantic`; `map` reports the files per quality (`csharp 4 files ... semantic 3 + lexical 1`) and a notice when a language is mixed. Files the index does not cover keep their adapter's quality.
+- `REFERENCES` module to module for resolved references, and `CALLS` where the referenced symbol is a method (source spans point at the first occurrence), as `observed` facts.
+- `EXTENDS` and `IMPLEMENTS` between types, from the index's implementation relationships (an interface target gives `IMPLEMENTS`).
+- the module's `semantic` attribute: definitions, types, member symbols and the members nothing references outside their own definition (`unreferenced`, capped at 50 names with the total beside it). A node per member symbol is not kept.
+- for C#, the unused-injected-member decision (`declared_only` edges, `code.unused-injected-member`): a field or property is unused when no occurrence of its symbol outside its declaration is a read (`WriteAccess` without `ReadAccess` is a write, as in a constructor assignment). That replaces the name matching for the file, including the receiver and name-only evidence, and the name-matched module `CALLS` of the file are dropped in favour of the index's. The edge carries `unused_evidence: semantic` and source type `lsp`. A member the index has no symbol for falls back to name matching. Constructor parameters are still judged by name. If an indexer does not set access roles, an assignment looks like a read and the member counts as used: the result errs towards keeping code.
+
+How it reads: the file is streamed one document at a time through a fixed window, in two passes, so memory is bounded by the symbol table (the symbols the repository defines), not the file size; a generated 97 MB index took about 1 s and 190 MB of RSS (a 195 MB one, 2 s and 280 MB). An index is read on every `map`. A truncated or malformed file, or a configured path that does not exist, makes the map `partial` with the reason. `doctor` reports whether an index is configured or found, how many files it covers, and whether it is stale: older than the last commit that touched a covered file.
+
+A direct Roslyn adapter (loading the solution itself) is a separate item; this one imports an index you made.
 
 ### Frameworks and web conventions
 
@@ -53,6 +82,20 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 | GraphQL SDL, Protocol Buffers | Medium (textual scan of operations and RPCs) |
 
 `link` compares contracts with the endpoints found in code and marks `undocumented` and `unimplemented` ones. Both are medium confidence because path styles differ between frameworks.
+
+#### Typed HTTP clients
+
+A declarative client interface is a contract too, and the `generic` adapter (0.1.6) reads it, at medium confidence and labelled `inference`:
+
+| Language | Form | Not covered |
+|---|---|---|
+| C# | Refit: `[Get("/v1/orders/{id}")]`, `Post`, `Put`, `Delete`, `Patch`, `Head`, `Options` on interface methods (`[Headers]` and other attributes are ignored; a query string is dropped from the route) | Routes built at run time, `HttpClient` calls |
+| Java, Kotlin | Feign: an interface annotated `@FeignClient` with Spring mapping annotations (`@GetMapping`, `@RequestMapping(method = ...)`, class `path`) or `@RequestLine("GET /x")`; Retrofit: `@GET("x")` with the path as an argument | `@FeignClient` base paths set elsewhere, interface inheritance |
+| TypeScript, JavaScript | none: there is no common declarative form (fetch, axios and Angular `HttpClient` calls are imperative), so no client facts are produced | all |
+
+Each interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
+
+`unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
 
 ### Databases
 
@@ -91,7 +134,7 @@ Unknot reasons over the layers of the state hierarchy it has: declared code, sav
 
 External scanners are off during mapping unless you opt in per adapter in the config: `adapters.security.gitleaks: true`, and `adapters.security.semgrep_config: <local rules path>` (Unknot will not use `--config auto`, which calls the network). A tool that is missing or forbidden is recorded as a gap, not an error.
 
-To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python generic quality database iac k8s delivery wiring contracts ownership runtime security`.
+To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python scip generic quality database iac k8s delivery wiring contracts ownership runtime security`.
 
 ## Writing an adapter
 

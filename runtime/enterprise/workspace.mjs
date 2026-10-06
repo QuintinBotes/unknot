@@ -17,6 +17,7 @@ import { isInside, realpathLenient } from '../core/paths.mjs';
 import { UNKNOT_DIR, isInitialized } from '../core/project.mjs';
 import { openProject } from '../context.mjs';
 import { Graph } from '../graph/graph.mjs';
+import { routeKey, routeKeyOfId } from '../graph/routes.mjs';
 import { mapRepository } from '../graph/builder.mjs';
 import { createCampaign } from '../plan/campaign.mjs';
 import { loadConfig } from '../policy/config.mjs';
@@ -30,7 +31,7 @@ export const WORKSPACE_GRAPH_FORMAT = 'unknot.workspace-graph';
 /** Node types kept in the combined graph. Function-level detail stays in each repository's own store. */
 const COARSE_TYPES = new Set([
   'package', 'module', 'dependency', 'build_target', 'endpoint', 'topic', 'queue', 'event', 'job', 'service',
-  'deployable', 'workload', 'database', 'schema', 'table', 'collection', 'store', 'team', 'owner',
+  'deployable', 'workload', 'database', 'schema', 'table', 'collection', 'store', 'team', 'owner', 'contract',
 ]);
 const TABLE_ACCESS = new Set(['QUERIES', 'MUTATES', 'READS', 'WRITES']);
 
@@ -159,17 +160,56 @@ export function buildWorkspaceGraph(graphs) {
     }
   }
 
-  // Contracts: an endpoint EXPOSED in one repository and CONSUMED or CALLED in another.
+  // Contracts: an endpoint EXPOSED in one repository and CONSUMED or CALLED in another. Routes
+  // match on method plus path template, so `{id}` and `{orderId}`, a missing leading slash, a
+  // trailing slash and the case of the method make no difference; an endpoint served for ANY
+  // method answers every client method. Anything else (a catalog `endpoint:api:x`) matches by id.
   const exposed = new Map();
+  const matchKey = (id) => routeKeyOfId(id) ?? id;
   for (const repo of names) {
-    for (const e of graphs.get(repo).edges('EXPOSES')) if (e.to.startsWith('endpoint:')) bump(exposed, e.to, () => new Set()).add(repo);
+    for (const e of graphs.get(repo).edges('EXPOSES')) {
+      if (e.to.startsWith('endpoint:')) bump(exposed, matchKey(e.to), () => new Map()).set(repo, e.to);
+    }
   }
+  const providers = (key) => {
+    const any = key.includes(' /') ? exposed.get(`ANY ${key.slice(key.indexOf(' /') + 1)}`) : null;
+    return new Map([...(any ?? []), ...(exposed.get(key) ?? [])]);
+  };
   for (const repo of names) {
     for (const e of [...graphs.get(repo).edges('CONSUMES'), ...graphs.get(repo).edges('CALLS')]) {
       if (!e.to.startsWith('endpoint:')) continue;
-      for (const provider of exposed.get(e.to) ?? []) if (provider !== repo) link('CONSUMES', repo, e.from, provider, e.to, 'contract', { detail: e.to.slice('endpoint:'.length) });
+      for (const [provider, endpoint] of providers(matchKey(e.to))) if (provider !== repo) link('CONSUMES', repo, e.from, provider, endpoint, 'contract', { detail: endpoint.slice('endpoint:'.length) });
     }
   }
+  // A typed client operation (`contract` node) links to the endpoint that serves it, in this or another repository.
+  const clientOps = { total: 0, linked: 0, internal: 0, unmatched: [] };
+  for (const repo of names) {
+    const g = graphs.get(repo);
+    for (const op of g.nodes('contract')) {
+      if (op.attrs?.kind !== 'client_operation') continue;
+      const key = routeKey(op.attrs.method, op.attrs.path);
+      if (!key) continue;
+      clientOps.total++;
+      const found = providers(key);
+      let linkedHere = false;
+      for (const [provider, endpoint] of found) {
+        if (provider === repo) continue;
+        linkedHere = true;
+        const from = ensure(repo, op.id);
+        const to = ensure(provider, endpoint);
+        if (!from || !to) continue;
+        out.addEdge('CONSUMES', from, to, { cross_repo: true, via: 'contract', from_repo: repo, to_repo: provider, detail: key, route: key, client_operation: op.id.slice('contract:'.length) });
+        cross.push({ type: 'CONSUMES', via: 'contract', from_repo: repo, to_repo: provider, detail: key });
+      }
+      if (linkedHere) clientOps.linked++;
+      else if (found.has(repo)) clientOps.internal++;
+      else {
+        const interfaces = g.in(op.id, 'DEFINES').map((d) => g.node(d.from)).filter(Boolean);
+        clientOps.unmatched.push({ repo, route: key, operation: op.id, interfaces: interfaces.map((n) => n.name).sort(), paths: interfaces.map((n) => n.path).filter(Boolean).sort() });
+      }
+    }
+  }
+  clientOps.unmatched.sort((a, b) => `${a.repo} ${a.route}`.localeCompare(`${b.repo} ${b.route}`));
 
   // Messaging: PUBLISHES in one repository, SUBSCRIBES in another, same topic or queue id.
   const published = new Map();
@@ -236,6 +276,7 @@ export function buildWorkspaceGraph(graphs) {
   const analysis = {
     cross_repo_edges: { total: cross.length, by_type: sortObj(byType), by_via: sortObj(byVia) },
     repo_dependencies: [...rollup.values()].map((r) => ({ from: r.from, to: r.to, via: [...r.via].sort(), edges: r.edges })).sort((a, b) => `${a.from}${a.to}`.localeCompare(`${b.from}${b.to}`)),
+    client_operations: { total: clientOps.total, linked: clientOps.linked, internal: clientOps.internal, unmatched: clientOps.unmatched },
     shared_tables: sharedTables,
     shared_database: sharedTables.length > 0,
     release_coupling: [...hints.values()]
@@ -319,6 +360,7 @@ export function summarizeWorkspace(doc) {
     generated_at: doc.generated_at,
     repositories: doc.repositories.map(({ name, commit, generation, status, nodes, edges }) => ({ name, commit, generation, status, nodes, edges })),
     cross_repo_edges: a.cross_repo_edges,
+    client_operations: a.client_operations ?? { total: 0, linked: 0, internal: 0, unmatched: [] },
     repo_dependencies: a.repo_dependencies,
     shared_tables: a.shared_tables,
     shared_database: a.shared_database,
