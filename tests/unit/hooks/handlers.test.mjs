@@ -614,6 +614,22 @@ describe('UserPromptSubmit', () => {
     assert.ok(denies(await H.onPreToolUse({ ...other, tool_name: 'Write', tool_input: { file_path: join(h.p.dir, '.unknot/config.yaml'), content: 'mode: campaign' } })));
   });
 
+  test('a run the CLI started inside a session governs that session only, and a refusal names the run (#32)', async () => {
+    const h = hookProject({ run: false });
+    const { agentSession } = await import('../../../runtime/cli/util.mjs');
+    assert.equal(agentSession({ CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 's1' }), 's1');
+    assert.equal(agentSession({ CLAUDE_CODE_SESSION_ID: 's1' }), null, 'outside Claude Code the variable means nothing');
+    assert.equal(agentSession({}), null);
+    const run = K.runs.startRun(h.p.ctx, { command: 'map', actor: 'human:test', session_id: agentSession({ CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 's1' }), config: K.cfg({ mode: 'plan' }), configDigest: 'sha256:c', supersede: true });
+    const other = { ...h.base, session_id: 's2' };
+    for (const command of ['git push origin feature', 'gh pr create --fill', 'cd src && ls']) {
+      assert.equal(await H.onPreToolUse({ ...other, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } }), null, command);
+    }
+    const denied = await pre(h, 'Bash', { command: 'git push origin feature' });
+    assert.ok(denies(denied));
+    assert.match(denied.hookSpecificOutput.permissionDecisionReason, new RegExp(`\\[run ${run.id}, started from session s1; a person ends it early with: unknot run end ${run.id}\\]`));
+  });
+
   test('a new command supersedes the previous run', async () => {
     const h = hookProject({ run: false });
     await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:map' });

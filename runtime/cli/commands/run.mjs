@@ -1,6 +1,6 @@
 import { UnknotError } from '../../core/errors.mjs';
 import { activeRun, endRun, getRun, startRun } from '../../state/runs.mjs';
-import { output, requireHumanTTY } from '../util.mjs';
+import { agentSession, output, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
@@ -11,7 +11,7 @@ export async function run({ positional, flags }) {
     return output(r ?? 'no active run', { json: flags.json });
   }
   if (sub === 'start') {
-    const r = startRun(ctx, { command: arg, actor, config, configDigest: cfg.digest, scope: positional.slice(2), slice_id: flags.slice ?? null, supersede: Boolean(flags.supersede) });
+    const r = startRun(ctx, { command: arg, actor, session_id: agentSession(), config, configDigest: cfg.digest, scope: positional.slice(2), slice_id: flags.slice ?? null, supersede: Boolean(flags.supersede) });
     return output(flags.json ? r : `started ${r.id} (${r.command}, mode ${r.mode})`, { json: flags.json });
   }
   if (sub === 'end') {

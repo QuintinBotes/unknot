@@ -8,6 +8,15 @@ import { fileURLToPath } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
 import { redact } from '../core/redact.mjs';
 
+/**
+ * The Claude Code session this CLI runs inside, or null in a person's own terminal. A run
+ * started here governs that session (and its subagents) only, not other sessions that open the
+ * repository (issue #32).
+ */
+export function agentSession(env = process.env) {
+  return env.CLAUDECODE && env.CLAUDE_CODE_SESSION_ID ? String(env.CLAUDE_CODE_SESSION_ID) : null;
+}
+
 export function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -162,7 +171,7 @@ export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id =
     if (slice_id && existing.slice_id !== slice_id) setRunSlice(ctx, existing.id, slice_id, actor, { mode: cfg.config.mode });
     return fn(activeRun(ctx.store));
   }
-  const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, config: cfg.config, configDigest: cfg.digest });
+  const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, session_id: agentSession(), config: cfg.config, configDigest: cfg.digest });
   const telemetry = await import('../telemetry/otel.mjs');
   telemetry.configureTelemetry(cfg.config, { root: ctx.root });
   const t0 = Date.now();

@@ -108,8 +108,14 @@ export async function onPreToolUse(event) {
     return preToolDeny(`Unknot: ${err.message}. The run is over budget; stop and report what was completed.`);
   }
   recordDecision(ctx, run, op, d, actorOf(event));
-  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${explainDenial(d)}${await runScopeNote(run)}`);
+  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${explainDenial(d)}${await runScopeNote(run)}${runOwner(run)}`);
   return null;
+}
+
+/** Which run caused a refusal, where it was started, and how it ends. */
+function runOwner(run) {
+  const where = run.session_id ? `session ${run.session_id.slice(0, 8)}` : 'a terminal';
+  return ` [run ${run.id}, started from ${where}; a person ends it early with: unknot run end ${run.id}]`;
 }
 
 /** How long a denial lasts: a read-only command's run ends with the turn. */

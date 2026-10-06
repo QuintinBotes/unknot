@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- A run started by the CLI inside an agent session (`unknot map` through the Bash tool) governs that session and its subagents only (#32): it records the session (`CLAUDE_CODE_SESSION_ID`), so other sessions in the same repository keep only the always-on protections and are no longer refused `git push`, `gh` or `cd` while it runs. A refusal caused by a run names the run, where it was started and how a person ends it. A run started in a person's own terminal still applies to every session.
 - The human-only rule judges the commands that would run, not the words in the command text (#40): a heredoc body, a quoted argument or a commit message that mentions `unknot approve` is data. `bash -c`, `eval`, `env` and similar wrappers are unwrapped and still refused, and when the text mentions a human-only command and the command cannot be read that precisely (a shell or interpreter reading text as code, a package runner, a git or gh alias, a computed command word, an unparseable line), it is refused as before.
 
 ## [0.2.2] - 2026-10-06
