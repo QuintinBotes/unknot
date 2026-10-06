@@ -84,6 +84,15 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     list.push(...facts);
   };
 
+  // Too big for the run's read budget: say so before reading anything, naming the setting.
+  const charged = new Set();
+  if (run) {
+    const budget = config.limits?.max_files_read;
+    const analysed = cen.files.filter((f) => analysable(f) && !f.context).length;
+    if (Number.isFinite(budget) && analysed > budget) {
+      throw new UnknotError('UK_BUDGET_EXCEEDED', `${analysed} files to analyse is above limits.max_files_read (${budget}): raise it in .unknot/config.yaml (a person accepts the change), or map a scope`, { details: { files: analysed, limit: budget } });
+    }
+  }
   for (const adapter of loaded) {
     if (!adapter.extract && !adapter.extractBatch) continue;
     const od = optionsDigest(adapter, config);
@@ -110,8 +119,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       } else misses.push(f);
     }
     if (run) {
-      charge(ctx, run, 'files_read', misses.length);
-      charge(ctx, run, 'bytes_read', misses.reduce((n, f) => n + f.size, 0));
+      // A file read by several adapters is still one file read.
+      const fresh = misses.filter((f) => !charged.has(f.path));
+      for (const f of fresh) charged.add(f.path);
+      charge(ctx, run, 'files_read', fresh.length);
+      charge(ctx, run, 'bytes_read', fresh.reduce((n, f) => n + f.size, 0));
     }
     // Extract and commit in chunks, so an interrupted cold map resumes from the per-file
     // cache instead of redoing a whole adapter pass (spec §28: resumable at 100k files).

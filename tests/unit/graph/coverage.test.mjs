@@ -81,3 +81,17 @@ test('a project named like a test project, or declaring IsTestProject, is test c
   assert.equal(isTest('src/Shop/Probe/Helper2.cs'), true);
   assert.equal(isTest('src/Shop/Core/Order.cs'), false);
 });
+
+test('a repository above the read budget stops before reading, and a file read by several adapters counts once', async () => {
+  const files = { 'web/a.js': 'export const a = 1;\n', 'web/b.js': 'import { a } from "./a.js";\nexport const b = a;\n', 'config/app.json': '{"orders.retry": 3}\n' };
+  const small = K.makeProject({ files });
+  const { run, config } = K.startTestRun(small, { command: 'map', over: { limits: { max_files_read: 1 } } });
+  await assert.rejects(mapRepository(small.ctx, { config, configDigest: 'd', run, history: false }), (e) => e.code === 'UK_BUDGET_EXCEEDED' && /files to analyse is above limits\.max_files_read \(1\)/.test(e.message));
+  const p = K.makeProject({ files });
+  const t = K.startTestRun(p, { command: 'map' });
+  await mapRepository(p.ctx, { config: t.config, configDigest: 'd', run: t.run, history: false });
+  const read = p.ctx.store.bump(t.run.id, 'files_read', 0);
+  const { census, analysable } = await import('../../../runtime/graph/census.mjs');
+  const files_ = census(p.dir, { config: t.config }).files.filter((f) => analysable(f) && !f.context).length;
+  assert.ok(read > 0 && read <= files_, `each file charged once (got ${read} for ${files_} files)`);
+});

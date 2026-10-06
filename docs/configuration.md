@@ -150,8 +150,8 @@ Any other name can be run by hand with `unknot exec <name> [args]`. If an obliga
 | `max_diff_lines` | 500 | Added plus removed lines a slice may change. |
 | `max_runtime_minutes` | 30 | Timeout for each brokered command. |
 | `max_network_requests` | 0 | 0 disables network for the model and for brokered commands. |
-| `max_files_read` | 50000 | Files the model may read in a run. |
-| `max_bytes_read` | 536870912 | Bytes the model may read in a run. |
+| `max_files_read` | 250000 | Files read in a run: the map's own reads (each file once, however many adapters read it) and the model's. A map of a repository with more files to analyse stops before reading, naming this setting. |
+| `max_bytes_read` | 4294967296 | Bytes read in a run, counted the same way. |
 | `max_file_bytes` | 2097152 | Largest file read when mapping. |
 | `max_commands` | 200 | Brokered commands per run. |
 | `max_tool_calls` | 3000 | Tool calls per run. |
