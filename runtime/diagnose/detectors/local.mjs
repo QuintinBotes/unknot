@@ -629,8 +629,8 @@ const deadCode = define({
   },
 });
 
-// A file that holds a type only through an injected member it never uses (the C# adapter
-// marks the IMPORTS edge declared_only; a public member stays marked only if no other file
+// A file that holds a type only through an injected member it never uses (the language adapters
+// mark the IMPORTS edge declared_only, in any language, from source or from a SCIP index; a public member stays marked only if no other file
 // touches the name). Deleting the member is the cheapest change Unknot can propose: when the
 // edge sits in a strongly connected component it also opens a way to break the cycle.
 const unusedInjectedMember = define({

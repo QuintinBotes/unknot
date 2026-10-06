@@ -9,15 +9,17 @@
 //     definition (`unreferenced`; a member symbol's reference count is not kept as a node each)
 //   - REFERENCES module -> module for resolved references, CALLS where the symbol is a method
 //   - EXTENDS / IMPLEMENTS between types from the index's implementation relationships
-// For C# the adapter also hands the unused-injected-member decision to the generic adapter
-// (`ctx.semantic`): see csharp.mjs. This adapter's link runs before generic's for that reason.
+// For every indexed language the adapter also decides which files hold a module only through
+// members nothing reads (see analyze.mjs for the rule) and hands that to the language adapters
+// (`ctx.semantic`: per covered file, the declared-only targets). A language adapter replaces its
+// lexical verdict for a covered file with it; this adapter's link runs before theirs for that reason.
 
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { analyzeIndex } from './analyze.mjs';
 import { indexTrustProblem, locateIndexes } from './locate.mjs';
 
-const VERSION = '0.1.1';
+const VERSION = '0.2.0';
 const EXTRACTOR = `scip@${VERSION}`;
 const DEFAULT_MAX_BYTES = 2 * 1024 ** 3;
 const MAX_LISTED = 50;
@@ -67,13 +69,9 @@ function link(ctx) {
         semantic: { definitions: info.definitions, types: info.types, members: info.members.length, unreferenced: unref.slice(0, MAX_LISTED), unreferenced_count: unref.length, ...(tool && { indexer: tool }) },
       },
     }, pv(path, 1)));
-    // The unused-injected-member decision: a field or property is read when some occurrence outside
-    // its definition is not a pure write. Same-named members of types in one file merge (any read counts).
-    if (mod.attrs.decl_cands && ctx.semantic) {
-      const members = new Map();
-      for (const m of info.members) if (m.kind === 'member') members.set(m.name, (members.get(m.name) ?? false) || m.reads > 0);
-      ctx.semantic.set(path, { members });
-    } else ctx.semantic?.set(path, { members: new Map() });
+    // The unused-dependency-member decision, from the index alone (analyze.mjs): for a covered file the
+    // language adapter's own verdict is replaced, including when the index finds none.
+    ctx.semantic?.set(path, { declared: new Map((res.deps.get(path) ?? []).map((d) => [d.to, d])) });
   }
 
   // Types: one node per defined type (made here only when no other adapter named it), then inheritance.

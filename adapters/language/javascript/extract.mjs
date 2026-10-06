@@ -11,11 +11,15 @@ import { detectMicroFrontends } from './mfe.mjs';
 import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
 import { clientFacts } from '../http-ops.mjs';
+import { lex } from '../generic/lexer.mjs';
+import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
+import { memberAttrs, memberRefs } from '../generic/members.mjs';
 
 const CODE_FILE_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 const TS_RE = /\.(?:ts|mts|cts|tsx)$/;
 const NO_JSX_RE = /\.(?:ts|mts|cts)$/;
 const MAX_FACTS = 5000;
+const MAX_MEMBER_TEXT = 1_500_000;
 const TEST_FILE_RE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/|(?:^|\/)tests?\/)/;
 
 export const isTestPath = (p) => TEST_FILE_RE.test(p);
@@ -273,6 +277,16 @@ function codeFacts(file, text, as = {}) {
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
   };
+  // Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted.
+  // Types are only stated in TypeScript, so only it can be read for them.
+  if (ts && !failed && text.length < MAX_MEMBER_TEXT) {
+    try {
+      const types = [...analysis.classes, ...analysis.interfaces].map((c) => ({ name: c.name ?? c.qname, startLine: c.start_line, endLine: c.end_line, bases: [c.extends, ...(c.implements ?? [])].filter(Boolean) }));
+      Object.assign(attrs, memberAttrs(memberRefs(lex(text, 'typescript'), types, MEMBER_SYNTAX.typescript)));
+    } catch {
+      // Optional signal: a failure here only costs the unused-member analysis of this file.
+    }
+  }
   if (degraded) attrs.parse_issues = tk.issues.concat(bad ? [`bracket mismatches: ${bad}`] : [], failed ? ['structure pass failed'] : []).slice(0, 10);
   if (truncated) attrs.truncated = true;
   return [nodeFact('module', path, { name: path, path, attrs }, p(1)), ...facts];
