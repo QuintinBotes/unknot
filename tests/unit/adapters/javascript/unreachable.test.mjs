@@ -8,7 +8,7 @@ const { facts } = runFixture('unreachable');
 const u = (path, name) => fnAttrs(facts, `function:${path}#${name}`).unreachable;
 
 test('adapter version was bumped for cache invalidation', () => {
-  assert.equal(adapter.version, '0.1.13');
+  assert.equal(adapter.version, '0.1.14');
 });
 
 test('the diffHash shape: try/catch/finally that returns, then return finish()', () => {

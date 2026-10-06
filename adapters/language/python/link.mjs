@@ -4,7 +4,8 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
-import { serverInterfaces } from '../http-ops.mjs';
+import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { normalizeRoute } from './frameworks.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
@@ -346,6 +347,7 @@ export function link(ctx) {
       }
     }
   }
+  routeGroups(ctx.factsByFile, 'python@', normalizeRoute);
   for (const f of serverInterfaces(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) emit(f);
   return out;
 }

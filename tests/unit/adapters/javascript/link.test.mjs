@@ -57,7 +57,7 @@ test('Express API: require edges, CommonJS export binding resolves calls, endpoi
   ]);
   assert.deepEqual(edgeList(graph, 'CALLS'), ['function:src/server.js#createOrder -> function:src/db.js#execute']);
   assert.deepEqual(graph.out('module:src/server.js', 'EXPOSES').map((e) => e.to).sort(), [
-    'endpoint:GET /health', 'endpoint:GET /items', 'endpoint:GET /orders/:id', 'endpoint:POST /items', 'endpoint:POST /orders',
+    'endpoint:GET /api/orders/:id', 'endpoint:GET /health', 'endpoint:GET /items', 'endpoint:POST /api/orders', 'endpoint:POST /items',
   ]);
   const mod = graph.node('module:src/server.js').attrs;
   assert.deepEqual(mod.env_reads, ['PORT']);

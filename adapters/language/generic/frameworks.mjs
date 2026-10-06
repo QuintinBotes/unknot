@@ -5,6 +5,7 @@
 // `lx.code` so a match whose first character sits inside a string literal is discarded.
 
 import { SYNTAX, clientPath, operations, parseArgs, typeBase } from '../http-ops.mjs';
+import { scanRouteGroups } from './route-groups.mjs';
 
 /** Normalise a route to the repository convention: leading slash, `:id` params, no trailing slash. */
 export function normPath(p) {
@@ -67,9 +68,14 @@ function annotated(lx, an, re) {
   return bindAnnotations(lx, an, codeMatches(lx, re).map((m) => ({ name: m[1], args: m[2], off: m.index, line: lx.lineOf(m.index), target: null })));
 }
 
-function minimalApis(lx, endpoints) {
+/** A route below the prefix of the group it is registered on (`g` is that group's resolution, null for the app itself). */
+function underGroup(g, route) {
+  return { path: normPath(g?.prefix ? `${g.prefix}/${route}` : route), group: g };
+}
+
+function minimalApis(lx, endpoints, rg) {
   for (const m of codeMatches(lx, /\.Map(Get|Post|Put|Delete|Patch)\(\s*"([^"\n]*)"/g)) {
-    endpoints.push({ method: m[1].toUpperCase(), path: normPath(m[2]), line: lx.lineOf(m.index), handler: null, framework: 'router' });
+    endpoints.push({ method: m[1].toUpperCase(), ...underGroup(rg.at(m.index), m[2]), line: lx.lineOf(m.index), handler: null, framework: 'router' });
   }
 }
 
@@ -80,12 +86,14 @@ function handlerMethod(body) {
   return found.size === 1 ? [...found][0] : null;
 }
 
-function goRoutes(lx, an, endpoints) {
-  const re = /\b([A-Za-z_]\w*)\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Get|Post|Put|Delete|Patch|Head|Options|Any|Handle|HandleFunc)\(\s*"([^"\n]*)"\s*(?:,\s*([\w.]+)\s*[,)])?/g;
+function goRoutes(lx, an, endpoints, rg) {
+  const re = /(?:\b([A-Za-z_]\w*)|(\)))\s*\.\s*(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Get|Post|Put|Delete|Patch|Head|Options|Any|Handle|HandleFunc)\(\s*"([^"\n]*)"\s*(?:,\s*([\w.]+)\s*[,)])?/g;
   const byName = new Map();
   for (const f of an.funcs) byName.set(f.name, byName.has(f.name) ? null : f);
   for (const m of codeMatches(lx, re)) {
-    let [, recv, verb, p, handler] = m;
+    let [, recv, , verb, p, handler] = m;
+    const group = rg.at(m.index + m[0].indexOf('.'));
+    if (!recv && !group) continue; // a call chain that is no group's: a client, not a router
     let method = verb.toUpperCase();
     if (method === 'HANDLE' || method === 'HANDLEFUNC' || method === 'ANY') method = 'ANY';
     const withMethod = /^([A-Z]+)\s+(\/.*)$/.exec(p);
@@ -93,7 +101,7 @@ function goRoutes(lx, an, endpoints) {
     if (!p.startsWith('/') || (recv === 'http' && /^(?:Get|Post|Head)$/.test(verb))) continue;
     const fn = byName.get(handler?.split('.').pop()) ?? null;
     if (method === 'ANY' && fn) method = handlerMethod(fn.body) ?? method;
-    endpoints.push({ method, path: normPath(p), line: lx.lineOf(m.index), handler: fn, framework: 'router' });
+    endpoints.push({ method, ...underGroup(group, p), line: lx.lineOf(m.index), handler: fn, framework: 'router' });
   }
 }
 
@@ -436,13 +444,14 @@ export function frameworkInfo(lx, an, lang, path) {
   const endpoints = [];
   const clients = [];
   markedOperations(lx, an, lang, endpoints, clients);
-  if (lang === 'csharp') minimalApis(lx, endpoints);
-  else if (lang === 'go') goRoutes(lx, an, endpoints);
+  const rg = lang === 'csharp' || lang === 'go' ? scanRouteGroups(lx, an, lang) : null;
+  if (lang === 'csharp') minimalApis(lx, endpoints, rg);
+  else if (lang === 'go') goRoutes(lx, an, endpoints, rg);
   else if (lang === 'rust') rustRoutes(lx, an, endpoints);
   else if (lang === 'php') laravelRoutes(lx, endpoints);
   else if (lang === 'ruby') {
     if (/(?:^|\/)config\/routes\.rb$/.test(path)) railsRoutes(lx, endpoints);
     else sinatraRoutes(lx, endpoints);
   }
-  return { endpoints, clients, tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang) };
+  return { endpoints, clients, tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang), routeLinks: rg?.moduleAttrs() ?? {} };
 }

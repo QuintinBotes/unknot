@@ -9,14 +9,14 @@
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
-import { frameworkInfo } from './frameworks.mjs';
-import { clientFacts, serverInterfaces } from '../http-ops.mjs';
+import { frameworkInfo, normPath } from './frameworks.mjs';
+import { clientFacts, routeGroupAttrs, routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.7';
+const VERSION = '0.1.8';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -153,6 +153,7 @@ function extract(file, text, ctx) {
   if (an.impls.length) attrs.impls = an.impls;
   // Link-only inputs for type resolution and unused members; link() removes them so they are never persisted.
   if (MEMBER_SYNTAX[lang]) Object.assign(attrs, memberAttrs(lang === 'csharp' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang])));
+  Object.assign(attrs, fw.routeLinks);
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
   const mod = nodeFact('module', path, { name: path, path, attrs }, prov_(path, 1));
@@ -224,7 +225,7 @@ function extract(file, text, ctx) {
     const eid = `${e.method} ${e.path}`;
     if (!seenEndpoint.has(eid)) {
       seenEndpoint.add(eid);
-      body.push(nodeFact('endpoint', eid, { name: eid, attrs: { method: e.method, path: e.path, framework: e.framework } }, prov_(path, e.line, 'medium', 'inference')));
+      body.push(nodeFact('endpoint', eid, { name: eid, attrs: { method: e.method, path: e.path, framework: e.framework, ...routeGroupAttrs(e.group) } }, prov_(path, e.line, 'medium', 'inference')));
     }
     body.push(edgeFact('EXPOSES', (e.handler && ids.get(e.handler)) || modId, `endpoint:${eid}`, { framework: e.framework }, prov_(path, e.line, 'medium', 'inference')));
   }
@@ -595,6 +596,7 @@ function link(ctx) {
     }
   }
 
+  routeGroups(ctx.factsByFile, 'generic@', normPath);
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------
