@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
+import { hooksSeen } from './hooks-seen.mjs';
 import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations.mjs';
 
 // node:sqlite prints an ExperimentalWarning on load. Hooks and the MCP server share stderr
@@ -147,7 +148,9 @@ export class Store {
   }
 
   migrate() {
-    return runMigrations(this.db, { ddl: DDL_V1 });
+    // Hooks of another release that ran here lately: a migration they cannot live with waits.
+    const olderHooks = this.file === ':memory:' ? [] : hooksSeen(dirname(this.file));
+    return runMigrations(this.db, { ddl: DDL_V1, olderHooks });
   }
 
   /** Idempotent; a closed store leaves the cache so the next openStore reopens the file. */

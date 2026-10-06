@@ -2,9 +2,11 @@
 
 import { head } from '../../apply/git.mjs';
 import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
+import { staleSlices } from '../../plan/staleness.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
+import { readMappedScopes } from '../../graph/mapped-scopes.mjs';
 import { open } from './_shared.mjs';
 
 /** One line on the identifier-like string constants in the graph: how many, of which sub-kinds, and what was cut. */
@@ -35,24 +37,26 @@ export async function run({ flags }) {
   } catch {
     // older store
   }
+  const scopes = readMappedScopes(ctx.store);
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,
     active_run: run ? { id: run.id, command: run.command, started_at: run.started_at, slice: run.slice_id } : null,
-    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout, ...(constants && { constants }) },
+    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout, ...(scopes && { scope: scopes }), ...(constants && { constants }) },
     findings: Object.fromEntries(findings.map((f) => [f.status, f.n])),
     campaigns,
     slices,
     blockers: slices.filter((s) => s.state.startsWith('BLOCKED') || s.state === 'NEEDS_REPLAN' || s.state === 'VERIFICATION_FAILED'),
     awaiting_approval: slices.filter((s) => s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY').map((s) => s.id),
     open_obligations,
-    stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale },
+    stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
     `Mode: ${status.mode}${run ? ` · active run ${run.id} (${run.command})` : ''}${cfg.notice ? `\nConfig: ${cfg.notice}` : ''}`,
     `Graph: generation ${status.graph.generation ?? '—'} at ${mapped?.slice(0, 12) || '—'}${status.graph.stale ? ` (STALE: HEAD is ${current?.slice(0, 12)}; run unknot map)` : ''}`,
+    ...(scopes ? [`Covers: ${scopes.whole ? 'the whole repository' : scopes.scopes.join(', ')}`] : []),
     ...(constants ? [constantsLine(constants)] : []),
     `Findings: ${Object.entries(status.findings).map(([k, v]) => `${v} ${k}`).join(', ') || 'none (run unknot diagnose)'}`,
     '',
@@ -63,6 +67,7 @@ export async function run({ flags }) {
     table(slices, ['id', 'campaign_id', 'state', 'risk']),
   ];
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (in a separate terminal window: ${humanCommand('approve <slice> --role <role> --as <name>')})`);
+  for (const s of status.stale_evidence.slices) lines.push(`Stale evidence: slice ${s.slice_id} was planned from ${s.findings.map((f) => f.finding_id).join(', ')}, no longer reported by the current map; re-plan or abandon it.`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
   if (behindNote) lines.push(`Graph: ${behindNote}`);
   if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it, in a separate terminal window: ${humanCommand('config diff')}`);

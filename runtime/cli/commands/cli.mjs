@@ -8,6 +8,7 @@ import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { UnknotError } from '../../core/errors.mjs';
 import { cliPath, output, requireHumanTTY } from '../util.mjs';
 
+export const USAGE = 'usage: unknot cli status|install|uninstall [--dir <dir>]';
 export const SHIM_MARK = '// unknot-cli-shim';
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
 
@@ -19,17 +20,32 @@ export function versionsDir(cli = cliPath()) {
 
 export function shimSource(cli = cliPath()) {
   return `#!/usr/bin/env node
-${SHIM_MARK}: runs the newest installed Unknot CLI; remove with \`unknot cli uninstall\`.
+${SHIM_MARK}: runs the Unknot CLI of the session's loaded plugin, else the newest installed; remove with \`unknot cli uninstall\`.
 const { spawnSync } = require('node:child_process');
 const { existsSync, readdirSync } = require('node:fs');
-const { join } = require('node:path');
+const { basename, delimiter, dirname, join, resolve } = require('node:path');
 
 const VERSIONS_DIR = ${JSON.stringify(versionsDir(cli))};
 const FALLBACK = ${JSON.stringify(cli)};
 const num = (v) => v.split(/[-+]/)[0].split('.').map(Number);
 const newer = (a, b) => { for (let i = 0; i < 3; i++) if (num(a)[i] !== num(b)[i]) return num(a)[i] - num(b)[i]; return 0; };
 
+// Inside Claude Code the Bash tool's PATH carries the bin directory of the plugin version the
+// session loaded: that CLI matches the session's hooks, so it wins over a newer install.
+function sessionBin() {
+  if (!VERSIONS_DIR) return null;
+  for (const dir of (process.env.PATH || '').split(delimiter)) {
+    if (!dir) continue;
+    const bin = resolve(dir);
+    const version = dirname(bin);
+    if (basename(bin) === 'bin' && dirname(version) === resolve(VERSIONS_DIR) && /^\\d+\\.\\d+\\.\\d+/.test(basename(version)) && existsSync(join(bin, 'unknot'))) return join(bin, 'unknot');
+  }
+  return null;
+}
+
 function target() {
+  const session = sessionBin();
+  if (session) return session;
   if (VERSIONS_DIR && existsSync(VERSIONS_DIR)) {
     const found = readdirSync(VERSIONS_DIR)
       .filter((v) => /^\\d+\\.\\d+\\.\\d+/.test(v) && existsSync(join(VERSIONS_DIR, v, 'bin', 'unknot')))
@@ -88,7 +104,7 @@ export async function run({ positional, flags }) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(shim, shimSource());
     chmodSync(shim, 0o755);
-    return output([`Installed ${shim}. It runs the newest installed Unknot version, so it survives upgrades.`, onPath(dir) ? 'Open a new terminal window if `unknot` is not found yet.' : `${dir} is not on your PATH: add it in your shell profile (for example export PATH="${dir}:$PATH").`].join('\n'));
+    return output([`Installed ${shim}. It runs the version the Claude Code session loaded, else the newest installed, so it survives upgrades.`, onPath(dir) ? 'Open a new terminal window if `unknot` is not found yet.' : `${dir} is not on your PATH: add it in your shell profile (for example export PATH="${dir}:$PATH").`].join('\n'));
   }
   if (sub === 'uninstall') {
     requireHumanTTY('removing the unknot command', { args: ['cli', 'uninstall'] });

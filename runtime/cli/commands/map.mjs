@@ -3,15 +3,20 @@ import { output, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 import { constantsLine } from './status.mjs';
 
+const coverLine = (s) => (s.whole ? 'the whole repository' : s.covered.join(', '));
+
 export async function run({ positional, flags }) {
   const { ctx, cfg, config, actor } = open(flags);
-  const scope = positional;
+  // `--replace B` parses as a flag value: it is the first scope.
+  const replace = flags.replace !== undefined && flags.replace !== 'false';
+  const scope = typeof flags.replace === 'string' && replace ? [flags.replace, ...positional] : positional;
   const summary = await withRun(ctx, cfg, 'map', { actor, scope }, (r) =>
-    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null }),
+    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null }),
   );
   if (flags.json) return output(summary, { json: true });
   const lines = [
     `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,
+    `Covers: ${coverLine(summary.scope)}.`,
     `Cache: ${summary.cache.hits} reused, ${summary.cache.extracted} extracted.`,
     `Files by kind: ${Object.entries(summary.by_kind).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
   ];

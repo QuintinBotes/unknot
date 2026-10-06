@@ -12,6 +12,8 @@ import { listRecords, pruneRecords, showRecord, summaryLine } from '../../decomp
 import { output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+export const USAGE = 'usage: unknot decompose [scope] [--target backend|frontend|auto] [--driver id]... [--summary] | list | show <DEC-id> [--json] | prune [--dry-run]';
+
 const BOOLEAN_FLAGS = ['json', 'full', 'summary', 'dry_run'];
 
 const cell = (v) => (v === null || v === undefined ? 'unmeasured' : String(v));

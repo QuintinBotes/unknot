@@ -13,7 +13,7 @@ import { frameworkInfo } from './frameworks.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.4';
+const VERSION = '0.1.5';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -440,7 +440,7 @@ function link(ctx) {
         resolved.add(e.to);
         push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
           spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member, member_visibility: e.member_visibility }),
-          ...(e.use_evidence && { use_evidence: e.use_evidence, possible_use_of: e.possible_use_of }),
+          ...(e.use_evidence && { use_evidence: e.use_evidence, possible_use_of: e.possible_use_of, possible_receivers: e.possible_receivers }),
         }, prov_(path, e.line)));
       }
       for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium')));

@@ -8,7 +8,7 @@ import { effectivePolicy, generatePolicyKey, loadPolicyKey, policyKeyDir, signPo
 import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
-const USAGE = 'usage: unknot policy keygen <name> | sign <org-policy.yaml> --key <name> | trust <dir> --key <name> | verify <dir> | effective | denials [--limit N] [--run <id>]';
+export const USAGE = 'usage: unknot policy keygen <name> | sign <org-policy.yaml> --key <name> | trust <dir> --key <name> | verify <dir> | effective | denials [--limit N] [--run <id>]';
 
 /**
  * Recent refusals grouped by rule, with the latest example of each: the way to find a rule that

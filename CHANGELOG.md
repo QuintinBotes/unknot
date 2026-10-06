@@ -4,6 +4,24 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.2.1] - 2026-10-06
+
+### Changed
+
+- Scopes accumulate across maps (#22). `unknot map B` after `unknot map A` maps both, so edges between them no longer vanish silently; the recorded scopes live in store meta and unchanged files come from the per-file cache. `unknot map` with no scope maps and records the whole repository, `--replace` maps exactly the given scopes, and a recorded scope deleted from disk is dropped with a notice. `map` (text and `--json`) and `status` name the covered scopes and what was kept or dropped.
+
+### Fixed
+
+- A member access whose receiver has a declared type outside the mapped files (`ctx.X` where `ctx` is a `ShopContext` declared elsewhere) no longer counts as a possible use of a same-named injected member on a mapped type, unless that type is the declaring type or related to it by name or inheritance; the member is reported as unused (#19). Only receivers with no declared type at all (call results, `var x = Make()`, lambda parameters) keep the name-only, lowered-confidence path, and the edge now names the files holding them (`possible_receivers`). Generic adapter 0.1.5.
+- An injected public member that other files may read only through receivers of unknown type (lambda parameters, call results, fields declared outside the mapped files) is reported as possibly unused at low confidence, naming those files, instead of not at all (#19).
+- A slice planned from a finding that a re-map no longer reports is shown as stale in `unknot status`, `unknot slice` and the MCP `slice_get` and `status` tools, naming the finding; its state and approvals are untouched (#19).
+- `--help` on any command or subcommand prints its usage without running it (#23).
+- `unknot search --scan` no longer takes minutes on a large repository and prints nothing (#21). It stats and reads files concurrently (it used to read each file twice, one after the other, so a slow file system's latency was paid per file), never opens files the census excludes, stops after a time budget (default 60 s, `--budget-seconds N`) with a partial result that says how many files were not scanned, and writes progress to stderr (not in `--json` mode) once it runs longer than about 3 seconds. `search_text` scans serially with a 20 s budget and reports the same notice.
+- `unknot search` and `search_text` no longer let an exact constant match hide the constants that start with the same text (#20): the exact match comes first, then the constants that extend it with their sites, within the limits, and `constants_left_out` (and a line in the text output) says how many were cut.
+- Upgrading in place no longer locks a running session out of its shell (#18). `schema_version` in the store now names the oldest release that can use it, and migrations that only add something (like 0.2.0's fact digest) leave it alone, so hooks of 0.1.12 to 0.2.0 keep working once a newer CLI has opened the store; a store a 0.2.0 CLI raised is lowered again. A future migration older releases cannot live with waits while their hooks ran in the project in the last 15 minutes, and says to reload plugins. Hooks that find a store newer than themselves still run reads and read-only commands, refuse the rest, and name the fix: reload plugins or start a new session.
+- The `unknot` shim runs the CLI of the plugin version the session loaded (its `bin` is on the session's PATH), not the newest installed; `unknot cli install` updates an older shim. `unknot doctor` warns when a session's hooks run another release than the CLI, or when the shim predates this.
+- The upgrade test runs each earlier release's hook against the store after the current CLI has opened it.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

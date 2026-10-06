@@ -61,6 +61,23 @@ export async function main(argv) {
     process.stderr.write(`unknot: unknown command ${name}\n`);
     return 2;
   }
+  // --help or -h prints usage without running the command or opening the store. Words after
+  // `--` belong to the command being run (`unknot exec -- grep -h x`), not to Unknot.
+  const own = rest.includes('--') ? rest.slice(0, rest.indexOf('--')) : rest;
+  if (own.includes('--help') || own.includes('-h')) {
+    try {
+      const mod = await import(`./commands/${name}.mjs`);
+      if (mod.USAGE) {
+        process.stdout.write(`${mod.USAGE}\n`);
+      } else {
+        process.stdout.write(`usage: unknot ${name} — ${COMMANDS[name]}\n`);
+      }
+    } catch {
+      // If the command module fails to load, print the basic usage.
+      process.stdout.write(`usage: unknot ${name} — ${COMMANDS[name]}\n`);
+    }
+    return 0;
+  }
   const args = parseArgs(rest);
   try {
     const mod = await import(`./commands/${name}.mjs`);

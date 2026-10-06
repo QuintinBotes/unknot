@@ -639,16 +639,13 @@ const unusedInjectedMember = define({
   run(graph) {
     // The stored declared-only edges and the component each sits in (one breakdown per component).
     const rows = derivedFor(graph, 'declared_only');
-    if (!rows.length) return [];
+    const sccs = derivedFor(graph, 'scc').map((r) => r.body);
     const byKey = new Map(derivedFor(graph, 'scc').map((r) => [r.key, r.body]));
     const out = [];
-    for (const { body: r } of rows) {
-      const from = graph.node(r.from);
-      const to = graph.node(r.to);
-      if (!from || !to || !r.modules || isTestModule(from) || isTestModule(to)) continue;
-      const member = r.member ?? 'a member';
-      const pub = r.visibility === 'public';
-      const bd = r.component !== null ? byKey.get(r.component) : null;
+    const report = (fromId, toId, { member = 'a member', pub, line = 1, bd = null, receivers = null }) => {
+      const from = graph.node(fromId);
+      const to = graph.node(toId);
+      if (!from || !to || isTestModule(from) || isTestModule(to)) return;
       const comp = bd?.members ?? null;
       let closes = 0;
       let total = 0;
@@ -656,39 +653,57 @@ const unusedInjectedMember = define({
       if (bd) {
         total = bd.cycles.length;
         truncated = bd.truncated;
-        closes = bd.cycles.filter((c) => c.edges.some((x) => x.from === r.from && x.to === r.to)).length;
+        closes = bd.cycles.filter((c) => c.edges.some((x) => x.from === fromId && x.to === toId)).length;
       }
       const type = to.path ?? to.name;
+      const maybe = Boolean(receivers);
       const d = base(graph, from, {
         kind: 'code.unused-injected-member',
-        title: `${from.path} holds ${type} only through the unused member ${member}${comp ? ` (closes ${closes}${truncated ? '+' : ''} of ${total}${truncated ? '+' : ''} cycles in a ${comp.length}-module component)` : ''}`,
-        summary: `declares ${member}${pub ? ' (public)' : ''} of type ${type}; the member is never used${pub ? ' in this repository' : ''}`,
-        measurements: { 'member.public': pub, ...(comp && { 'cycle.component_size': comp.length, 'cycle.closed': closes, 'cycle.listed': total }) },
+        title: `${from.path} holds ${type} only through the ${maybe ? 'possibly ' : ''}unused member ${member}${comp ? ` (closes ${closes}${truncated ? '+' : ''} of ${total}${truncated ? '+' : ''} cycles in a ${comp.length}-module component)` : ''}`,
+        summary: maybe
+          ? `declares ${member} (public) of type ${type}; no use of it resolves to this type, but ${receivers.split(', ').length} file(s) read a member of that name on a receiver whose type is unknown: ${receivers}`
+          : `declares ${member}${pub ? ' (public)' : ''} of type ${type}; the member is never used${pub ? ' in this repository' : ''}`,
+        measurements: { 'member.public': pub, ...(maybe && { 'uses.name_only_files': receivers.split(', ').length }), ...(comp && { 'cycle.component_size': comp.length, 'cycle.closed': closes, 'cycle.listed': total }) },
         thresholds: { uses: 0, note: 'heuristic: reflection, serialization and consumers outside this repository are invisible to the graph' },
         benefit: 1 + (comp ? 1 + Math.min(2, Math.log2(1 + closes)) : 0),
         cost: 1,
-        evidence: Math.min(0.7, evidenceFor(from.attrs)),
+        evidence: Math.min(maybe ? 0.4 : 0.7, evidenceFor(from.attrs)),
         uncertain: pub ? 2 : 1,
       });
-      const line = r.line ?? 1;
       out.push({
         ...d,
-        key: `unused-member:${r.from}>${r.to}`,
-        evidence: [...d.evidence, { ref: r.to, label: 'observed', summary: `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
-        confidence: 'medium',
+        key: `unused-member:${fromId}>${toId}`,
+        evidence: [...d.evidence, { ref: toId, label: maybe ? 'inferred' : 'observed', summary: maybe ? `${type} is reached from ${from.path} only through ${member}; receivers of unknown type in ${receivers} may read it` : `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
+        confidence: maybe ? 'low' : 'medium',
         why_accidental: 'An injected member nobody uses still pulls in its dependency, keeps the file coupled to the type and adds a registration to maintain.',
         essential_considerations: [pub ? 'The member is public: consumers outside this repository, reflection or serialization could still use it.' : 'It may be set or read by reflection or a container convention.'],
         smallest_simplification: `Remove the member ${member} from ${from.path} (and its registration if any); nothing else changes.`,
         invariants: ['Only the unused member is deleted; no other line of the file changes.', pub ? 'No other file in this repository references the member name.' : 'The member is private to the file.'],
         risks: [pub ? 'A caller outside this repository may use the public member.' : 'Reflection or a container convention may reach the member.'],
         verification: verificationFor(d.measurements['tests.present'], [`Search the repository for "${member.split(', ')[0]}" outside ${from.path} to confirm nothing reaches it.`]),
-        uncertainties: [...d.uncertainties, ...(truncated ? ['The component has more cycles than were listed; the count of cycles closed is a lower bound.'] : [])],
+        uncertainties: [
+          ...d.uncertainties,
+          ...(maybe ? [`Receivers whose type Unknot cannot resolve (lambda parameters, call results, fields declared outside the mapped files) read a member named ${member} in ${receivers}; check those before removing it.`] : []),
+          ...(truncated ? ['The component has more cycles than were listed; the count of cycles closed is a lower bound.'] : []),
+        ],
         alternatives: [
           { id: 'retain', summary: 'Keep the member if it is reached by reflection, serialization or consumers outside this repository.' },
           { id: 'remove', summary: 'Delete the member and its registration; version control keeps the history.' },
         ],
         patterns: ['code.remove-dead-code'],
       });
+    };
+    for (const { body: r } of rows) {
+      if (!r.modules) continue;
+      report(r.from, r.to, { member: r.member ?? 'a member', pub: r.visibility === 'public', line: r.line ?? 1, bd: r.component !== null ? byKey.get(r.component) : null });
+    }
+    // A public member that other files may reach only by name, on receivers of unknown type:
+    // reported, at low confidence, naming those files (it is neither proven used nor unused).
+    for (const e of graph.edges('IMPORTS')) {
+      if (e.attrs?.use_evidence !== 'name-only' || e.attrs.declared_only || !e.attrs.possible_receivers) continue;
+      if (graph.node(e.from)?.type !== 'module' || graph.node(e.to)?.type !== 'module') continue;
+      const bd = sccs.find((c) => c.members.includes(e.from) && c.members.includes(e.to)) ?? null;
+      report(e.from, e.to, { member: e.attrs.possible_use_of || 'a member', pub: true, line: e.attrs.line ?? 1, bd, receivers: e.attrs.possible_receivers });
     }
     return out;
   },

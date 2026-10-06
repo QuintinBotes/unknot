@@ -3,6 +3,11 @@
 // a dynamic import, which CommonJS allows.
 'use strict';
 
+// Async file reads run on libuv's thread pool (4 threads by default), which caps how many
+// reads a concurrent scan (`unknot search --scan`) keeps in flight. The size is read when the
+// pool first starts, so it is set here, before anything uses it.
+process.env.UV_THREADPOOL_SIZE ||= '32';
+
 // A reader that stops early (`unknot map --json | head`) closes stdout. Writing then raises
 // EPIPE, which must not abort the command: a map interrupted that way was never saved.
 for (const stream of [process.stdout, process.stderr]) {

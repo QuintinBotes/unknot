@@ -15,6 +15,7 @@ import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
+import { staleEvidence, staleSlices } from '../plan/staleness.mjs';
 import { loadConfig } from '../policy/config.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
@@ -94,12 +95,14 @@ export const TOOLS = {
     inputSchema: schema(),
     run(ctx) {
       const run = activeRun(ctx.store);
+      const stale = staleSlices(ctx);
       return {
         mode: loadConfig(ctx).config.mode,
         active_run: run ? { id: run.id, command: run.command, state: run.state, slice_id: run.slice_id ?? null, campaign_id: run.campaign_id ?? null } : null,
         graph: { generation: Number(ctx.store.meta('generation') ?? 0), mapped_commit: ctx.store.meta('mapped_commit') || null, mapped_at: ctx.store.meta('mapped_at') ?? null },
         findings_by_status: countBy(ctx, 'findings', 'status'),
         slices_by_state: countBy(ctx, 'slices', 'state'),
+        ...(stale.length && { stale_slices: stale }),
       };
     },
   },
@@ -254,17 +257,18 @@ export const TOOLS = {
         a.id,
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
-      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+      const stale = staleEvidence(ctx, body);
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(stale.length && { stale_evidence: stale }), obligations, approvals };
     },
   },
 
   search_text: {
-    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. scan: true forces the scan. Generated, vendored and credential files are excluded.',
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan; a scan stops after 20 seconds and says how many files it did not reach (partial, notice). Generated, vendored and credential files are excluded.',
     inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, scan: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
     run(ctx, a) {
       const { config } = loadConfig(ctx);
       const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
-      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50 });
+      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50, budgetSeconds: 20 });
       return capResult(r, ['definitions', 'uses', 'via_constants'], 'narrow with a scope (a path or glob) or a more specific text');
     },
   },

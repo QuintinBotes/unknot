@@ -5,7 +5,8 @@
 // A `using` alone never links anything, so nothing fans out to a whole namespace.
 // Member accesses are attributed to a receiver type where the file states it (declarations,
 // parameters, `new T`, casts, `as`, patterns, `T.Static`, `this.`), so an unrelated `x.Name` is not
-// a use of someone else's `Name`; an unresolved receiver stays a possible use (name-only evidence).
+// a use of someone else's `Name`; a receiver with a declared type outside the mapped files is no use of a mapped type's member, and one
+// with no declared type at all stays a possible use (name-only evidence).
 // The same resolution yields module-level CALLS edges.
 
 const MODS = '(?:(?:public|private|protected|internal|static|readonly|virtual|override|required|new|sealed|volatile|abstract|partial|unsafe)\\s+)';
@@ -279,17 +280,23 @@ export function csharpLinker(mods, sortedMods) {
       for (const n of a.words ?? []) if (candidates.has(n) && !typeNames.has(n)) add(touchedBy, n, { path, bare: a.types ?? [] });
     }
   }
-  /** 'typed', 'name-only' or null: how another file reaches `member`, declared by `owner` in `path`. */
-  const reach = (path, member, owner) => {
+  /**
+   * 'typed', 'name-only' or null: how another file reaches `member`, declared by `owner` in `path`.
+   * A receiver whose declared type is known by name is a use only when that type is the owner or
+   * related to it by inheritance (or shares its simple name); a declared type outside the mapped
+   * files is a foreign receiver and no use at all. Only a receiver with no declared type (a call
+   * result, `var x = Make()`, a lambda parameter, a bare unknown name) is a possible use; the files
+   * holding such receivers are added to `where`.
+   */
+  const reach = (path, member, owner, where) => {
     let best = null;
     for (const t of touchedBy.get(member) ?? []) {
       if (t.path === path) continue;
       for (const r of t.recvs ?? []) {
-        if (r === '') best ??= 'name-only';
-        else if (r.startsWith('~')) {
-          if (!typeNames.has(r.slice(1))) best ??= 'name-only';
-          else if (related(r.slice(1), owner)) return 'typed';
-        } else if (related(r, owner)) return 'typed';
+        if (r === '' || (r.startsWith('~') && !typeNames.has(r.slice(1)))) {
+          best ??= 'name-only';
+          where?.add(t.path);
+        } else if (related(r.startsWith('~') ? r.slice(1) : r, owner)) return 'typed';
       }
       if ((t.bare ?? []).some((x) => x === owner || anc(x).has(owner))) return 'typed';
     }
@@ -361,13 +368,14 @@ export function csharpLinker(mods, sortedMods) {
     // A member another file reaches is an ordinary use, however the declaring file treats it.
     const owners = a.public_owners ?? {};
     const edges = [...hits].map(([to, h]) => {
-      const reaches = h.decl && h.members.size ? [...h.pub].map((m) => reach(path, m, owners[m])) : [];
+      const where = new Set();
+      const reaches = h.decl && h.members.size ? [...h.pub].map((m) => reach(path, m, owners[m], where)) : [];
       const declared = h.decl && h.members.size && !reaches.some(Boolean);
       const nameOnly = h.decl && h.members.size && !reaches.includes('typed') && reaches.includes('name-only');
       return {
         to, spec: h.spec, line: h.line,
         ...(declared && { declared_only: true, unused_member: [...h.members].sort().join(', '), member_visibility: h.pub.size ? 'public' : 'private' }),
-        ...(nameOnly && { use_evidence: 'name-only', possible_use_of: [...h.pub].filter((m, i) => reaches[i]).sort().join(', ') }),
+        ...(nameOnly && { use_evidence: 'name-only', possible_use_of: [...h.pub].filter((m, i) => reaches[i]).sort().join(', '), possible_receivers: [...where].sort().join(', ') }),
       };
     });
     // Calls: members reached through a receiver whose type is declared in another repository file.
