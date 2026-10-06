@@ -101,6 +101,10 @@ describe('human-only commands cannot be reached through shell tricks', () => {
       'cp .unknot/docs/proposals/x.json /tmp/x.json',
       'cp .unknot/config.yaml /tmp/config-copy.yaml',
       // Programs whose arguments are all paths they write are judged by those paths.
+      // Read-only copies to the places agents actually copy to.
+      'cp .unknot/config.yaml ~/config-copy.yaml',
+      'cp .unknot/config.yaml "$TMPDIR/config-copy.yaml"',
+      'cp .unknot/config.yaml .',
       'mkdir -p .unknot/docs/proposals',
       'touch .unknot/docs/proposals/x.json',
       'rm notes-about-.unknot.md',
@@ -132,6 +136,11 @@ describe('human-only commands cannot be reached through shell tricks', () => {
     "cp /tmp/x .unk''not/config.yaml",
     'D=.unknot/config.yaml; cp /tmp/x "$D"',
     'cp /tmp/x .unknot/conf*.yaml',
+    // A copy into .unknot lands on the file it names, however the destination is written.
+    'cp /tmp/config.yaml .unknot/',
+    'cp /tmp/config.yaml .unknot',
+    'cp -r /tmp/state .unknot/',
+    'cp /tmp/x "$PWD/.unknot/config.yaml"',
     // A directory that holds Unknot state counts as the state itself.
     'rm -rf .unknot',
     'rm -rf .unknot/',
