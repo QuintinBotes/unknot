@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- `unknot diagnose --objective <decompose|simplify|security>` (and `objective`/`all` on the MCP `findings_list`) ranks findings by relevance to the objective from one table in `runtime/diagnose/objectives.mjs`. For `decompose`, cycles, the unused dependencies that close them, co-change leaks, shared table writers, hubs and misplaced modules come first and generic code-style findings fold into one "N code-style findings hidden (--all to show)" line; `--all` lists them last. JSON carries `objective`, `hidden` and `hidden_kinds`. Output without `--objective` is unchanged, and `/unknot:decompose` uses the decompose objective (#31).
+
 ## [0.2.2] - 2026-10-06
 
 ### Fixed

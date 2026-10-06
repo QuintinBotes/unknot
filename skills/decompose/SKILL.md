@@ -43,6 +43,12 @@ To read one recommendation in full, use the `decomposition_get` tool with its DE
 read `.unknot/` with shell commands or interpreters: hooks deny that, and the tool returns
 the same document.
 
+When you also run `unknot diagnose` (or `findings_list`) to look at the findings behind a
+candidate, pass `--objective decompose` (`objective: "decompose"`): cycles, the unused
+dependencies that close them, co-change, shared table writers and hubs come first, and the
+generic code-style findings fold into one "N code-style findings hidden" line. Mention that
+count; use `--all` only when the user asks for those findings.
+
 ## 3. Present each candidate
 
 For each recommendation (DEC id) show:
