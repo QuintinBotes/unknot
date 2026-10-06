@@ -4,6 +4,42 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.15] - 2026-10-06
+
+Fixes from a first attempt to build with Unknot on 0.1.13.
+
+### Added
+
+- `diagnose` reports an injected member that is never used (`code.unused-injected-member`): one
+  finding per such member, scoped to its file, naming the member and the type it holds, ranked
+  higher when it closes cycles. It plans into a one-file, low-risk deletion slice that a lane can
+  cover.
+- `plan`, `plan show`, `unknot slice` and the `slice_get` tool say why a slice has its risk, who
+  must approve it, and whether a lane could cover it (`lane: not eligible (medium risk; ...)`).
+- `status` and `doctor` say when a newer configuration proposal is waiting for a person.
+
+### Changed
+
+- The declared-only marking of a C# member is checked across the repository: a public member
+  that another file reaches is no longer "unused". Removing a public member that is unused in
+  the repository passes the API-compatibility obligation with a note in the proof bundle
+  ("public but unused in this repository; consumers outside it are not visible").
+- With a configuration already accepted, `init` proposes that configuration plus what is newly
+  detected (commands, protected paths), keeping its mode and approvers, and writes nothing when
+  nothing is new. Before, re-running `init` proposed a fresh default, which accepted would have
+  reset the mode to plan and dropped the approvers.
+- The C# adapter keeps the identifiers each file uses for the repository-wide check: a cold map
+  of a 3,600-file .NET repository takes about 10% longer and its state about 9% more space.
+
+### Fixed
+
+- Agent commands that mention `.unknot` were refused when the first `unknot` on PATH was not
+  this plugin's exact install path: after an update inside a running session (PATH still names
+  the previous version) or once the `unknot cli install` shim is installed. Both now count as the
+  plugin's CLI; a look-alike inside the project still does not, and the refusal names the file.
+- A plain `cp` that only reads from `.unknot` (copying a proposal out) is not refused; only a
+  copy's destination counts as written.
+
 ## [0.1.14] - 2026-10-06
 
 Fixes from a third review run, on 0.1.13.

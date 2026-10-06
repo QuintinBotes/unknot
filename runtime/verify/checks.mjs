@@ -143,6 +143,7 @@ export const CHECKS = {
   },
   api({ pair, changes }) {
     const removed = [];
+    const unused = [];
     for (const c of changes) {
       const id = `module:${c.path}`;
       const was = pair.before.node(id);
@@ -150,11 +151,19 @@ export const CHECKS = {
       const now = pair.after.node(id);
       const names = (n) => new Set((n?.attrs?.exports ?? []).map((e) => e.name ?? e));
       for (const name of names(was)) if (!names(now).has(name)) removed.push(`${c.path}: export ${name}`);
+      // A public injected member the graph marks declared-only was unused anywhere in this repository.
+      const free = new Set(pair.before.out(id, 'IMPORTS').filter((e) => e.attrs?.declared_only && e.attrs.member_visibility === 'public').flatMap((e) => String(e.attrs.unused_member ?? '').split(', ')));
+      for (const name of was.attrs?.public_members ?? []) {
+        if ((now?.attrs?.public_members ?? []).includes(name)) continue;
+        (free.has(name) ? unused : removed).push(`${c.path}: member ${name}`);
+      }
       const eps = (g) => new Set(g.out(id, 'EXPOSES').map((e) => e.to));
       const after = now ? eps(pair.after) : new Set();
       for (const ep of eps(pair.before)) if (!after.has(ep)) removed.push(`${c.path}: endpoint ${ep.slice(9)}`);
     }
-    return removed.length ? { verdict: 'fail', detail: `public surface removed: ${removed.slice(0, 10).join('; ')}`, data: { removed } } : { verdict: 'pass', detail: 'exports and endpoints of changed modules preserved', data: {} };
+    const note = unused.length ? `public but unused in this repository; consumers outside it are not visible: ${unused.slice(0, 10).join('; ')}` : null;
+    if (removed.length) return { verdict: 'fail', detail: `public surface removed: ${removed.slice(0, 10).join('; ')}`, data: { removed, ...(unused.length && { unused_public: unused }) } };
+    return { verdict: 'pass', detail: note ? `only unused public members removed (${note})` : 'exports and endpoints of changed modules preserved', data: unused.length ? { unused_public: unused, note } : {} };
   },
   complexity({ pair, changes, config }) {
     const allowed = config.quality.max_complexity_increase ?? 0;

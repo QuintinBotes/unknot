@@ -17,6 +17,11 @@ const USING_LINE = /^[ \t]*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?[\
 const NAMEOF = /\bnameof\s*\(\s*[\w.]+\s*\)/g;
 const NAMEOF_BEFORE = /\bnameof\s*\(\s*(?:[\w]+\s*\.\s*)*$/;
 const GUARD = '(?:\\s*\\?\\?\\s*throw\\s+new\\s+[\\w.]+\\s*\\([^;]*\\))?';
+// The modifiers right before a member's type; anything but private/default is reachable from other files.
+const MODS_TAIL = new RegExp(`(${MODS}*)$`);
+const NON_PRIVATE = /\b(?:public|protected|internal)\b/;
+// Names other files can reach a member by: after a dot, as an initializer or pattern property, or quoted (reflection, binding).
+const ACCESSED = /(?:\.|\?\.)\s*([A-Za-z_]\w*)|[{,]\s*([A-Za-z_]\w*)\s*(?:=(?![=>])|:(?!:))|"([A-Za-z_]\w*)"/g;
 const blank = (m) => m.replace(/[^\n]/g, ' ');
 
 /** Escape for use inside a RegExp. */
@@ -25,7 +30,11 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Names a C# file mentions, minus the types it declares, and the subset of those that are
  * only the declared type of a field/property whose name is never used (`declOnly`).
- * @returns {{ refs: string[], declOnly: Record<string, string> }}
+ * `declPublic` lists, per such name, the members not private to the file; `publicMembers` is
+ * every attribute-injected member visible outside it (used or not); `words`/`accessed` are the
+ * identifiers the file contains and the subset reached through a member access, so link can
+ * ask whether another file touches a public member.
+ * @returns {{ refs: string[], declOnly: Record<string, string>, declPublic: Record<string, string[]>, publicMembers: string[], words: string[], accessed: string[] }}
  */
 export function csharpRefs(lx, an) {
   const code = lx.code.replace(USING_LINE, blank);
@@ -43,9 +52,12 @@ export function csharpRefs(lx, an) {
     heads.get(head).push(m.index);
   }
   const declOnly = {};
+  const declPublic = {};
+  const publicMembers = new Set();
   for (const [name, offs] of heads) {
     // Qualified mentions of the same simple name are ordinary uses.
     const members = new Set();
+    const pub = new Set();
     const params = new Set();
     const spans = [];
     let ok = true;
@@ -57,6 +69,7 @@ export function csharpRefs(lx, an) {
       const mm = AFTER_MEMBER.exec(after);
       if (mm && (ATTRIBUTED.test(before) || PRIVATE.test(before))) {
         members.add(mm[1]);
+        if (NON_PRIVATE.test(MODS_TAIL.exec(before)[1])) { pub.add(mm[1]); publicMembers.add(mm[1]); }
         spans.push([off, off + name.length + mm[0].indexOf(mm[1]) + mm[1].length]);
         continue;
       }
@@ -78,9 +91,13 @@ export function csharpRefs(lx, an) {
     const used = (n) => new RegExp(`\\b${esc(n)}\\b`).test(masked);
     if ([...params].some(used) || [...members].some(used)) continue;
     declOnly[name] = [...members].sort().join(', ');
+    if (pub.size) declPublic[name] = [...pub].sort();
   }
   const refs = [...new Set([...heads.keys(), ...chains])].sort();
-  return { refs, declOnly };
+  const words = new Set(lx.plain.match(/[A-Za-z_]\w+/g));
+  const accessed = new Set();
+  for (const m of lx.plain.matchAll(ACCESSED)) accessed.add(m[1] ?? m[2] ?? m[3]);
+  return { refs, declOnly, declPublic, publicMembers: [...publicMembers].sort(), words: [...words].sort(), accessed: [...accessed].sort() };
 }
 
 /**
@@ -110,6 +127,21 @@ export function csharpLinker(mods, sortedMods) {
     for (const imp of a.imports ?? []) if (imp.global && imp.kind === 'using') globals.add(imp.spec);
   }
 
+  // Public members that are held only by an injected declaration: which other files touch each name?
+  // A name that is also a type counts only when reached through a member access (`Mailer Mailer`).
+  const candidates = new Set();
+  for (const path of sortedMods) for (const ms of Object.values(mods.get(path).attrs.decl_public ?? {})) for (const m of ms) candidates.add(m);
+  const touchedBy = new Map();
+  if (candidates.size) {
+    const typeNames = new Set(byName.keys());
+    for (const path of sortedMods) {
+      const a = mods.get(path).attrs;
+      if (a.language !== 'csharp') continue;
+      for (const n of a.accessed ?? []) if (candidates.has(n)) add(touchedBy, n, path);
+      for (const n of a.words ?? []) if (candidates.has(n) && !typeNames.has(n)) add(touchedBy, n, path);
+    }
+  }
+
   return (path) => {
     const a = mods.get(path).attrs;
     const ownNs = new Set();
@@ -132,11 +164,12 @@ export function csharpLinker(mods, sortedMods) {
     }
     const declOnly = a.decl_only ?? {};
     const hits = new Map();
-    const hit = (to, spec, line, decl, member) => {
+    const declPublic = a.decl_public ?? {};
+    const hit = (to, spec, line, decl, member, pub = []) => {
       if (to === path) return;
       let h = hits.get(to);
-      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set() }));
-      if (decl) h.members.add(member);
+      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set() }));
+      if (decl) { h.members.add(member); for (const m of pub) h.pub.add(m); }
       else h.decl = false;
     };
     const lookup = (name) => {
@@ -168,13 +201,18 @@ export function csharpLinker(mods, sortedMods) {
       let name = ref;
       let es = lookup(name);
       if (!es.length) es = lookup((name = `${ref}Attribute`));
-      for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref]);
+      for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref], declPublic[ref]);
     }
     for (const s of statics) for (const p of full.get(s.spec) ?? []) hit(p, s.spec, s.line, false);
-    const edges = [...hits].map(([to, h]) => ({
-      to, spec: h.spec, line: h.line,
-      ...(h.decl && h.members.size && { declared_only: true, unused_member: [...h.members].sort().join(', ') }),
-    }));
+    // A member another file reaches is an ordinary use, however the declaring file treats it.
+    const reached = (m) => (touchedBy.get(m) ?? []).some((p) => p !== path);
+    const edges = [...hits].map(([to, h]) => {
+      const declared = h.decl && h.members.size && ![...h.pub].some(reached);
+      return {
+        to, spec: h.spec, line: h.line,
+        ...(declared && { declared_only: true, unused_member: [...h.members].sort().join(', '), member_visibility: h.pub.size ? 'public' : 'private' }),
+      };
+    });
     return { edges, externals };
   };
 }

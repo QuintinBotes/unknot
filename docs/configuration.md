@@ -169,7 +169,7 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 | Key | Type, default | Meaning |
 |---|---|---|
 | `forbid_new_cycles` | boolean, `true` | The `no-new-cycles` obligation. |
-| `public_api_compatibility` | `required` or `advisory`, `required` | The `api-compatibility` obligation: exported symbols and endpoints of touched modules must be unchanged or only added to. |
+| `public_api_compatibility` | `required` or `advisory`, `required` | The `api-compatibility` obligation: exported symbols and endpoints of touched modules must be unchanged or only added to. A removed public C# member that the graph marks declared-only (held only by an injected declaration and referenced by no other file) passes with a note: public but unused in this repository; consumers outside it are not visible. |
 | `max_complexity_increase` | number, `0` | Permitted rise in complexity of touched functions (`architecture-fitness`). |
 
 ### `security`

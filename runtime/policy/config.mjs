@@ -60,7 +60,7 @@ export function loadOrgPolicy() {
   return bundles;
 }
 
-function parseConfigText(text, filename) {
+export function parseConfigText(text, filename) {
   try {
     return parseYAML(text, { filename }) ?? {};
   } catch (err) {
@@ -79,6 +79,22 @@ export function readRepoConfig(paths) {
  * explicit configuration and cannot be inferred). Called only by `unknot config accept`
  * at a terminal, and by tests.
  */
+/**
+ * A proposal waiting for a person: `config accept` consumes the proposal file, so one that
+ * exists beside an accepted configuration is newer than it. Null when there is none.
+ */
+export function waitingProposal(ctx) {
+  if (!existsSync(ctx.paths.proposedConfig) || !ctx.store.meta('accepted_config_text')) return null;
+  try {
+    const proposed = parseConfigText(readFileSync(ctx.paths.proposedConfig, 'utf8'), 'config.proposed.yaml');
+    const accepted = parseConfigText(ctx.store.meta('accepted_config_text'), '<accepted>');
+    const differs = Object.keys({ ...proposed, ...accepted }).filter((k) => JSON.stringify(proposed[k] ?? null) !== JSON.stringify(accepted[k] ?? null)).sort();
+    return differs.length ? { path: '.unknot/config.proposed.yaml', differs } : null;
+  } catch {
+    return { path: '.unknot/config.proposed.yaml', differs: ['(unreadable)'] };
+  }
+}
+
 export function recordAcceptedConfig(ctx, text, actor) {
   const v = validateArtifact('config', parseConfigText(text, '<accepted>'));
   if (!v.valid) throw new UnknotError('UK_CONFIG_INVALID', `config invalid: ${v.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);

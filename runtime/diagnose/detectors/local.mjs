@@ -4,6 +4,7 @@
 // through config.detectors['local.<name>']; every threshold in effect is echoed back in the
 // draft so a reviewer can see what the claim rests on, and heuristic ones say so.
 
+import { cycleBreakdown, stronglyConnected } from '../../graph/algorithms.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
 const SOURCE_NODE_TYPES = ['function', 'method'];
@@ -628,6 +629,73 @@ const deadCode = define({
   },
 });
 
+// A file that holds a type only through an injected member it never uses (the C# adapter
+// marks the IMPORTS edge declared_only; a public member stays marked only if no other file
+// touches the name). Deleting the member is the cheapest change Unknot can propose: when the
+// edge sits in a strongly connected component it also opens a way to break the cycle.
+const unusedInjectedMember = define({
+  name: 'unused-injected-member',
+  kinds: ['code.unused-injected-member'],
+  run(graph) {
+    const edges = graph.edges('IMPORTS').filter((e) => e.attrs?.declared_only && e.from !== e.to).sort((a, b) => (a.from + a.to < b.from + b.to ? -1 : 1));
+    if (!edges.length) return [];
+    const sccOf = new Map();
+    for (const comp of stronglyConnected(graph, { edgeTypes: ['IMPORTS'], nodeTypes: ['module'] })) if (comp.length > 1) for (const id of comp) sccOf.set(id, comp);
+    const breakdowns = new Map();
+    const out = [];
+    for (const e of edges) {
+      const from = graph.node(e.from);
+      const to = graph.node(e.to);
+      if (!from || !to || from.type !== 'module' || to.type !== 'module' || isTestModule(from) || isTestModule(to)) continue;
+      const member = e.attrs.unused_member ?? 'a member';
+      const pub = e.attrs.member_visibility === 'public';
+      const comp = sccOf.get(e.from) && sccOf.get(e.from) === sccOf.get(e.to) ? sccOf.get(e.from) : null;
+      let closes = 0;
+      let total = 0;
+      let truncated = false;
+      if (comp) {
+        if (!breakdowns.has(comp)) breakdowns.set(comp, cycleBreakdown(graph, comp, { edgeTypes: ['IMPORTS'] }));
+        const bd = breakdowns.get(comp);
+        total = bd.cycles.length;
+        truncated = bd.truncated;
+        closes = bd.cycles.filter((c) => c.edges.some((x) => x.from === e.from && x.to === e.to)).length;
+      }
+      const type = to.path ?? to.name;
+      const d = base(graph, from, {
+        kind: 'code.unused-injected-member',
+        title: `${from.path} holds ${type} only through the unused member ${member}${comp ? ` (closes ${closes}${truncated ? '+' : ''} of ${total}${truncated ? '+' : ''} cycles in a ${comp.length}-module component)` : ''}`,
+        summary: `declares ${member}${pub ? ' (public)' : ''} of type ${type}; the member is never used${pub ? ' in this repository' : ''}`,
+        measurements: { 'member.public': pub, ...(comp && { 'cycle.component_size': comp.length, 'cycle.closed': closes, 'cycle.listed': total }) },
+        thresholds: { uses: 0, note: 'heuristic: reflection, serialization and consumers outside this repository are invisible to the graph' },
+        benefit: 1 + (comp ? 1 + Math.min(2, Math.log2(1 + closes)) : 0),
+        cost: 1,
+        evidence: Math.min(0.7, evidenceFor(from.attrs)),
+        uncertain: pub ? 2 : 1,
+      });
+      const line = e.attrs?.line ?? 1;
+      out.push({
+        ...d,
+        key: `unused-member:${e.from}>${e.to}`,
+        evidence: [...d.evidence, { ref: e.to, label: 'observed', summary: `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
+        confidence: 'medium',
+        why_accidental: 'An injected member nobody uses still pulls in its dependency, keeps the file coupled to the type and adds a registration to maintain.',
+        essential_considerations: [pub ? 'The member is public: consumers outside this repository, reflection or serialization could still use it.' : 'It may be set or read by reflection or a container convention.'],
+        smallest_simplification: `Remove the member ${member} from ${from.path} (and its registration if any); nothing else changes.`,
+        invariants: ['Only the unused member is deleted; no other line of the file changes.', pub ? 'No other file in this repository references the member name.' : 'The member is private to the file.'],
+        risks: [pub ? 'A caller outside this repository may use the public member.' : 'Reflection or a container convention may reach the member.'],
+        verification: verificationFor(d.measurements['tests.present'], [`Search the repository for "${member.split(', ')[0]}" outside ${from.path} to confirm nothing reaches it.`]),
+        uncertainties: [...d.uncertainties, ...(truncated ? ['The component has more cycles than were listed; the count of cycles closed is a lower bound.'] : [])],
+        alternatives: [
+          { id: 'retain', summary: 'Keep the member if it is reached by reflection, serialization or consumers outside this repository.' },
+          { id: 'remove', summary: 'Delete the member and its registration; version control keeps the history.' },
+        ],
+        patterns: ['code.remove-dead-code'],
+      });
+    }
+    return out;
+  },
+});
+
 // ---------------------------------------------------------------------------------------
 // Indirection that serves nothing
 // ---------------------------------------------------------------------------------------
@@ -874,6 +942,7 @@ export default [
   largeClass,
   largeModule,
   deadCode,
+  unusedInjectedMember,
   unreachableCode,
   oneImplementationInterface,
   duplicatedCode,

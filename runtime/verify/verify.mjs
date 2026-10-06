@@ -47,6 +47,7 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   const needsGraph = obligations.some((o) => ['cycles', 'api', 'complexity', 'parse'].includes(o.body.builtin));
   const pair = needsGraph ? await graphPair(ctx, { config, worktree: slice.worktree, base: slice.baseline_commit, changes }) : null;
   const results = [];
+  const checkNotes = [];
   for (const o of obligations) {
     if (o.body.builtin) {
       const t0 = Date.now();
@@ -56,6 +57,7 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
       } catch (err) {
         res = { verdict: 'inconclusive', detail: `check failed to run: ${err.message}`, data: {} };
       }
+      if (res.data?.note) checkNotes.push(`${o.id}: ${res.data.note}`);
       const body = canonicalJSON({ detail: res.detail, data: res.data });
       const record = {
         id: `ex-${randomId(6)}`,
@@ -84,7 +86,7 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
       results.push({ id: o.id, kind: o.kind, verdict: 'inconclusive', detail: 'no command configured and not a built-in check' });
     }
   }
-  return decide(ctx, { cfg, run, slice: loadSlice(ctx, sliceId), actor, results, notes: pair?.notes ?? [], pair });
+  return decide(ctx, { cfg, run, slice: loadSlice(ctx, sliceId), actor, results, notes: [...(pair?.notes ?? []), ...checkNotes], pair });
 }
 
 /** Evidence for an obligation is valid only if it is for this exact diff. */

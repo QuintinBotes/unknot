@@ -43,10 +43,12 @@ export async function run({ flags }) {
   } else {
     try {
       const { openProject } = await import('../../context.mjs');
-      const { loadConfig } = await import('../../policy/config.mjs');
+      const { loadConfig, waitingProposal } = await import('../../policy/config.mjs');
       const ctx = openProject(root);
       const cfg = loadConfig(ctx);
       add('config acceptance', cfg.acceptance === 'accepted' || cfg.acceptance === 'none', cfg.notice ?? `accepted (${cfg.acceptance})`, cfg.acceptance === 'accepted' || cfg.acceptance === 'none' ? 'ok' : 'warn');
+      const waiting = waitingProposal(ctx);
+      if (waiting) add('config proposal', false, `a newer proposal is waiting (${waiting.path}, differs in ${waiting.differs.join(', ')}); it is not in force until a person reviews it (${humanCommand('config diff').split('\n')[0]}) and accepts it`, 'warn');
       add('config', true, `mode ${cfg.config.mode}, digest ${cfg.digest.slice(0, 19)}…, sources ${cfg.sources.join(', ') || 'defaults'}`);
       for (const b of cfg.org) add('org policy', true, `${b.file} (${b.signed ? 'signed' : 'unsigned'})`, b.signed ? 'ok' : 'warn');
       if (cfg.adjustments.length) add('org adjustments', true, `${cfg.adjustments.length} repo value(s) tightened by org policy`, 'info');

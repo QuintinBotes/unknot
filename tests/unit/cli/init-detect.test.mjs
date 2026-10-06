@@ -141,3 +141,34 @@ test('pipeline folders under one proposed path give one note', () => {
     assert.match(notes[0], /3 files/);
   });
 });
+
+test('with a configuration already accepted, init proposes it plus what is new, and status and doctor say a proposal is waiting', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const K = await import('../../helpers/kernel.mjs');
+  const { waitingProposal } = await import('../../../runtime/policy/config.mjs');
+  const bin = new URL('../../../bin/unknot', import.meta.url).pathname;
+  const { generateApproverKey } = await import('../../../runtime/core/keys.mjs');
+  K.makeProject();
+  const pub = generateApproverKey(`dana${Date.now()}`, 'correct horse battery');
+  const key = pub.trim().split('\n').map((l) => `      ${l}`).join('\n');
+  const p = K.makeProject({ files: { 'src/Shop.sln': '' }, config: `version: 1\nmode: assist\napprovers:\n  dana:\n    roles: [code-owner]\n    public_key: |\n${key}\n` });
+  const env = { ...process.env, UNKNOT_HOME: process.env.UNKNOT_HOME };
+  const r = spawnSync(process.execPath, [bin, 'init', '--json'], { cwd: p.dir, encoding: 'utf8', env });
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.proposed.mode, 'assist', 'the accepted mode is kept');
+  assert.ok(out.proposed.approvers?.dana, 'the accepted approvers are kept');
+  assert.deepEqual(out.update.added_commands.build, ['dotnet', 'build', 'src/Shop.sln']);
+  assert.equal(out.update.written, true);
+  const w = waitingProposal(p.ctx);
+  assert.ok(w && w.differs.includes('commands'), JSON.stringify(w));
+  const status = spawnSync(process.execPath, [bin, 'status'], { cwd: p.dir, encoding: 'utf8', env });
+  assert.match(status.stdout, /A newer configuration proposal is waiting \(\.unknot\/config\.proposed\.yaml, differs in .*commands/);
+  // Running init again with nothing new detected writes nothing.
+  const { recordAcceptedConfig } = await import('../../../runtime/policy/config.mjs');
+  const { readFileSync, rmSync } = await import('node:fs');
+  recordAcceptedConfig(p.ctx, readFileSync(p.ctx.paths.proposedConfig, 'utf8'), 'human:test');
+  rmSync(p.ctx.paths.proposedConfig);
+  const again = JSON.parse(spawnSync(process.execPath, [bin, 'init', '--json'], { cwd: p.dir, encoding: 'utf8', env }).stdout);
+  assert.equal(again.update.written, false);
+  assert.equal(waitingProposal(p.ctx), null);
+});

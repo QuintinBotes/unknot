@@ -105,7 +105,8 @@ A capability is an HMAC-signed grant (run, agent, operations, write globs, expir
 - `sudo`, `doas`, `su` and similar are never allowed, even wrapped.
 - Redirects that write files are denied. A computed command name or argument is denied.
 - Globs that could match credential files (`*.env`, `*key*`, `*.pem`) are denied.
-- `unknot` must resolve to this plugin's CLI (not an `unknot` earlier on `PATH`), and the human-only verbs are refused even after leading flags.
+- `unknot` must resolve to this plugin's CLI, and the human-only verbs are refused even after leading flags. The first `unknot` on `PATH` counts when it is this plugin's own `bin/unknot`, another installed version of the same plugin beside it in the plugin cache (a running session keeps the previous version's directory on `PATH` after an update), or the `unknot cli install` shim for this installation, outside the project under analysis. Anything else first on `PATH`, including a copy of the shim inside the repository, is refused, and the refusal names the file.
+- Outside a run, a command that mentions `.unknot` must pass these rules, except a line made only of `cat`, `echo` or `printf` writing to literal files, or of plain `cp` copies: for those only the program, the redirect targets and the copy's destination may not name `.unknot`.
 
 Everything that builds, tests, installs or changes state is reached through `unknot verify` or `unknot exec`, which use the broker.
 
