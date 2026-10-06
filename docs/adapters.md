@@ -32,7 +32,7 @@ An adapter may declare `capabilities.context_files`: repository-level files (the
 
 ### Semantic facts from a SCIP index
 
-Without an index, C# and most other languages are read lexically: names are matched, most calls are not seen, and an injected member can look used because another type has a member of the same name. A SCIP index carries what the compiler resolved. Unknot imports it when `index.scip` is at the repository root, or from the paths in the config (`adapters.scip.index`, one path or a list, relative to the repository; `adapters.scip.max_index_bytes` caps the size, default 2 GiB):
+Without an index, most languages are read lexically: names are matched, most calls are not seen, and an injected member can look used because another type has a member of the same name. A SCIP index carries what the compiler resolved. Unknot imports it when `index.scip` is at the repository root, or from the paths in the config (`adapters.scip.index`, one path or a list, relative to the repository; `adapters.scip.max_index_bytes` caps the size, default 2 GiB):
 
 ```yaml
 adapters:
@@ -85,7 +85,7 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 
 #### HTTP operations: clients and endpoints
 
-One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route (in C#, as in ASP.NET, a route that starts with `/` replaces the base). The `generic` (0.1.7), `javascript` (0.1.13) and `python` (0.1.10) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
+One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route; a route that starts with `/` replaces the base (ASP.NET, Spring MVC, and Flask all follow this rule). The `generic` (0.1.7), `javascript` (0.1.13) and `python` (0.1.10) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
 
 | Language | Verb and route markers (examples) | Base path | Client when |
 |---|---|---|---|
