@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- A strongly connected component of the runtime import view always yields one `module.dependency-cycle` finding, whatever its size (#49): the finding names every member in its scope (it was cut at 50), lists the edges that break it (declared-only ones named, `cycle.cut_heuristic` when the ordering cut was used), and a scoped `diagnose` holding any member shows it and names the members outside the scope that close it. `--objective decompose` ranks cycle findings ahead of every other kind, and `graph cycles` prints why a component has no finding.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

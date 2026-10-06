@@ -4,8 +4,9 @@
 // config.detectors['module.<name>'] and every one in effect is echoed in the draft.
 
 import { globToRegExp } from '../../core/glob.mjs';
-import { condense, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
-import { derivedFor, strictView } from '../../graph/derived.mjs';
+import { pathInScope, scopePredicate } from '../../core/scope.mjs';
+import { condense, cycleBreakdown, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
+import { MAX_CYCLES, derivedFor, strictView } from '../../graph/derived.mjs';
 import { clamp, isTestModule, opt } from './local.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
@@ -75,7 +76,7 @@ function define({ name, kinds, defaults = {}, run }) {
     detect(ctx) {
       const options = {};
       for (const [k, v] of Object.entries(defaults)) options[k] = opt(ctx.options, k, v);
-      return run(ctx.graph, options, ctx.options ?? {});
+      return run(ctx.graph, options, ctx.options ?? {}, ctx);
     },
   };
 }
@@ -112,13 +113,17 @@ function hasCycle(members, edgesOf) {
   return removed < members.length;
 }
 
+/** Cut edges listed as evidence of one cycle finding; the rest are counted. */
+const MAX_CUT_EVIDENCE = 25;
+
 const dependencyCycle = define({
   name: 'dependency-cycle',
   kinds: ['module.dependency-cycle', 'module.package-cycle'],
   defaults: { min_size: 2 },
-  run(graph, o) {
+  run(graph, o, _raw, ctx) {
     const out = [];
     const mods = sourceModules(graph);
+    const scoped = ctx?.scope?.length ? scopePredicate(graph, ctx.scope) : null;
     const modIds = new Set(mods.map((m) => m.id));
 
     // Lazy (function-body) and type-only imports do not form a runtime cycle: the derived
@@ -130,6 +135,19 @@ const dependencyCycle = define({
       const cycle = shortestCycle(strict, members, IMPORT) ?? members.slice(0, 2);
       const paths = cycle.map((id) => pathOf(graph, id));
       const tests = testsOn(graph, members);
+      // The edges whose removal leaves the component acyclic, declared-only ones first; an ordering
+      // heuristic past the size where the exact search stops being affordable.
+      const breakdown = cycleBreakdown(strict, members, { edgeTypes: IMPORT, maxCycles: MAX_CYCLES });
+      const cutEvidence = breakdown.cut.slice(0, MAX_CUT_EVIDENCE).map((e) => ({
+        ref: e.from,
+        label: breakdown.cut_heuristic ? 'inferred' : 'observed',
+        summary: `cut: ${pathOf(graph, e.from)} -> ${pathOf(graph, e.to)}${e.declared_only ? ` (declared-only: unused member ${e.unused_member ?? 'of that type'})` : ''}${e.closes ? `, closes ${e.closes} listed cycle${e.closes === 1 ? '' : 's'}` : ''}`,
+        source_ref: `${pathOf(graph, e.from)}:${e.line ?? 1}`,
+      }));
+      if (breakdown.cut.length > cutEvidence.length) cutEvidence.push({ ref: members[0], label: 'inferred', summary: `${breakdown.cut.length - cutEvidence.length} more cut edges (graph cycles lists them all)`, source_ref: null });
+      // Members a scoped run leaves out still close the cycle: say which.
+      const outside = scoped ? members.filter((id) => !pathInScope(pathOf(graph, id), scoped)).map((id) => pathOf(graph, id)) : [];
+      const outsideEvidence = outside.length ? [{ ref: members[0], label: 'observed', summary: `${outside.length} member${outside.length === 1 ? '' : 's'} outside the scope close${outside.length === 1 ? 's' : ''} this cycle: ${outside.slice(0, 20).join(', ')}${outside.length > 20 ? ', ...' : ''}`, source_ref: null }] : [];
       // Links that only declare a field or property nobody uses (attrs.declared_only).
       const inComp = new Set(members);
       const unusedLinks = [];
@@ -148,15 +166,15 @@ const dependencyCycle = define({
         title: unusedOnly
           ? `${members.length} modules form an import cycle that closes only through ${unusedOnly.file}'s unused member ${unusedOnly.member}: ${[...paths, paths[0]].join(' -> ')}`
           : `${members.length} modules form an import cycle: ${[...paths, paths[0]].join(' -> ')}`,
-        scope: members.map((id) => pathOf(graph, id)).slice(0, 50),
+        scope: members.map((id) => pathOf(graph, id)),
         key: `cycle:${members[0]}`,
         evidence: cycle.map((id, i) => ({
           ref: id,
           label: 'observed',
           summary: `imports ${pathOf(graph, cycle[(i + 1) % cycle.length])}`,
           source_ref: `${pathOf(graph, id)}:${graph.out(id, IMPORT).find((e) => e.to === cycle[(i + 1) % cycle.length])?.attrs?.line ?? 1}`,
-        })).concat(unusedEvidence),
-        measurements: { 'cycle.size': members.length, 'tests.present': tests, ...(unusedLinks.length && { 'cycle.unused_links': unusedLinks.length }) },
+        })).concat(cutEvidence, outsideEvidence, unusedEvidence),
+        measurements: { 'cycle.size': members.length, 'cycle.cut_edges': breakdown.cut.length, 'cycle.cut_declared_only': breakdown.cut.filter((e) => e.declared_only).length, ...(breakdown.cut_heuristic && { 'cycle.cut_heuristic': true }), ...(outside.length && { 'cycle.outside_scope': outside.length }), 'tests.present': tests, ...(unusedLinks.length && { 'cycle.unused_links': unusedLinks.length }) },
         thresholds: { min_size: o.min_size, 'min_size.note': 'a cycle of two or more modules is a defect in the acyclic-dependencies sense; no heuristic threshold' },
         why_accidental: 'Modules in a cycle cannot be understood, tested, versioned or released independently; the cycle is rarely a design choice.',
         essential_considerations: ['A cycle can be intentional in tightly coupled mutual recursion (parser and AST visitor) where splitting would be artificial.', 'Type-only or lazily evaluated imports may not form a runtime cycle.'],

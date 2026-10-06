@@ -282,7 +282,8 @@ test('dependency-cycle: one finding per component with the shortest cycle, none 
   assert.equal(out.length, 1);
   const [d] = out;
   assert.equal(d.measurements['cycle.size'], 3);
-  assert.equal(d.evidence.length, 2); // shortest cycle is b <-> c
+  assert.equal(d.evidence.filter((e) => e.summary.startsWith('imports ')).length, 2); // shortest cycle is b <-> c
+  assert.equal(d.evidence.filter((e) => e.summary.startsWith('cut: ')).length, d.measurements['cycle.cut_edges']);
   assert.match(d.title, /3 modules form an import cycle: src\/b\.js -> src\/c\.js -> src\/b\.js/);
   assert.ok(d.patterns.includes('domain.acyclic-dependencies'));
   assert.deepEqual(run('module.dependency-cycle', [...files, imp('src/d.js', 'src/e.js'), imp('src/a.js', 'src/b.js')]), []);
