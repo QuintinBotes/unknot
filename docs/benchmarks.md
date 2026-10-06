@@ -111,12 +111,29 @@ At 10k: projection 5.4 s cold, 1.0 s unchanged and 10 changed. Cold projection i
 (it writes everything, plus signatures); the 250k tier was not re-run. The remaining
 unchanged-map cost is hashing every fact (about 5 s at 50k), census and the cached-facts read.
 
-**Derived facts now dominate larger fixtures.** The `derived` step (cycle breakdown of each
-strongly connected component, `cycleBreakdown` in `runtime/graph/algorithms.mjs`) is not in the
-phase table above and is superlinear in component size: about 6 s at 1,000 files, and the
-10,000 and 50,000-file fixtures did not finish within 10 and 30 minutes when it ran. It is
-skipped when the graph is unchanged, but any change recomputes it in full. Its greedy cut loop
-needs a bound or an incremental form before the 50k and 250k tiers can be published with it on.
+**Derived facts, bounded.** The `derived` step (cycle breakdown of each strongly connected
+component) used a greedy cut search that re-checked the whole component after every edge it
+cut; at 10,000 and 50,000 files it did not finish within 10 and 30 minutes. Components above 50
+modules or 400 edges now get their cut from an ordering in linear time (see `cycleBreakdown` in
+`runtime/graph/algorithms.mjs`). Whole maps with derived facts on, same machine, load average 6
+at the start:
+
+| Tier | Cold | No change | 10 changed | Peak RSS | Store |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10k | 16.0 s | 2.8 s | 4.1 s | 1014 MB | 438 MB |
+| 50k | 81.4 s | 19.6 s | 23.3 s | 5964 MB | 2189 MB |
+
+| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10k cold | 0.8 s | 8.7 s | 0.4 s | 0.1 s | 0.2 s | 0.0 s | 4.7 s |
+| 10k no change | 0.7 s | 0.6 s | 0.4 s | 0.1 s | 0.0 s | 0.0 s | 0.9 s |
+| 10k 10 changed | 0.7 s | 0.8 s | 0.3 s | 0.1 s | 0.2 s | 0.0 s | 1.0 s |
+| 50k cold | 3.8 s | 40.6 s | 2.3 s | 0.4 s | 0.7 s | 0.1 s | 27.5 s |
+| 50k no change | 5.8 s | 3.2 s | 2.1 s | 0.4 s | 0.1 s | 0.0 s | 8.1 s |
+| 50k 10 changed | 5.5 s | 3.9 s | 2.2 s | 0.4 s | 1.1 s | 0.1 s | 5.0 s |
+
+The rest of each total is the derived step and opening the store. The 250k tier has not been
+re-run with these changes.
 
 ## Reading the results against the targets
 
