@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
+import { censusPlan } from '../../../runtime/graph/census.mjs';
 import { Graph } from '../../../runtime/graph/graph.mjs';
 import { definitionOn, searchText, searchTextConcurrent } from '../../../runtime/graph/search.mjs';
 import { TOOLS } from '../../../runtime/mcp/tools.mjs';
@@ -74,7 +75,7 @@ test('an exact constant match does not hide the constants that extend it', async
   assert.equal(r.counts.definitions, 2);
   // Without the exact constant the same two answer by prefix: adding characters never shrinks it.
   assert.deepEqual(searchText(p.dir, { config, graph, store: p.ctx.store, text: route.slice(0, -1) }).constants.map((k) => k.value), [route, `${route}/{lineId}`]);
-  assert.equal(TOOLS.search_text.run(p.ctx, { text: route }).constants_matched, 2);
+  assert.equal((await TOOLS.search_text.run(p.ctx, { text: route })).constants_matched, 2);
 });
 
 test('when the constant limit cuts the constants that extend an exact match, the result says how many', async () => {
@@ -146,7 +147,7 @@ test('unknot search --scan states a partial result in text and JSON, and rejects
   const p = K.makeProject({ files: treeOf(30) });
   const bin = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
   const run = (...args) => spawnSync(process.execPath, [bin, 'search', 'needle-', '--scan', ...args], { cwd: p.dir, encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });
-  assert.match(run('--budget-seconds', '0.0000001').stdout, /Note: partial result: .* \d+ of \d+ file\(s\) were not scanned/);
+  assert.match(run('--budget-seconds', '0.0000001').stdout, /Note: (not searched: .*|partial result: .* \d+ of \d+ file\(s\) were not scanned)/);
   const json = JSON.parse(run('--json', '--budget-seconds', '0.0000001').stdout);
   assert.equal(json.partial, true);
   assert.ok(json.files_not_scanned > 0);
@@ -172,4 +173,71 @@ test('a scan of a generated 25,000-file tree finishes within the budget', { skip
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a scan that reached no file is labelled not searched, never an empty hit list', async () => {
+  const p = K.makeProject({ files: treeOf(20) });
+  const config = K.cfg({ mode: 'plan' });
+  for (const run of [(o) => searchText(p.dir, o), (o) => searchTextConcurrent(p.dir, o)]) {
+    const r = await run({ config, text: 'needle-', scan: true, budgetSeconds: 1, now: ticking(5000) });
+    assert.equal(r.searched, false);
+    assert.equal(r.files_scanned, 0);
+    assert.equal(r.partial, true);
+    assert.ok(r.files_not_scanned > 0);
+    assert.match(r.notice, /^not searched: .*scope.*unknot search --scan/);
+  }
+  const ok = await searchTextConcurrent(p.dir, { config, text: 'needle-', scan: true });
+  assert.equal(ok.searched, true);
+  assert.ok(ok.files_scanned > 0);
+  assert.equal(ok.notice, undefined);
+});
+
+test('the time budget covers listing the files, not only the scan', async () => {
+  const p = K.makeProject({ files: treeOf(20) });
+  const config = K.cfg({ mode: 'plan' });
+  let t = 0;
+  const slowLister = (root, opts) => {
+    t += 30_000; // listing alone outlasts the 20 s budget
+    return censusPlan(root, opts);
+  };
+  const r = await searchTextConcurrent(p.dir, { config, text: 'needle-', scan: true, budgetSeconds: 20, now: () => t, plan: slowLister });
+  assert.equal(r.searched, false);
+  assert.equal(r.files_scanned, 0);
+  assert.match(r.notice, /not searched: the 20 s time budget/);
+  const mcp = await TOOLS.search_text.run(p.ctx, { text: 'needle-', scan: true }, { now: () => (t += 30_000) });
+  assert.equal(mcp.searched, false);
+});
+
+// The MCP tool on a generated 25,000-file tree with its 20 s budget, without and with a map. Slow
+// to build, so only with UNKNOT_SLOW_TESTS. It must return within 25 s and have scanned files.
+test('search_text over MCP returns within its budget on a 25,000-file tree', { skip: !process.env.UNKNOT_SLOW_TESTS, timeout: 900_000 }, async () => {
+  const p = K.makeProject({});
+  try {
+    generateFixture(p.dir, 25_000);
+    spawnSync('git', ['add', '-A'], { cwd: p.dir });
+    const call = async (label) => {
+      const t0 = Date.now();
+      const r = await TOOLS.search_text.run(p.ctx, { text: 'zzzz-not-there', scan: true });
+      const ms = Date.now() - t0;
+      process.stderr.write(`# MCP search_text, ${label}: ${ms} ms, ${r.files_scanned} files scanned, searched=${r.searched}, partial=${r.partial}\n`);
+      assert.ok(ms < 25_000, `${ms} ms`);
+      assert.ok(r.files_scanned > 0);
+    };
+    await call('no map');
+    await mapRepository(p.ctx, { config: K.cfg({ mode: 'plan' }), configDigest: 'd', history: false });
+    await call('with a map');
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+test('the MCP server awaits the async search_text call and replies on stdio', () => {
+  const p = K.makeProject({ files: treeOf(10) });
+  const bin = fileURLToPath(new URL('../../../bin/unknot-mcp', import.meta.url));
+  const input = `${JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'search_text', arguments: { text: 'needle-3', scan: true } } })}\n`;
+  const r = spawnSync(process.execPath, [bin], { input, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: p.dir, UNKNOT_HOME: p.home } });
+  const reply = JSON.parse(r.stdout.trim());
+  assert.equal(reply.id, 7);
+  assert.equal(reply.result.structuredContent.searched, true);
+  assert.equal(reply.result.structuredContent.counts.hits, 1);
 });

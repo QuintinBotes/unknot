@@ -90,7 +90,7 @@ function makeProjects(env) {
 
 /**
  * @param {{env?: object, write?: (msg: object) => void}} [opts]
- * @returns {{handle: (line: string) => object|null, close: () => void}}
+ * @returns {{handle: (line: string) => object|null|Promise<object|null>, close: () => void}}
  */
 export function createServer({ env = process.env } = {}) {
   const projects = makeProjects(env);
@@ -109,7 +109,14 @@ export function createServer({ env = process.env } = {}) {
       if (!ctx) {
         return { result: toolResult({ code: 'UK_NOT_INITIALIZED', message: 'This project is not initialised for Unknot. Ask the user to run /unknot:init: it writes only a proposal, and a read-only assessment needs nothing else.' }, true) };
       }
-      return { result: toolResult(tool.run(ctx, args)) };
+      const failed = (err) => {
+        if (!(err instanceof UnknotError)) log(`tool ${params.name} failed: ${err?.stack ?? err}`);
+        return { result: toolResult(toErrorJSON(err), true) };
+      };
+      const value = tool.run(ctx, args);
+      // An async tool (the text scan) yields a promise of the same envelope.
+      if (typeof value?.then === 'function') return value.then((v) => ({ result: toolResult(v) }), failed);
+      return { result: toolResult(value) };
     } catch (err) {
       if (!(err instanceof UnknotError)) log(`tool ${params.name} failed: ${err?.stack ?? err}`);
       return { result: toolResult(toErrorJSON(err), true) };
@@ -150,8 +157,9 @@ export function createServer({ env = process.env } = {}) {
       case 'tools/list':
         return reply({ tools: Object.entries(TOOLS).map(([name, t]) => ({ name, description: t.description, inputSchema: t.inputSchema })) });
       case 'tools/call': {
+        const done = (out) => (out.error ? fail(...out.error) : reply(out.result));
         const out = callTool(msg.params);
-        return out.error ? fail(...out.error) : reply(out.result);
+        return typeof out.then === 'function' ? out.then(done) : done(out);
       }
       default:
         return fail(-32601, `method not found: ${msg.method}`);
@@ -173,6 +181,7 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
   let chunks = [];
   let bytes = 0;
   let discarding = false;
+  const pending = new Set(); // async tool calls still running
 
   const flushLine = () => {
     const line = Buffer.concat(chunks).toString('utf8').trim();
@@ -181,7 +190,13 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
     if (!line) return;
     try {
       const out = server.handle(line);
-      if (out) send(out);
+      if (typeof out?.then === 'function') {
+        const task = out.then((o) => o && send(o), (err) => {
+          log(`internal error: ${err?.stack ?? err}`);
+          send(rpcError(null, -32603, 'internal error'));
+        }).finally(() => pending.delete(task));
+        pending.add(task);
+      } else if (out) send(out);
     } catch (err) {
       log(`internal error: ${err?.stack ?? err}`);
       send(rpcError(null, -32603, 'internal error'));
@@ -212,5 +227,6 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
   });
   await new Promise((resolve) => stdin.on('end', resolve));
   if (!discarding && bytes) flushLine();
+  await Promise.all(pending);
   server.close();
 }

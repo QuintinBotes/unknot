@@ -2,7 +2,7 @@
 // appends a schema-validated handoff record. Nothing here approves, applies, starts a run,
 // executes a command or edits a file: those stay in the human-driven CLI.
 
-import { searchText } from '../graph/search.mjs';
+import { searchTextConcurrent } from '../graph/search.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
@@ -263,12 +263,13 @@ export const TOOLS = {
   },
 
   search_text: {
-    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan; a scan stops after 20 seconds and says how many files it did not reach (partial, notice). Generated, vendored and credential files are excluded.',
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan; a scan, listing the files included, stops after 20 seconds and says how many files it did not reach (partial, notice); when it reached none, searched is false and zero hits means nothing. Generated, vendored and credential files are excluded.',
     inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, scan: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
-    run(ctx, a) {
+    // Async: the scan reads files concurrently, and its time budget covers listing the files too.
+    async run(ctx, a, opts = {}) {
       const { config } = loadConfig(ctx);
       const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
-      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50, budgetSeconds: 20 });
+      const r = await searchTextConcurrent(ctx.root, { budgetSeconds: 20, ...opts, config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50 });
       return capResult(r, ['definitions', 'uses', 'via_constants'], 'narrow with a scope (a path or glob) or a more specific text');
     },
   },
