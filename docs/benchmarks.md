@@ -90,6 +90,34 @@ unchanged). The 1,000,000-file tier was not attempted: the 250k run took about 5
 total, well over the 20 minute limit set for this package, and projection at that size would
 also need a much larger store and heap.
 
+### Delta projection
+
+A map now writes only the facts, nodes and edges that changed (facts matched by id and a content
+signature; nodes and edges recomputed only where a changed fact touches them), and an unchanged
+graph is not rewritten, keeps its generation and its derived facts. Cached per-file facts are
+still read back on every map: linking, discovery and coverage all read every file's facts, so
+that cost (the `extraction` phase, 3.5 s at 50k) remains.
+
+Same machine, 50k fixture, derived facts switched off for the measurement (see below), load
+average 38 at the start (not idle, so treat times as upper bounds):
+
+| Run | Projection before | Projection after | Whole map before | Whole map after |
+| --- | ---: | ---: | ---: | ---: |
+| 50k cold | 31.9 s | 45.9 s | 77.1 s | 98.2 s |
+| 50k no change | 29.7 s | 5.6 s | 43.5 s | 18.0 s |
+| 50k 10 changed | 25.9 s | 4.9 s | 39.8 s | 18.1 s |
+
+At 10k: projection 5.4 s cold, 1.0 s unchanged and 10 changed. Cold projection is no faster
+(it writes everything, plus signatures); the 250k tier was not re-run. The remaining
+unchanged-map cost is hashing every fact (about 5 s at 50k), census and the cached-facts read.
+
+**Derived facts now dominate larger fixtures.** The `derived` step (cycle breakdown of each
+strongly connected component, `cycleBreakdown` in `runtime/graph/algorithms.mjs`) is not in the
+phase table above and is superlinear in component size: about 6 s at 1,000 files, and the
+10,000 and 50,000-file fixtures did not finish within 10 and 30 minutes when it ran. It is
+skipped when the graph is unchanged, but any change recomputes it in full. Its greedy cut loop
+needs a bound or an incremental form before the 50k and 250k tiers can be published with it on.
+
 ## Reading the results against the targets
 
 - **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and
