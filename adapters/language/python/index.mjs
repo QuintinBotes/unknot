@@ -12,8 +12,10 @@ import { manifestFacts, manifestKind } from './manifests.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./extract.py', import.meta.url));
 const EXEC_TIMEOUT_MS = 60_000;
-const PART_FILES = 500;
-const PART_BYTES = 8 * 1024 * 1024;
+// Small enough that a slow machine times out one part, not the batch, and that a part's output
+// stays under the broker's 16 MiB cap (files after a cut would silently lose their AST record).
+const BATCH_FILES = 300;
+const BATCH_BYTES = 1_500_000;
 
 const isPython = (path) => path.endsWith('.py');
 
@@ -33,19 +35,7 @@ function lexicalFacts(path, text) {
 async function runPython(items, ctx) {
   const records = new Map();
   if (typeof ctx?.exec !== 'function' || !items.length) return records;
-  const parts = [];
-  let part = [];
-  let bytes = 0;
-  for (const it of items) {
-    if (part.length && (part.length >= PART_FILES || bytes + it.text.length > PART_BYTES)) {
-      parts.push(part);
-      part = [];
-      bytes = 0;
-    }
-    part.push(it);
-    bytes += it.text.length;
-  }
-  if (part.length) parts.push(part);
+  const parts = batches(items);
   let lost = 0;
   let reason = null;
   for (const p of parts) {
@@ -67,6 +57,24 @@ async function runPython(items, ctx) {
   return records;
 }
 
+/** Splits files into runs of at most BATCH_FILES files and about BATCH_BYTES of text, in order. */
+export function batches(items) {
+  const out = [];
+  let cur = [];
+  let bytes = 0;
+  for (const it of items) {
+    if (cur.length && (cur.length >= BATCH_FILES || bytes + it.text.length > BATCH_BYTES)) {
+      out.push(cur);
+      cur = [];
+      bytes = 0;
+    }
+    cur.push(it);
+    bytes += it.text.length;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 async function runPart(items, ctx, timeoutMs) {
   let res;
   try {
@@ -84,6 +92,8 @@ async function runPart(items, ctx, timeoutMs) {
     const reason = `exited ${res?.exitCode ?? '?'}: ${String(res?.stderr ?? '').trim().split('\n').slice(-3).join(' | ').slice(0, 300)}`;
     return res?.record?.timed_out ? { timedOut: true, reason: `timed out after ${timeoutMs / 1000} s` } : { reason };
   }
+  // A cut-off output would leave the files after the cut without a record; read the part lexically.
+  if (res.record?.truncated) return { reason: 'output above the command output limit' };
   const records = new Map();
   for (const line of String(res.stdout).split('\n')) {
     if (!line.trim()) continue;

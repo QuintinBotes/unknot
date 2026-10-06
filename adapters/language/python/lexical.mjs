@@ -380,6 +380,7 @@ export function lexicalAnalyze(path, text) {
   const scopes = []; // { kind, indent, qual, rec, own }
   let pending = [];
   let lastEnd = 1;
+  let typeChecking = null; // indent of an open `if TYPE_CHECKING:` block
 
   const pop = (endLine) => {
     const s = scopes.pop();
@@ -408,6 +409,8 @@ export function lexicalAnalyze(path, text) {
     const top = scopes[scopes.length - 1] ?? null;
     const code = l.code.trim();
     const rawText = l.raw.trim();
+    if (typeChecking !== null && l.indent <= typeChecking) typeChecking = null;
+    if (/^if\s+(?:typing\.)?TYPE_CHECKING\s*:/.test(code)) typeChecking = l.indent;
 
     if (code.startsWith('@')) {
       pending.push(decoratorRecord(rawText, l.line));
@@ -478,14 +481,14 @@ export function lexicalAnalyze(path, text) {
     if ((m = /^import\s+(.+)$/.exec(rawText))) {
       for (const part of splitTop(m[1])) {
         const im = /^([\w.]+)(?:\s+as\s+(\w+))?$/.exec(part);
-        if (im) imports.push({ kind: 'import', level: 0, module: im[1], as: im[2] ?? null, names: [], line: l.line });
+        if (im) imports.push({ kind: 'import', level: 0, module: im[1], as: im[2] ?? null, names: [], line: l.line, ...(typeChecking !== null && { type_only: true }) });
       }
     } else if ((m = /^from\s+(\.*)([\w.]*)\s+import\s+(.+)$/.exec(rawText))) {
       const names = splitTop(m[3].replace(/[()]/g, ''))
         .map((p) => /^(\*|\w+)(?:\s+as\s+(\w+))?$/.exec(p))
         .filter(Boolean)
         .map((p) => ({ name: p[1], as: p[2] ?? null }));
-      imports.push({ kind: 'from', level: m[1].length, module: m[2], names, line: l.line });
+      imports.push({ kind: 'from', level: m[1].length, module: m[2], names, line: l.line, ...(typeChecking !== null && { type_only: true }) });
     }
 
     if (top?.kind === 'fn') top.own.push({ indent: l.indent, code: l.code });
