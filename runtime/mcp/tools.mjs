@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
+import { applyObjective } from '../diagnose/objectives.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { neighbourhood, rankHubs, resolveRef, explainRef } from '../graph/algorithms.mjs';
@@ -17,6 +18,7 @@ import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
 import { staleEvidence, staleSlices } from '../plan/staleness.mjs';
 import { loadConfig } from '../policy/config.mjs';
+import { humanSteps } from '../policy/human-steps.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
 import { activeRun } from '../state/runs.mjs';
@@ -91,18 +93,20 @@ function edgeTypesArg(a) {
  */
 export const TOOLS = {
   status: {
-    description: 'Project status: mode, active run, graph generation and commit, findings by status, slices by state.',
+    description: "Project status: mode, active run, graph generation and commit, findings by status, slices by state, and for_you: the steps only a person can do (with the block headed 'For you, in your own terminal:' as text). Give that text to the person verbatim.",
     inputSchema: schema(),
     run(ctx) {
       const run = activeRun(ctx.store);
       const stale = staleSlices(ctx);
+      const cfg = loadConfig(ctx);
       return {
-        mode: loadConfig(ctx).config.mode,
+        mode: cfg.config.mode,
         active_run: run ? { id: run.id, command: run.command, state: run.state, slice_id: run.slice_id ?? null, campaign_id: run.campaign_id ?? null } : null,
         graph: { generation: Number(ctx.store.meta('generation') ?? 0), mapped_commit: ctx.store.meta('mapped_commit') || null, mapped_at: ctx.store.meta('mapped_at') ?? null },
         findings_by_status: countBy(ctx, 'findings', 'status'),
         slices_by_state: countBy(ctx, 'slices', 'state'),
         ...(stale.length && { stale_slices: stale }),
+        for_you: humanSteps(ctx, cfg),
       };
     },
   },
@@ -205,8 +209,8 @@ export const TOOLS = {
   },
 
   findings_list: {
-    description: 'Ranked finding summaries, highest priority first.',
-    inputSchema: schema({ status: str(), category: str(), limit: limit() }),
+    description: 'Ranked finding summaries, highest priority first. objective (decompose, simplify or security) ranks the relevant kinds first and folds generic code-style findings into a hidden count; all shows them last.',
+    inputSchema: schema({ status: str(), category: str(), objective: str(), all: { type: 'boolean' }, limit: limit() }),
     run(ctx, a) {
       const where = [];
       const params = [];
@@ -218,17 +222,19 @@ export const TOOLS = {
         where.push('category = ?');
         params.push(a.category);
       }
+      const named = Boolean(a.objective);
       const rows = ctx.store.all(
-        `SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY priority DESC, id LIMIT ?`,
+        `SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY priority DESC, id${named ? '' : ' LIMIT ?'}`,
         ...params,
-        a.limit ?? 50,
+        ...(named ? [] : [a.limit ?? 50]),
       );
-      return {
-        findings: rows.map((r) => {
-          const body = JSON.parse(r.body);
-          return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, title: body.title ?? body.summary ?? null };
-        }),
-      };
+      const summaries = rows.map((r) => {
+        const body = JSON.parse(r.body);
+        return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
+      });
+      const ranked = named ? applyObjective(summaries, a.objective, { all: a.all }) : null;
+      if (!ranked) return { findings: named ? summaries.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) : summaries };
+      return { objective: ranked.objective, hidden: ranked.hidden, hidden_kinds: ranked.hidden_kinds, findings: ranked.findings.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) };
     },
   },
 

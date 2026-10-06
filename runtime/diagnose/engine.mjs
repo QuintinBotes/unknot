@@ -15,6 +15,7 @@ import { evaluateAll } from '../patterns/engine.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { DETECTORS } from './detectors/index.mjs';
+import { applyObjective } from './objectives.mjs';
 import { globalSignals, scopeSignals } from './signals.mjs';
 
 export const FINDING_SCHEMA_VERSION = '1.0';
@@ -183,7 +184,7 @@ function suppressionFor(ctx, fingerprint, at) {
  * Run detectors over the current graph and persist findings.
  * @returns {{findings: object[], stats: object, errors: object[]}}
  */
-async function diagnoseInner(ctx, { config, run = null, scope = [], objective = null, only = null, graph = null }) {
+async function diagnoseInner(ctx, { config, run = null, scope = [], objective = null, only = null, graph = null, all = false }) {
   const t0 = Date.now();
   const g = graph ?? Graph.fromStore(ctx.store);
   if (g.size.nodes === 0) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
@@ -267,7 +268,9 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
     objective,
   };
   appendEvent(ctx, { type: 'finding.upserted', run_id: run?.id, actor: 'runtime:diagnose', payload: { ...stats, errors: errors.length } });
-  return { findings: ranked, stats, errors };
+  const named = applyObjective(ranked, objective, { all });
+  if (!named) return { findings: ranked, stats, errors };
+  return { findings: named.findings, stats, errors, objective: named.objective, hidden: named.hidden, hidden_kinds: named.hidden_kinds };
 }
 
 export function getFinding(ctx, id) {

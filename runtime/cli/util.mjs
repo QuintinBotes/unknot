@@ -8,6 +8,19 @@ import { fileURLToPath } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
 import { redact } from '../core/redact.mjs';
 
+/**
+ * The Claude Code session this CLI runs inside, or null in a person's own terminal. A run
+ * started here governs that session (and its subagents) only, not other sessions that open the
+ * repository (issue #32).
+ */
+export function agentSession(env = process.env) {
+  return env.CLAUDECODE && env.CLAUDE_CODE_SESSION_ID ? String(env.CLAUDE_CODE_SESSION_ID) : null;
+}
+
+// Flags that are only ever on or off: the word after one is a positional, not its value
+// (`unknot diagnose --all src`, `unknot map --replace src/b`).
+const SWITCHES = new Set(['json', 'all', 'replace', 'scan', 'regex', 'supersede', 'dry_run', 'no_history', 'summary', 'verbose', 'detected_only', 'keep', 'quick', 'include_large', 'no_recall']);
+
 export function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -21,7 +34,7 @@ export function parseArgs(argv) {
       const eq = a.indexOf('=');
       const key = (eq === -1 ? a.slice(2) : a.slice(2, eq)).replace(/-/g, '_');
       if (eq !== -1) flags[key] = a.slice(eq + 1);
-      else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
+      else if (!SWITCHES.has(key) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
       else flags[key] = true;
       if (Array.isArray(flags[`${key}[]`])) flags[`${key}[]`].push(flags[key]);
       else flags[`${key}[]`] = [flags[key]];
@@ -162,7 +175,7 @@ export async function withRun(ctx, cfg, command, { actor, scope = [], slice_id =
     if (slice_id && existing.slice_id !== slice_id) setRunSlice(ctx, existing.id, slice_id, actor, { mode: cfg.config.mode });
     return fn(activeRun(ctx.store));
   }
-  const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, config: cfg.config, configDigest: cfg.digest });
+  const run = startRun(ctx, { command, actor, scope, slice_id, campaign_id, session_id: agentSession(), config: cfg.config, configDigest: cfg.digest });
   const telemetry = await import('../telemetry/otel.mjs');
   telemetry.configureTelemetry(cfg.config, { root: ctx.root });
   const t0 = Date.now();

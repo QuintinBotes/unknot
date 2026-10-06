@@ -23,8 +23,8 @@ the blocked slices and what each waits for; do not pick one anyway.
 
 Read the slice state:
 
-- AWAITING_APPROVAL: say which roles must approve, and that a person runs
-  `unknot approve <slice> --role <role> --as <approver>` in a separate terminal window (not `!`).
+- AWAITING_APPROVAL: say which roles must approve, and tell the person to copy the
+  block headed "For you, in your own terminal:" from `unknot status` into a separate terminal window (not `!`).
 - approved and ready: suggest `/unknot:apply <slice>`.
 - VERIFYING or VERIFICATION_FAILED: suggest `/unknot:verify <slice>`.
 

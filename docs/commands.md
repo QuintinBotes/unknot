@@ -89,7 +89,7 @@ Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Ma
 
 - `show`: effective configuration, digest, acceptance state, notice, sources, org policy bundles and adjustments. Always JSON.
 - `diff`: prints the current file and the proposal (or, with no proposal, the current file) for review.
-- `accept` (human): prints the proposal, asks you to type its mode, then moves `config.proposed.yaml` to `config.yaml` and records its digest and text as accepted. Run it again after any hand edit of `config.yaml`; until then only tightening edits apply. See [configuration.md](configuration.md).
+- `accept` (human): prints the proposal, asks you to type its mode, then moves `config.proposed.yaml` to `config.yaml` and records its digest and text as accepted. `--detected-only` leaves out the lines inferred from repository guidance. `diff` labels every changed line with its source (`detected: <file>:<line>`, `guidance: <file>:<line> "<sentence>"`, `default`). Run it again after any hand edit of `config.yaml`; until then only tightening edits apply. See [configuration.md](configuration.md).
 
 ### `unknot keys generate <name>` (human)
 
@@ -147,7 +147,8 @@ See [decomposition.md](decomposition.md). Scope entries are paths, globs, `ns:<n
 |---|---|
 | `--target backend\|frontend\|auto` | Default `auto`: backend if there are at least two non-frontend modules, frontend if at least two frontend modules. |
 | `--driver <id>` | Record a driver for this run. Repeatable. Drivers in `decomposition.drivers` are always included. |
-| `--driver-source <url or document>`, `--driver-quote "<sentence>"` | Where the person's driver comes from, recorded as `driver_provenance`. |
+| `--driver-source <id>=<url or document>`, `--driver-quote <id>="<sentence>"` | Where the person's driver comes from, recorded as `driver_provenance`. Repeatable, one per driver; without `<id>=` the value applies to every `--driver` on the command line. A rerun carries an earlier record's source and quote forward for the same driver, noted as `carried_from`. |
+| `--drivers-file <json>` | Drivers with their `source` and `quote` in a small file: `[{"driver": "<id>", "source": "...", "quote": "..."}]` or `{"<id>": {...}}`. Flags override the file. |
 | `--summary` | One line per candidate: id, name, size, treatment, confidence, and why the next more invasive treatment was rejected. |
 | `--dry-run` | Compute and print; write no records and allocate no ids. |
 | `--json`, `--full` | JSON summary; `--full` adds per-recommendation details. |

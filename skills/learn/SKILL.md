@@ -30,8 +30,8 @@ Say plainly when there is too little feedback to conclude anything.
 
 Run `unknot learn propose` only when the report lists threshold proposals and the user wants
 them. It writes `.unknot/config.proposed.yaml` and changes nothing that is in force. Tell
-the user to review it with `unknot config diff` and accept it, if they agree, with
-`unknot config accept` in a separate terminal window (not `!`; `/unknot:doctor` prints the full path if `unknot` is not found). Never describe a proposal as applied.
+the user to copy the block headed "For you, in your own terminal:" from `unknot status` into a
+separate terminal window (not `!`); it has `unknot config diff` and `unknot config accept`. Never describe a proposal as applied.
 
 The more decisions people record (with a rationale), the better the calibration. Encourage
 `/unknot:reject <F-id> --rationale "..."` for findings that are wrong for this codebase,

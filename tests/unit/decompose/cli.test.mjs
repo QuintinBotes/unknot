@@ -1,7 +1,7 @@
 // The decompose command line: subcommands, --summary, --dry-run and the warning stream.
 
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse } from '../../golden/_harness.mjs';
@@ -60,6 +60,45 @@ describe('decompose CLI', () => {
     assert.match(text, /Readiness/);
     assert.equal(JSON.parse((await cli('show', id, '--json')).out).id, id);
     await assert.rejects(cli('show'), { code: 'UK_SCHEMA_INVALID' });
+  });
+
+  test('--driver-source and --driver-quote record provenance per driver, repeatable, and a rerun keeps it', async () => {
+    const url = 'https://example.com/plan?a=b';
+    const args = ['--json', '--full', 'shop/**', '--driver', 'team_autonomy', '--driver', 'build_time'];
+    const first = JSON.parse((await cli(...args, '--driver-source', `team_autonomy=${url}`, '--driver-quote', 'team_autonomy=Teams ship alone.', '--driver-quote', 'build_time=Builds take too long.')).out);
+    const expected = [
+      { driver: 'team_autonomy', source: url, quote: 'Teams ship alone.' },
+      { driver: 'build_time', source: null, quote: 'Builds take too long.' },
+    ];
+    assert.deepEqual(first.details[0].driver_provenance, expected);
+    assert.deepEqual(first.driver_provenance_missing, []);
+    const rerun = JSON.parse((await cli(...args)).out);
+    assert.deepEqual(rerun.details[0].driver_provenance, expected);
+    assert.deepEqual(rerun.driver_provenance_missing, []);
+    await assert.rejects(cli('shop/**', '--driver', 'team_autonomy', '--driver-source', 'security_isolation=https://example.com/x'), { code: 'UK_SCHEMA_INVALID' });
+  });
+
+  test('--drivers-file gives drivers with their sources and quotes; flags override it', async () => {
+    const file = join(r.dir, 'drivers.json');
+    writeFileSync(file, JSON.stringify([{ driver: 'independent_scale', source: 'docs/plan.md', quote: 'Billing must scale alone.' }, { driver: 'security_isolation', quote: 'Card data stays apart.' }]));
+    const res = JSON.parse((await cli('--json', '--full', '--dry-run', 'shop/**', '--drivers-file', file, '--driver-source', 'security_isolation=docs/sec.md')).out);
+    assert.deepEqual(res.drivers, ['independent_scale', 'security_isolation']);
+    assert.deepEqual(res.details[0].driver_provenance, [
+      { driver: 'independent_scale', source: 'docs/plan.md', quote: 'Billing must scale alone.' },
+      { driver: 'security_isolation', source: 'docs/sec.md', quote: 'Card data stays apart.' },
+    ]);
+    writeFileSync(file, '{ nope');
+    await assert.rejects(cli('shop/**', '--drivers-file', file), { code: 'UK_SCHEMA_INVALID' });
+  });
+
+  test('drivers without any provenance, and none to carry, are named at the top of the output', async () => {
+    const { out } = await cli('shop/**', '--driver', 'technology_divergence', '--driver', 'availability_isolation');
+    assert.match(out.split('\n')[0], /^Notice: no source or quote is recorded for drivers technology_divergence, availability_isolation, and none could be carried/);
+    const summary = (await cli('shop/**', '--driver', 'technology_divergence', '--summary')).out;
+    assert.match(summary.split('\n')[0], /^Notice: no source or quote is recorded for driver technology_divergence/);
+    const given = (await cli('shop/**', '--driver', 'technology_divergence', '--driver-quote', 'technology_divergence=We want another stack.')).out;
+    assert.doesNotMatch(given, /Notice:/);
+    assert.doesNotMatch((await cli('shop/**')).out, /Notice:/);
   });
 
   test('--json carries scope with entries, matched, total and unresolved', async () => {

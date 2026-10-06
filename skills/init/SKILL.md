@@ -37,10 +37,11 @@ A read-only assessment needs nothing more: `/unknot:map`, `/unknot:diagnose`,
 `/unknot:decompose` and `/unknot:explain` work now. Suggest `/unknot:map` as the first step.
 Accepting the configuration, keys and approvals are only for changing code.
 
-If the user wants to change code, give them these steps for a separate terminal window (not
-Claude Code's `!` prefix, which has no interactive terminal). You cannot do them: they need a
-person, and the runtime denies them to you. If `unknot` is not found there, `/unknot:doctor`
-prints the full path and how to install the command.
+If the user wants to change code, run `unknot status` and tell them to copy the block headed
+"For you, in your own terminal:" into a separate terminal window (not Claude Code's `!` prefix,
+which has no interactive terminal). It lists the exact commands in order and starts with the
+CLI install step when `unknot` is not on their PATH. You cannot do them: they need a person,
+and the runtime denies them to you. The steps it covers, for your understanding:
 
 1. Review the proposal: `unknot config diff`
 2. Accept it: `unknot config accept`

@@ -1,7 +1,7 @@
 ---
 name: diagnose
 description: Find and rank simplification opportunities (findings) in the repository or a scope, optionally against an objective. Use when the user asks what is wrong, tangled or worth simplifying, or asks for the top problems.
-argument-hint: '[scope] [--objective "..."] [--limit N]'
+argument-hint: '[scope] [--objective "..."|decompose|simplify|security] [--limit N] [--all]'
 ---
 
 # Diagnose
@@ -13,7 +13,7 @@ source. It needs a graph; if `unknot status` shows none or a stale one, run `/un
 
 `unknot diagnose [scope] --objective "<objective>" --limit N --json`
 
-Pass `--objective` only with words the user gave. `--limit` defaults to a short list; use
+Pass `--objective` only with words the user gave. The named objectives `decompose`, `simplify` and `security` rank the relevant kinds first; `decompose` folds generic code-style findings into one hidden count (`--all` shows them last), so report that count rather than dropping it. `--limit` defaults to a short list; use
 `--only <category>` when the user names one. Finding ids look like `F-0142`.
 
 ## 2. Present the top findings

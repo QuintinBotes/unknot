@@ -33,7 +33,7 @@ export const COMMANDS = {
   approve: 'Approve a slice (human, interactive) <slice> --role <role> --as <approver>',
   attest: 'Attest a human-review obligation (human, interactive) <PO-id> --result pass|fail --note',
   keys: 'Manage approver keys (human, interactive): generate <name>',
-  config: 'Show or accept configuration (show|diff|accept)',
+  config: 'Show or accept configuration (show|diff|accept [--detected-only])',
   run: 'Run lifecycle (start <command>|end [id]|show)',
   audit: 'Ledger integrity and export (verify|export)',
   policy: 'Organization policy bundles (keygen|sign|trust|verify|effective) and recent refusals (denials)',

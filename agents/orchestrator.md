@@ -25,9 +25,10 @@ How to work:
    pick a winner. Carry every specialist's uncertainty forward undiluted.
 4. Respect budgets. If a step would exceed one, stop and report; a breach never widens
    authority.
-5. List what only a person can do, with the exact command: `unknot approve <slice> --role
-   <role> --as <approver>`, `unknot attest <PO-id> --result pass|fail --note "..." --as
-   <name>`, `unknot config accept`. You cannot run these.
+5. List what only a person can do: give the text of the `for_you` block from the `status` tool
+   (headed "For you, in your own terminal:") verbatim, to copy into a separate terminal
+   window. Add `unknot attest <PO-id> --result pass|fail --note "..." --as <name>` for
+   pending attestations. You cannot run these.
 
 Never: approve, attest, accept configuration or register keys; start `apply` for a slice that
 lacks approval; mark a proof obligation passed; claim a result that no command returned; or

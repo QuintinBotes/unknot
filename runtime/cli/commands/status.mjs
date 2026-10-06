@@ -4,15 +4,16 @@ import { head } from '../../apply/git.mjs';
 import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
 import { staleSlices } from '../../plan/staleness.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
+import { humanSteps } from '../../policy/human-steps.mjs';
 import { activeRun } from '../../state/runs.mjs';
-import { humanCommand, output, table } from '../util.mjs';
+import { output, table } from '../util.mjs';
 import { readMappedScopes } from '../../graph/mapped-scopes.mjs';
 import { open } from './_shared.mjs';
 
 /** One line on the identifier-like string constants in the graph: how many, of which sub-kinds, and what was cut. */
 export const constantsLine = (c) => `Constants: ${c.nodes} identifier-like string nodes (${Object.entries(c.by_subkind).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}; sub-kinds inferred)${c.dropped_by_repo_cap ? `; ${c.dropped_by_repo_cap} more cut by the repository cap` : ''}${c.files_capped ? `; ${c.files_capped} file(s) cut by the per-file cap` : ''}`;
 
-export async function run({ flags }) {
+export async function run({ flags }, { unknotOnPath } = {}) {
   const { ctx, config, cfg } = open(flags);
   const now = new Date().toISOString();
   const run = activeRun(ctx.store);
@@ -51,6 +52,7 @@ export async function run({ flags }) {
     open_obligations,
     stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
+    for_you: humanSteps(ctx, cfg, unknotOnPath === undefined ? {} : { unknotOnPath }),
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
@@ -66,10 +68,11 @@ export async function run({ flags }) {
     'Slices:',
     table(slices, ['id', 'campaign_id', 'state', 'risk']),
   ];
-  if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (in a separate terminal window: ${humanCommand('approve <slice> --role <role> --as <name>')})`);
+  if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (see the block at the end)`);
   for (const s of status.stale_evidence.slices) lines.push(`Stale evidence: slice ${s.slice_id} was planned from ${s.findings.map((f) => f.finding_id).join(', ')}, no longer reported by the current map; re-plan or abandon it.`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
   if (behindNote) lines.push(`Graph: ${behindNote}`);
-  if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it, in a separate terminal window: ${humanCommand('config diff')}`);
+  if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it (see the block at the end)`);
+  if (status.for_you.text) lines.push('', status.for_you.text);
   output(lines.join('\n'));
 }
