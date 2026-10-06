@@ -178,4 +178,12 @@ test('edges <node> --direction narrows to incoming or outgoing; an unknown node 
   const bad = graph('edges', 'src/nowhere/Missing.cs');
   assert.notEqual(bad.code, 0);
   assert.match(bad.err + bad.out, /no node|not found|Missing\.cs/i);
+
+test('neighbourhood: call edges appear by default, drop the missing-calls note, and --type narrows them', () => {
+  const all = graph('neighbourhood', 'src/cat/A.cs');
+  assert.match(all.out, /CALLS\s+module:src\/ord\/Y\.cs\s+module:src\/cat\/A\.cs/);
+  assert.doesNotMatch(all.out, /No CALLS edges/);
+  const only = json('neighbourhood', 'src/cat/A.cs', '--type', 'CALLS');
+  assert.deepEqual([...new Set(only.edges.map((e) => e.type))], ['CALLS']);
+  assert.ok(!json('neighbourhood', 'src/cat/A.cs', '--type', 'IMPORTS').edges.some((e) => e.type === 'CALLS'));
 });
