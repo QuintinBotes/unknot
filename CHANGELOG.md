@@ -4,18 +4,19 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
-## [Unreleased]
+## [0.3.3] - 2026-10-06
 
 ### Fixed
 
 - Findings keep the detector's `confidence` (it was dropped when a finding was stored), so a proven deletion can qualify on a real unused-member finding (#46). Each proven-deletion problem names the measured value against what is needed (`confidence: low; needs medium or high`, `confidence: none recorded`, `evidence: 1 of 3 entries inferred`). Findings stored by earlier releases have no confidence until `diagnose` runs again. A test now runs the real map, diagnose and proven-deletion check in two languages.
-### Added
-
-- `unknot workspace add <name> <path>` and `workspace remove <name>` (#50) write the workspace repositories into the configuration proposal (never the accepted config), validating a git root, a unique name and path, and a path outside `.unknot/`, and record `workspace add` as the source for `config diff`. `workspace list` and `map` in a root whose repositories are only in an unaccepted proposal fail with the new error code `UK_WORKSPACE_UNACCEPTED`, and `status` says why the accept step is listed.
 - `decompose` carries a driver's source and quote along the whole `supersedes` chain, to the nearest record that has them (`carried_from` names it), instead of only from the record directly replaced; `driver_provenance_missing` lists every driver whose saved provenance has neither a source nor a quote, in text and JSON, and is empty only when every driver has some (#47).
 - `contracts.present` and `clients.count` reach `candidate.metrics` (the metric-name filter dropped the `contracts` and `clients` prefixes; unmeasured stays absent) and the readiness rows; text `decompose show` has a Contracts section listing each route with its client interfaces and, from a workspace map, the repository that serves it; a candidate's client routes add an evidence gap naming them as a seam served elsewhere until a workspace map confirms it. The other prefixes selection cards read that no candidate measures (`backup`, `data`, `migration`, `clients.response_shape_variance`) stay unmeasured in readiness; `metrics`, `service` and `team` are global signals no decomposition card uses (#48).
 - A strongly connected component of the runtime import view always yields one `module.dependency-cycle` finding, whatever its size (#49): the finding names every member in its scope (it was cut at 50), lists the edges that break it (declared-only ones named, `cycle.cut_heuristic` when the ordering cut was used), and a scoped `diagnose` holding any member shows it and names the members outside the scope that close it. `--objective decompose` ranks cycle findings ahead of every other kind, and `graph cycles` prints why a component has no finding.
 - Endpoints registered on a route group keep the group's prefix (#45): C# `MapGroup` (held in a variable, chained, or handed to an extension method), Express `Router` mounted with `app.use('/v1', r)`, Go chi `Route` and gin `Group`, FastAPI `APIRouter(prefix=...)` with `include_router(..., prefix=...)` and Flask `Blueprint(url_prefix=...)` all join every prefix up the chain, across files when a group is handed to a registration function or mounted from another file; a prefix that cannot be resolved keeps the endpoint with `prefix_unresolved: true`. `generic` 0.1.8, `javascript` 0.1.14, `python` 0.1.11.
+
+### Added
+
+- `unknot workspace add <name> <path>` and `workspace remove <name>` (#50) write the workspace repositories into the configuration proposal (never the accepted config), validating a git root, a unique name and path, and a path outside `.unknot/`, and record `workspace add` as the source for `config diff`. `workspace list` and `map` in a root whose repositories are only in an unaccepted proposal fail with the new error code `UK_WORKSPACE_UNACCEPTED`, and `status` says why the accept step is listed.
 
 ## [0.3.2] - 2026-10-06
 

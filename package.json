@@ -1,6 +1,6 @@
 {
   "name": "unknot",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Architecture-aware incremental codebase simplification with verification and recovery.",
   "type": "module",
   "private": true,
