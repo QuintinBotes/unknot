@@ -40,14 +40,38 @@ function closeBrace(code, open) {
  * reaches members of Type through a resolved receiver or `new Type`; weak when the receiver
  * variable's name carries more than one declaration in the file.
  */
+const isWord = (c) => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+const isSpace = (c) => c === 32 || c === 9 || c === 10 || c === 13;
+
+/** The identifier `pre` ends with (trailing spaces allowed), as `[match, name]` with `index`, or null. */
+function trailingIdent(pre) {
+  let e = pre.length;
+  while (e > 0 && isSpace(pre.charCodeAt(e - 1))) e--;
+  let b = e;
+  while (b > 0 && isWord(pre.charCodeAt(b - 1))) b--;
+  // An identifier starts with a letter or underscore: step past leading digits.
+  while (b < e && pre.charCodeAt(b) >= 48 && pre.charCodeAt(b) <= 57) b++;
+  if (b === e) return null;
+  const m = [pre.slice(b), pre.slice(b, e)];
+  m.index = b;
+  return m;
+}
+
+/** Whether `pre` up to `end` ends with a dot (spaces allowed): the identifier is itself a member. */
+function endsWithDot(pre, end) {
+  let i = end;
+  while (i > 0 && isSpace(pre.charCodeAt(i - 1))) i--;
+  return i > 0 && pre.charCodeAt(i - 1) === 46;
+}
+
 function memberAccess(lx, types, code, syn) {
-  const spans = types.map((t) => ({ name: t.name, a: t.startLine, b: t.endLine }));
-  const enclosing = (off) => {
-    const l = lx.lineOf(off);
-    let best = null;
-    for (const t of spans) if (t.a <= l && l <= t.b && (!best || t.b - t.a < best.b - best.a)) best = t;
-    return best?.name ?? '';
-  };
+  // The innermost type on each line, filled once (largest spans first, so inner ones overwrite):
+  // a lookup per member access, not a scan over every type.
+  const inner = [];
+  for (const t of [...types].sort((x, y) => (y.endLine - y.startLine) - (x.endLine - x.startLine))) {
+    for (let l = t.startLine; l <= t.endLine; l++) inner[l] = t.name;
+  }
+  const enclosing = (off) => inner[lx.lineOf(off)] ?? '';
   const notName = new Set(syn.notName);
   const vars = new Map();
   const declare = (name, type) => {
@@ -116,12 +140,12 @@ function memberAccess(lx, types, code, syn) {
       return [...set];
     };
     const self = selfRe?.exec(pre);
-    const id = /([A-Za-z_]\w*)\s*$/.exec(pre);
+    const id = trailingIdent(pre);
     const own = ownRe?.exec(pre);
     let types;
     if (own) types = [recv.get(own[1]) ?? enclosing(m.index)];
     else if (self) types = typesOf(self[1]);
-    else if (!id || /\.\s*$/.test(pre.slice(0, id.index)) || syn.chain.test(id[1])) types = [''];
+    else if (!id || endsWithDot(pre, id.index) || syn.chain.test(id[1])) types = [''];
     else types = typesOf(id[1]);
     for (const t of types) {
       bump(m[1], t);

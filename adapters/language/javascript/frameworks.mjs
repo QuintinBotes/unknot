@@ -306,11 +306,18 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   function decoratedOperations() {
     const norm = (p) => joinPath(p);
     const marker = (d) => ({ name: d.name, args: { route: d.args[0] ?? null } });
+    // Decorated methods grouped by class once: a class with no decorator anywhere has no route.
+    const methodsOf = new Map();
+    for (const f of analysis.functions) {
+      if (!f.cls || !f.decorators?.length) continue;
+      if (!methodsOf.has(f.cls)) methodsOf.set(f.cls, []);
+      methodsOf.get(f.cls).push(f);
+    }
     for (const c of analysis.classes) {
+      if (!c.decorators.length && !methodsOf.has(c.qname) && !(c.signatures ?? []).some((sig) => sig.decorators.length)) continue;
       const base = typeBase('typescript', c.decorators.map(marker));
       const ctl = c.decorators.find((d) => readMarker('typescript', d.name, marker(d).args)?.base);
-      for (const f of analysis.functions) {
-        if (f.cls !== c.qname) continue;
+      for (const f of methodsOf.get(c.qname) ?? []) {
         for (const o of operations('typescript', f.decorators.map(marker), { base, norm })) {
           const e = { method: o.method, path: o.path, framework: 'decorator', line: f.decorators[0]?.line ?? f.start_line, handler: f.qname };
           if (ctl) e.controller = c.qname;

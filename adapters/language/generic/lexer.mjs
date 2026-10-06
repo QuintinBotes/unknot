@@ -32,7 +32,20 @@ const isWord = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
 
 /** Overwrite a range with spaces, keeping newlines so line numbers survive. */
 function wipe(arr, a, b) {
-  for (let k = a; k < b; k++) if (arr[k] !== '\n' && arr[k] !== '\r') arr[k] = ' ';
+  for (let k = a; k < b; k++) if (arr[k] !== 10 && arr[k] !== 13) arr[k] = 32;
+}
+
+// The text as UTF-16 code units and back: typed arrays, not one string per character, so a
+// large file costs two buffers instead of millions of objects.
+function units(text) {
+  const out = new Uint16Array(text.length);
+  for (let k = 0; k < text.length; k++) out[k] = text.charCodeAt(k);
+  return out;
+}
+function str(arr) {
+  let out = '';
+  for (let k = 0; k < arr.length; k += 8192) out += String.fromCharCode.apply(null, arr.subarray(k, k + 8192));
+  return out;
 }
 
 /**
@@ -43,7 +56,7 @@ function wipe(arr, a, b) {
 export function lex(text, lang) {
   const o = OPTS[lang] ?? OPTS.c;
   const n = text.length;
-  const plain = text.split('');
+  const plain = units(text);
   const code = plain.slice();
   const lits = [];
   const pending = [];
@@ -230,7 +243,7 @@ export function lex(text, lang) {
     byStart.set(l.start, l);
   }
   return {
-    text, code: code.join(''), plain: plain.join(''), literals: lits, lineStarts, lineOf,
+    text, code: str(code), plain: str(plain), literals: lits, lineStarts, lineOf,
     lineStartOf: (off) => lineStarts[lineOf(off) - 1],
     litAt: (off) => byStart.get(off),
   };
