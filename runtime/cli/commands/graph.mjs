@@ -3,6 +3,8 @@ import { matchAny } from '../../core/glob.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
 import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
 import { MAX_CYCLES, readDerived } from '../../graph/derived.mjs';
+
+const ALL_CYCLES = 5000;
 import { EDGE_TYPES } from '../../graph/facts.mjs';
 import { Graph } from '../../graph/graph.mjs';
 import { output, table } from '../util.mjs';
@@ -135,10 +137,20 @@ export async function run({ positional, flags }) {
     // reads; another edge type or a scope is an ad-hoc view computed here.
     const stored = edgeTypes.length === 1 && edgeTypes[0] === 'IMPORTS' && pred.scope.all ? readDerived(ctx, 'scc', { graph: g }).map((r) => r.body) : null;
     const all = stored ? stored.map((b) => b.members) : stronglyConnected(g, { edgeTypes, nodeFilter: pred.scope.all ? undefined : pred });
+    // --limit caps the components listed; --max-cycles the elementary cycles per component
+    // (0 or "all": as many as the work budget allows).
+    const rawMax = flags.max_cycles ?? flags['max-cycles'];
+    // "all" is bounded too: at most ALL_CYCLES listed, and the enumeration's own work budget.
+    const maxCycles = rawMax === undefined ? MAX_CYCLES : rawMax === 'all' || Number(rawMax) === 0 ? ALL_CYCLES : intFlag({ max_cycles: rawMax }, 'max_cycles', MAX_CYCLES, ALL_CYCLES);
     const comps = all.slice(0, limit).map((c, i) => {
       // More cycles than were stored for a component: list that one deeper.
-      const b = stored && (limit <= MAX_CYCLES || !stored[i].truncated) ? { ...stored[i], cycles: stored[i].cycles.slice(0, limit), truncated: stored[i].truncated || stored[i].cycles.length > limit } : cycleBreakdown(g, c, { edgeTypes, maxCycles: limit });
-      return { size: c.length, members: c, cycles: b.cycles, cycles_truncated: b.truncated, cut: b.cut };
+      const b = stored && (maxCycles <= MAX_CYCLES || !stored[i].truncated) ? { ...stored[i], cycles: stored[i].cycles.slice(0, maxCycles), truncated: stored[i].truncated || stored[i].cycles.length > maxCycles } : cycleBreakdown(g, c, { edgeTypes, maxCycles });
+      // Every listed cycle names the edges that would break it, the ones shared by most cycles first.
+      const key = (e) => `${e.from}->${e.to}`;
+      const share = new Map();
+      for (const y of b.cycles) for (const e of y.edges) share.set(key(e), (share.get(key(e)) ?? 0) + 1);
+      const cycles = b.cycles.map((y) => ({ ...y, cut_candidates: [...y.edges].sort((a, z) => share.get(key(z)) - share.get(key(a)) || key(a).localeCompare(key(z))).slice(0, 3).map((e) => ({ ...e, in_cycles: share.get(key(e)) })) }));
+      return { size: c.length, members: c, cycles, cycles_truncated: b.truncated, cut: b.cut };
     });
     if (flags.json) return output(comps, { json: true });
     if (!comps.length) return output('no cycles');
@@ -148,8 +160,11 @@ export async function run({ positional, flags }) {
       ...(i ? [''] : []),
       `cycle ${i + 1}: ${c.size} ${c.size === 1 ? 'module' : 'modules'}`,
       ...wrap(c.members.map(nameOf).join(', '), '  members: ', '    '),
-      `  ${c.cycles.length}${c.cycles_truncated ? '+' : ''} elementary ${c.cycles.length === 1 ? 'cycle' : 'cycles'}, shortest first${c.cycles_truncated ? ` (stopped at ${c.cycles.length}; raise --limit)` : ''}:`,
-      ...c.cycles.map((y) => `    ${[...y.nodes, y.nodes[0]].map(nameOf).join(' → ')}${y.edges.some((e) => e.declared_only) ? ' (has declared-only edges)' : ''}`),
+      `  ${c.cycles.length}${c.cycles_truncated ? '+' : ''} elementary ${c.cycles.length === 1 ? 'cycle' : 'cycles'}, shortest first${c.cycles_truncated ? ` (stopped at ${c.cycles.length}; more exist${c.cycles.length >= ALL_CYCLES ? `, ${ALL_CYCLES} is the most listed` : ': raise --max-cycles, or --max-cycles all'})` : ''}:`,
+      ...c.cycles.flatMap((y) => [
+        `    ${[...y.nodes, y.nodes[0]].map(nameOf).join(' → ')}${y.edges.some((e) => e.declared_only) ? ' (has declared-only edges)' : ''}`,
+        `      cut here: ${y.cut_candidates.map((e) => `${edgeText(e)} (in ${e.in_cycles} of the listed cycles)`).join('; ')}`,
+      ]),
       `  edges to cut (${c.cut.length}; removing them leaves no cycle):`,
       ...c.cut.map((e) => `    ${edgeText(e)}${e.closes ? ` [closes ${e.closes}]` : ''}`),
     ]);
@@ -189,6 +204,6 @@ export async function run({ positional, flags }) {
     const gap = !types.length && lexical.length && !rows.some((r) => r.type === 'CALLS') ? `\nNo CALLS edges: ${lexical.join(', ')} is read lexically here, so calls between files are not extracted (only imports and type references). The semantic tier adds them (docs/roadmap.md, item 1).` : '';
     return output(`${head}${counts ? ` (${counts})` : ''}${gap}\n${table(rows.slice(0, limit), ['type', 'from', 'to'])}${rows.length > limit ? `\n(${limit} of ${rows.length} edges; raise --limit or narrow with --type)` : ''}`);
   }
-  output('usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
+  output('usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X]|cycles [EDGE] [--max-cycles N|all] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
   return 2;
 }

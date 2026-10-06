@@ -129,6 +129,8 @@ export function shortestCycle(graph, component, edgeTypes = DEFAULT_EDGES) {
  * close the most listed cycles. Edges are node pairs: a pair is declared-only when every
  * edge between them is, and then carries the unused member.
  */
+const CUT_CYCLES = 2000;
+
 export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxCycles = 50, maxLength = 12 } = {}) {
   const ids = [...members].sort();
   const inSet = new Set(ids);
@@ -200,9 +202,12 @@ export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxC
   const inDegree = new Map();
   for (const a of ids) for (const b of adj.get(a)) inDegree.set(b, (inDegree.get(b) ?? 0) + 1);
   const cut = [];
+  // The cut is ranked on the shortest cycles; past a few thousand the ranking stops changing
+  // while the work keeps growing (a dense component has tens of thousands of cycles).
+  const ranked = cycles.slice(0, CUT_CYCLES);
   for (let guard = 0; guard < info.size && cyclic(ids); guard++) {
     const closing = new Map();
-    for (const c of cycles) {
+    for (const c of ranked) {
       const es = cyclePairs(c);
       if (es.some((e) => removed.has(`${e.from}\0${e.to}`))) continue;
       for (const e of es) closing.set(e, (closing.get(e) ?? 0) + 1);
