@@ -6,7 +6,7 @@ export async function run({ positional, flags }) {
   const { ctx, cfg, config, actor } = open(flags);
   const scope = positional;
   const summary = await withRun(ctx, cfg, 'map', { actor, scope }, (r) =>
-    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history }),
+    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null }),
   );
   if (flags.json) return output(summary, { json: true });
   const lines = [

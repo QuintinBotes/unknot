@@ -40,7 +40,7 @@ test('a branch behind its upstream and behind the default branch is reported wit
   assert.equal(s.default_branch, 'origin/main');
   assert.equal(s.behind_default, 2);
   assert.ok(s.fetched_at);
-  assert.match(checkoutNotice(s), /mapped feature at [0-9a-f]{10}, 1 commit behind origin\/feature and 2 commits behind origin\/main \(as of the last fetch, \d{4}-\d\d-\d\d\)/);
+  assert.match(checkoutNotice(s), /mapped feature at [0-9a-f]{10}: not the default branch \(origin\/main\); 1 commit behind origin\/feature; 2 commits behind origin\/main \(as of the last fetch, \d{4}-\d\d-\d\d\)/);
 });
 
 test('an up-to-date checkout, or a directory that is not a repository, gives no notice', () => {
@@ -49,4 +49,36 @@ test('an up-to-date checkout, or a directory that is not a repository, gives no 
   commit(repo, 1);
   assert.equal(checkoutNotice(checkoutState(repo)), null);
   assert.equal(checkoutState(mkdtempSync(join(tmpdir(), 'uk-norepo-'))), null);
+});
+
+test('a feature branch that is not behind still gets a notice, which --branch-ok silences; detached and dirty are reported', () => {
+  const origin = mkdtempSync(join(tmpdir(), 'uk-origin2-'));
+  g(origin, 'init', '-q');
+  commit(origin, 1);
+  const clone = mkdtempSync(join(tmpdir(), 'uk-clone2-'));
+  g(clone, 'clone', '-q', origin, '.');
+  g(clone, 'switch', '-q', '-c', 'topic');
+  const s = checkoutState(clone);
+  assert.equal(s.on_default, false);
+  assert.match(checkoutNotice(s), /mapped topic at [0-9a-f]{10}: not the default branch \(origin\/main\)\. Findings describe that code\. If mapping topic is intended: unknot map --branch-ok topic\./);
+  assert.equal(checkoutNotice(s, { expected: 'topic' }), null);
+  g(clone, 'switch', '-q', 'main');
+  assert.equal(checkoutNotice(checkoutState(clone)), null, 'the default branch, up to date');
+  writeFileSync(join(clone, 'f1.txt'), 'changed\n');
+  assert.match(checkoutNotice(checkoutState(clone)), /1 file with uncommitted changes/);
+  g(clone, 'checkout', '-q', '--', 'f1.txt');
+  g(clone, 'checkout', '-q', '--detach');
+  const d = checkoutState(clone);
+  assert.equal(d.detached, true);
+  assert.match(checkoutNotice(d), /a detached HEAD, not a branch/);
+});
+
+test('a repository with nothing to compare with gets an explanatory note, not a warning', async () => {
+  const { checkoutNote } = await import('../../../runtime/graph/checkout.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'uk-lone-'));
+  g(repo, 'init', '-q');
+  commit(repo, 1);
+  const s = checkoutState(repo);
+  assert.equal(checkoutNotice(s), null);
+  assert.match(checkoutNote(s), /main has no upstream and the remote has no default branch recorded/);
 });

@@ -1,7 +1,7 @@
 // /unknot:status — campaigns, slices, approvals, blockers and stale evidence.
 
 import { head } from '../../apply/git.mjs';
-import { checkoutNotice } from '../../graph/checkout.mjs';
+import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
@@ -25,7 +25,7 @@ export async function run({ flags }) {
   } catch {
     // older store
   }
-  const behindNote = checkoutNotice(mappedCheckout);
+  const behindNote = checkoutNotice(mappedCheckout) ?? (mappedCheckout ? checkoutNote(mappedCheckout) : null);
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,

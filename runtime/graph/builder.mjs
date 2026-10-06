@@ -51,7 +51,7 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null, branchOk = null }) {
   const t0 = Date.now();
   const observedAt = nowISO();
   const cen = census(ctx.root, { config, scope });
@@ -266,7 +266,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const all = [...fileFacts, ...global];
   // What was mapped, and whether it is behind what the team works on.
   const checkout = checkoutState(ctx.root);
-  const stale = checkoutNotice(checkout);
+  const stale = checkoutNotice(checkout, { expected: branchOk });
   if (stale) notes.push(stale);
   if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
   const projection = project(ctx, all, { commit, observedAt });
