@@ -462,7 +462,8 @@ export function rankHubs(graph, { edgeType = 'IMPORTS', edgeTypes, nodeType = 'm
     const fromIn = accept(e.from);
     const toIn = accept(e.to);
     if (within && !(fromIn && toIn)) continue;
-    if (toIn) {
+    // A package-level import targets every file of the package, so it is not fan-in of any one file.
+    if (toIn && !(e.attrs?.package_level && nodeType === 'module')) {
       if (!inn.has(e.to)) inn.set(e.to, new Set());
       inn.get(e.to).add(e.from);
     }

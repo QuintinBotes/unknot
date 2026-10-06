@@ -8,7 +8,7 @@ import { nodeFact, prov } from '../../runtime/graph/facts.mjs';
 import { findSecrets, redact } from '../../runtime/core/redact.mjs';
 
 export const ID = 'security';
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.2';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 1024 * 1024;
 const MAX_SECRETS_PER_FILE = 200;
@@ -16,6 +16,32 @@ const MAX_SCANNER_PER_FILE = 50;
 const TIMEOUT_MS = 120_000;
 const LOCKFILE = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|Pipfile\.lock|uv\.lock|composer\.lock|Gemfile\.lock|go\.sum|gradle\.lockfile|packages\.lock\.json|[^/]+\.lock)$/;
 const SKIP_KINDS = new Set(['binary', 'generated', 'vendored']);
+const MAX_AUTHZ_PER_FILE = 50;
+// Access checks that name what they require: a call whose argument is a quoted role,
+// permission or policy, or an annotation or decorator carrying one.
+const AUTHZ_CALL = /(?<![\w$])(has_perms?|has_permission|hasPermission|hasRole|has_role|hasAnyRole|hasAuthority|hasAnyAuthority|isUserInRole|isInRole|checkPermission|check_permission|can|cannot|authorize|authorise|permission_required|user_passes_test|require_permission|requirePermission)\s*\(\s*([^()\n]{0,120})\)/g;
+const AUTHZ_ANNOTATION = /(?:@|\[)(PreAuthorize|PostAuthorize|Secured|RolesAllowed|Authorize|HasPermission)\s*(?:\(([^)\n]{0,160})\)|\(\)|(?=[\]\s]))/g;
+const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|rb|php|java|kt|scala|cs|go|rs|swift|vue|svelte)$/i;
+const QUOTED = /["'`]/;
+
+/**
+ * Shapes of the access checks in a file: the same callee with the same quoted role,
+ * permission or policy is the same check wherever it appears. Names alone never count,
+ * and neither does a bare attribute read such as a staff flag.
+ */
+export function authorizationChecks(text) {
+  const seen = new Map();
+  const add = (shape, off) => { if (!seen.has(shape)) seen.set(shape, { shape, line: lineAt(text, off) }); };
+  for (const m of text.matchAll(AUTHZ_CALL)) {
+    const args = m[2].replace(/\s+/g, '');
+    if (QUOTED.test(args)) add(`${m[1].toLowerCase().replace(/_/g, '')}(${args})`, m.index);
+  }
+  for (const m of text.matchAll(AUTHZ_ANNOTATION)) {
+    const args = (m[2] ?? '').replace(/\s+/g, '');
+    if (QUOTED.test(args)) add(`@${m[1].toLowerCase()}(${args})`, m.index);
+  }
+  return [...seen.values()].slice(0, MAX_AUTHZ_PER_FILE);
+}
 
 const lineAt = (text, offset) => {
   let n = 1;
@@ -93,12 +119,16 @@ export default {
     if (!file?.path || typeof text !== 'string') return [];
     if (SKIP_KINDS.has(file.kind) || (file.size ?? 0) > MAX_BYTES || text.length > MAX_BYTES || LOCKFILE.test(file.path)) return [];
     const hits = findSecrets(text, { precise: true });
-    if (!hits.length) return [];
+    const authz = CODE_FILE.test(file.path) ? authorizationChecks(text) : [];
+    if (!hits.length && !authz.length) return [];
     // Kind and line only: the offset is used to compute the line and then discarded.
     const secrets = hits.slice(0, MAX_SECRETS_PER_FILE).map((h) => ({ kind: h.kind, line: lineAt(text, h.start) }));
-    const attrs = { secrets, ...(hits.length > MAX_SECRETS_PER_FILE ? { truncated: true } : {}) };
+    const attrs = {
+      ...(secrets.length ? { secrets, ...(hits.length > MAX_SECRETS_PER_FILE ? { truncated: true } : {}) } : {}),
+      ...(authz.length ? { authz_checks: authz } : {}),
+    };
     return [nodeFact('file', file.path, { name: file.path, path: file.path, attrs },
-      prov({ source_type: 'ast', source_ref: `${file.path}:${secrets[0].line}`, extractor: EXTRACTOR, confidence: 'medium' }))];
+      prov({ source_type: 'ast', source_ref: `${file.path}:${secrets[0]?.line ?? authz[0].line}`, extractor: EXTRACTOR, confidence: 'medium' }))];
   },
 
   /** Optional external scanners. Never throws for an unavailable tool. */
