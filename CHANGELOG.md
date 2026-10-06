@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- A decomposition record names each metric once (#38). Selection and the boundary summary were already fed by one set of signals, so the record is checked rather than changed in that respect, but two measures read as one: `boundary.outbound_dependencies` counts import edges (25) while the targets list names the few modules they reach. The distinct-module count is now its own metric, `boundary.outbound_dependency_modules`, shown beside the edge count with both definitions in `decompose show`, and the metrics a rejection or readiness row quotes from the graph-wide signals (`traces.available`, `ci.per_unit_pipeline`, `driver.*`) are in the boundary metrics too, so every metric a treatment evaluation names equals its value in the record's boundary summary. A consistency test asserts it.
 - A decomposition candidate is named after the namespace or folder that a strict majority of its members share, with outliers noted (`Shop.Orders.Checkout (+1 from Shop.Notifications)`), instead of the members' common prefix, which could name a much larger parent namespace. The common prefix is used only when nothing holds a majority (#39).
 
 ## [0.2.2] - 2026-10-06

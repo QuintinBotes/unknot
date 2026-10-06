@@ -221,6 +221,9 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   // `reverse_deps*` are the 0.1.x names of the same numbers, kept until 0.3.0.
   m['boundary.outbound_dependencies'] = m['boundary.reverse_deps'] = reverseEdges.length;
   m['boundary.outbound_dependencies_test'] = m['boundary.reverse_deps_test'] = reverseTest.length;
+  // The same imports counted by the distinct modules they reach: 25 import edges into 2 modules
+  // is two measures with two names, not one name with two values.
+  m['boundary.outbound_dependency_modules'] = reverseTargets.size;
   if (lowReverse) {
     m['boundary.outbound_dependencies_low_confidence'] = m['boundary.reverse_deps_low_confidence'] = lowReverse;
     gaps.push(`${lowReverse} import(s) from the candidate into the rest were resolved only by namespace (low confidence) and are not counted in outbound_dependencies`);
