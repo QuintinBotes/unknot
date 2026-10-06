@@ -9,6 +9,8 @@ import { searchText } from '../../graph/search.mjs';
 import { output } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+export const USAGE = 'usage: unknot search <text> [--regex] [--scan] [--limit N] [scope...]';
+
 const line = (h) => `  ${h.path}:${h.line}${h.kind !== 'source' ? ` [${h.kind}]` : ''}${h.owners ? ` (${h.owners.join(', ')})` : ''}\n      ${h.text}`;
 
 export async function run({ positional, flags }) {

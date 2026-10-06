@@ -8,6 +8,7 @@ import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { UnknotError } from '../../core/errors.mjs';
 import { cliPath, output, requireHumanTTY } from '../util.mjs';
 
+export const USAGE = 'usage: unknot cli status|install|uninstall [--dir <dir>]';
 export const SHIM_MARK = '// unknot-cli-shim';
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
 
