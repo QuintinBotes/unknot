@@ -1,0 +1,42 @@
+{
+  "sha256:beca39328c86f3e55d5102ffd8be5b216b3db4c8a227fad55f60ae084b0eb114": {
+    "label": "false",
+    "note": "Script is a standalone tool run manually and documented in the component README."
+  },
+  "sha256:7f1fc8244ae77f3f45ddb89bc59d362e85a86c8a25d4c0152927c1ae9ffeb3fe": {
+    "label": "not-worth",
+    "note": "Demo terraform with no backend block; local state is acceptable for a sample."
+  },
+  "sha256:7b6c6ebf80447f6c9d2a75edf93ea79e115a3250aaaf94754af24068f1ab616d": {
+    "label": "true",
+    "note": "Deployment has no probes while the other service manifests define them."
+  },
+  "sha256:57a796b0f08e7f4ba7591c06f15bf4fb6c3933190fd7cdb7665d52dd5783e7bb": {
+    "label": "not-worth",
+    "note": "Bucket already has force_destroy=false and versioning; prevent_destroy adds little."
+  },
+  "sha256:096b0b5a79f95f03d53dfaf6939c0e47715fc49be52586bc8d9446ed48501d93": {
+    "label": "not-worth",
+    "note": "Image name is a placeholder replaced by skaffold/kustomize at deploy time."
+  },
+  "sha256:1835d9dbc1a36ad06704c9938f506327c373a018f44d07088bad7cc644b223ff": {
+    "label": "true",
+    "note": "Workflow has no permissions block, so default token scope applies; trivial to restrict."
+  },
+  "sha256:b0e60d0261b31f416baa9dbaef043343e35409737dc537c78bd31e5286e0a6d8": {
+    "label": "not-worth",
+    "note": "Implicit null provider unpinned; google provider is pinned and impact is minimal in a demo."
+  },
+  "sha256:78c3f9b328cd999e5af0e6e760e2d53c08d0cbf8e27f34bcc12dab4e25ec9d67": {
+    "label": "not-worth",
+    "note": "Money helpers differ only by genproto import; duplication across independent services is deliberate."
+  },
+  "sha256:5bb3c8c1b5a03b600183533a2d8a1bbfc290f4521658b8cfe7a3a34eb15ffaf5": {
+    "label": "not-worth",
+    "note": "Image name is a placeholder substituted at build time, so a digest is not expected in the manifest."
+  },
+  "sha256:ca0a87ef70a4288f3333abf6310586dbcc12ab3d1f88f6d80631ab9533ee9e6b": {
+    "label": "not-worth",
+    "note": "Dockerfile sets no USER but the deployment manifest enforces runAsNonRoot and a user id."
+  }
+}

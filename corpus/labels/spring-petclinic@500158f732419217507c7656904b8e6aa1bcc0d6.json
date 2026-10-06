@@ -1,0 +1,42 @@
+{
+  "sha256:83828737eecd899dd98fd34695bbf1063f595447dc1a8f4d93ca772f3d57aaf8": {
+    "label": "not-worth",
+    "note": "Dev-only compose file for a local MySQL database; no healthcheck is a minor omission."
+  },
+  "sha256:b20b0bc3ff3beff625f64f6fd36f6145e56195e6832fcb3d3847598d277a510f": {
+    "label": "not-worth",
+    "note": "Demo Kubernetes manifest referencing an untagged sample image."
+  },
+  "sha256:2a7a16f46a904d612e611979bbf0d83c42d52f7a5286637587e4233c0ac8426e": {
+    "label": "true",
+    "note": "maven-build.yml has no permissions block at workflow or job level."
+  },
+  "sha256:0aec7717b080c068da902a8d192157e273551a0a4da59a03937403ebeb2c2674": {
+    "label": "not-worth",
+    "note": "The demo Postgres image is pinned to a version tag (postgres:18.4), only not to a digest."
+  },
+  "sha256:99b20652662a5fe14e6e24065a4de960ec0f58adc25d7bbd12b75d66ca3cadf3": {
+    "label": "not-worth",
+    "note": "The Dockerfile comment says it is not used by the devcontainer; it is a dev image only."
+  },
+  "sha256:d4962b41adb3a12675cbbc8f52db876ca0a0f8a187f7df6f39b85f7b36d12f45": {
+    "label": "false",
+    "note": "The two indexes are in different per-database schema files (h2 pets_name, postgres idx_pets_name), never in the same schema."
+  },
+  "sha256:e79ee085bfb22575609b3274a83d39a9862ea49450f3a8e405512a27e95495e9": {
+    "label": "not-worth",
+    "note": "NodePort service in a demo manifest applied to a local kind cluster; not internet exposure."
+  },
+  "sha256:2a45cda113761bc14954456269160c13db6aefe9330f4631e0e335956b00be2b": {
+    "label": "not-worth",
+    "note": "Demo database manifest without resource requests/limits."
+  },
+  "sha256:b2fd9cb6178bcc1dbaff8fce51f20adb3ffbc1f80d34761ed3e78f1d122fcef4": {
+    "label": "false",
+    "note": "The workflow deploys to an ephemeral kind cluster as a test, not a production deploy, so a rollback path does not apply."
+  },
+  "sha256:dc9a9f3e51aa0edd3ac2c589d41687db79547a11aa052fffd4b54bf84ea4d440": {
+    "label": "not-worth",
+    "note": "Dev-only compose file for a local Postgres database; no healthcheck is a minor omission."
+  }
+}

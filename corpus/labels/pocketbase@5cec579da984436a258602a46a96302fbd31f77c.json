@@ -1,0 +1,42 @@
+{
+  "sha256:c249cb7ab02bf796deb93083c25c5ac550c192f1e98118cccf376203091cd666": {
+    "label": "true",
+    "note": "A single UI modal module of 1244 source lines holds the whole record form."
+  },
+  "sha256:2df663cbbca14e1387128f1e08bd2f29204c24b65b5edd9ac158f1fd057116d2": {
+    "label": "false",
+    "note": "Fan-in of 64 reflects package-level imports of core; this 592-line file is not imported as a module."
+  },
+  "sha256:4d44bc5401675bc67196a391bfecb375b1499caed9133cb1d963de1b63634a68": {
+    "label": "not-worth",
+    "note": "Router event file imports a small picker helper; low-impact dependency direction."
+  },
+  "sha256:6b3e72b40b1cd9b299edb28a234a134579476dd5803b14954e6f993fdf9c56a9": {
+    "label": "true",
+    "note": "release.yaml has no permissions block, so the token uses repository default permissions."
+  },
+  "sha256:5ae4d1f90e76d8a6028e00cef264ea890d2181ce25d418b9018d09de0ebbf2c9": {
+    "label": "not-worth",
+    "note": "Near-identical simple find-by-record query helpers for sibling models."
+  },
+  "sha256:bf206ddac8ddcc085eb172551339962417c98469fff6c59425aba6f3fc0ce212": {
+    "label": "not-worth",
+    "note": "First-party actions pinned to major version tags, a common practice."
+  },
+  "sha256:b91e6b98f31aad29dd553a8dfe391a7ba5e687ccecc29acc3920b294e8875c31": {
+    "label": "false",
+    "note": "Match is a PEM placeholder string in a textarea hint, not a secret."
+  },
+  "sha256:1b1cf97e4d9f5ac803787c9e013cf59f7dd14e700fff0f666306c8c659735ae8": {
+    "label": "not-worth",
+    "note": "JWTs are fixed test fixtures in a test file."
+  },
+  "sha256:6d07b0a525c687bfbf99af914abdf12cc7de3013c36a59d604b072233f787309": {
+    "label": "not-worth",
+    "note": "Cyclomatic 16 from a flat token-type switch and sequential validation; just over threshold."
+  },
+  "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
+    "label": "false",
+    "note": "Cited definitions are error constructors and access helpers, not re-implemented authorization logic outside a package."
+  }
+}
