@@ -26,6 +26,8 @@ import { appendEvent } from '../state/ledger.mjs';
 import { catalogSummary } from './catalog.mjs';
 
 export const WORKSPACE_GRAPH_META = 'workspace_graph';
+/** Meta entry in a member project's store: the workspace root, the repository's name there and the time of the last workspace map. */
+export const MEMBER_META = 'workspace_member';
 export const WORKSPACE_GRAPH_FORMAT = 'unknot.workspace-graph';
 
 /** Node types kept in the combined graph. Function-level detail stays in each repository's own store. */
@@ -327,14 +329,42 @@ export function loadWorkspaceGraph(rootCtx) {
   return doc;
 }
 
+/**
+ * The cross-repository route links of the workspace a project belongs to, as that project
+ * sees them: `links` are the client-to-endpoint edges with one side in this repository (ids
+ * local to each repository). Null when the project was never part of a workspace map or the
+ * stored graph cannot be read. `stale` says the project was mapped again after the workspace map.
+ */
+export function workspaceLinks(ctx) {
+  let member;
+  try {
+    member = JSON.parse(ctx.store.meta(MEMBER_META) ?? 'null');
+    if (!member?.root || !member.repository) return null;
+    const rootCtx = openProject(member.root, { readOnly: true });
+    const doc = loadWorkspaceGraph(rootCtx);
+    if (!doc) return null;
+    const local = new Map();
+    const cross = doc.edges.filter((e) => e.attrs?.cross_repo && e.attrs.via === 'contract' && (e.attrs.from_repo === member.repository || e.attrs.to_repo === member.repository));
+    const need = new Set(cross.flatMap((e) => [e.from, e.to]));
+    for (const n of doc.nodes) if (need.has(n.id)) local.set(n.id, n.attrs?.local_id);
+    const links = cross.map((e) => ({ route: e.attrs.route ?? e.attrs.detail, from_repo: e.attrs.from_repo, from: local.get(e.from), to_repo: e.attrs.to_repo, to: local.get(e.to) })).filter((l) => l.from && l.to);
+    const mappedAt = ctx.store.meta('mapped_at');
+    return { repository: member.repository, mapped_at: doc.generated_at, stale: !!mappedAt && mappedAt > doc.generated_at, links };
+  } catch {
+    return null;
+  }
+}
+
 /** Map every linked repository into its own store, then build and store the combined graph. */
 export async function mapWorkspace(rootCtx, { config, history = true } = {}) {
   const repos = resolveRepositories(rootCtx, config);
   if (!repos.length) throw new UnknotError('UK_CONFIG_INVALID', 'no repositories listed under workspace.repositories in .unknot/config.yaml');
   const graphs = new Map();
   const repositories = [];
+  const members = [];
   for (const repo of repos) {
     const ctx = openRepo(repo);
+    members.push({ name: repo.name, ctx });
     const cfg = loadConfig(ctx);
     const s = await mapRepository(ctx, { config: cfg.config, configDigest: cfg.digest, history });
     graphs.set(repo.name, Graph.fromStore(ctx.store));
@@ -345,6 +375,10 @@ export async function mapWorkspace(rootCtx, { config, history = true } = {}) {
   const digest = casPut(rootCtx, JSON.stringify(doc), { mediaType: 'application/json', label: WORKSPACE_GRAPH_META });
   rootCtx.store.meta(WORKSPACE_GRAPH_META, digest);
   rootCtx.store.meta('workspace_graph_at', doc.generated_at);
+  // Each member project learns which workspace it belongs to, so a decomposition run inside it can read the cross-repository links.
+  for (const m of members) {
+    m.ctx.store.meta(MEMBER_META, JSON.stringify({ root: rootCtx.root, repository: m.name, mapped_at: doc.generated_at }));
+  }
   appendEvent(rootCtx, {
     type: 'workspace.mapped',
     actor: 'runtime:workspace',

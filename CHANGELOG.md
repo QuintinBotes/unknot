@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- Cross-repository clients and endpoints in a single-repository `decompose` (#30): `unknot workspace map` records the workspace, the repository's name in it and the time of the map in each member project's store, and `decompose` inside a member reads the workspace's client-to-endpoint links for the candidate's modules. Endpoints the candidate serves that clients in other repositories call (`clients.count` per route, `client_repositories`) and routes the candidate calls that another repository serves (`served_by`) count as `contracts.present`; the record's `candidate.contracts` lists the routes, each labelled with `workspace_mapped_at`, and `candidate.workspace` names the map. When the repository was mapped after the workspace map, the evidence is still used but the record's gaps say the cross-repository evidence is stale. A project outside any workspace is unchanged.
+
 ## [0.3.1] - 2026-10-06
 
 ### Changed
