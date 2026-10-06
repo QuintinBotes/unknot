@@ -10,6 +10,8 @@ import { Graph } from '../../graph/graph.mjs';
 import { output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+export const USAGE = 'usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X]|cycles [EDGE] [--max-cycles N|all] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)';
+
 const usage = (message) => new UnknotError('UK_SCHEMA_INVALID', message);
 
 /** A whole-number flag; a flag given without a value is an error, never NaN. */

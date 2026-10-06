@@ -61,6 +61,21 @@ export async function main(argv) {
     process.stderr.write(`unknot: unknown command ${name}\n`);
     return 2;
   }
+  // Check for --help or -h before running the command, without opening the store.
+  if (rest.includes('--help') || rest.includes('-h')) {
+    try {
+      const mod = await import(`./commands/${name}.mjs`);
+      if (mod.USAGE) {
+        process.stdout.write(`${mod.USAGE}\n`);
+      } else {
+        process.stdout.write(`usage: unknot ${name} — ${COMMANDS[name]}\n`);
+      }
+    } catch {
+      // If the command module fails to load, print the basic usage.
+      process.stdout.write(`usage: unknot ${name} — ${COMMANDS[name]}\n`);
+    }
+    return 0;
+  }
   const args = parseArgs(rest);
   try {
     const mod = await import(`./commands/${name}.mjs`);
