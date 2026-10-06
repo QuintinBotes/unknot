@@ -29,16 +29,38 @@ describe('names', () => {
   ]);
   const ids = (...n) => n.map((x) => `module:${x}`);
 
-  test('the longest namespace shared by at least half of the members names the candidate', () => {
+  test('the deepest namespace a strict majority of the members share names the candidate, outliers noted', () => {
     const r = describeName(ids('src/shop/A.cs', 'src/shop/B.cs', 'src/shop/C.cs', 'src/shop/D.cs', 'src/other/E.cs'), g);
-    assert.deepEqual(r, { name: 'Shop.Catalog.Products', basis: 'namespace' });
-    assert.equal(describeName(ids('src/shop/D.cs', 'src/other/E.cs', 'src/other/F.cs'), g).name, 'Shop');
+    assert.deepEqual(r, { name: 'Shop.Catalog.Products (+2 from Shop.Billing, Shop.Catalog)', base: 'Shop.Catalog.Products', basis: 'namespace' });
+    assert.equal(describeName(ids('src/shop/D.cs', 'src/other/E.cs', 'src/other/F.cs'), g).name, 'Shop (+1 from src/other)');
   });
 
-  test('without namespaces the dominant directory below the common prefix names it', () => {
+  test('a namespace holding 58 of 59 members names it, with the outlier noted; the base survives a rerun', () => {
+    const many = Array.from({ length: 58 }, (_, i) => mod(`src/orders/M${i}.cs`, { namespace: 'Shop.Orders.Checkout' }));
+    const odd = (n) => mod(`src/notify/N${n}.cs`, { namespace: 'Shop.Notifications' });
+    const ns = Graph.fromFacts([...many, odd(0), odd(1)]);
+    const members = many.map((m) => `module:${m.path}`);
+    const one = describeName([...members, 'module:src/notify/N0.cs'], ns);
+    assert.deepEqual(one, { name: 'Shop.Orders.Checkout (+1 from Shop.Notifications)', base: 'Shop.Orders.Checkout', basis: 'namespace' });
+    const rerun = describeName([...members, 'module:src/notify/N0.cs', 'module:src/notify/N1.cs'], ns);
+    assert.equal(rerun.base, one.base);
+    assert.equal(rerun.name, 'Shop.Orders.Checkout (+2 from Shop.Notifications)');
+  });
+
+  test('an even split between two namespaces keeps the common prefix', () => {
+    const ns = Graph.fromFacts([mod('a/1.cs', { namespace: 'Shop.Orders' }), mod('a/2.cs', { namespace: 'Shop.Orders' }), mod('b/1.cs', { namespace: 'Shop.Billing' }), mod('b/2.cs', { namespace: 'Shop.Billing' })]);
+    assert.deepEqual(describeName(ids('a/1.cs', 'a/2.cs', 'b/1.cs', 'b/2.cs'), ns), { name: 'Shop', base: 'Shop', basis: 'namespace' });
+  });
+
+  test('without namespaces the directory a strict majority share names it, outliers noted', () => {
     const none = Graph.fromFacts([mod('src/a/x/1.ts'), mod('src/a/x/2.ts'), mod('src/a/y/3.ts')]);
-    assert.deepEqual(describeName(ids('src/a/x/1.ts', 'src/a/x/2.ts', 'src/a/y/3.ts'), none), { name: 'src/a/x', basis: 'directory' });
+    assert.deepEqual(describeName(ids('src/a/x/1.ts', 'src/a/x/2.ts', 'src/a/y/3.ts'), none), { name: 'src/a/x (+1 from src/a/y)', base: 'src/a/x', basis: 'directory' });
     assert.equal(describeName(ids('src/a/x/1.ts', 'src/a/x/2.ts'), none).name, 'src/a/x');
+  });
+
+  test('an even split between two directories keeps the common directory prefix', () => {
+    const none = Graph.fromFacts([mod('src/a/x/1.ts'), mod('src/a/y/2.ts')]);
+    assert.equal(describeName(ids('src/a/x/1.ts', 'src/a/y/2.ts'), none).name, 'src/a');
   });
 
   test('two candidates that share a name get their hub file appended', () => {
@@ -271,6 +293,31 @@ describe('decompose command', () => {
     const cfg = { ...r.config, decomposition: { ...r.config.decomposition, drivers: [{ id: 'build_time', source: 'docs/goals.md', quote: 'Builds take too long.' }] } };
     const fromConfig = await decompose(r.ctx, { config: cfg, scope: ['shop/**'], dryRun: true });
     assert.deepEqual(fromConfig.details[0].driver_provenance, [{ driver: 'build_time', source: 'docs/goals.md', quote: 'Builds take too long.' }]);
+  });
+
+  test('a record that replaces an earlier one with the same drivers carries their source and quote forward', async () => {
+    const drivers = ['availability_isolation', 'security_isolation'];
+    const orders = (names) => names.map((n) => `shop/catalog/${n.replace('o', 'c')}.js`);
+    const prov = { byDriver: { availability_isolation: { source: 'https://example.com/plan', quote: 'Checkout must stay up.' }, security_isolation: { quote: 'Card data stays apart.' } } };
+    const first = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2', 'o3', 'o4']), drivers, driverProvenance: prov });
+    const [a] = first.details;
+    assert.ok(a.driver_provenance.every((p) => !('carried_from' in p)));
+    // The members change (one fewer), so the rerun takes a new id and replaces the first record.
+    const second = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2', 'o3']), drivers });
+    const [b] = second.details;
+    assert.notEqual(b.id, a.id);
+    assert.equal(b.supersedes, a.id);
+    assert.deepEqual(b.driver_provenance, [
+      { driver: 'availability_isolation', source: 'https://example.com/plan', quote: 'Checkout must stay up.', carried_from: a.id },
+      { driver: 'security_isolation', source: null, quote: 'Card data stays apart.', carried_from: a.id },
+    ]);
+    assert.deepEqual(second.driver_provenance_missing, []);
+    // Words given on the command line win over the ones carried.
+    const third = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2']), drivers, driverProvenance: { byDriver: { security_isolation: { quote: 'New words.' } } }, dryRun: true });
+    assert.deepEqual(third.details[0].driver_provenance.map((p) => [p.driver, p.quote, p.carried_from ?? null]), [['availability_isolation', 'Checkout must stay up.', b.id], ['security_isolation', 'New words.', null]]);
+    // With nothing to carry from, the drivers are reported as unrecorded.
+    const none = await decompose(r.ctx, { config: r.config, scope: ['shop/billing/**'], drivers, dryRun: true });
+    assert.deepEqual(none.driver_provenance_missing, drivers);
   });
 
   test('list reports stale records once the graph is rebuilt; show returns one record', async () => {

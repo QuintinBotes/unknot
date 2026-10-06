@@ -43,6 +43,25 @@ export function predecessorOf(records, { target, modules, self = null }, claimed
   return best;
 }
 
+/**
+ * Metrics a record's treatment evaluations name (readiness rows, failed predicates, favouring
+ * signals) whose value differs from the one in its boundary summary: a metric name has one
+ * value per record, so this is empty for every record the runtime writes.
+ * @returns {{metric: string, summary: unknown, evaluation: unknown, where: string}[]}
+ */
+export function metricMismatches(rec) {
+  const m = rec.candidate?.metrics ?? {};
+  const out = [];
+  const check = (metric, value, where) => {
+    if (value === null || value === undefined || !(metric in m)) return;
+    if (m[metric] !== value) out.push({ metric, summary: m[metric], evaluation: value, where });
+  };
+  for (const r of rec.readiness ?? []) check(r.signal, r.value, `readiness ${r.treatment}`);
+  for (const t of rec.rejected_treatments ?? []) for (const f of t.failed_predicates ?? []) check(f.signal, f.value, `rejected ${t.treatment}`);
+  for (const f of rec.favoring_signals ?? []) check(f.signal, f.value, 'favouring signal');
+  return out;
+}
+
 /** Every readable record, sorted by id. Unreadable files are skipped. */
 export function loadRecords(ctx) {
   const dir = dirOf(ctx);
