@@ -1,4 +1,5 @@
 import { UnknotError } from '../../core/errors.mjs';
+import { matchAny } from '../../core/glob.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
 import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
 import { EDGE_TYPES } from '../../graph/facts.mjs';
@@ -66,8 +67,25 @@ export async function run({ positional, flags }) {
     return output({ generation: ctx.store.meta('generation'), mapped_commit: ctx.store.meta('mapped_commit'), mapped_at: ctx.store.meta('mapped_at'), nodes, edges }, { json: true });
   }
   if (sub === 'nodes') {
-    const rows = ctx.store.all(`SELECT id, type, label, path FROM nodes ${arg ? 'WHERE type = ?' : ''} ORDER BY id LIMIT ?`, ...(arg ? [arg, limit] : [limit]));
-    return output(flags.json ? rows : table(rows, ['id', 'type', 'label']), { json: flags.json });
+    const where = [];
+    const params = [];
+    if (arg) {
+      where.push('type = ?');
+      params.push(arg);
+    }
+    if (flags.name !== undefined) {
+      if (flags.name === true) throw usage('--name needs text to look for');
+      where.push("(lower(id) LIKE ? ESCAPE '\\' OR lower(name) LIKE ? ESCAPE '\\')");
+      const like = `%${String(flags.name).toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      params.push(like, like);
+    }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    let rows = ctx.store.all(`SELECT id, type, label, path FROM nodes ${clause} ORDER BY id`, ...params);
+    if (flags.path !== undefined) rows = rows.filter((r) => r.path && matchAny(r.path, [String(flags.path)]));
+    const total = rows.length;
+    rows = rows.slice(0, limit);
+    if (flags.json) return output({ total, nodes: rows }, { json: true });
+    return output(`${table(rows, ['id', 'type', 'label'])}${total > rows.length ? `\n(${rows.length} of ${total} nodes; raise --limit or narrow with a type, --name or --path)` : ''}`);
   }
   if (sub === 'node') {
     const n = ctx.store.get('SELECT * FROM nodes WHERE id = ?', arg);
@@ -78,7 +96,9 @@ export async function run({ positional, flags }) {
     return output({ ...n, attrs: JSON.parse(n.attrs), out, in: inn, provenance: facts }, { json: true });
   }
   if (sub === 'edges') {
-    const types = edgeTypesOf(arg, flags);
+    // A first argument that is not an edge type names a node: its edges in both directions.
+    const nodeArg = arg && !EDGE_TYPES.has(arg) ? arg : null;
+    const types = edgeTypesOf(nodeArg ? null : arg, flags);
     const where = [];
     const params = [];
     const addIn = (col, values) => {
@@ -86,10 +106,15 @@ export async function run({ positional, flags }) {
       params.push(...values);
     };
     if (types.length) addIn('type', types);
-    if (flags.from !== undefined || flags.to !== undefined) {
+    if (flags.from !== undefined || flags.to !== undefined || nodeArg) {
       const g = Graph.fromStore(ctx.store);
       if (flags.from !== undefined) addIn('src', refIds(g, 'from', flags.from));
       if (flags.to !== undefined) addIn('dst', refIds(g, 'to', flags.to));
+      if (nodeArg) {
+        const ids = refIds(g, 'node', nodeArg);
+        where.push(`(src IN (${ids.map(() => '?').join(',')}) OR dst IN (${ids.map(() => '?').join(',')}))`);
+        params.push(...ids, ...ids);
+      }
     }
     const rows = ctx.store.all(`SELECT type, src, dst, label FROM edges ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY src, dst, type LIMIT ?`, ...params, limit);
     return output(flags.json ? rows : table(rows, ['type', 'src', 'dst', 'label']), { json: flags.json });
@@ -150,8 +175,12 @@ export async function run({ positional, flags }) {
     const rows = hood.edges.map((e) => ({ type: e.type, from: e.from, to: e.to }));
     if (flags.json) return output({ roots, depth, nodes: hood.nodes.map((n) => ({ id: n.id, type: n.type })), edges: rows.slice(0, limit), edge_count: rows.length, capped: hood.capped }, { json: true });
     const head = `${roots.join(', ')}: ${hood.nodes.length} nodes, ${rows.length} edges within ${depth} hop${depth > 1 ? 's' : ''}${hood.capped ? ' (node cap reached)' : ''}`;
-    return output(`${head}\n${table(rows.slice(0, limit), ['type', 'from', 'to'])}${rows.length > limit ? `\n(${limit} of ${rows.length} edges; raise --limit or narrow with --type)` : ''}`);
+    const counts = Object.entries(rows.reduce((m, r) => ((m[r.type] = (m[r.type] ?? 0) + 1), m), {})).map(([t, n]) => `${t} ${n}`).join(', ');
+    // Say what the graph cannot show here, rather than letting an absence read as "none".
+    const lexical = [...new Set(roots.map((id) => g.node(id)).filter((n) => n?.attrs?.parse_quality === 'lexical').map((n) => n.attrs.language))];
+    const gap = !types.length && lexical.length && !rows.some((r) => r.type === 'CALLS') ? `\nNo CALLS edges: ${lexical.join(', ')} is read lexically here, so calls between files are not extracted (only imports and type references). The semantic tier adds them (docs/roadmap.md, item 1).` : '';
+    return output(`${head}${counts ? ` (${counts})` : ''}${gap}\n${table(rows.slice(0, limit), ['type', 'from', 'to'])}${rows.length > limit ? `\n(${limit} of ${rows.length} edges; raise --limit or narrow with --type)` : ''}`);
   }
-  output('usage: unknot graph stats|nodes [type]|node <id>|edges [TYPE] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
+  output('usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
   return 2;
 }

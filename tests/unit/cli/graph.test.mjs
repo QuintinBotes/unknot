@@ -44,7 +44,7 @@ before(() => {
       imp('src/ord/Y.cs', 'src/ord/X.cs'),
       imp('src/ord/X.cs', 'src/cat/A.cs'),
       imp('src/dec/P.cs', 'src/dec/Q.cs'),
-      edgeFact('IMPORTS', 'module:src/dec/Q.cs', 'module:src/dec/P.cs', { declared_only: true, unused_member: 'Audit' }, p),
+      edgeFact('IMPORTS', 'module:src/dec/Q.cs', 'module:src/dec/P.cs', { declared_only: true, unused_member: 'Ledger' }, p),
       edgeFact('TESTS', 'module:tests/AlphaTests.cs', 'module:src/cat/A.cs', {}, p),
       edgeFact('CALLS', 'module:src/ord/Y.cs', 'module:src/cat/A.cs', {}, p),
       edgeFact('IMPORTS', `module:${LONG}`, 'module:src/cat/A.cs', {}, p),
@@ -99,9 +99,9 @@ test('cycles: lists the cycle, the edge to cut and marks a declared-only edge', 
   const [c] = json('cycles', 'src/dec');
   assert.equal(c.size, 2);
   assert.equal(c.cycles.length, 1);
-  assert.deepEqual(c.cut.map((e) => [e.from, e.to, e.declared_only, e.unused_member]), [['module:src/dec/Q.cs', 'module:src/dec/P.cs', true, 'Audit']]);
+  assert.deepEqual(c.cut.map((e) => [e.from, e.to, e.declared_only, e.unused_member]), [['module:src/dec/Q.cs', 'module:src/dec/P.cs', true, 'Ledger']]);
   const text = graph('cycles', 'src/dec').out;
-  assert.match(text, /src\/dec\/Q\.cs → src\/dec\/P\.cs \(declared only: src\/dec\/P\.cs member Audit is never used\)/);
+  assert.match(text, /src\/dec\/Q\.cs → src\/dec\/P\.cs \(declared only: src\/dec\/P\.cs member Ledger is never used\)/);
   assert.match(text, /src\/dec\/P\.cs → src\/dec\/Q\.cs → src\/dec\/P\.cs/);
   assert.doesNotMatch(text, /…/);
 });
@@ -147,4 +147,25 @@ test('table never truncates ids, other cells still cap at 60', () => {
   const text = table([{ a: 'z'.repeat(80) }], ['a']);
   assert.equal(text.split('\n')[2], 'z'.repeat(60));
   assert.ok(graph('edges', '--from', `module:${LONG}`).out.includes(`module:${LONG}`));
+});
+
+test('nodes: --name and --path filter, and a cut-off list says how many there are', () => {
+  const byName = json('nodes', 'module', '--name', 'ord/');
+  assert.deepEqual(byName.nodes.map((n) => n.id).sort(), ['module:src/ord/X.cs', 'module:src/ord/Y.cs']);
+  assert.equal(byName.total, 2);
+  assert.deepEqual(json('nodes', 'module', '--path', 'src/dec/**').nodes.map((n) => n.id).sort(), ['module:src/dec/P.cs', 'module:src/dec/Q.cs']);
+  const cut = graph('nodes', 'module', '--limit', '2');
+  assert.match(cut.out, /\(2 of \d+ nodes; raise --limit or narrow with a type, --name or --path\)/);
+});
+
+test('edges <node>: a node or path instead of an edge type gives its edges in both directions', () => {
+  const rows = json('edges', 'src/cat/A.cs');
+  assert.ok(rows.length >= 5);
+  assert.ok(rows.every((e) => e.src === 'module:src/cat/A.cs' || e.dst === 'module:src/cat/A.cs'));
+  assert.ok(rows.some((e) => e.type === 'CALLS') && rows.some((e) => e.type === 'TESTS'));
+});
+
+test('neighbourhood: counts per relation, and says when calls cannot be seen for code read lexically', () => {
+  const r = graph('neighbourhood', 'src/cat/A.cs');
+  assert.match(r.out, /\(IMPORTS \d+.*CALLS 1.*\)|\(.*CALLS 1.*IMPORTS \d+.*\)/);
 });

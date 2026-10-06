@@ -102,11 +102,11 @@ test('declared-only: an unused injected property and a constructor-injected fiel
   const g = build({
     'S/Mailer.cs': cls('Shop.Svc', 'Mailer'),
     'S/Billing.cs': cls('Shop.Svc', 'Billing'),
-    'S/Audit.cs': cls('Shop.Svc', 'Audit'),
+    'S/Journal.cs': cls('Shop.Svc', 'Tracker'),
     'S/Shipper.cs': cls('Shop.Svc', 'Shipper'),
     'S/Unused.cs': cls('Shop.Svc', 'Unused', '        [Dependency]\n        public Mailer Mailer { get; set; }\n        private readonly Billing _billing;\n        public Unused(Billing billing) { _billing = billing; }'),
     'S/Used.cs': cls('Shop.Svc', 'Used', '        [Dependency]\n        public Mailer Mailer { get; set; }\n        void Go() { Mailer.Send(); }'),
-    'S/Mixed.cs': cls('Shop.Svc', 'Mixed', '        private readonly Audit _audit;\n        public Mixed(Audit audit) { _audit = audit; }\n        void Go() { _audit.Log(); }\n        void Make() { var s = new Shipper(); }\n        private readonly Shipper _s;'),
+    'S/Mixed.cs': cls('Shop.Svc', 'Mixed', '        private readonly Tracker _tracker;\n        public Mixed(Tracker tracker) { _tracker = tracker; }\n        void Go() { _tracker.Log(); }\n        void Make() { var s = new Shipper(); }\n        private readonly Shipper _s;'),
   });
   const a = g.edge('S/Unused.cs', 'S/Mailer.cs').attrs;
   assert.equal(a.declared_only, true);
@@ -115,7 +115,7 @@ test('declared-only: an unused injected property and a constructor-injected fiel
   assert.equal(b.declared_only, true);
   assert.equal(b.unused_member, '_billing');
   assert.ok(!g.edge('S/Used.cs', 'S/Mailer.cs').attrs.declared_only);
-  assert.ok(!g.edge('S/Mixed.cs', 'S/Audit.cs').attrs.declared_only, 'used member');
+  assert.ok(!g.edge('S/Mixed.cs', 'S/Journal.cs').attrs.declared_only, 'used member');
   assert.ok(!g.edge('S/Mixed.cs', 'S/Shipper.cs').attrs.declared_only, 'new T');
 });
 
@@ -266,11 +266,11 @@ test('declared-only: a public member used from another file is an ordinary edge'
   }
   // A member whose name is no type is also reached by a bare name (a derived class).
   const g = build({
-    'S/Audit.cs': cls('Shop.Svc', 'Audit'),
-    'S/Host.cs': hostWith('public Audit Journal { get; set; }'),
+    'S/Journal.cs': cls('Shop.Svc', 'Tracker'),
+    'S/Host.cs': hostWith('public Tracker Journal { get; set; }'),
     'S/Derived.cs': cls('Shop.Svc', 'Derived : Host', '        void F() { Journal.Write(); }'),
   });
-  assert.ok(!g.edge('S/Host.cs', 'S/Audit.cs').attrs.declared_only);
+  assert.ok(!g.edge('S/Host.cs', 'S/Journal.cs').attrs.declared_only);
 });
 
 test('declared-only: a mention of the type alone does not count as use of the member elsewhere', () => {
