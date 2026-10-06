@@ -138,7 +138,8 @@ test('decompose: a candidate serving a route a typed client declares has contrac
   const dir = materialize(parent, 'orders-server');
   // The server repository also holds the client interface that calls it (an in-process caller).
   const both = join(parent, 'both');
-  cpSync(dir, both, { recursive: true });
+  // Not the .git directory: git may still be writing objects there, and `both` gets its own.
+  cpSync(dir, both, { recursive: true, filter: (src) => !src.split(/[\\/]/).includes('.git') });
   cpSync(join(FIXTURES, 'orders-client', 'src', 'Clients'), join(both, 'src', 'Clients'), { recursive: true });
   git(both, 'init', '-q');
   git(both, 'add', '-A');
