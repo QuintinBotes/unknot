@@ -9,6 +9,7 @@ import { getFinding } from '../diagnose/engine.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { neighbourhood, rankHubs, resolveRef } from '../graph/algorithms.mjs';
+import { DERIVED_KINDS, readDerived } from '../graph/derived.mjs';
 import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
@@ -104,12 +105,13 @@ export const TOOLS = {
 
   graph_query: {
     description:
-      'List graph nodes by type (type), list edges by type (edge_type, without id), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
+      'List graph nodes by type (type), list edges by type (edge_type, without id), read the derived facts every command shares (derived: scc, scc_strict, declared_only, public_surface, test_code or ownership), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
     inputSchema: schema({
       type: str(),
       id: str(),
       edge_type: str(),
       direction: { type: 'string', enum: ['out', 'in'] },
+      derived: { type: 'string', enum: DERIVED_KINDS },
       limit: limit(),
       full: { type: 'boolean' },
     }),
@@ -117,6 +119,10 @@ export const TOOLS = {
       const g = Graph.fromStore(ctx.store);
       const max = a.limit ?? 50;
       const full = a.full === true;
+      if (a.derived) {
+        const facts = readDerived(ctx, a.derived, { graph: g });
+        return capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), total: facts.length }, ['facts'], 'lower limit');
+      }
       if (a.id) {
         const ids = resolveRef(g, a.id);
         if (!ids.length) throw notFound('node', a.id);

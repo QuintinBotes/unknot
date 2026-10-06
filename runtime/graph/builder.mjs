@@ -20,6 +20,8 @@ import { charge } from '../policy/budget.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
+import { writeDerived } from './derived.mjs';
+import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
 import { pushAll } from '../core/arrays.mjs';
@@ -151,6 +153,12 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     stats.adapters[adapter.id] = { files: files.length, extracted, cached: files.length - misses.length };
   }
 
+  // The census decides what is test code (test projects included); an adapter's own path rule
+  // only adds to it, so every command sees one classification.
+  for (const [path, facts] of perFile) {
+    if (filesByPath.get(path)?.kind !== 'test') continue;
+    for (const f of facts) if (f.kind === 'node' && f.type === 'module' && f.attrs) f.attrs.is_test = true;
+  }
   const fileFacts = [...perFile.values()].flat();
   const global = [];
   for (const adapter of loaded) {
@@ -256,6 +264,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
 
   const all = [...fileFacts, ...global];
   const projection = project(ctx, all, { commit, observedAt });
+  writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
   const summary = {
     commit,
     generation: projection.generation,

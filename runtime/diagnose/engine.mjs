@@ -9,6 +9,7 @@ import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { validateArtifact } from '../core/schema.mjs';
 import { pathInScope, scopePredicate } from '../core/scope.mjs';
+import { readDerived } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { evaluateAll } from '../patterns/engine.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
@@ -186,6 +187,7 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const t0 = Date.now();
   const g = graph ?? Graph.fromStore(ctx.store);
   if (g.size.nodes === 0) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
+  readDerived(ctx, 'scc', { graph: g }); // the stored facts detectors read through derivedFor
   const { detectors, errors } = await loadDetectors(config, only);
   const global = globalSignals(g, config);
   const at = nowISO();
