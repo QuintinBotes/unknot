@@ -295,6 +295,31 @@ describe('decompose command', () => {
     assert.deepEqual(fromConfig.details[0].driver_provenance, [{ driver: 'build_time', source: 'docs/goals.md', quote: 'Builds take too long.' }]);
   });
 
+  test('a record that replaces an earlier one with the same drivers carries their source and quote forward', async () => {
+    const drivers = ['availability_isolation', 'security_isolation'];
+    const orders = (names) => names.map((n) => `shop/catalog/${n.replace('o', 'c')}.js`);
+    const prov = { byDriver: { availability_isolation: { source: 'https://example.com/plan', quote: 'Checkout must stay up.' }, security_isolation: { quote: 'Card data stays apart.' } } };
+    const first = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2', 'o3', 'o4']), drivers, driverProvenance: prov });
+    const [a] = first.details;
+    assert.ok(a.driver_provenance.every((p) => !('carried_from' in p)));
+    // The members change (one fewer), so the rerun takes a new id and replaces the first record.
+    const second = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2', 'o3']), drivers });
+    const [b] = second.details;
+    assert.notEqual(b.id, a.id);
+    assert.equal(b.supersedes, a.id);
+    assert.deepEqual(b.driver_provenance, [
+      { driver: 'availability_isolation', source: 'https://example.com/plan', quote: 'Checkout must stay up.', carried_from: a.id },
+      { driver: 'security_isolation', source: null, quote: 'Card data stays apart.', carried_from: a.id },
+    ]);
+    assert.deepEqual(second.driver_provenance_missing, []);
+    // Words given on the command line win over the ones carried.
+    const third = await decompose(r.ctx, { config: r.config, scope: orders(['o0', 'o1', 'o2']), drivers, driverProvenance: { byDriver: { security_isolation: { quote: 'New words.' } } }, dryRun: true });
+    assert.deepEqual(third.details[0].driver_provenance.map((p) => [p.driver, p.quote, p.carried_from ?? null]), [['availability_isolation', 'Checkout must stay up.', b.id], ['security_isolation', 'New words.', null]]);
+    // With nothing to carry from, the drivers are reported as unrecorded.
+    const none = await decompose(r.ctx, { config: r.config, scope: ['shop/billing/**'], drivers, dryRun: true });
+    assert.deepEqual(none.driver_provenance_missing, drivers);
+  });
+
   test('list reports stale records once the graph is rebuilt; show returns one record', async () => {
     const [x] = (await decompose(r.ctx, { config: r.config, scope: ['shop/**'] })).details;
     const row = listRecords(r.ctx).find((l) => l.id === x.id);

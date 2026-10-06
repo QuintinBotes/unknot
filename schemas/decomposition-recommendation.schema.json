@@ -520,6 +520,11 @@
               "string",
               "null"
             ]
+          },
+          "carried_from": {
+            "type": "string",
+            "pattern": "^DEC-\\d{4,}$",
+            "description": "The earlier record this driver's source and quote were carried forward from"
           }
         },
         "required": [

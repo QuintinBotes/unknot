@@ -82,10 +82,36 @@ function evidenceFor(signal, cand) {
   return MEMBER_SIGNAL.test(signal) ? [...new Set(cand.modules)].slice(0, EVIDENCE_CAP) : [];
 }
 
+/**
+ * Provenance per driver: from the configuration, overridden by the command line. `given` is
+ * `{source?, quote?}` for every driver named on the command line without an entry of its own,
+ * and `byDriver` is `{id: {source?, quote?}}` for the ones with one.
+ */
 function provenanceFor(config, cliDrivers, allDrivers, given) {
   const byId = new Map((config.decomposition.drivers ?? []).map((d) => [d.id, { source: d.source ?? null, quote: d.quote ?? null }]));
   if (given?.source || given?.quote) for (const id of cliDrivers) byId.set(id, { source: given.source ?? null, quote: given.quote ?? null });
+  for (const [id, p] of Object.entries(given?.byDriver ?? {})) {
+    if (p?.source || p?.quote) byId.set(id, { source: p.source ?? null, quote: p.quote ?? null });
+  }
   return allDrivers.map((driver) => ({ driver, source: byId.get(driver)?.source ?? null, quote: byId.get(driver)?.quote ?? null }));
+}
+
+/**
+ * A driver with neither a source nor a quote takes both from the first earlier record that
+ * has them for the same driver id, and says which (`carried_from`). A record rewriting
+ * itself keeps what it had, with the note it already carried, if any.
+ */
+function carryProvenance(base, earlier, self) {
+  return base.map((p) => {
+    if (p.source || p.quote) return p;
+    for (const r of earlier) {
+      const prev = (r.driver_provenance ?? []).find((x) => x.driver === p.driver && (x.source || x.quote));
+      if (!prev) continue;
+      const from = r.id === self ? prev.carried_from : r.id;
+      return { driver: p.driver, source: prev.source ?? null, quote: prev.quote ?? null, ...(from ? { carried_from: from } : {}) };
+    }
+    return p;
+  });
 }
 
 /**
@@ -150,6 +176,8 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const kept = existing && prior.find((r) => r.id === existing && r.supersedes);
     const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules, self: existing }, claimed);
     if (pred) claimed.add(pred.id);
+    // The drivers' words survive a rerun: what this boundary's earlier record held for the same driver is carried forward.
+    const recProvenance = provenance.length ? carryProvenance(provenance, [prior.find((r) => r.id === existing), pred && prior.find((r) => r.id === pred.id)].filter(Boolean), existing) : [];
     const card0 = card(sel.card);
     const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
     const rec = {
@@ -163,7 +191,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       scope: { entries: scope, matched: res.matched, total: res.total },
       target: t,
       driver: allDrivers,
-      ...(provenance.length ? { driver_provenance: provenance } : {}),
+      ...(recProvenance.length ? { driver_provenance: recProvenance } : {}),
       candidate: {
         id: cand.id,
         name: cand.name,
@@ -211,7 +239,10 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       writeFileSync(join(dir, `${r.id}.json`), `${JSON.stringify(JSON.parse(canonicalJSON(body)), null, 2)}\n`);
     }
   }
-  const summary = { targets, drivers: allDrivers, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
+  // Drivers whose words are recorded nowhere: not given, not in the configuration, not carried from an earlier record.
+  const withWords = new Set(recommendations.flatMap((r) => (r.driver_provenance ?? []).filter((p) => p.source || p.quote).map((p) => p.driver)));
+  const unrecorded = recommendations.length ? allDrivers.filter((id) => !withWords.has(id)) : allDrivers.filter((id) => !provenance.some((p) => p.driver === id && (p.source || p.quote)));
+  const summary = { targets, drivers: allDrivers, driver_provenance_missing: unrecorded, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
   if (!dryRun) appendEvent(ctx, { type: 'decomposition.recommended', run_id: run?.id, actor: 'runtime:decompose', payload: summary });
   return { ...summary, details: recommendations };
 }

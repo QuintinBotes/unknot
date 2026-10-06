@@ -1,7 +1,7 @@
 ---
 name: decompose
 description: Find decomposition boundaries in a backend or frontend monolith and choose the least invasive treatment that serves a stated driver. Use when the user asks whether or how to split, extract, modularize or strangle a monolith or frontend.
-argument-hint: '[scope|list|show <DEC-id>] [--target backend|frontend|auto] [--driver <id>] [--summary] [--dry-run]'
+argument-hint: '[scope|list|show <DEC-id>] [--target backend|frontend|auto] [--driver <id>] [--driver-source <id>=<url>] [--driver-quote <id>=<text>] [--summary] [--dry-run]'
 ---
 
 # Decompose (spec §15A)
@@ -36,8 +36,12 @@ candidate. `unknot decompose list` shows saved records (stale once the graph was
 is kept.
 
 When the user states a driver, pass where and in whose words: `--driver <id> --driver-source
-<url or document> --driver-quote "<their sentence>"`. Only their words count as a quote; never
-write one for them. A source without a quote is recorded as such.
+<id>=<url or document> --driver-quote <id>="<their sentence>"` (repeat both per driver, or give a
+`--drivers-file <json>` of `{"<id>": {"source": "...", "quote": "..."}}`). Only their words count
+as a quote; never write one for them. A source without a quote is recorded as such. A rerun with
+the same drivers carries the earlier record's source and quote forward (`carried_from`), so repeat
+them only when they change. If the output starts with a notice that a driver has no source or
+quote, say so to the user and ask where the driver comes from; do not invent either.
 
 To read one recommendation in full, use the `decomposition_get` tool with its DEC id. Do not
 read `.unknot/` with shell commands or interpreters: hooks deny that, and the tool returns
