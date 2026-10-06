@@ -245,7 +245,7 @@ Runtime-derived facts carry an expiry; `unknot status` reports expired ones as s
 
 ### `adapters` and `detectors`
 
-Each is a map from an id to an options object. `adapters.<id>.enabled: false` stops that adapter. Adapter ids: `javascript`, `python`, `generic`, `quality`, `database`, `iac`, `k8s`, `delivery`, `contracts`, `ownership`, `runtime`, `security`. `detectors.<id>.enabled: false` stops a detector. Other options are the detector's thresholds. The local-code detectors read these:
+Each is a map from an id to an options object. `adapters.<id>.enabled: false` stops that adapter. Adapter ids: `javascript`, `python`, `generic`, `literals`, `quality`, `database`, `iac`, `k8s`, `delivery`, `contracts`, `ownership`, `runtime`, `security`. `detectors.<id>.enabled: false` stops a detector. Other options are the detector's thresholds. The local-code detectors read these:
 
 | Detector | Option (default) |
 |---|---|

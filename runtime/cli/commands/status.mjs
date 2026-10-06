@@ -7,6 +7,9 @@ import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+/** One line on the identifier-like string constants in the graph: how many, of which sub-kinds, and what was cut. */
+export const constantsLine = (c) => `Constants: ${c.nodes} identifier-like string nodes (${Object.entries(c.by_subkind).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}; sub-kinds inferred)${c.dropped_by_repo_cap ? `; ${c.dropped_by_repo_cap} more cut by the repository cap` : ''}${c.files_capped ? `; ${c.files_capped} file(s) cut by the per-file cap` : ''}`;
+
 export async function run({ flags }) {
   const { ctx, config, cfg } = open(flags);
   const now = new Date().toISOString();
@@ -26,11 +29,17 @@ export async function run({ flags }) {
     // older store
   }
   const behindNote = checkoutNotice(mappedCheckout);
+  let constants = null;
+  try {
+    constants = JSON.parse(ctx.store.meta('constants') ?? 'null');
+  } catch {
+    // older store
+  }
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,
     active_run: run ? { id: run.id, command: run.command, started_at: run.started_at, slice: run.slice_id } : null,
-    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout },
+    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout, ...(constants && { constants }) },
     findings: Object.fromEntries(findings.map((f) => [f.status, f.n])),
     campaigns,
     slices,
@@ -44,6 +53,7 @@ export async function run({ flags }) {
   const lines = [
     `Mode: ${status.mode}${run ? ` · active run ${run.id} (${run.command})` : ''}${cfg.notice ? `\nConfig: ${cfg.notice}` : ''}`,
     `Graph: generation ${status.graph.generation ?? '—'} at ${mapped?.slice(0, 12) || '—'}${status.graph.stale ? ` (STALE: HEAD is ${current?.slice(0, 12)}; run unknot map)` : ''}`,
+    ...(constants ? [constantsLine(constants)] : []),
     `Findings: ${Object.entries(status.findings).map(([k, v]) => `${v} ${k}`).join(', ') || 'none (run unknot diagnose)'}`,
     '',
     'Campaigns:',

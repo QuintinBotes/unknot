@@ -10,6 +10,8 @@ export const NODE_TYPES = Object.freeze(new Set([
   'function', 'method', 'class', 'interface', 'type', 'endpoint', 'command', 'route', 'component', 'store',
   // messaging and deployment
   'event', 'topic', 'queue', 'job', 'workflow', 'service', 'deployable', 'feature_flag',
+  // identifier-like string constants: metric names, config keys, routes, roles, queue names
+  'constant',
   // data (§14.4)
   'engine', 'cluster', 'database', 'schema', 'table', 'collection', 'view', 'column', 'field', 'constraint',
   'index', 'partition', 'sequence', 'routine', 'trigger', 'query', 'plan', 'transaction_boundary',
@@ -48,7 +50,7 @@ export const EDGE_TYPES = Object.freeze(new Set([
   'MOUNTS', 'SNAPSHOTS_TO', 'FAILS_OVER_TO', 'REPLICATES_ACROSS',
   'SIGNS', 'DEPLOYS', 'OBSERVES', 'COSTS_TO', 'PROTECTED_BY', 'VIOLATES_POLICY',
   // structure, history, runtime and UI (Unknot extensions)
-  'CONTAINS', 'CO_CHANGES', 'RUNTIME_CALLS', 'RENDERS',
+  'CONTAINS', 'CO_CHANGES', 'RUNTIME_CALLS', 'RENDERS', 'DEFINES',
 ]));
 
 // 'vcs' extends the spec's list: git history is recorded fact, not inference.

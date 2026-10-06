@@ -1,6 +1,7 @@
 import { mapRepository } from '../../graph/builder.mjs';
 import { output, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
+import { constantsLine } from './status.mjs';
 
 export async function run({ positional, flags }) {
   const { ctx, cfg, config, actor } = open(flags);
@@ -15,6 +16,7 @@ export async function run({ positional, flags }) {
     `Files by kind: ${Object.entries(summary.by_kind).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
   ];
   if (summary.coverage?.length) lines.push(`Language coverage: ${summary.coverage.map((c) => `${c.language} ${c.files} files, ${c.adapter}, ${c.quality}`).join('; ')}.`);
+  if (summary.constants) lines.push(`${constantsLine(summary.constants)}.`);
   if (summary.history) lines.push(`History: ${summary.history.commits} commits, ${summary.history.co_change_pairs} co-change pairs (${summary.history.ignored_large_commits} oversized commits ignored).`);
   if (summary.status === 'partial' && !summary.failure_count && summary.unavailable.every((u) => String(u.id ?? u.adapter).startsWith('language:'))) lines.push('Status partial: the dominant language was read lexically (see below); the graph is usable, but its dependency and call edges for that language are approximate.');
   if (summary.unavailable.length) lines.push(`Adapters unavailable: ${summary.unavailable.map((u) => `${u.id ?? u.adapter} (${u.reason})`).join(', ')}.`);
