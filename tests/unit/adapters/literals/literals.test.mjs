@@ -127,7 +127,7 @@ test('search: exact string answers from the graph with definition and usage site
   assert.equal(searchText(p.dir, { ...a, text: 'orders.checkout.latency', scan: true }).answered_by, 'scan');
   assert.equal(searchText(p.dir, { ...a, text: 'orders.checkout', regex: true }).answered_by, 'scan');
   assert.equal(searchText(p.dir, { config, text: 'orders.checkout.latency' }).answered_by, 'scan');
-  const tool = TOOLS.search_text.run(p.ctx, { text: 'Invoices:RetryCount' });
+  const tool = await TOOLS.search_text.run(p.ctx, { text: 'Invoices:RetryCount' });
   assert.equal(tool.answered_by, 'graph');
 });
 
