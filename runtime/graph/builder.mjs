@@ -175,7 +175,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   for (const adapter of loaded) {
     if (!adapter.link) continue;
     try {
-      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {} }) ?? []).map(assertFact));
+      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats }) ?? []).map(assertFact));
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -285,6 +285,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
   const projection = project(ctx, all, { commit, observedAt });
   lap('projection_ms');
+  ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
   lap('derived_ms');
   const summary = {
@@ -304,6 +305,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     facts: all.length,
     nodes: projection.nodes,
     edges: projection.edges,
+    ...(stats.constants && { constants: stats.constants }),
     history: historyStats,
     duration_ms: Date.now() - t0,
     phases,
@@ -367,7 +369,7 @@ function historyFacts(root, config, sourcePaths) {
 
 const PLACEHOLDER_TYPE = (id) => {
   const t = id.slice(0, id.indexOf(':'));
-  return NODE_TYPES.has(t) ? t : null;
+  return t !== 'constant' && NODE_TYPES.has(t) ? t : null; // a constant exists only if its adapter kept it (the cap)
 };
 
 /**

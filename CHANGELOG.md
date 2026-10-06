@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Added
 
+- Identifier-like string constants (metric names, configuration keys, routes, roles, queue names) are graph nodes: `constant:<value>` with an inferred `subkind`, `DEFINES` edges from where a string or key is defined and `REFERENCES` edges from where it is used, directly or through its constant's name (`literals` adapter). Prose and log messages are not indexed; per-file and per-repository caps give a notice; `map` and `status` report the count. `unknot search` and `search_text` answer exact and prefix matches from these nodes and say whether the graph or a scan answered (`--scan` forces the scan).
 - Store migrations are ordered and named (`runtime/state/migrations.mjs`), recorded in `meta`, and run in one transaction on open; a store newer than the runtime is refused.
 - Saved decomposition records, and slice and campaign bodies shown by tools, are upgraded on read when an older release wrote them (`runtime/state/upgrade.mjs`).
 - `scripts/upgrade-test.mjs` and the `upgrade from previous releases` CI job map a fixture project with each of the last five releases and upgrade it in place with the current checkout.

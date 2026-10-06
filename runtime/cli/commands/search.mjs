@@ -13,14 +13,18 @@ const line = (h) => `  ${h.path}:${h.line}${h.kind !== 'source' ? ` [${h.kind}]`
 
 export async function run({ positional, flags }) {
   const [text, ...scope] = positional;
-  if (!text) throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot search <text> [--regex] [--limit N] [scope...]');
+  if (!text) throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot search <text> [--regex] [--scan] [--limit N] [scope...]');
   const { ctx, config } = open(flags);
   const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
   const limit = Math.min(Number(flags.limit ?? 100) || 100, 1000);
-  const r = searchText(ctx.root, { config, text, regex: Boolean(flags.regex), scope, graph, limit });
+  const r = searchText(ctx.root, { config, text, regex: Boolean(flags.regex), scan: Boolean(flags.scan), scope, graph, store: ctx.store, limit });
   if (flags.json) return output(r, { json: true });
   const c = r.counts;
-  const out = [`"${text}": ${c.hits} occurrence(s) in ${r.files_searched} files searched (${Object.entries(c.by_kind).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})${graph ? '' : '; map first for modules and owners'}`];
+  const out = [r.answered_by === 'graph'
+    ? `"${text}": ${c.hits} site(s) of ${r.constants_matched} constant(s) from the graph index`
+    : `"${text}": ${c.hits} occurrence(s) in ${r.files_searched} files searched (${Object.entries(c.by_kind).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})${graph ? '' : '; map first for modules and owners'}`,
+  `Answered by: ${r.answered_by} (${r.answered_by_note})`];
+  for (const k of r.constants ?? []) out.push(`  constant ${k.value}: ${k.subkind} (inferred: ${k.subkind_evidence}); ${k.definitions} definition(s), ${k.uses} use(s)`);
   if (r.definitions.length) out.push('', 'Defined (a constant or key holding it):', ...r.definitions.map((h) => `${line(h)}\n      -> ${h.definition.kind === 'constant' ? `constant ${h.definition.name}` : 'key'}`));
   if (r.uses.length) out.push('', 'Used:', ...r.uses.map(line));
   if (r.via_constants.length) out.push('', 'Used through its constant:', ...r.via_constants.map((h) => `${line(h)}\n      -> via ${h.constant}`));

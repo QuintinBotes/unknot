@@ -172,12 +172,13 @@ Scope entries are the same everywhere: a path prefix, a glob, `ns:Namespace` or 
 
 The MCP tools take the same filters: `graph_query` lists nodes by `type`, edges by `edge_type`, or one node's edges with `id` plus `edge_type`/`direction`; results are compact unless `full: true`, default limit 50 (at most 200), and a result over about 40 KB is cut with `truncated: true` and a hint. `graph_hubs` takes `edge_types`, `scope` and `within`; `graph_neighbourhood` takes the same byte cap.
 
-### `unknot search <text> [--regex] [--limit N] [scope...]`
+### `unknot search <text> [--regex] [--scan] [--limit N] [scope...]`
 
 Where a string occurs in the files the map covers. Generated, vendored and credential files are excluded. Strings a dependency graph does not index (metric names, setting keys, role names, feature flags, durations) are what runbooks and alerts are made of.
 - **Definitions:** a constant or a config key holding the string are listed apart from plain uses.
 - **Through its constant:** a constant that holds it is followed once, to where its name is used.
 - **Context:** each hit carries its kind (source, test, config, doc), module and owners.
+- **Which path answered:** an exact or prefix match on an indexed constant node (see the `literals` adapter) is answered from the graph, with its sub-kind (inferred) and every definition and use site; anything else, a `--regex`, or `--scan`, scans the files. The output says `Answered by: graph` or `scan` and why. `unknot graph nodes constant --name <text>` lists the constants.
 
 The MCP tool `search_text` returns the same, capped like the other graph tools.
 
