@@ -60,7 +60,16 @@ elsewhere (DEPENDS_ON); an `endpoint:` EXPOSED in one repository and CONSUMED or
 another (CONSUMES); a topic or queue PUBLISHED in one and SUBSCRIBED in another
 (SUBSCRIBES); and the same `table:` accessed from several repositories (flagged as a
 shared database, with release-coupling hints: providers release before consumers, shared
-tables release in lockstep). The graph is stored encrypted in the workspace root's CAS and
+tables release in lockstep). Endpoints and typed-client routes match on method plus path
+template, not on the exact id: `{id}` and `{orderId}` are the same parameter, a missing
+leading slash, a trailing slash, a query string and the case of the method do not matter,
+and an endpoint served for `ANY` method answers every client method. A typed HTTP client
+route (a `contract:` node from Refit, Feign or Retrofit) gets a CONSUMES edge to the
+`endpoint:` that serves it in another repository, and `workspace map` and `workspace graph`
+list the client routes nothing serves as unmatched. `unknot graph edges <node> --workspace`
+lists the edges of a node of the combined graph, by qualified id
+(`contract:app:GET /v1/orders/:id`) or by the id inside its repository
+(`contract:GET /v1/orders/:id`, every repository). The graph is stored encrypted in the workspace root's CAS and
 its digest under the `workspace_graph` meta key, which `unknot gc` treats as state.
 
 `planWorkspaceCampaign` (library) creates one campaign in the workspace root whose slices
