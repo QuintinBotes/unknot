@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadAdapters } from '../../adapters/registry.mjs';
 import { matchAny } from '../core/glob.mjs';
+import { guidanceFor, loadGuidance, protectedByGuidance } from '../core/guidance.mjs';
 import { isSecretPath } from '../core/paths.mjs';
 import { findSecrets } from '../core/redact.mjs';
 import { git } from '../apply/git.mjs';
@@ -104,14 +105,16 @@ const sccKey = (c) => [...c].sort().join('|');
 
 /** Each check returns {verdict: 'pass'|'fail'|'inconclusive', detail, data}. */
 export const CHECKS = {
-  scope({ slice, config, changes }) {
+  scope({ ctx, slice, config, changes }) {
     const bad = [];
+    const guide = loadGuidance(ctx.root);
     const inc = slice.body.scope.include;
     const exc = slice.body.scope.exclude;
     for (const c of changes) {
       if (matchAny(c.path, exc) || (inc.length && !matchAny(c.path, inc))) bad.push(`${c.path}: outside slice scope`);
       else if (matchAny(c.path, config.generated_paths ?? []) || matchAny(c.path, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) bad.push(`${c.path}: generated or vendored`);
       else if (matchAny(c.path, config.protected_paths ?? [], { nocase: true }) && !['high', 'critical'].includes(slice.risk)) bad.push(`${c.path}: protected path in a ${slice.risk}-risk slice`);
+      for (const h of protectedByGuidance(guidanceFor(ctx.root, c.path, guide), [c.path])) bad.push(`${c.path}: ${h.file}:${h.line} says not to edit it ("${h.sentence}")`);
       if (isSecretPath(c.path)) bad.push(`${c.path}: credential path`);
       if (matchAny(c.path, DEP_MANIFESTS)) {
         if (config.security.dependency_changes === 'forbidden') bad.push(`${c.path}: dependency changes are forbidden (security.dependency_changes)`);

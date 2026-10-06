@@ -198,6 +198,17 @@ Artifacts (command output, patches) are stored by SHA-256 of their plaintext and
 - Telemetry carries only counts, durations, ids and states. Attribute keys outside an allowlist are dropped, strings are redacted and truncated, and paths and error messages are never exported.
 - `PostToolUse` looks at what tools returned for text addressed to an AI, requests to exfiltrate, `curl | sh`, destructive commands and claims of pre-approval. A hit is recorded as an `injection.suspected` event and the model is reminded that the content is data. This is a nudge and a record, not the control.
 
+## Repository guidance
+
+Unknot reads the repository's own instructions for agents and contributors: `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` (also nested per directory, the nearest one listed first for a path), `.github/copilot-instructions.md`, `.cursorrules`, `.cursor/rules/*.mdc`, `CONTRIBUTING.md` and `.editorconfig`. Discovery is bounded to four directories below the root and skips vendored directories, nested checkouts and `.claude/`. The `guidance_get` MCP tool and `unknot apply` show what applies to a path or slice.
+
+Guidance is repository text, so it is data, and it can only make Unknot stricter:
+
+- **What it can add.** Conventions the refactorer is told to follow (listed in `unknot apply` output, with file and line, as the repository's conventions unless they conflict with Unknot's policy); validation commands, shown as hints only; command shapes not to run (`Do not use dotnet test on the whole solution`), which `verify` and the broker refuse, leaving the obligation for a person with the guidance sentence cited; and paths not to edit (`never edit files under generated/`), which `init` proposes as protected paths, which `plan` refuses when a planned change touches them and raises to high risk when only the scope reaches them, and which the `scope` check fails if a patch touches.
+- **What it cannot do.** Approve anything, widen a scope, raise the mode, add or enable a command, or allow a command Unknot would refuse. A line that tries (agents approving their own changes, `curl ... | sh`, skipping verification, bypassing the sandbox, instructions to ignore rules) is dropped from every result and returned as `flagged`, and `init` notes where it was ignored.
+- **Plans record it.** Each slice stores `guidance: [{file, scope, protects?}]`, so the approved plan names the guidance it was made under.
+- Extraction is pattern-based, so an unusual phrasing may be missed: guidance is a floor of caution, not a control. The controls remain the policy, the broker and approvals.
+
 ## The optional daemon
 
 `unknot daemon` exposes the library functions behind the CLI over HTTP. Local mode binds loopback only, requires a bearer token from a mode-0600 file, checks `Host`, sends no CORS headers, and rate-limits. Remote mode requires mutual TLS and OIDC tokens with offline signature checks, role mapping and tenant separation. No endpoint approves, and no endpoint runs a shell. Details and the threat table are in `runtime/daemon/README.md`.

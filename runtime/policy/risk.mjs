@@ -57,6 +57,7 @@ export function classifyRisk(slice, { config, surfaces = {} } = {}) {
   }
   if (surfaces.destructive_infra) raise(state, 'high', 'plan deletes or replaces resources');
   if (['T3', 'T6', 'T7', 'T9'].includes(slice.treatment)) raise(state, 'high', `treatment ${slice.treatment} changes runtime topology or data ownership`);
+  for (const g of slice.guidance ?? []) if (g.protects?.length) raise(state, 'high', `${g.file} says not to edit ${g.protects.join(', ')}`);
   if (config && any(config.protected_paths ?? [])) raise(state, 'high', 'protected paths');
 
   if (surfaces.data_movement || (slice.kind === 'database' && /backfill|switch_writes|switch_reads|copy|move/i.test(text))) {

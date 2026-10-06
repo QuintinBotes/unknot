@@ -125,6 +125,8 @@ Commands meant for a person at a terminal (`approve`, `attest`, `keys`, `config 
 | `governed` | Assist, plus a commit on the slice branch once the change is approved. |
 | `campaign` | Ranked above `governed`. Like `governed`, but a run may move on to the next slice of the same campaign once the current slice is settled. Each slice still needs its own approved plan. In every other mode a run handles one slice. |
 
+Unknot also reads the repository's own agent guidance (`AGENTS.md`, `CLAUDE.md`, Copilot and Cursor rules, `CONTRIBUTING.md`) and follows it as conventions, but only to be stricter: guidance can forbid commands and paths, never grant approvals, scope or commands ([details](docs/security-model.md#repository-guidance)).
+
 A mode higher than `plan` takes effect only after a human accepts the configuration. A config change made by anyone else (an agent, a merge, a script) can lower the mode but cannot raise it. Mode and every other key: [docs/configuration.md](docs/configuration.md).
 
 ## What Unknot never does
