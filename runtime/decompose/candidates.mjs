@@ -14,7 +14,7 @@ import { runtimeBoundary } from './runtime-evidence.mjs';
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
  */
-export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [] } = {}) {
+export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null } = {}) {
   const input = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
   const rob = robustness(input, { seed });
   const partition = rob.baseline;
@@ -36,7 +36,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
       const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
       const touching = cl.internal + cl.external;
       const named = describeName(cl.members, graph);
-      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(m) ? partition.get(m) : null), self: partition.get(cl.members[0]) });
+      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(m) ? partition.get(m) : null), self: partition.get(cl.members[0]), workspace });
       // Share of the affinity weight touching the candidate that stays inside, and that leaves it.
       metrics.metrics['boundary.cohesion'] = +cl.cohesion.toFixed(3);
       if (touching > 0) metrics.metrics['boundary.coupling'] = +(cl.external / touching).toFixed(3);
@@ -190,7 +190,7 @@ function ownersOfTables(graph, cache) {
  * Spec §15A.4 metrics for one candidate. Unmeasurable metrics are omitted and listed in
  * `gaps`, so the pattern engine reports them as insufficient evidence.
  */
-export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners, sccs, candidateOf, self }) {
+export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners, sccs, candidateOf, self, workspace = null }) {
   const m = {};
   const gaps = [];
   // `details` carries the ids each metric was measured on, for the record's evidence.
@@ -364,8 +364,12 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   details.evidence['module.consumers'] = [...consumers].sort();
   // A contract is an OpenAPI or Pact description of a served endpoint, or a typed HTTP client
   // its callers use; the routes and the clients per route go in the record.
-  const contract = contractEvidence(graph, members);
+  const contract = contractEvidence(graph, members, workspace);
   if (endpointsTotal || contract.present) m['contracts.present'] = contract.present ? 1 : 0;
+  if (workspace && contract.routes.some((r) => r.workspace_mapped_at)) {
+    details.workspace = { repository: workspace.repository, mapped_at: workspace.mapped_at, stale: workspace.stale };
+    if (workspace.stale) gaps.push(`stale cross-repository evidence: this repository was mapped after the workspace map of ${workspace.mapped_at}; run unknot workspace map to refresh the clients and endpoints other repositories declare`);
+  }
   if (contract.present) {
     details.contracts = contract.routes;
     details.evidence['contracts.present'] = contract.evidence;
