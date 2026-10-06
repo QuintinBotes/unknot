@@ -1,4 +1,4 @@
-// Typed HTTP clients as contracts: Refit, Feign and Retrofit interfaces become `contract`
+// Typed HTTP clients as contracts: interfaces of attribute-declared operations become `contract`
 // facts, decompose treats them as contract evidence, and a workspace map links a client
 // operation in one repository to the endpoint that serves it in another.
 
@@ -52,13 +52,13 @@ test('route keys ignore parameter names, slashes, query strings and method case'
   assert.equal(routeKeyOfId('endpoint:api:catalog'), null);
 });
 
-test('Refit: one contract per interface, one per route, consumed by the declaring module', () => {
+test('C# attributes: one contract per interface, one per route, consumed by the declaring module', () => {
   const path = 'src/Clients/IOrdersApi.cs';
   const facts = extract(path, readFileSync(join(FIXTURES, 'orders-client', path), 'utf8'));
   const [iface, ...ops] = contracts(facts);
   assert.equal(iface.id, `contract:${path}#IOrdersApi`);
   assert.equal(iface.attrs.kind, 'http_client');
-  assert.equal(iface.attrs.framework, 'refit');
+  assert.equal(iface.attrs.framework, 'attribute');
   assert.deepEqual(iface.attrs.operations.map((o) => `${o.method} ${o.path}`), ['GET /v1/orders/:id', 'POST /v1/orders', 'DELETE /v1/orders/:id', 'GET /v1/orders/:id/history']);
   assert.deepEqual(iface.attrs.operations.map((o) => o.name), ['GetAsync', 'CreateAsync', 'CancelAsync', 'HistoryAsync']);
   assert.equal(ops.length, 4);
@@ -70,7 +70,7 @@ test('Refit: one contract per interface, one per route, consumed by the declarin
   assert.equal(facts.filter((f) => f.type === 'endpoint').length, 0, 'a client is not an endpoint');
 });
 
-test('Feign and Retrofit interfaces are clients; a controller, JAX-RS resource and plain interface are not', () => {
+test('Java annotations: interfaces are clients; a controller, JAX-RS resource and plain interface are not', () => {
   const java = `@FeignClient(name = "orders", path = "/v1")
 public interface OrdersClient {
   @GetMapping("/orders/{id}")
@@ -88,7 +88,7 @@ class Ctl { @GetMapping("/served") String s() { return ""; } }
 `;
   const facts = extract('src/Clients.java', java);
   const ifaces = contracts(facts).filter((c) => c.attrs.kind === 'http_client');
-  assert.deepEqual(ifaces.map((c) => [c.name, c.attrs.framework]), [['OrdersClient', 'feign'], ['Api', 'retrofit']]);
+  assert.deepEqual(ifaces.map((c) => [c.name, c.attrs.framework]), [['OrdersClient', 'annotation'], ['Api', 'annotation']]);
   assert.deepEqual(ifaces[0].attrs.operations.map((o) => `${o.method} ${o.path}`), ['GET /v1/orders/:id', 'POST /v1/orders', 'DELETE /v1/orders/:id']);
   assert.deepEqual(ifaces[1].attrs.operations.map((o) => `${o.method} ${o.path}`), ['GET /orders/:id/history']);
   assert.deepEqual(facts.filter((f) => f.type === 'endpoint').map((f) => f.id), ['endpoint:GET /served']);

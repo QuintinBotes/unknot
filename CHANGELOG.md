@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Changed
+
+- HTTP clients and endpoints are detected by one language-generic rule instead of per library: a method that declares an HTTP method and a route through an attribute, annotation or decorator is an operation, a client operation (a `contract:` route node its module consumes) on an interface, abstract type or bodiless method and an endpoint on a concrete handler, with the type's base path joined, for C#, Java, Kotlin, TypeScript, JavaScript and Python (and Go router registrations, taking the method from the handler when the call has none); `generic` 0.1.7, `javascript` 0.1.13 and `python` 0.1.10, and the `framework` of such a client or endpoint is now `attribute`, `annotation` or `decorator`.
+
 ## [0.3.0] - 2026-10-06
 
 ### Added

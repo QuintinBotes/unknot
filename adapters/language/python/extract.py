@@ -102,6 +102,19 @@ def decorator_record(d):
     return {'name': dotted(d) or unparse(d, 80), 'args': [], 'kwargs': {}, 'line': d.lineno}
 
 
+def is_stub(fn):
+    """A body that does nothing: only a docstring, `...`, `pass` or `raise NotImplementedError`."""
+    for st in fn.body:
+        if isinstance(st, ast.Pass):
+            continue
+        if isinstance(st, ast.Expr) and isinstance(st.value, ast.Constant):
+            continue
+        if isinstance(st, ast.Raise) and 'NotImplementedError' in (unparse(st.exc, 80) if st.exc is not None else ''):
+            continue
+        return False
+    return True
+
+
 JUMPS = ((ast.Return, 'return'), (ast.Raise, 'raise'), (ast.Continue, 'continue'), (ast.Break, 'break'))
 MAX_UNREACHABLE = 20
 
@@ -441,7 +454,7 @@ class Analyzer(object):
                'start_line': n.lineno, 'end_line': end, 'params': params, 'params_required': len(required), 'cyclomatic': cc, 'cognitive': cog,
                'max_nesting': depth, 'decorators': decs, 'async': isinstance(n, ast.AsyncFunctionDef),
                'returns': unparse(n.returns, 120) if n.returns is not None else None, 'calls': [],
-               'unreachable': unreachable_in(n), 'name_occurrences': self.name_counts.get(n.name, 0)}
+               'stub': is_stub(n), 'unreachable': unreachable_in(n), 'name_occurrences': self.name_counts.get(n.name, 0)}
         self.functions.append(rec)
         self.fn_calls[qual] = (rec, set())
         for d in n.decorator_list:

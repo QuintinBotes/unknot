@@ -64,7 +64,7 @@ tables release in lockstep). Endpoints and typed-client routes match on method p
 template, not on the exact id: `{id}` and `{orderId}` are the same parameter, a missing
 leading slash, a trailing slash, a query string and the case of the method do not matter,
 and an endpoint served for `ANY` method answers every client method. A typed HTTP client
-route (a `contract:` node from Refit, Feign or Retrofit) gets a CONSUMES edge to the
+route (a `contract:` node from a client interface, see [adapters.md](adapters.md#http-operations-clients-and-endpoints)) gets a CONSUMES edge to the
 `endpoint:` that serves it in another repository, and `workspace map` and `workspace graph`
 list the client routes nothing serves as unmatched. `unknot graph edges <node> --workspace`
 lists the edges of a node of the combined graph, by qualified id

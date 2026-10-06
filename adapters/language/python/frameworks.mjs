@@ -4,6 +4,7 @@
 // module, Django include()) is deliberately not attempted here.
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
+import { SYNTAX, clientFacts, clientPath, operations, readMarker, typeBase, urlPath } from '../http-ops.mjs';
 
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
 
@@ -51,6 +52,28 @@ function annType(ann) {
   return (m ? m[1] : ann).replace(/\s*\|\s*None|None\s*\|\s*/g, '').replace(/^Optional\[(.*)\]$/, '$1').trim();
 }
 
+const ABSTRACT_BASE = /(?:^|\.)(?:Protocol|ABC)$/;
+
+/** A class that only declares: a Protocol or ABC base, an ABCMeta metaclass, or an abstract method. */
+function abstractClass(rec, symbols) {
+  if (rec.bases.some((b) => ABSTRACT_BASE.test(b)) || JSON.stringify(rec.keywords ?? {}).includes('ABCMeta')) return true;
+  for (const sym of symbols.values()) {
+    if (sym.rec.parent === rec.qual && (sym.rec.decorators ?? []).some((d) => lastSeg(d.name) === 'abstractmethod')) return true;
+  }
+  return false;
+}
+
+/** The base path a class states: a base decorator (`@client("/v1")`) or a class attribute (`base_path = "/v1"`). */
+function classBase(rec) {
+  const marked = typeBase('python', (rec.decorators ?? []).map((d) => ({ name: d.name, args: { route: lit(d.args[0]) ?? lit(d.kwargs.prefix) ?? lit(d.kwargs.path) } })));
+  if (marked) return marked;
+  for (const k of SYNTAX.python.baseAttrs) {
+    const v = lit(rec.assigns?.[k]);
+    if (v) return urlPath(v);
+  }
+  return '';
+}
+
 /**
  * @param {object} a
  * @param {string} a.path
@@ -87,15 +110,40 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
   }
   const fallback = importedModules.has('fastapi') ? 'fastapi' : importedModules.has('flask') ? 'flask' : null;
   const seenEndpoints = new Set();
+  const classOf = (sym) => (sym.type === 'method' ? symbols.get(sym.rec.parent) : null);
+  const clientOps = new Map();
   for (const [qual, sym] of symbols) {
     if (sym.type === 'class') continue;
+    const owner = classOf(sym);
+    // In an abstract or Protocol class, or with a body that does nothing, a decorated method declares a call.
+    const client = Boolean(owner) && (abstractClass(owner.rec, symbols) || sym.rec.stub === true);
     for (const d of sym.rec.decorators ?? []) {
       const verb = lastSeg(d.name);
       const recv = recvOf(d.name);
+      const route = lit(d.args[0]) ?? lit(d.kwargs.path) ?? lit(d.kwargs.rule);
+      if (client) {
+        const ops = operations('python', [{ name: d.name, args: { route } }], { base: classBase(owner.rec), client: true, norm: normalizeRoute });
+        for (const o of ops) {
+          if (!clientOps.has(owner)) clientOps.set(owner, []);
+          clientOps.get(owner).push({ ...o, path: clientPath(o.path, normalizeRoute), name: sym.rec.name, line: d.line });
+        }
+        continue;
+      }
+      if (!recv && route !== null && readMarker('python', d.name, { route })) {
+        // A bare `@get("/x")` on a concrete handler; the class, if any, gives the base path.
+        const base = owner ? classBase(owner.rec) : '';
+        for (const o of operations('python', [{ name: d.name, args: { route } }], { base, norm: normalizeRoute })) {
+          const key = `${o.method} ${o.path}`;
+          if (seenEndpoints.has(`${key}|${sym.id}`)) continue;
+          seenEndpoints.add(`${key}|${sym.id}`);
+          facts.push(nodeFact('endpoint', key, { name: key, path, attrs: { framework: 'decorator', method: o.method, path: o.path, handler: sym.id } }, pv(d.line)));
+          facts.push(edgeFact('EXPOSES', sym.id, `endpoint:${key}`, { framework: 'decorator' }, pv(d.line)));
+        }
+        continue;
+      }
       if (!recv || !(HTTP_VERBS.has(verb) || verb === 'route' || verb === 'api_route')) continue;
       const info = vars.get(recv) ?? (fallback ? { framework: fallback, prefix: '' } : null);
       if (!info) continue;
-      const route = lit(d.args[0]) ?? lit(d.kwargs.path) ?? lit(d.kwargs.rule);
       if (route === null) continue;
       const methods = HTTP_VERBS.has(verb) ? [verb.toUpperCase()]
         : strings(d.kwargs.methods).map((m) => m.toUpperCase()).concat([]).sort();
@@ -111,6 +159,12 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel }) {
         }
       }
     }
+  }
+  for (const [cls, ops] of clientOps) {
+    facts.push(...clientFacts({
+      modId: moduleId, cid: `${path}#${cls.rec.qual}`, name: cls.rec.qual, path, line: cls.rec.start_line, interfaceId: cls.id, lang: 'python',
+      framework: 'decorator', ops, pv,
+    }));
   }
 
   // --- Django URLconf ----------------------------------------------------------------
