@@ -17,6 +17,7 @@ import { loadConfig } from '../policy/config.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
 import { activeRun } from '../state/runs.mjs';
+import { upgradeDecomposition, upgradeSlice } from '../state/upgrade.mjs';
 
 const str = (extra = {}) => ({ type: 'string', maxLength: 512, ...extra });
 const limit = (max = 200) => ({ type: 'integer', minimum: 1, maximum: max });
@@ -246,7 +247,7 @@ export const TOOLS = {
         a.id,
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
-      return { slice: body, meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
     },
   },
 
@@ -272,7 +273,7 @@ export const TOOLS = {
       // Checked again here: the id becomes part of a path, so never rely on the schema alone.
       if (!/^DEC-\d{4,}$/.test(a.id)) throw new UnknotError('UK_SCHEMA_INVALID', 'decomposition id must match ^DEC-\\d{4,}$');
       try {
-        const rec = JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8'));
+        const rec = upgradeDecomposition(JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8')));
         // Stale when the graph was rebuilt since the record was written.
         return rec.graph_generation === undefined ? rec : { ...rec, stale: rec.graph_generation !== Number(ctx.store.meta('generation') ?? 0) };
       } catch (err) {

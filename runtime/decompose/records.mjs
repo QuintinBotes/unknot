@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
+import { upgradeDecomposition } from '../state/upgrade.mjs';
 import { INVASIVENESS } from './select.mjs';
 
 const ID = /^DEC-\d{4,}$/;
@@ -40,7 +41,7 @@ export function loadRecords(ctx) {
   const out = [];
   for (const f of readdirSync(dir).filter((n) => /^DEC-\d+\.json$/.test(n)).sort()) {
     try {
-      out.push(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+      out.push(upgradeDecomposition(JSON.parse(readFileSync(join(dir, f), 'utf8'))));
     } catch {
       // a half-written file is not a record
     }

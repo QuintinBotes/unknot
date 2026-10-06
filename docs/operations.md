@@ -176,3 +176,26 @@ weekly) and run `backup verify` on each new file.
 A tampered archive, a wrong passphrase, a missing manifest and a non-empty target are all
 expected to fail loudly; the unit tests in `tests/unit/enterprise/backup.test.mjs`
 exercise each.
+
+## 5. Upgrades and stored shapes
+
+A project mapped by one release is opened by the next, in place. State written to disk therefore
+has to survive a release, and a release that changes a stored shape owns the way across.
+
+What is stored, and where the upgrade lives:
+
+| Stored | Upgrade |
+| --- | --- |
+| The SQLite store (`.unknot/state/unknot.db`) | A named, ordered migration in `runtime/state/migrations.mjs`. |
+| Saved records and bodies (`.unknot/decompositions/*.json`, campaign and slice bodies) | A step in `runtime/state/upgrade.mjs`, applied when the artifact is read. Nothing is rewritten on read, and a slice's stored body is never altered: approvals bind to its digest. |
+| The extraction cache and graph facts | The cache key. Anything that changes what an extractor would produce (the census classification, an adapter version, a new fact) must be part of the key, so the first map after the upgrade re-extracts. |
+
+When a release changes a stored shape it must:
+
+1. Add a migration (store) or an upgrade step (record) and never edit one that has shipped. Each is idempotent. Store migrations run in one transaction on open and are recorded in `meta` (`schema_version`, `migrations`); a store newer than the runtime is refused with `UK_STATE_CONFLICT`, never opened.
+2. Add a unit test for the changed field in `tests/unit/state/` that starts from the old shape.
+3. Keep identities stable: a finding's fingerprint and a decomposition's id must not change for the same thing. When one must, the new artifact names the old one (`supersedes`) or the old one is reported as replaced; neither may be left silently orphaned.
+4. Run `node scripts/upgrade-test.mjs` and read its output. If the fixture does not cover the change, extend the fixture in the same commit.
+5. Say what changes on first use in `CHANGELOG.md` (for example "the first map after upgrading re-extracts every file once").
+
+`scripts/upgrade-test.mjs` is the proof: it archives each of the last five release tags, builds state with that release (`init`, `map`, `diagnose`, `decompose`), then runs the current checkout on the same project and asserts that the store migrated, earlier findings keep their fingerprints (except findings only about code now classified as test code), earlier decomposition ids are reused or linked by `supersedes` or reported as replaced, files whose classification changed are re-extracted, a second map extracts nothing, and `status` and `doctor` report nothing broken. Tests that start from a fresh project do not cover any of this.
