@@ -182,15 +182,19 @@ function walk(root, dir = '', out = []) {
 }
 
 /**
- * @param {string} root
- * @param {{config: object, scope?: string[]}} opts `scope` narrows to path prefixes/globs
- * @returns {{files: object[], repo: boolean, commit: string|null, byKind: object}}
+ * What classifying files needs, worked out once: the candidate paths (after the cheap filters),
+ * and `entry`, which turns one file's `lstat` and first bytes into its census entry. `entry` is
+ * pure, so a caller may stat and read files however it likes (`census` serially, a scan
+ * concurrently). `fixedKind(path, st)` is the kind a file has without reading it (secrets,
+ * symlinks, binaries by extension, vendored and generated paths are never read), `undefined` when
+ * its first bytes decide, and null for what is not a file; pass it to `entry` to avoid redoing it.
+ * `blobs: false` skips the git blob ids and the modified-file list a search does not use.
  */
-export function census(root, { config, scope = [] } = {}) {
+export function censusPlan(root, { config, scope = [], blobs: withBlobs = true } = {}) {
   const repo = isRepo(root);
   const paths = repo ? listFiles(root) : walk(root).sort();
-  const blobs = repo ? blobIds(root) : new Map();
-  const modified = new Set(repo ? git(root, ['diff', '--name-only', '-z'], { check: false }).stdout.split('\0').filter(Boolean) : []);
+  const blobs = repo && withBlobs ? blobIds(root) : new Map();
+  const modified = new Set(repo && withBlobs ? git(root, ['diff', '--name-only', '-z'], { check: false }).stdout.split('\0').filter(Boolean) : []);
   const attrs = attributeRules(root);
   const generatedGlobs = [...GENERATED, ...(config?.generated_paths ?? []), ...attrs.generated];
   const vendoredGlobs = [...VENDORED, ...attrs.vendored];
@@ -199,44 +203,67 @@ export function census(root, { config, scope = [] } = {}) {
   const csproj = paths.filter((p) => PROJECT.test(p));
   const testProjects = csproj.length ? testProjectDirs(root, paths) : new Set();
   const projectDirs = new Set(csproj.map(dirOf));
-  const files = [];
-  const byKind = {};
+  const candidates = [];
   for (const path of paths) {
     if (path.startsWith('.unknot/') || path.startsWith('.claude/')) continue;
     if (config?.scope && !inScope(path, config.scope)) continue;
     const context = Boolean(scopeGlobs?.length) && CONTEXT_FILES.includes(path) && !matchAny(path, scopeGlobs);
     if (scopeGlobs?.length && !context && !matchAny(path, scopeGlobs)) continue;
-    const abs = join(root, path);
+    candidates.push({ path, context });
+  }
+  const fixedKind = (path, st) => {
+    if (st.isSymbolicLink()) return 'symlink';
+    if (!st.isFile()) return null;
+    if (isSecretPath(path)) return 'secret';
+    if (BINARY_EXT.has(extname(path).toLowerCase())) return 'binary';
+    if (matchAny(path, vendoredGlobs)) return 'vendored';
+    if (matchAny(path, generatedGlobs)) return 'generated';
+    return undefined; // decided by the file's first bytes
+  };
+  /** The entry for a candidate, or null when it is not a file. `h` is the file's first 4096 bytes (when `fixed` is undefined). */
+  const entry = ({ path, context }, st, h, fixed = fixedKind(path, st)) => {
+    const e = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: isTestFile(path) || (testProjects.size > 0 && underTestProject(path, testProjects, projectDirs)), too_large: st.size > maxBytes, ...(context && { context: true }) };
+    if (fixed === null) return null;
+    if (fixed) e.kind = fixed;
+    else if (h && h.includes(0)) e.kind = 'binary';
+    else if (h && /\.(m?js|cjs|css)$/i.test(path) && h.toString('utf8').split('\n').some((l) => l.length > 1000)) e.kind = 'generated';
+    else if (h && looksGenerated(h.subarray(0, 2048).toString('utf8'))) e.kind = 'generated';
+    else if (h && CODE.has(e.language) && looksVendored(h.subarray(0, 2048).toString('utf8'))) e.kind = 'vendored';
+    else if (e.is_test && CODE.has(e.language)) e.kind = 'test';
+    else if (CODE.has(e.language)) e.kind = 'source';
+    else if (['markdown', 'rst'].includes(e.language) || path.startsWith('docs/')) e.kind = 'doc';
+    else if (CONFIG.has(e.language) || e.language === 'make' || e.language === 'groovy') e.kind = 'config';
+    if (blobs.has(path) && !modified.has(path)) e.blob = `git:${blobs.get(path)}`;
+    return e;
+  };
+  return { repo, candidates, maxBytes, fixedKind, entry };
+}
+
+/**
+ * @param {string} root
+ * @param {{config: object, scope?: string[]}} opts `scope` narrows to path prefixes/globs
+ * @returns {{files: object[], repo: boolean, commit: string|null, byKind: object}}
+ */
+export function census(root, { config, scope = [] } = {}) {
+  const plan = censusPlan(root, { config, scope });
+  const files = [];
+  const byKind = {};
+  for (const c of plan.candidates) {
+    const abs = join(root, c.path);
     let st;
     try {
       st = lstatSync(abs);
     } catch {
       continue;
     }
-    const entry = { path, size: st.size, language: languageOf(path), kind: 'other', blob: null, is_test: isTestFile(path) || (testProjects.size > 0 && underTestProject(path, testProjects, projectDirs)), too_large: st.size > maxBytes, ...(context && { context: true }) };
-    if (st.isSymbolicLink()) entry.kind = 'symlink';
-    else if (!st.isFile()) continue;
-    else if (isSecretPath(path)) entry.kind = 'secret';
-    else if (BINARY_EXT.has(extname(path).toLowerCase())) entry.kind = 'binary';
-    else if (matchAny(path, vendoredGlobs)) entry.kind = 'vendored';
-    else if (matchAny(path, generatedGlobs)) entry.kind = 'generated';
-    else {
-      const h = head(abs, 4096);
-      if (h && h.includes(0)) entry.kind = 'binary';
-      else if (h && /\.(m?js|cjs|css)$/i.test(path) && h.toString('utf8').split('\n').some((l) => l.length > 1000)) entry.kind = 'generated';
-      else if (h && looksGenerated(h.subarray(0, 2048).toString('utf8'))) entry.kind = 'generated';
-      else if (h && CODE.has(entry.language) && looksVendored(h.subarray(0, 2048).toString('utf8'))) entry.kind = 'vendored';
-      else if (entry.is_test && CODE.has(entry.language)) entry.kind = 'test';
-      else if (CODE.has(entry.language)) entry.kind = 'source';
-      else if (['markdown', 'rst'].includes(entry.language) || path.startsWith('docs/')) entry.kind = 'doc';
-      else if (CONFIG.has(entry.language) || entry.language === 'make' || entry.language === 'groovy') entry.kind = 'config';
-    }
-    if (blobs.has(path) && !modified.has(path)) entry.blob = `git:${blobs.get(path)}`;
+    const fixed = plan.fixedKind(c.path, st);
+    const entry = plan.entry(c, st, fixed === undefined ? head(abs, 4096) : null, fixed);
+    if (!entry) continue;
     files.push(entry);
-    if (!context) byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
+    if (!c.context) byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
   }
-  const commit = repo ? git(root, ['rev-parse', 'HEAD'], { check: false }).stdout.trim() || null : null;
-  return { files, repo, commit, byKind };
+  const commit = plan.repo ? git(root, ['rev-parse', 'HEAD'], { check: false }).stdout.trim() || null : null;
+  return { files, repo: plan.repo, commit, byKind };
 }
 
 /** Read a census entry's text for an adapter, filling in its content blob id. */
