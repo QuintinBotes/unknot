@@ -165,6 +165,7 @@ Your accept and reject decisions on findings are the feedback. `unknot learn rep
 - [docs/learning.md](docs/learning.md): metrics and calibration
 - [docs/adapters.md](docs/adapters.md): what is understood, at what confidence
 - [docs/runtime-evidence.md](docs/runtime-evidence.md): export traces and metrics from a hosted observability vendor
+- [docs/roadmap.md](docs/roadmap.md): the road to production grade, for any language and framework
 - [docs/faq.md](docs/faq.md)
 - [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), [COMPATIBILITY.md](COMPATIBILITY.md), [CHANGELOG.md](CHANGELOG.md)
 - Design: [docs/spec.md](docs/spec.md), [docs/research/decomposition.md](docs/research/decomposition.md), [docs/operations.md](docs/operations.md), [docs/release.md](docs/release.md), [docs/benchmarks.md](docs/benchmarks.md)
