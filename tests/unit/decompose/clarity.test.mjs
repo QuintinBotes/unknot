@@ -14,7 +14,7 @@ const { census, isTestFile } = await import('../../../runtime/graph/census.mjs')
 const { boundaryMetrics } = await import('../../../runtime/decompose/candidates.mjs');
 const { decompose } = await import('../../../runtime/decompose/index.mjs');
 const { robustness } = await import('../../../runtime/graph/community.mjs');
-const { foldSiblings } = await import('../../../runtime/decompose/fold.mjs');
+const { foldReason, foldSiblings } = await import('../../../runtime/decompose/fold.mjs');
 const { listRecords, pruneRecords, showRecord, summaryLine } = await import('../../../runtime/decompose/records.mjs');
 const { selectTreatment } = await import('../../../runtime/decompose/select.mjs');
 
@@ -87,20 +87,40 @@ describe('folded siblings', () => {
   const eligible = g.nodes('module').map((n) => n.id);
 
   test('a same-directory module only members import joins the candidate, transitively, and says why', () => {
-    const f = foldSiblings(g, [ids(['orders/a', 'orders/b']), ids(['billing/c', 'billing/d'])], eligible).get(0);
+    const f = foldSiblings(g, [ids(['orders/a', 'orders/b']), ids(['billing/c', 'billing/d'])], eligible).folds.get(0);
     assert.deepEqual(f.map((x) => x.module).sort(), ids(['orders/deep', 'orders/helper']));
     assert.deepEqual(f.find((x) => x.module.endsWith('helper.cs')).importers, ['module:src/orders/a.cs']);
   });
 
   test('not folded: another importer outside, another directory, or no importer at all', () => {
-    const f = foldSiblings(g, [ids(['orders/a', 'orders/b']), ids(['billing/c', 'billing/d'])], eligible).get(0).map((x) => x.module);
+    const f = foldSiblings(g, [ids(['orders/a', 'orders/b']), ids(['billing/c', 'billing/d'])], eligible).folds.get(0).map((x) => x.module);
     assert.ok(!f.includes('module:src/orders/shared.cs'));
     assert.ok(!f.includes('module:src/elsewhere/own.cs'));
   });
 
-  test('a module already in another candidate is not taken', () => {
+  test('a module already in another candidate is not taken while that candidate is used from elsewhere', () => {
     const f = foldSiblings(g, [ids(['orders/a', 'orders/b']), ids(['orders/helper', 'billing/d'])], eligible);
-    assert.ok(!(f.get(0) ?? []).some((x) => x.module.endsWith('helper.cs')));
+    assert.ok(!(f.folds.get(0) ?? []).some((x) => x.module.endsWith('helper.cs')));
+    assert.equal(f.absorbed.size, 0);
+  });
+
+  test('below a directory where the candidate has several members, and a whole cluster used only from it, join', () => {
+    const g2 = Graph.fromFacts([
+      ...['orders/a', 'orders/b', 'orders/util/p', 'orders/util/q', 'orders/util/r', 'billing/c', 'billing/d'].map((x) => mod(`src/${x}.cs`)),
+      imp('src/orders/a.cs', 'src/orders/b.cs'),
+      imp('src/orders/a.cs', 'src/orders/util/p.cs'),
+      imp('src/orders/b.cs', 'src/orders/util/q.cs'),
+      imp('src/orders/util/q.cs', 'src/orders/util/p.cs'),
+      imp('src/orders/b.cs', 'src/orders/util/r.cs'),
+      imp('src/billing/c.cs', 'src/billing/d.cs'),
+    ]);
+    const all = g2.nodes('module').map((n) => n.id);
+    const r = foldSiblings(g2, [ids(['orders/a', 'orders/b']), ids(['orders/util/p', 'orders/util/q']), ids(['billing/c', 'billing/d'])], all);
+    const got = r.folds.get(0).map((x) => x.module).sort();
+    assert.deepEqual(got, ids(['orders/util/p', 'orders/util/q', 'orders/util/r']));
+    assert.equal(r.absorbed.get(1), 0, 'the util cluster joined the orders candidate');
+    assert.ok(!r.absorbed.has(2));
+    assert.match(foldReason(r.folds.get(0).find((x) => x.module.endsWith('r.cs'))), /below the directory of src\/orders\//);
   });
 
   test('a folded module stops counting as a reverse dependency', () => {
@@ -216,7 +236,8 @@ describe('superseded records and prune', () => {
     bump();
     assert.ok(listRecords(r.ctx).filter((x) => x.id !== rec.id).every((x) => x.superseded === null && x.stale === true));
     // a rerun overwrites its own records at the new generation; a record only the old graph produced stays behind
-    const strays = { ...JSON.parse(readFileSync(join(dir(), `${keep}.json`), 'utf8')), id: 'DEC-0900', fingerprint: 'f'.repeat(64), graph_generation: Number(r.ctx.store.meta('generation')) - 1 };
+    const base = JSON.parse(readFileSync(join(dir(), `${keep}.json`), 'utf8'));
+    const strays = { ...base, id: 'DEC-0900', fingerprint: 'f'.repeat(64), graph_generation: Number(r.ctx.store.meta('generation')) - 1, candidate: { ...base.candidate, modules: ['module:gone/x.js', 'module:gone/y.js'] } };
     writeFileSync(join(dir(), 'DEC-0900.json'), JSON.stringify(strays));
     await decompose(r.ctx, { config: r.config, scope: ['shop/**'] });
     const rows = listRecords(r.ctx);
@@ -230,6 +251,24 @@ describe('superseded records and prune', () => {
     assert.deepEqual(done.removed.map((x) => x.id).includes('DEC-0900'), true);
     assert.ok(!existsSync(join(dir(), 'DEC-0900.json')));
     assert.ok(existsSync(join(dir(), `${keep}.json`)));
+  });
+
+  test('a boundary whose members changed gets a new id that names the record it replaces', async () => {
+    const first = (await decompose(r.ctx, { config: r.config, scope: ['shop/**'] })).details;
+    const old = JSON.parse(readFileSync(join(dir(), `${first[0].id}.json`), 'utf8'));
+    // As if an earlier version had clustered one more module into it.
+    const extra = 'module:shop/legacy/extra.js';
+    writeFileSync(join(dir(), `${old.id}.json`), JSON.stringify({ ...old, fingerprint: 'e'.repeat(64), candidate: { ...old.candidate, modules: [...old.candidate.modules, extra] } }));
+    const again = (await decompose(r.ctx, { config: r.config, scope: ['shop/**'] })).details;
+    const now = again.find((x) => x.candidate.modules.join() === old.candidate.modules.join());
+    assert.notEqual(now.id, old.id);
+    assert.equal(now.supersedes, old.id);
+    assert.ok(now.supersedes_overlap >= 0.5 && now.supersedes_overlap < 1);
+    const row = listRecords(r.ctx).find((x) => x.id === old.id);
+    assert.match(row.superseded, new RegExp(`replaced by ${now.id}`));
+    // A rerun keeps the link rather than looking again.
+    const third = (await decompose(r.ctx, { config: r.config, scope: ['shop/**'] })).details.find((x) => x.id === now.id);
+    assert.equal(third.supersedes, old.id);
   });
 
   test('a record a campaign or slice references is kept, and prune says where', () => {

@@ -23,9 +23,10 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   const tableOwners = ownersOfTables(graph, cache);
   const sccs = stronglyConnected(graph, { edgeTypes: ['IMPORTS'] });
   const clusters = cm.clusters.filter((cl) => cl.size >= 2);
-  const folds = foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
+  const { folds, absorbed } = foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
   const candidates = clusters
     .map((cl, i) => {
+      if (absorbed.has(i)) return null;
       const folded = folds.get(i) ?? [];
       const all = [...cl.members, ...folded.map((f) => f.module)].sort();
       const members = new Set(all);
@@ -53,7 +54,8 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
         name: named.name,
         name_basis: named.basis,
       };
-    });
+    })
+    .filter(Boolean);
   return {
     candidates,
     modularity: +modularity(input, partition).toFixed(4),

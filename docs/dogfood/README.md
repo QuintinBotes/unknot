@@ -66,6 +66,9 @@ each repository and writes one JSON report per repository plus a summary.
 | FB37 | 11 | Records from 0.1.10 stayed listed beside current ones; the one-line rejection of a treatment named only missing evidence while two predicates failed; a driver met for extraction was silently absent from the chosen treatment; test files were candidate members | Superseded records marked, `decompose prune`; failed predicates first; `drivers_not_served` with reasons; .NET test projects are test code; same-folder siblings used only by a candidate are folded in; owners, de-duplicated evidence and the run that broke a boundary are recorded | nopCommerce: 29 more test files recognised, none in a candidate |
 | FB38 | 11 | The first `unknot cli install` instruction always failed (`unknot` is not on PATH before the install), and the fallback repeated the same command twice | The full path comes first until the shim is installed; the install is offered once | unit tests |
 | FB39 | 11 | Recording which perturbation broke a boundary re-ran the whole clustering sweep for every fragile candidate: decompose on nopCommerce took 56 s instead of 5 s | The sweep records it while measuring stability | 3.8 s |
+| FB40 | 11 | After upgrading, helper files of a test project were still decomposition candidate members, although the new rules made them test code | The per-file extraction cache was keyed on content, adapter version and options but not on the census classification, so unchanged files kept their old `is_test`; the classification is now part of the key. Test projects are also recognised by their project file name or `<IsTestProject>` | a unit test that turns a project into a test project without touching the file; the first re-map after upgrading re-extracts once, the next is fully cached |
+| FB41 | 11 | Files in a subfolder used only by a candidate stayed outside it and were its main reverse-dependency targets | Folding reaches below a directory where the candidate has several members, and absorbs a whole cluster used only by it | unit tests |
+| FB42 | 11 | A record whose members changed got a new id, and a reader comparing versions lost the thread | The new record names the one it replaces | unit tests |
 
 ## Round summaries
 
@@ -168,6 +171,11 @@ records, the refusal of `cli install` from an agent), and the second pass found 
 complete, and records that read wrong. Re-measuring found a regression the unit tests could not:
 the new robustness detail made decompose twelve times slower on a large repository (FB39),
 fixed before release.
+
+**Round 12, the review again on 0.1.13** — everything from round 11 held except one item, and the
+reason it failed was worth more than the item: a cache that outlived a change in classification
+(FB40). The fresh clones used to re-measure every round had hidden it; this round's re-measure
+upgrades a mapped clone in place instead.
 
 ## What the loop does not do
 

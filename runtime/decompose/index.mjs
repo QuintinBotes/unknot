@@ -15,7 +15,7 @@ import { appendEvent } from '../state/ledger.mjs';
 import { buildAffinity } from './affinity.mjs';
 import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
-import { fingerprintIndex, fingerprintOf, currentGeneration } from './records.mjs';
+import { fingerprintIndex, fingerprintOf, currentGeneration, loadRecords, predecessorOf } from './records.mjs';
 import { readinessFor, selectTreatment } from './select.mjs';
 
 const OBLIGATION_KINDS = new Set(['characterization', 'parse', 'lint', 'typecheck', 'unit', 'integration', 'contract', 'architecture-fitness', 'security-scan', 'secrets-scan', 'migration-rehearsal', 'reconciliation', 'infra-plan', 'performance', 'smoke', 'rollback-rehearsal', 'human-review', 'api-compatibility', 'no-new-cycles', 'diff-budget', 'scope-check']);
@@ -129,6 +129,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   }
   disambiguate(work.map((w) => w.cand));
   const known = fingerprintIndex(ctx);
+  const prior = loadRecords(ctx);
+  // Records this run writes again are nobody's predecessor.
+  const claimed = new Set(work.map((w) => known.get(fingerprintOf({ target: w.t, drivers: allDrivers, modules: w.cand.modules }))).filter(Boolean));
   const recommendations = [];
   for (const { t, cand, fe } of work) {
     const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, ...(fe?.signals ?? {}) };
@@ -139,12 +142,18 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const existing = known.get(fingerprint) ?? null;
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
     const id = existing ?? (dryRun ? 'new' : ctx.store.nextId('DEC', 4));
+    // A boundary whose members changed gets a new id; it names the record it replaces. A record
+    // a rerun rewrites keeps the link it had.
+    const kept = existing && prior.find((r) => r.id === existing && r.supersedes);
+    const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules }, claimed);
+    if (pred) claimed.add(pred.id);
     const card0 = card(sel.card);
     const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
     const rec = {
       schema_version: '1.0',
       id: id === 'new' ? 'DEC-0000' : id,
       fingerprint,
+      ...(pred ? { supersedes: pred.id, supersedes_overlap: pred.overlap } : {}),
       graph_generation: gen,
       // The run that wrote it, so an agent explaining the record can cite a real run.
       run_id: run?.id ?? null,
