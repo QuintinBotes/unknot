@@ -13,6 +13,9 @@ export const MIGRATIONS = [
   // Re-applying it on open is what adds tables and triggers introduced after a store was
   // created, so it stays `always`.
   { id: 1, name: 'initial-schema', always: true, up: (db, { ddl }) => db.exec(ddl) },
+  // A signature of each fact's content, so a map writes only the facts that changed (builder `project`).
+  // Rows from before it have none, so the first map after the upgrade rewrites what differs.
+  { id: 2, name: 'facts-digest', up: (db) => { if (!db.prepare('PRAGMA table_info(facts)').all().some((c) => c.name === 'digest')) db.exec('ALTER TABLE facts ADD COLUMN digest TEXT'); } },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

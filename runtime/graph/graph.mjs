@@ -23,11 +23,11 @@ export class Graph {
 
   static fromStore(store) {
     const g = new Graph();
-    for (const r of store.db.prepare('SELECT * FROM nodes').iterate()) {
+    for (const r of store.db.prepare('SELECT * FROM nodes ORDER BY id').iterate()) {
       g.nodeMap.set(r.id, { id: r.id, type: r.type, name: r.name, path: r.path, attrs: JSON.parse(r.attrs), label: r.label, fact_ids: JSON.parse(r.fact_ids) });
       g.index(g.typeIdx, r.type, r.id);
     }
-    for (const r of store.db.prepare('SELECT * FROM edges').iterate()) {
+    for (const r of store.db.prepare('SELECT * FROM edges ORDER BY id').iterate()) {
       const e = { id: r.id, type: r.type, from: r.src, to: r.dst, attrs: JSON.parse(r.attrs), label: r.label, fact_ids: JSON.parse(r.fact_ids) };
       g.edgeMap.set(r.id, e);
       g.index(g.outIdx, r.src, e);

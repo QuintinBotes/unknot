@@ -29,7 +29,7 @@ test('a store from before names were recorded (version 1, no list) is named, not
   s.close();
   const again = new Store(file);
   assert.equal(again.get("SELECT value FROM sequences WHERE name = 'keep'").value, 7);
-  assert.deepEqual(JSON.parse(again.meta('migrations')), ['initial-schema']);
+  assert.deepEqual(JSON.parse(again.meta('migrations')), MIGRATIONS.map((m) => m.name));
   again.close();
   rmSync(dir, { recursive: true });
 });
