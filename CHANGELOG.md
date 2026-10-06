@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Node arguments with an unknown prefix (`file:<path>`) resolve to the matching node with a note; a node that is not found lists the accepted forms and suggests the nearest paths (#27).
 - The MCP `search_text` no longer spends its 20 s budget before scanning any file (#26). It scans concurrently like the CLI, the budget starts at entry and covers listing the files (one `git ls-files`, classified by path; files are statted and read only during the scan), and it stops starting reads when the budget is spent. A result that scanned no file says `searched: false` with a notice suggesting a scope or the CLI, instead of an empty hit list, and results report `files_scanned`.
 
 ## [0.2.1] - 2026-10-06

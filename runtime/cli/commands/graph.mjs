@@ -1,7 +1,7 @@
 import { UnknotError } from '../../core/errors.mjs';
 import { matchAny } from '../../core/glob.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
-import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, stronglyConnected } from '../../graph/algorithms.mjs';
+import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, explainRef, stronglyConnected } from '../../graph/algorithms.mjs';
 import { MAX_CYCLES, readDerived } from '../../graph/derived.mjs';
 
 const ALL_CYCLES = 5000;
@@ -40,8 +40,14 @@ function edgeTypesOf(arg, flags) {
 /** Ids a reference names (an id, a module path or a declared type); an error when none. */
 function refIds(g, flag, ref) {
   if (ref === true || !ref) throw usage(`--${flag} needs a node id or path`);
-  const ids = resolveRef(g, ref);
-  if (!ids.length) throw usage(`--${flag} ${ref}: no node, module path or type by that name`);
+  const { ids, note, suggestions } = explainRef(g, ref);
+  if (note) {
+    process.stderr.write(`unknot: ${note}\n`);
+  }
+  if (!ids.length) {
+    const msg = `--${flag} ${ref}: no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+    throw usage(msg);
+  }
   return ids;
 }
 
@@ -191,8 +197,14 @@ export async function run({ positional, flags }) {
   if (sub === 'neighbourhood') {
     if (!arg) throw usage('graph neighbourhood needs a node id, module path or type name');
     const g = Graph.fromStore(ctx.store);
-    const roots = resolveRef(g, arg);
-    if (!roots.length) throw usage(`no node, module path or type named ${arg}`);
+    const { ids: roots, note, suggestions } = explainRef(g, arg);
+    if (note) {
+      process.stderr.write(`unknot: ${note}\n`);
+    }
+    if (!roots.length) {
+      const msg = `no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+      throw usage(msg);
+    }
     const depth = intFlag(flags, 'depth', 1);
     if (depth > 3) throw usage('--depth is at most 3');
     const types = edgeTypesOf(null, flags);

@@ -9,7 +9,7 @@ import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
-import { neighbourhood, rankHubs, resolveRef } from '../graph/algorithms.mjs';
+import { neighbourhood, rankHubs, resolveRef, explainRef } from '../graph/algorithms.mjs';
 import { DERIVED_KINDS, readDerived } from '../graph/derived.mjs';
 import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
@@ -128,11 +128,16 @@ export const TOOLS = {
         return capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), total: facts.length }, ['facts'], 'lower limit');
       }
       if (a.id) {
-        const ids = resolveRef(g, a.id);
-        if (!ids.length) throw notFound('node', a.id);
+        const { ids, note, suggestions } = explainRef(g, a.id);
+        if (!ids.length) {
+          const msg = `no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+          throw new UnknotError('UK_NOT_FOUND', msg);
+        }
         if (ids.length > 1) throw new UnknotError('UK_SCHEMA_INVALID', `${a.id} names ${ids.length} nodes; use one id: ${ids.slice(0, 10).join(', ')}`);
         const edges = edgesOf(g, ids[0], { direction: a.direction, edgeTypes: a.edge_type });
-        return capResult({ node: nodeView(g.node(ids[0]), full), edges: edges.slice(0, max).map((e) => edgeView(e, full)), edge_count: edges.length }, ['edges'], 'narrow with edge_type and direction, or lower limit');
+        const result = { node: nodeView(g.node(ids[0]), full), edges: edges.slice(0, max).map((e) => edgeView(e, full)), edge_count: edges.length };
+        if (note) result.note = note;
+        return capResult(result, ['edges'], 'narrow with edge_type and direction, or lower limit');
       }
       if (a.type && a.edge_type) throw new UnknotError('UK_SCHEMA_INVALID', "pass type (list nodes) or edge_type (list edges), not both; to filter one node's edges pass id");
       if (a.edge_type) {
@@ -175,12 +180,16 @@ export const TOOLS = {
     inputSchema: schema({ id: str(), depth: limit(3), edge_types: { type: 'array', items: str(), maxItems: 32 }, full: { type: 'boolean' } }, ['id']),
     run(ctx, a) {
       const g = Graph.fromStore(ctx.store);
-      const roots = resolveRef(g, a.id);
-      if (!roots.length) throw notFound('node', a.id);
+      const { ids: roots, note, suggestions } = explainRef(g, a.id);
+      if (!roots.length) {
+        const msg = `no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+        throw new UnknotError('UK_NOT_FOUND', msg);
+      }
       const depth = a.depth ?? 1;
       const hood = neighbourhood(g, roots, { depth, edgeTypes: a.edge_types?.length ? a.edge_types : undefined });
       const full = a.full === true;
       const result = { root: roots[0], ...(roots.length > 1 ? { roots } : {}), depth, nodes: hood.nodes.map((n) => nodeView(n, full)), edges: hood.edges.map((e) => edgeView(e, full)), capped: hood.capped };
+      if (note) result.note = note;
       // Dropping nodes drops the edges that touched them.
       return capResult(result, ['nodes', 'edges'], 'lower depth, or pass edge_types to follow fewer relations', (out) => {
         const kept = new Set(out.nodes.map((n) => n.id));
