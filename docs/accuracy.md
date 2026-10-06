@@ -104,6 +104,35 @@ A bare string value (`"false"`) is accepted too. Labels are keyed by fingerprint
 carry over while a finding keeps its kind and scope; labels for findings that no longer exist
 are ignored. Raise `--sample` to bring more of the stratified order into the labelled set.
 
+## Results for Unknot 0.2.0
+
+Same corpus and seed, Twenty excluded (it is `large`), 20 findings sampled per repository; the
+whole run took 6.5 minutes. The labels were made against 0.1.15, so findings that are new or
+changed in 0.2.0 are unlabelled (124 of the 220 sampled) and the rates below are over the 96
+that still carry a label.
+
+| | Labelled | True | Wrong | Not worth | Precision | Factual |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.1.15 | 117 | 21 | 27 | 69 | 18% | 77% |
+| 0.2.0 | 96 | 17 | 14 | 65 | 18% | 85% |
+
+The fixes after the first run removed every finding labelled wrong for these causes:
+type-only imports closing cycles, vendored files, imports from `.vue` files, authorization
+matched by name, and hubs counted from imports of a whole package (Gitea's hub findings went
+from 604 to 0). Python files are no longer cut off at the command output limit, which is why
+Saleor's seeded dead function is now found.
+
+| Seeded defect | Found | Seeded |
+|---|---:|---:|
+| dependency cycle | 11 | 11 |
+| long function | 11 | 11 |
+| dead function | 2 | 11 |
+| unused injected member | 1 | 3 |
+
+Dead code is reported only where the code is parsed into a syntax tree, so the lexical
+languages (C#, Java, Go, PHP, Ruby) do not report it by design; the unused injected member is
+resolved for C# only. Labelling the new samples is the next step to tighten these numbers.
+
 ## First results (Unknot 0.1.15)
 
 Ten sampled findings per repository, all labelled by reading the source, except that three of
