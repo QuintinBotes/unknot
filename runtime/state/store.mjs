@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS idempotency (
 CREATE TABLE IF NOT EXISTS checkpoints (
   run_id TEXT NOT NULL, stage TEXT NOT NULL, cursor TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (run_id, stage));
+CREATE TABLE IF NOT EXISTS derived (
+  generation INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, body TEXT NOT NULL,
+  PRIMARY KEY (generation, kind, key));
 `;
 
 // Tables whose rows are entities with a `version` column and a JSON `body`.

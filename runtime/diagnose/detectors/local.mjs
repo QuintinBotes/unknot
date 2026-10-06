@@ -4,7 +4,7 @@
 // through config.detectors['local.<name>']; every threshold in effect is echoed back in the
 // draft so a reviewer can see what the claim rests on, and heuristic ones say so.
 
-import { cycleBreakdown, stronglyConnected } from '../../graph/algorithms.mjs';
+import { derivedFor } from '../../graph/derived.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
 const SOURCE_NODE_TYPES = ['function', 'method'];
@@ -637,28 +637,26 @@ const unusedInjectedMember = define({
   name: 'unused-injected-member',
   kinds: ['code.unused-injected-member'],
   run(graph) {
-    const edges = graph.edges('IMPORTS').filter((e) => e.attrs?.declared_only && e.from !== e.to).sort((a, b) => (a.from + a.to < b.from + b.to ? -1 : 1));
-    if (!edges.length) return [];
-    const sccOf = new Map();
-    for (const comp of stronglyConnected(graph, { edgeTypes: ['IMPORTS'], nodeTypes: ['module'] })) if (comp.length > 1) for (const id of comp) sccOf.set(id, comp);
-    const breakdowns = new Map();
+    // The stored declared-only edges and the component each sits in (one breakdown per component).
+    const rows = derivedFor(graph, 'declared_only');
+    if (!rows.length) return [];
+    const byKey = new Map(derivedFor(graph, 'scc').map((r) => [r.key, r.body]));
     const out = [];
-    for (const e of edges) {
-      const from = graph.node(e.from);
-      const to = graph.node(e.to);
-      if (!from || !to || from.type !== 'module' || to.type !== 'module' || isTestModule(from) || isTestModule(to)) continue;
-      const member = e.attrs.unused_member ?? 'a member';
-      const pub = e.attrs.member_visibility === 'public';
-      const comp = sccOf.get(e.from) && sccOf.get(e.from) === sccOf.get(e.to) ? sccOf.get(e.from) : null;
+    for (const { body: r } of rows) {
+      const from = graph.node(r.from);
+      const to = graph.node(r.to);
+      if (!from || !to || !r.modules || isTestModule(from) || isTestModule(to)) continue;
+      const member = r.member ?? 'a member';
+      const pub = r.visibility === 'public';
+      const bd = r.component !== null ? byKey.get(r.component) : null;
+      const comp = bd?.members ?? null;
       let closes = 0;
       let total = 0;
       let truncated = false;
-      if (comp) {
-        if (!breakdowns.has(comp)) breakdowns.set(comp, cycleBreakdown(graph, comp, { edgeTypes: ['IMPORTS'] }));
-        const bd = breakdowns.get(comp);
+      if (bd) {
         total = bd.cycles.length;
         truncated = bd.truncated;
-        closes = bd.cycles.filter((c) => c.edges.some((x) => x.from === e.from && x.to === e.to)).length;
+        closes = bd.cycles.filter((c) => c.edges.some((x) => x.from === r.from && x.to === r.to)).length;
       }
       const type = to.path ?? to.name;
       const d = base(graph, from, {
@@ -672,11 +670,11 @@ const unusedInjectedMember = define({
         evidence: Math.min(0.7, evidenceFor(from.attrs)),
         uncertain: pub ? 2 : 1,
       });
-      const line = e.attrs?.line ?? 1;
+      const line = r.line ?? 1;
       out.push({
         ...d,
-        key: `unused-member:${e.from}>${e.to}`,
-        evidence: [...d.evidence, { ref: e.to, label: 'observed', summary: `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
+        key: `unused-member:${r.from}>${r.to}`,
+        evidence: [...d.evidence, { ref: r.to, label: 'observed', summary: `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
         confidence: 'medium',
         why_accidental: 'An injected member nobody uses still pulls in its dependency, keeps the file coupled to the type and adds a registration to maintain.',
         essential_considerations: [pub ? 'The member is public: consumers outside this repository, reflection or serialization could still use it.' : 'It may be set or read by reflection or a container convention.'],

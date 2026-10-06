@@ -9,6 +9,7 @@ import { UnknotError } from '../core/errors.mjs';
 import { assertArtifact } from '../core/schema.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { globalSignals } from '../diagnose/signals.mjs';
+import { readDerived, testSet } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
@@ -94,6 +95,8 @@ function provenanceFor(config, cliDrivers, allDrivers, given) {
 export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false }) {
   const graph = Graph.fromStore(ctx.store);
   if (!graph.size.nodes) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
+  readDerived(ctx, 'scc', { graph }); // seeds the stored facts candidates read
+  const tests = testSet(graph);
   const allDrivers = [...new Set([...(config.decomposition.drivers ?? []).map((d) => d.id), ...drivers])];
   const effective = { ...config, decomposition: { ...config.decomposition, drivers: allDrivers.map((id) => ({ id })) } };
   const inScope = scopePredicate(graph, scope);
@@ -102,7 +105,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   const warning = emptyScopeWarning(res);
   // A scope that selects nothing (or names a seed that is not there) records nothing.
   if (!res.all && (res.matched === 0 || res.unresolved.length)) return { targets: [], drivers: allDrivers, analyses: {}, recommendations: [], scope: scopeInfo, warning, dry_run: dryRun, details: [] };
-  const source = graph.nodes('module').filter((n) => !n.attrs.is_test && !n.attrs.placeholder && inScope(n));
+  const source = graph.nodes('module').filter((n) => !tests.has(n.id) && !n.attrs.placeholder && inScope(n));
   const front = source.filter((n) => isFrontendModule(graph, n));
   const targets = target === 'auto' ? [source.length - front.length >= 2 ? 'backend' : null, front.length >= 2 ? 'frontend' : null].filter(Boolean) : [target];
   const global = globalSignals(graph, effective);

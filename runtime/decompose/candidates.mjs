@@ -3,7 +3,8 @@
 // proposal is. Metrics are relative to this repository and carry what was not measured.
 
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
-import { cycleBreakdown, stronglyConnected } from '../graph/algorithms.mjs';
+import { cycleBreakdown } from '../graph/algorithms.mjs';
+import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
@@ -21,7 +22,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   for (const c of rob.communities) for (const m of c.members) stability.set(m, c.stability), brokenBy.set(m, c.broken_by);
   const cache = new Map();
   const tableOwners = ownersOfTables(graph, cache);
-  const sccs = stronglyConnected(graph, { edgeTypes: ['IMPORTS'] });
+  const sccs = sccsOf(graph).map((c) => c.members);
   const clusters = cm.clusters.filter((cl) => cl.size >= 2);
   const { folds, absorbed } = foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
   const candidates = clusters
@@ -298,7 +299,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   m['boundary.internal_imports'] = internalImports;
   // A cycle that crosses the boundary blocks extraction; one wholly inside it does not
   // (it is the candidate's own problem, reported separately).
-  const touching = (sccs ?? stronglyConnected(graph, { edgeTypes: ['IMPORTS'] })).filter((c) => c.some((x) => members.has(x)));
+  const touching = (sccs ?? sccsOf(graph).map((c) => c.members)).filter((c) => c.some((x) => members.has(x)));
   const crossingCycles = touching.filter((c) => c.some((x) => !members.has(x)));
   m['cycle.size'] = crossingCycles.length ? Math.max(...crossingCycles.map((c) => c.length)) : 0;
   const worst = crossingCycles.slice().sort((a, b) => b.length - a.length)[0] ?? [];
@@ -311,7 +312,8 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   const wholly = touching.filter((c) => c.every((x) => members.has(x))).sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1));
   m['boundary.internal_cycle_size'] = wholly.length ? wholly[0].length : 0;
   if (wholly.length) {
-    const b = cycleBreakdown(graph, wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: 20 });
+    // The stored breakdown of that component, the one `graph cycles` and diagnose read.
+    const b = sccsOf(graph).find((c) => c.members.join() === wholly[0].join()) ?? cycleBreakdown(graph, wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: MAX_CYCLES });
     details.cycle_detail = { scope: 'internal', size: wholly[0].length, members: b.members, cycles: b.cycles.map((c) => c.nodes), cycles_truncated: b.truncated, cut: b.cut, declared_only: b.cut.filter((e) => e.declared_only).length };
   }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
