@@ -2,7 +2,7 @@
 // dependencies, driver provenance, readiness, summary, list and show.
 
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse } from '../../golden/_harness.mjs';
@@ -317,6 +317,30 @@ describe('decompose command', () => {
     assert.deepEqual(third.details[0].driver_provenance.map((p) => [p.driver, p.quote, p.carried_from ?? null]), [['availability_isolation', 'Checkout must stay up.', b.id], ['security_isolation', 'New words.', null]]);
     // With nothing to carry from, the drivers are reported as unrecorded.
     const none = await decompose(r.ctx, { config: r.config, scope: ['shop/billing/**'], drivers, dryRun: true });
+    assert.deepEqual(none.driver_provenance_missing, drivers);
+  });
+
+  test('provenance is carried along the whole supersedes chain, and the notice lists every driver left without', async () => {
+    // A graph of its own, so no record of another test is in the chain.
+    const own = await analyse('modular-monolith', { extra, skipDiagnose: true });
+    const drivers = ['availability_isolation', 'security_isolation'];
+    const orders = (names) => names.map((n) => `shop/catalog/${n.replace('o', 'c')}.js`);
+    const prov = { byDriver: { availability_isolation: { source: 'https://example.com/plan', quote: 'Checkout must stay up.' }, security_isolation: { quote: 'Card data stays apart.' } } };
+    const [r1] = (await decompose(own.ctx, { config: own.config, scope: orders(['o0', 'o1', 'o2', 'o3', 'o4']), drivers, driverProvenance: prov })).details;
+    const [r2] = (await decompose(own.ctx, { config: own.config, scope: orders(['o0', 'o1', 'o2', 'o3']), drivers })).details;
+    assert.equal(r2.supersedes, r1.id);
+    // R2 was written without provenance (an earlier release): strip it from the file.
+    const file = join(own.ctx.paths.base, 'decompositions', `${r2.id}.json`);
+    const body = JSON.parse(readFileSync(file, 'utf8'));
+    body.driver_provenance = body.driver_provenance.map(({ driver }) => ({ driver, source: null, quote: null }));
+    writeFileSync(file, JSON.stringify(body));
+    const third = await decompose(own.ctx, { config: own.config, scope: orders(['o0', 'o1', 'o2']), drivers });
+    const [r3] = third.details;
+    assert.equal(r3.supersedes, r2.id);
+    assert.deepEqual(r3.driver_provenance.map((p) => [p.driver, p.quote, p.carried_from]), [['availability_isolation', 'Checkout must stay up.', r1.id], ['security_isolation', 'Card data stays apart.', r1.id]]);
+    assert.deepEqual(third.driver_provenance_missing, []);
+    // Nothing anywhere in the chain: both drivers are listed.
+    const none = await decompose(own.ctx, { config: own.config, scope: ['shop/billing/**'], drivers, dryRun: true });
     assert.deepEqual(none.driver_provenance_missing, drivers);
   });
 

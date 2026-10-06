@@ -1,7 +1,7 @@
 // The decompose command line: subcommands, --summary, --dry-run and the warning stream.
 
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse } from '../../golden/_harness.mjs';
@@ -13,8 +13,8 @@ const imports = (names, self) => names.filter((m) => m !== self).map((m) => `imp
 const group = (dir, names) => Object.fromEntries(names.map((n) => [`shop/${dir}/${n}.js`, `${imports(names, n)}\nexport function f_${n}() { return 1; }\n`]));
 const r = await analyse('modular-monolith', { extra: { ...group('orders', ['o0', 'o1', 'o2', 'o3', 'o4']), ...group('stock', ['s0', 's1', 's2', 's3', 's4']) }, skipDiagnose: true });
 
-async function cli(...argv) {
-  const { positional, flags } = parseArgs([...argv, '--cwd', r.dir]);
+async function cliIn(dir, ...argv) {
+  const { positional, flags } = parseArgs([...argv, '--cwd', dir]);
   let out = '';
   let err = '';
   const o = process.stdout.write;
@@ -29,6 +29,7 @@ async function cli(...argv) {
   }
   return { out, err };
 }
+const cli = (...argv) => cliIn(r.dir, ...argv);
 
 describe('decompose CLI', () => {
   test('--dry-run --summary prints one line per candidate and writes nothing', async () => {
@@ -105,5 +106,23 @@ describe('decompose CLI', () => {
     const res = JSON.parse((await cli('shop/**', '--json')).out);
     assert.deepEqual(Object.keys(res.scope), ['entries', 'matched', 'total', 'unresolved']);
     assert.equal(res.scope.matched, 10);
+  });
+
+  test('text show lists the contract routes with their client interfaces, and says when none were looked for', async () => {
+    const src = join(process.cwd(), 'tests/fixtures/clients/orders-client/src');
+    const own = await analyse('modular-monolith', { extra: { ...group('orders', ['o0', 'o1', 'o2', 'o3', 'o4']), 'shop/orders/IOrdersApi.cs': readFileSync(join(src, 'Clients/IOrdersApi.cs'), 'utf8'), 'shop/orders/OrderService.cs': readFileSync(join(src, 'Orders/OrderService.cs'), 'utf8') }, skipDiagnose: true });
+    const rows = JSON.parse((await cliIn(own.dir, 'shop/**', '--json')).out).recommendations;
+    const text = (await cliIn(own.dir, 'show', rows[0].id)).out;
+    assert.match(text, /^Contracts: contracts\.present 1, clients\.count 1/m);
+    assert.match(text, /^ {2}GET \/v1\/orders\/: {2}\[client\] {2}1 client: IOrdersApi/m);
+    assert.match(text, /^ {2}POST \/v1\/orders /m);
+    const plain = (await cli('show', JSON.parse((await cli('shop/**', '--json')).out).recommendations[0].id)).out;
+    assert.match(plain, /^Contracts: contracts\.present unmeasured, clients\.count unmeasured.*no route found/m);
+  });
+
+  test('the missing-provenance notice prints in the text and lists every driver', async () => {
+    const { out } = await cli('shop/**', '--dry-run', '--driver', 'security_isolation', '--driver', 'independent_scale');
+    assert.match(out, /^Notice: no source or quote is recorded for drivers security_isolation, independent_scale/m);
+    assert.deepEqual(JSON.parse((await cli('shop/**', '--dry-run', '--json', '--driver', 'security_isolation', '--driver', 'independent_scale')).out).driver_provenance_missing, ['security_isolation', 'independent_scale']);
   });
 });

@@ -12,6 +12,8 @@ All notable changes are documented here. The format follows
 ### Added
 
 - `unknot workspace add <name> <path>` and `workspace remove <name>` (#50) write the workspace repositories into the configuration proposal (never the accepted config), validating a git root, a unique name and path, and a path outside `.unknot/`, and record `workspace add` as the source for `config diff`. `workspace list` and `map` in a root whose repositories are only in an unaccepted proposal fail with the new error code `UK_WORKSPACE_UNACCEPTED`, and `status` says why the accept step is listed.
+- `decompose` carries a driver's source and quote along the whole `supersedes` chain, to the nearest record that has them (`carried_from` names it), instead of only from the record directly replaced; `driver_provenance_missing` lists every driver whose saved provenance has neither a source nor a quote, in text and JSON, and is empty only when every driver has some (#47).
+- `contracts.present` and `clients.count` reach `candidate.metrics` (the metric-name filter dropped the `contracts` and `clients` prefixes; unmeasured stays absent) and the readiness rows; text `decompose show` has a Contracts section listing each route with its client interfaces and, from a workspace map, the repository that serves it; a candidate's client routes add an evidence gap naming them as a seam served elsewhere until a workspace map confirms it. The other prefixes selection cards read that no candidate measures (`backup`, `data`, `migration`, `clients.response_shape_variance`) stay unmeasured in readiness; `metrics`, `service` and `team` are global signals no decomposition card uses (#48).
 
 ## [0.3.2] - 2026-10-06
 
