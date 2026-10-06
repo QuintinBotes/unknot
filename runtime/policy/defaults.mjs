@@ -36,6 +36,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     pricing: null,
     workers: null,
   },
+  repository: { publishes_api: true },
   quality: { forbid_new_cycles: true, public_api_compatibility: 'required', max_complexity_increase: 0 },
   security: {
     secrets_scan: 'required',

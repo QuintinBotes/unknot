@@ -8,7 +8,7 @@ import { LADDERS, MODES, modeRank } from './defaults.mjs';
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 // Top-level keys with an explicit tighten-only rule below (or org-only metadata).
-const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
+const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
 
 /** Deep-merge `over` onto `base` (plain override). Used for repo-over-defaults. */
 export function overlay(base, over) {
@@ -70,6 +70,7 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
     const keys = new Set([...Object.keys(c.limits.pricing), ...Object.keys(org.limits.pricing)]);
     set('limits.pricing', Object.fromEntries([...keys].map((k) => [k, Math.max(c.limits.pricing[k] ?? 0, org.limits.pricing[k] ?? 0)])));
   }
+  if (org.repository?.publishes_api === true) set('repository.publishes_api', true);
   if (org.quality?.forbid_new_cycles) set('quality.forbid_new_cycles', true);
   if (org.security?.require_os_sandbox) set('security.require_os_sandbox', true);
   if (org.security?.sandbox_loopback === false) set('security.sandbox_loopback', false);

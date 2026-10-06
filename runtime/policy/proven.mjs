@@ -89,6 +89,15 @@ export function provenDeletion(ctx, slice, { config } = {}) {
   const sources = body.sources ?? [];
   if (!sources.length) problems.push('the slice has no source finding');
   const kinds = [];
+  const notes = [];
+  let cfg = config;
+  try {
+    cfg ??= loadConfig(ctx).config;
+  } catch {
+    problems.push('the configuration could not be read');
+  }
+  // Unknot cannot tell published library API from application code; a person says so in the config.
+  const internal = cfg?.repository?.publishes_api === false;
   for (const src of sources) {
     if (!FINDING_ID.test(src)) {
       problems.push(`source ${src} is not a finding`);
@@ -114,7 +123,9 @@ export function provenDeletion(ctx, slice, { config } = {}) {
     const scope = f.scope ?? [];
     if (literal && !(scope.length === 1 && scope[0] === literal)) problems.push(`finding ${src} covers ${scope.join(', ') || 'nothing'}, not only ${literal}`);
     if (kind === 'code.unused-injected-member') {
-      if (f.measurements?.['member.public'] !== false) problems.push(`finding ${src} is about a public member, which consumers outside this repository may use`);
+      const pub = f.measurements?.['member.public'];
+      if (pub === true && internal) notes.push(`${src}: public member, internal because repository.publishes_api is false`);
+      else if (pub !== false) problems.push(`finding ${src} is about a public member, which consumers outside this repository may use`);
     }
     kinds.push(`${src} ${kind} (confidence ${f.confidence}, evidence observed)`);
   }
@@ -123,17 +134,12 @@ export function provenDeletion(ctx, slice, { config } = {}) {
   if (literal) {
     const surface = publicSurface(ctx, literal);
     if (surface === undefined) problems.push('the derived public surface could not be read');
+    else if (surface?.exports?.length && internal) notes.push(`${literal}: exports are internal because repository.publishes_api is false`);
     else if (surface?.exports?.length) problems.push(`${literal} exports ${surface.exports.slice(0, 3).join(', ')}, which is public surface`);
   }
 
   // (e) no high or critical factor, and nothing medium that a removal does not account for
   if (!problems.length) {
-    let cfg = config;
-    try {
-      cfg ??= loadConfig(ctx).config;
-    } catch {
-      problems.push('the configuration could not be read');
-    }
     if (cfg) {
       const after = classifyRisk(body, { config: cfg, surfaces: body.surfaces ?? {}, proven: { qualifies: true, reasons: [] } });
       if (riskRank(after.risk) > riskRank('low')) problems.push(`${after.risk} risk factors remain: ${after.reasons.filter((r) => !r.startsWith('proven deletion')).join('; ')}`);
@@ -146,7 +152,7 @@ export function provenDeletion(ctx, slice, { config } = {}) {
       `only removes code (${REMOVAL_PATTERN})`,
       `one literal file: ${literal}`,
       ...kinds,
-      'not in the derived public surface',
+      ...(notes.length ? notes : ['not in the derived public surface']),
       'no high or critical risk factor',
     ],
     problems: [],

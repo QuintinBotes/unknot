@@ -239,3 +239,16 @@ test('a pure deletion in the one file keeps the status through finish', async ()
   assert.equal(provenDeletion(ctx, slice, { config: cfg.config }).qualifies, true);
   endRun(ctx, run.id);
 });
+
+test('repository.publishes_api: a public unused member qualifies only when the person says the API is internal', () => {
+  const pubFinding = (over = {}) => finding({ measurements: { 'member.public': true }, ...over });
+  assert.equal(verdict(body({ sources: [pubFinding()] })).qualifies, false, 'default is true');
+  const internal = { ...cfg.config, repository: { publishes_api: false } };
+  const v = provenDeletion(ctx, body({ sources: [pubFinding()] }), { config: internal });
+  assert.equal(v.qualifies, true, v.problems.join('; '));
+  assert.match(v.reasons.join(' | '), /public member, internal because repository\.publishes_api is false/);
+  assert.equal(provenDeletion(ctx, body({ sources: [pubFinding({ status: 'resolved' })] }), { config: internal }).qualifies, false);
+  assert.equal(provenDeletion(ctx, body({ sources: [pubFinding({ confidence: 'low' })] }), { config: internal }).qualifies, false);
+  assert.equal(provenDeletion(ctx, body({ sources: [pubFinding()], changes: [{ path: 'src/other.mjs', operation: 'modify' }] }), { config: internal }).qualifies, false);
+  assert.equal(provenDeletion(ctx, body({ sources: [pubFinding({ evidence: [{ ref: 'r', label: 'inferred' }] })] }), { config: internal }).qualifies, false);
+});
