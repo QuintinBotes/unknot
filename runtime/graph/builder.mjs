@@ -17,6 +17,8 @@ import { resolveScopes } from './mapped-scopes.mjs';
 import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
+import { importFacts } from '../../adapters/runtime/imports.mjs';
+import { loadImports } from './runtime-imports.mjs';
 import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
@@ -259,6 +261,16 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       }
     } catch (err) {
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
+    }
+  }
+  // Imported runtime tables (`unknot import runtime`) are matched against the graph as mapped now.
+  const imports = loadImports(ctx.store);
+  if (imports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, importFacts(imports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<runtime-import>', adapter: 'runtime', error: String(err?.message ?? err) });
     }
   }
   lap('discovery_ms');

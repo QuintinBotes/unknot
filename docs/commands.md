@@ -48,6 +48,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 |---|---|---|---|
 | `init` | Writes `.unknot/` and `config.proposed.yaml` | no | `/unknot:init` |
 | `map` | Writes Unknot state | no | `/unknot:map` |
+| `import runtime` | Reads one named file, writes Unknot state | no | none |
 | `diagnose` | Writes findings to state | no | `/unknot:diagnose` |
 | `explain` | Read-only | no | `/unknot:explain` |
 | `decompose` | Writes `.unknot/decompositions/*.json` | no | `/unknot:decompose` |
@@ -121,6 +122,10 @@ Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumul
 | `--json` | Summary as JSON. |
 
 Prints file, node and edge counts, cache use, history size, adapters that were unavailable, and any extraction failures (a partial map says `PARTIAL`).
+
+### `unknot import runtime <file> [--source <label>]`
+
+Loads a table of call volumes, p95 latency and error rates (CSV or JSON, columns `caller, callee, operation, count, p95_ms, error_rate, window`) as runtime evidence for `decompose`. Each caller and callee is matched onto a module, symbol, route or service node; the matched rows become `RUNTIME_CALLS` edges carrying their window, source and import time, and the command re-maps so the graph holds them. It prints the matched and unmatched counts and the first 20 unmatched rows with the reason. The same file imported again is unchanged; a different file with the same `--source` replaces the earlier import. The file must be inside the repository, outside `.unknot/`, and not a credential path. A malformed row refuses the whole file. The format, matching rules and an export recipe are in [runtime-evidence.md](runtime-evidence.md#import-table-call-volumes-latency-and-errors). `--json` prints the summary.
 
 ### `unknot diagnose [scope...]`
 

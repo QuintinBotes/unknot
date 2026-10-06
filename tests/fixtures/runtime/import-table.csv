@@ -1,0 +1,8 @@
+caller,callee,operation,count,p95_ms,error_rate,window
+shop/orders/o0.js,shop/stock/s0.js,reserve,12000,45.5,0.012,P7D
+shop/orders/o1.js,f_s1,reserve,8000,60,0.02,P7D
+shop/orders/o1.js,f_s1,release,2000,30,0,P7D
+shop/orders/o2.js,shop/orders/o3.js,total,500,2,0,P7D
+shop/orders/o0.js,billing-service,charge,300,120,0.1,P7D
+GET /v1/orders/{id},shop/stock/s0.js,read,90,15,0,P7D
+shop/orders/o4.js,shop/stock/s9.js,reserve,40,,,2026-09-01T00:00:00Z/2026-09-08T00:00:00Z

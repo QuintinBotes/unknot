@@ -131,6 +131,21 @@ Ten treatments, each a pattern card in `patterns/decomposition/` with applicabil
 
 The thresholds inside the cards (0.8 ownership, 0.2 co-change leak, 5 calls per request) are heuristics. The output labels them as such. The cards keep 0.8, 0.2 and 5 as defaults. `decomposition.thresholds.ownership_alignment`, `co_change_leak` and `chatty_calls_p95` override them (see [configuration.md](configuration.md#decomposition)).
 
+### Measured runtime traffic
+
+Runtime call edges, whether from imported traces or from a table loaded with `unknot import runtime` (see [runtime-evidence.md](runtime-evidence.md#import-table-call-volumes-latency-and-errors)), give each candidate these measured signals. A runtime edge counts when one side belongs to the candidate and the other lies wholly outside it. A caller or callee belongs to the candidate through its module (a symbol through its file, a route through the code that exposes it, a service through the modules under its `code_root`); rows that resolve to a service count for every module under its root, so prefer module, symbol or route rows when you can.
+
+| Signal | Meaning |
+|---|---|
+| `runtime.cross_boundary_calls` | Calls crossing the boundary in either direction, summed over the window. |
+| `runtime.cross_boundary_p95_ms` | The largest p95 among the crossing rows. |
+| `runtime.cross_boundary_error_rate` | Error rate across the crossing rows, weighted by calls. |
+| `runtime.boundary_coverage` | Coverage, defined below. |
+
+The record's `runtime_evidence` labels these `observed`, with the window the rows cover (earliest start, latest end), the sources, the coverage and whether the cap lifted. Evidence past its expiry (window end plus `ttl_days`, default 14) is left out and named in the evidence gaps.
+
+**Coverage** is the share of the candidate's boundary edges that runtime rows connect. A boundary edge is a static import between a module in the candidate and a module outside it, in either direction; it is covered when some runtime edge joins the two modules (or things that belong to them). The cap lifts when coverage is at least `COVERAGE_THRESHOLD` (0.5) and at least one runtime edge crosses the boundary. Both the definition and the threshold live in `runtime/decompose/runtime-evidence.mjs` and nowhere else. A candidate with no static boundary edge has no coverage to measure and keeps the cap.
+
 ### How a treatment is chosen
 
 For each candidate:
@@ -143,7 +158,7 @@ For each candidate:
 6. If T3 wins but the candidate has shared-table writers or cross joins, the sequence becomes T6 then T3, and T6 is the recommendation (data ownership before a network seam). If T6 is contraindicated, T3 is rejected and the next best wins.
 7. If nothing fits and serves, the answer is T0 with a `retain_reason`. When a driver is recorded and evidence is missing, the recommendation also carries a preparation sequence (contracts, observability, ownership, whichever is missing). `unknot plan --from DEC-xxxx` then creates evidence-gathering slices (contract tests, correlation IDs and tracing, CODEOWNERS) instead of failing.
 
-Every recommendation cites the favouring signals with measured values, lists every contraindication it checked, lists the rejected treatments with reasons, and lists the evidence gaps. Confidence is `high` only with at least two favouring signals and at most two evidence gaps, `medium` with one favouring signal or none needed (retain), and `low` for an unstable candidate. The spec asks for static evidence alone to cap extraction at `medium`; in practice the gaps keep it there, but the code does not enforce that cap separately.
+Every recommendation cites the favouring signals with measured values, lists every contraindication it checked, lists the rejected treatments with reasons, and lists the evidence gaps. Confidence is `high` only with at least two favouring signals and at most two evidence gaps, `medium` with one favouring signal or none needed (retain), and `low` for an unstable candidate. Static evidence alone caps an extraction (T3, T6, T7) at `medium`: a recommendation that would be `high` is lowered to `medium`, with `confidence_cap` saying why and the reason listed among the evidence gaps. Enough runtime evidence lifts the cap (see "Measured runtime traffic" below). The cap never raises a lower confidence.
 
 What this means in practice in version 0.1.0:
 
