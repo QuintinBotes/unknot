@@ -222,3 +222,176 @@ test('an index committed to the repository, or older than a change to a file it 
   assert.ok((r2.notices ?? []).some((n) => /SCIP index not used: .*(changed after index\.scip was written|older than commit)/.test(n)), JSON.stringify(r2.notices));
   assert.ok(!importEdge(edited, 'Shop/OrderService.cs', 'Shop/Mailer.cs').unused_evidence);
 });
+
+// --- any language: the decision comes from the index alone --------------------------------------------------
+
+const TS_MAILER = "export class Mailer {\n  send(): void {}\n}\n";
+const TS_ORDERS = "import { Mailer } from './mailer';\n\nexport class OrderService {\n  @Inject() notifier: Mailer;\n  place(): void {}\n}\n";
+const TS_REPORTS = "import { Mailer } from './mailer';\n\nexport class ReportService {\n  @Inject() notifier: Mailer;\n  run(): void { this.notifier.send(); }\n}\n";
+// `s` has no declared type: by name alone, `s.notifier` could be either class's member.
+const TS_CALLER = "export function go(make: () => any) {\n  const s = make();\n  s.notifier.send();\n}\n";
+const TS_FILES = { 'src/mailer.ts': TS_MAILER, 'src/orders.ts': TS_ORDERS, 'src/reports.ts': TS_REPORTS, 'src/caller.ts': TS_CALLER };
+
+/** scip-typescript style symbols: `sym('orders.ts', 'OrderService#', 'notifier.')`. */
+const tsSym = (file, ...descriptors) => `scip-typescript npm app 1.0.0 src/\`${file}\`/${descriptors.join('')}`;
+const ts = {
+  mailer: tsSym('mailer.ts', 'Mailer#'),
+  send: tsSym('mailer.ts', 'Mailer#', 'send().'),
+  orders: tsSym('orders.ts', 'OrderService#'),
+  ordersNotifier: tsSym('orders.ts', 'OrderService#', 'notifier.'),
+  reports: tsSym('reports.ts', 'ReportService#'),
+  reportsNotifier: tsSym('reports.ts', 'ReportService#', 'notifier.'),
+};
+const IMPORT = S.ROLE.Import;
+
+/** What scip-typescript would write for TS_FILES: definition ranges as enclosing ranges, imports with the Import role. */
+function tsIndex({ orders = [], reports = [] } = {}) {
+  return {
+    documents: [
+      S.document({ path: 'src/mailer.ts', language: 'typescript', occurrences: [def(ts.mailer, 0, { enclosing: [0, 0, 2, 1] }), def(ts.send, 1)] }),
+      S.document({
+        path: 'src/orders.ts',
+        language: 'typescript',
+        occurrences: [
+          { range: [0, 9, 15], symbol: ts.mailer, roles: IMPORT },
+          def(ts.orders, 2, { enclosing: [2, 0, 5, 1] }),
+          def(ts.ordersNotifier, 3, { enclosing: [3, 2, 3, 30] }),
+          ref(ts.mailer, 3, 0),
+          ...orders,
+        ],
+      }),
+      S.document({
+        path: 'src/reports.ts',
+        language: 'typescript',
+        occurrences: [
+          { range: [0, 9, 15], symbol: ts.mailer, roles: IMPORT },
+          def(ts.reports, 2, { enclosing: [2, 0, 5, 1] }),
+          def(ts.reportsNotifier, 3, { enclosing: [3, 2, 3, 30] }),
+          ref(ts.mailer, 3, 0),
+          ref(ts.reportsNotifier, 4),
+          ref(ts.send, 4, 0),
+          ...reports,
+        ],
+      }),
+      S.document({ path: 'src/caller.ts', language: 'typescript', occurrences: [] }),
+    ],
+  };
+}
+
+test('TypeScript: the index decides the unused member without any C# path, replacing the name-only guess', async () => {
+  const p = K.makeProject({ files: TS_FILES });
+  await map(p);
+  const lexical = importEdge(p, 'src/orders.ts', 'src/mailer.ts');
+  assert.ok(!lexical.declared_only, 'by name, `s.notifier` might be OrderService.notifier');
+  assert.equal(lexical.use_evidence, 'name-only');
+
+  S.writeIndex(join(p.dir, 'index.scip'), tsIndex());
+  const r = await map(p);
+  const e = importEdge(p, 'src/orders.ts', 'src/mailer.ts');
+  assert.equal(e.declared_only, true);
+  assert.equal(e.unused_member, 'notifier');
+  assert.equal(e.member_visibility, 'public');
+  assert.equal(e.unused_evidence, 'semantic');
+  assert.ok(!e.use_evidence, 'the name-only evidence is replaced, not merged');
+  assert.deepEqual(e.names, ['Mailer'], 'the import edge keeps its own facts');
+  assert.equal(e.label, 'observed');
+  assert.ok(!importEdge(p, 'src/reports.ts', 'src/mailer.ts').declared_only, 'the class that reads its member is not reported');
+  assert.equal(moduleAttrs(p, 'src/orders.ts').parse_quality, 'semantic');
+  assert.equal(r.scip.covered, 4);
+  const cov = r.coverage.find((c) => c.language === 'typescript');
+  assert.equal(cov?.quality, 'semantic');
+});
+
+test('TypeScript: a write is not a read, a read elsewhere is, and the index overrules the lexical verdict both ways', async () => {
+  const p = K.makeProject({ files: TS_FILES });
+  const write = [{ range: [4, 4, 12], symbol: ts.ordersNotifier, roles: S.ROLE.WriteAccess }];
+  S.writeIndex(join(p.dir, 'index.scip'), tsIndex({ orders: write }));
+  await map(p);
+  assert.equal(importEdge(p, 'src/orders.ts', 'src/mailer.ts').declared_only, true, 'write-only keeps it unused');
+
+  // The source text shows no read of the member (the lexical verdict would be declared-only once `s` is typed away), the index does.
+  const quiet = { ...TS_FILES, 'src/caller.ts': 'export const x = 1;\n' };
+  const q = K.makeProject({ files: quiet });
+  await map(q);
+  assert.equal(importEdge(q, 'src/orders.ts', 'src/mailer.ts').declared_only, true, 'lexically unused');
+  const read = [{ range: [4, 4, 12], symbol: ts.ordersNotifier, roles: S.ROLE.ReadAccess }];
+  S.writeIndex(join(q.dir, 'index.scip'), tsIndex({ orders: read }));
+  await map(q);
+  const e = importEdge(q, 'src/orders.ts', 'src/mailer.ts');
+  assert.ok(!e.declared_only, 'a read the compiler resolved is a use');
+  assert.ok(!e.unused_evidence);
+});
+
+test('TypeScript: a constructor parameter property is found by its type-definition relationship; a type used elsewhere keeps the module in use', async () => {
+  const files = {
+    'src/mailer.ts': TS_MAILER,
+    'src/orders.ts': "import { Mailer } from './mailer';\n\nexport class OrderService {\n  constructor(private readonly mailer: Mailer) {}\n}\n",
+  };
+  const m = tsSym('orders.ts', 'OrderService#', 'mailer.');
+  const index = (extra = []) => ({
+    documents: [
+      S.document({ path: 'src/mailer.ts', language: 'typescript', occurrences: [def(ts.mailer, 0)] }),
+      S.document({
+        path: 'src/orders.ts',
+        language: 'typescript',
+        occurrences: [{ range: [0, 9, 15], symbol: ts.mailer, roles: IMPORT }, def(ts.orders, 2, { enclosing: [2, 0, 6, 1] }), def(m, 3), ref(ts.mailer, 3, 0), ...extra],
+        symbols: [{ symbol: m, kind: S.KIND.Property, relationships: [{ symbol: ts.mailer, typeDefinition: true }] }],
+      }),
+    ],
+  });
+  const p = K.makeProject({ files });
+  S.writeIndex(join(p.dir, 'index.scip'), index());
+  await map(p);
+  const e = importEdge(p, 'src/orders.ts', 'src/mailer.ts');
+  assert.equal(e.declared_only, true);
+  assert.equal(e.unused_member, 'mailer');
+  assert.equal(e.member_visibility, 'public', 'the index does not state visibility: unknown is treated as public');
+
+  // The same type mentioned where nothing is stored (a local) is a use of the module.
+  S.writeIndex(join(p.dir, 'index.scip'), index([{ range: [5, 4, 10], symbol: ts.mailer, roles: 0 }]));
+  await map(p);
+  assert.ok(!importEdge(p, 'src/orders.ts', 'src/mailer.ts').declared_only);
+});
+
+test('Python: a parameter stored on self is the member\'s type, and a stored-only parameter does not count as a use', async () => {
+  const files = {
+    'shop/repo.py': 'class OrderRepo:\n    def save(self):\n        pass\n',
+    'shop/orders.py': 'from shop.repo import OrderRepo\n\n\nclass OrderService:\n    def __init__(self, repo: OrderRepo):\n        self._repo = repo\n',
+  };
+  const py = (...d) => `scip-python python app 1.0.0 shop/${d.join('')}`;
+  const repo = py('repo/', 'OrderRepo#');
+  const orders = py('orders/', 'OrderService#');
+  const attr = py('orders/', 'OrderService#', '_repo.');
+  const index = (extra = []) => ({
+    documents: [
+      S.document({ path: 'shop/repo.py', language: 'python', occurrences: [def(repo, 0, { enclosing: [0, 0, 2, 12] })] }),
+      S.document({
+        path: 'shop/orders.py',
+        language: 'python',
+        occurrences: [
+          { range: [0, 22, 31], symbol: repo, roles: IMPORT },
+          def(orders, 3, { enclosing: [3, 0, 5, 24] }),
+          def('local 1', 4, { enclosing: [4, 15, 4, 40] }),
+          ref(repo, 4, 0),
+          { range: [5, 13, 18], symbol: attr, roles: D | S.ROLE.WriteAccess },
+          { range: [5, 21, 25], symbol: 'local 1', roles: S.ROLE.ReadAccess },
+          ...extra,
+        ],
+        symbols: [{ symbol: 'local 1', kind: 37 }],
+      }),
+    ],
+  });
+  const p = K.makeProject({ files });
+  S.writeIndex(join(p.dir, 'index.scip'), index());
+  await map(p);
+  const e = importEdge(p, 'shop/orders.py', 'shop/repo.py');
+  assert.equal(e.declared_only, true);
+  assert.equal(e.unused_member, '_repo');
+  assert.equal(e.member_visibility, 'private');
+  assert.equal(e.unused_evidence, 'semantic');
+
+  // The parameter is also used (not only stored): the dependency is live.
+  S.writeIndex(join(p.dir, 'index.scip'), index([{ range: [6, 8, 12], symbol: 'local 1', roles: S.ROLE.ReadAccess }]));
+  await map(p);
+  assert.ok(!importEdge(p, 'shop/orders.py', 'shop/repo.py').declared_only, 'a read of the parameter on another line is not a store');
+});

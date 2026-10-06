@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Changed
+
+- The unused-member analysis (a module held only through a member nothing reads: `declared_only` edges, `code.unused-injected-member`, cycle cutting, proven deletions) is language-generic. One engine (`generic/members.mjs`) reads a per-language syntax table (`generic/member-syntax.mjs`) for C#, Java, Kotlin, TypeScript (constructor parameter properties too), Python (`self.x = x` from an annotated `__init__` parameter, or a class-level annotation) and Go (struct fields read through the receiver), and a SCIP index decides it directly for every indexed language (`adapters/semantic/scip`, adapters generic 0.1.7, javascript 0.1.13, python 0.1.10, scip 0.2.0).
+
 ## [0.3.0] - 2026-10-06
 
 ### Added

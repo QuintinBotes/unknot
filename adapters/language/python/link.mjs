@@ -6,6 +6,8 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
+import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
+import { declaredEdge, dropMemberAttrs, memberReach, withSemantic } from '../generic/members.mjs';
 
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const join = (dir, rest) => (dir ? `${dir}/${rest}` : rest);
@@ -52,6 +54,10 @@ export function link(ctx) {
       }
     }
   }
+  const classNames = new Set();
+  for (const facts of factsByFile.values()) for (const f of facts) if (f.kind === 'node' && f.type === 'class' && f.attrs?.language === 'python') classNames.add(f.name.split('.').pop());
+  const memberFiles = [...modules].filter(([, m]) => m.attrs.acc).map(([path, m]) => ({ path, attrs: m.attrs }));
+  const reach = memberReach(memberFiles, classNames, () => false);
   const pyPaths = new Set([...modules.keys()]);
   for (const p of ctx.files?.keys?.() ?? []) if (p.endsWith('.py')) pyPaths.add(p);
 
@@ -177,9 +183,38 @@ export function link(ctx) {
 
     importedModules.set(path, new Set(targets.keys()));
     const moduleId = `module:${path}`;
-    for (const [target, t] of [...targets].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-      emit(edgeFact('IMPORTS', moduleId, `module:${target}`, { names: [...new Set(t.names)].sort(), line: t.line, ...(t.lazy && { lazy: true }), ...(t.typeOnly && { type_only: true }) }, pvFor(path, t.line)));
+    // A type held only through a member nothing reads (members.mjs): every name imported from a
+    // module must be such a type, and nothing may import it for its effects or by `*`.
+    const a = mod.attrs;
+    const sem = ctx.semantic?.get(path) ?? null;
+    const found = new Map(); // target path -> what the file's members say
+    if (a.refs && !sem) {
+      const bound = new Map();
+      for (const [local, b] of bind) {
+        if (b.path === path) continue;
+        bound.set(b.path, (bound.get(b.path) ?? 0) + 1);
+        let h = found.get(b.path);
+        if (!h) found.set(b.path, (h = { spec: local, decl: true, members: new Set(), pub: new Set() }));
+        if (b.symbol && local in (a.decl_only ?? {})) {
+          for (const m of a.decl_only[local].split(', ')) h.members.add(m);
+          for (const m of a.decl_public?.[local] ?? []) h.pub.add(m);
+        } else h.decl = false;
+      }
+      for (const [target, t] of targets) if (found.has(target) && bound.get(target) !== t.names.length) found.get(target).decl = false;
     }
+    const sorted = [...targets].sort((x, y) => (x[0] < y[0] ? -1 : 1));
+    const items = sorted.map(([target, t]) => ({
+      to: target,
+      line: t.line,
+      attrs: { names: [...new Set(t.names)].sort(), line: t.line, ...(t.lazy && { lazy: true }), ...(t.typeOnly && { type_only: true }), ...(found.has(target) && declaredEdge(path, found.get(target), a.public_owners ?? {}, reach, MEMBER_SYNTAX.python).attrs) },
+    }));
+    for (const e of withSemantic(sem, items)) {
+      const { spec, via, ...rest } = e.attrs;
+      emit(edgeFact('IMPORTS', moduleId, `module:${e.to}`, via === 'type' ? { names: [spec].filter(Boolean), line: e.line, ...rest } : e.attrs, e.semantic
+        ? prov({ source_type: 'lsp', source_ref: `${path}:${e.line}`, extractor: EXTRACTOR, confidence: 'high' })
+        : pvFor(path, e.line)));
+    }
+    dropMemberAttrs(a);
     for (const [id, e] of [...externals].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
       emit(nodeFact('dependency', id.slice('dependency:'.length), {
         name: id.slice('dependency:'.length),

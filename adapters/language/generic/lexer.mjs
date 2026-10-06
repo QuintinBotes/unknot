@@ -18,6 +18,8 @@ const OPTS = {
   c: { char: true },
   cpp: { char: true, cppRaw: true },
   groovy: { sq: true, tq: true },
+  typescript: { sq: true, backtick: true },
+  python: { sq: true, tq: true, hash: true, noSlash: true },
 };
 
 const CHAR_RE = /'(?:\\(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2}|[0-7]{1,3}|[^\n])|[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\\'\n])'/y;
@@ -97,7 +99,7 @@ export function lex(text, lang) {
       continue;
     }
     // comments
-    if ((o.hash && c === '#' && !(o.php && d === '[')) || (!o.ruby && c === '/' && d === '/')) {
+    if ((o.hash && c === '#' && !(o.php && d === '[')) || (!o.ruby && !o.noSlash && c === '/' && d === '/')) {
       const e = lineEnd(i);
       wipe(plain, i, e); wipe(code, i, e);
       i = e;
@@ -110,7 +112,7 @@ export function lex(text, lang) {
       i = stop;
       continue;
     }
-    if (!o.ruby && c === '/' && d === '*') {
+    if (!o.ruby && !o.noSlash && c === '/' && d === '*') {
       let depth = 1;
       let j = i + 2;
       while (j < n && depth > 0) {

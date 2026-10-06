@@ -6,6 +6,8 @@
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR } from './config.mjs';
 import { createResolver, normalize as normalizePath } from './resolver.mjs';
+import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
+import { declaredEdge, dropMemberAttrs, memberReach, withSemantic } from '../generic/members.mjs';
 
 const KIND_ORDER = ['static', 'reexport', 'require', 'dynamic', 'type'];
 
@@ -85,13 +87,16 @@ export function linkFacts(ctx) {
       agg.line = Math.min(agg.line, imp.line);
     }
   }
+  // The unused-member analysis is below (it needs the bindings); its verdict is read here.
+  const memberVerdict = new Map(); // from|to -> { attrs, semantic }
+  const semanticOnly = [];
   for (const agg of [...importEdges.values()].sort((a, b) => cmp(a.from, b.from) || cmp(a.to, b.to))) {
     const kinds = KIND_ORDER.filter((k) => agg.kinds.has(k));
     const attrs = { names: [...agg.names].sort(), kind: kinds[0], line: agg.line };
     if (kinds.length > 1) attrs.kinds = kinds;
     // `import type` and `export type ... from` are erased at compile time: no runtime edge.
     if (kinds.length === 1 && kinds[0] === 'type') attrs.type_only = true;
-    out.push(edgeFact('IMPORTS', agg.from, agg.to, attrs, P(agg.path, agg.line, agg.via === 'relative' || !agg.internal ? 'high' : 'medium')));
+    agg.attrs = attrs;
   }
   for (const [path, list] of [...unresolved.entries()].sort((a, b) => cmp(a[0], b[0]))) {
     out.push(nodeFact('module', path, { name: path, path, attrs: { unresolved: list } }, P(path, list[0].line, 'medium')));
@@ -175,6 +180,72 @@ export function linkFacts(ctx) {
     const q = rest.length ? `${r.local}.${rest.join('.')}` : r.local;
     const s = sym(r.path, q);
     return s && wanted.includes(s.type) ? s : null;
+  }
+
+  // ---- unused members ----------------------------------------------------------
+  // A type held only through a member nothing reads (members.mjs): every name a file imports from a
+  // module must be such a type, and the import must bind names (not run the module for its effects).
+  {
+    const syn = MEMBER_SYNTAX.typescript;
+    const aggsOf = new Map();
+    for (const agg of importEdges.values()) if (agg.internal) (aggsOf.get(agg.path) ?? aggsOf.set(agg.path, []).get(agg.path)).push(agg);
+    const files = [];
+    const typeNames = new Set();
+    for (const path of paths) {
+      const a = mods.get(path);
+      if (a?.language === 'typescript' && a.acc) files.push({ path, attrs: a });
+      for (const f of byFile.get(path)) if (f.kind === 'node' && (f.type === 'class' || f.type === 'interface')) typeNames.add(f.name.split('.').pop());
+    }
+    const reach = memberReach(files, typeNames, () => false);
+    for (const path of paths) {
+      const a = mods.get(path);
+      const aggs = aggsOf.get(path) ?? [];
+      const sem = ctx.semantic?.get(path) ?? null;
+      const found = new Map(); // module path -> what the file's members say
+      if (a?.language === 'typescript' && a.refs && !sem) {
+        const bare = new Set();
+        for (const imp of a.imports) {
+          const r = resolvedImports.get(path)?.get(imp.specifier);
+          if (r?.t === 'module' && (!(imp.bindings ?? []).length || !['static', 'type'].includes(imp.kind))) bare.add(r.path);
+        }
+        for (const [local, b] of bindingsOf(path)) {
+          const r = b.imported === '*' ? { path: b.target } : resolveExport(b.target, b.imported);
+          const to = r?.path ?? b.target;
+          if (to === path) continue;
+          let h = found.get(to);
+          if (!h) found.set(to, (h = { spec: local, decl: !bare.has(to), members: new Set(), pub: new Set() }));
+          if (local in (a.decl_only ?? {})) {
+            for (const m of a.decl_only[local].split(', ')) h.members.add(m);
+            for (const m of a.decl_public?.[local] ?? []) h.pub.add(m);
+          } else h.decl = false;
+        }
+      }
+      const items = [];
+      for (const agg of aggs) {
+        const to = agg.to.slice('module:'.length);
+        const h = found.get(to);
+        items.push({ to, line: agg.line, attrs: h ? declaredEdge(path, h, a.public_owners ?? {}, reach, syn).attrs : {}, agg });
+      }
+      for (const e of withSemantic(sem, items)) {
+        if (e.agg) memberVerdict.set(`${e.agg.from}|${e.agg.to}`, { attrs: e.attrs, semantic: e.semantic });
+        else semanticOnly.push({ path, e });
+      }
+    }
+    for (const a of mods.values()) dropMemberAttrs(a);
+  }
+
+  for (const agg of [...importEdges.values()].sort((a, b) => cmp(a.from, b.from) || cmp(a.to, b.to))) {
+    const v = memberVerdict.get(`${agg.from}|${agg.to}`);
+    const attrs = v ? { ...agg.attrs, ...v.attrs } : agg.attrs;
+    delete attrs.spec;
+    delete attrs.via;
+    out.push(edgeFact('IMPORTS', agg.from, agg.to, attrs, v?.semantic
+      ? prov({ source_type: 'lsp', source_ref: `${agg.path}:${agg.line}`, extractor: EXTRACTOR, confidence: 'high' })
+      : P(agg.path, agg.line, agg.via === 'relative' || !agg.internal ? 'high' : 'medium')));
+  }
+  for (const { path, e } of semanticOnly) {
+    const { spec, via, ...attrs } = e.attrs;
+    out.push(edgeFact('IMPORTS', `module:${path}`, `module:${e.to}`, { names: [spec].filter(Boolean), line: e.line, ...attrs }, prov({ source_type: 'lsp', source_ref: `${path}:${e.line}`, extractor: EXTRACTOR, confidence: 'high' })));
   }
 
   // ---- calls, inheritance ------------------------------------------------------

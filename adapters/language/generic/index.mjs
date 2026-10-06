@@ -11,9 +11,11 @@ import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo } from './frameworks.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
+import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
+import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.6';
+const VERSION = '0.1.7';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -148,19 +150,8 @@ function extract(file, text, ctx) {
     parse_quality: 'lexical',
   };
   if (an.impls.length) attrs.impls = an.impls;
-  // Link-only inputs for C# type resolution; link() removes them so they are never persisted.
-  if (lang === 'csharp') {
-    const r = csharpRefs(lx, an);
-    attrs.refs = r.refs;
-    if (Object.keys(r.declOnly).length) attrs.decl_only = r.declOnly;
-    if (Object.keys(r.declPublic).length) attrs.decl_public = r.declPublic;
-    if (Object.keys(r.declCands).length) attrs.decl_cands = r.declCands;
-    attrs.words = r.words;
-    attrs.acc = r.acc;
-    attrs.calls = r.calls;
-    attrs.type_bases = r.typeBases;
-    if (r.publicMembers.length) { attrs.public_members = r.publicMembers; attrs.public_owners = r.publicOwners; }
-  }
+  // Link-only inputs for type resolution and unused members; link() removes them so they are never persisted.
+  if (MEMBER_SYNTAX[lang]) Object.assign(attrs, memberAttrs(lang === 'csharp' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang])));
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
   const mod = nodeFact('module', path, { name: path, path, attrs }, prov_(path, 1));
@@ -446,6 +437,49 @@ function link(ctx) {
     }
   };
 
+  // --- members: a type held only through a member nothing reads (members.mjs) --------------
+  // C# resolves types through namespaces (csharp.mjs). Java, Kotlin and Go resolve a mentioned
+  // type name to a file in the same package or directory, or one the file imports by class name.
+  const reachers = new Map();
+  const reachFor = (lang) => {
+    const fam = FAMILY[lang];
+    if (!reachers.has(fam)) {
+      const files = sortedMods.filter((p) => FAMILY[mods.get(p).attrs.language] === fam && MEMBER_SYNTAX[mods.get(p).attrs.language]).map((p) => ({ path: p, attrs: mods.get(p).attrs }));
+      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, fam === 'go' ? (x, y) => dirname(x) === dirname(y) : undefined));
+    }
+    return reachers.get(fam);
+  };
+  const visibleType = (path, a, c) => {
+    if (c.path === path) return false;
+    const cm = mods.get(c.path)?.attrs;
+    if (!cm || FAMILY[cm.language] !== FAMILY[a.language] || (cm.is_test && !a.is_test)) return false;
+    if (a.language === 'go') return dirname(c.path) === dirname(path);
+    if (!cm.package) return false;
+    if (a.package === cm.package) return true;
+    return (a.imports ?? []).some((i) => i.kind !== 'static' && (i.spec === `${cm.package}.${c.name}` || i.spec === `${cm.package}.*`));
+  };
+  /** Per module reached through types: whether every mention of its types in the file is an unused member, and what the file's members say. */
+  const typeHits = (path, a, syn) => {
+    const hits = new Map();
+    for (const ref of a.refs ?? []) {
+      if (ref.includes('.')) continue;
+      for (const c of types.get(ref) ?? []) {
+        if (!visibleType(path, a, c)) continue;
+        let h = hits.get(c.path);
+        if (!h) hits.set(c.path, (h = { spec: ref, decl: true, members: new Set(), pub: new Set(), line: c.attrs.start_line ?? 1 }));
+        if (ref in (a.decl_only ?? {})) {
+          for (const m of a.decl_only[ref].split(', ')) h.members.add(m);
+          for (const m of a.decl_public?.[ref] ?? []) h.pub.add(m);
+        } else h.decl = false;
+      }
+    }
+    const reach = reachFor(a.language);
+    const owners = a.public_owners ?? {};
+    const out = new Map();
+    for (const [to, h] of hits) out.set(to, { ...declaredEdge(path, h, owners, reach, syn), spec: h.spec, line: h.line });
+    return out;
+  };
+
   // --- imports, tests -----------------------------------------------------------------
   const importsOf = new Map();
   const csLink = csharpLinker(mods, sortedMods, ctx.semantic);
@@ -453,15 +487,12 @@ function link(ctx) {
     const mod = mods.get(path);
     const a = mod.attrs;
     const resolved = new Set();
+    const sem = ctx.semantic?.get(path) ?? null;
     if (a.language === 'csharp') {
       const cs = csLink(path);
-      for (const e of cs.edges) {
+      for (const e of withSemantic(sem, cs.edges)) {
         resolved.add(e.to);
-        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
-          spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member, member_visibility: e.member_visibility }),
-          ...(e.unused_evidence && { unused_evidence: e.unused_evidence }),
-          ...(e.use_evidence && { use_evidence: e.use_evidence, possible_use_of: e.possible_use_of, possible_receivers: e.possible_receivers }),
-        }, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line)));
+        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line)));
       }
       for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium')));
       for (const imp of cs.externals) {
@@ -469,26 +500,49 @@ function link(ctx) {
         const ext = first[0] === 'System' ? null : first[0] === 'Microsoft' ? first.slice(0, 2).join('.') : first[0];
         if (ext) push(edgeFact('IMPORTS', mod.id, dependency(ext, path, imp.line), { spec: imp.spec }, prov_(path, imp.line)));
       }
-      delete a.refs;
-      delete a.decl_only;
-      delete a.decl_public;
-      delete a.decl_cands;
-      delete a.words;
-      delete a.acc;
-      delete a.calls;
-      delete a.type_bases;
-      delete a.public_owners;
-    }
-    for (const imp of a.language === 'csharp' ? [] : a.imports ?? []) {
-      const r = resolve(path, a, imp);
-      for (const p of r.paths) {
-        if (p === path) continue;
-        resolved.add(p);
-        push(edgeFact('IMPORTS', mod.id, mods.get(p).id, { spec: imp.spec, ...(r.via ? { via: r.via } : {}), ...(r.package_level ? { package_level: true } : {}) }, prov_(path, imp.line, r.low ? 'low' : 'medium')));
+      dropMemberAttrs(a);
+    } else {
+      // The edges imports make, then what the member analysis (or the index) says about them.
+      const items = [];
+      const seenTo = new Set();
+      const unplain = new Set(); // targets an import reaches other than by a class name
+      for (const imp of a.imports ?? []) {
+        const r = resolve(path, a, imp);
+        for (const p of r.paths) {
+          if (p === path) continue;
+          resolved.add(p);
+          if (r.package_level || imp.kind === 'static' || !/(?:^|\.)[A-Z]\w*$/.test(imp.spec)) unplain.add(p);
+          if (seenTo.has(p)) continue;
+          seenTo.add(p);
+          items.push({ to: p, line: imp.line, attrs: { spec: imp.spec, ...(r.via ? { via: r.via } : {}), ...(r.package_level ? { package_level: true } : {}) }, low: r.low });
+        }
+        if (!r.paths.length && r.external) {
+          items.push({ fact: edgeFact('IMPORTS', mod.id, dependency(r.external, path, imp.line), { spec: imp.spec }, prov_(path, imp.line)) });
+        }
       }
-      if (!r.paths.length && r.external) {
-        push(edgeFact('IMPORTS', mod.id, dependency(r.external, path, imp.line), { spec: imp.spec }, prov_(path, imp.line)));
+      const syn = MEMBER_SYNTAX[a.language];
+      if (syn && !sem && (a.refs ?? []).length) {
+        for (const [to, h] of typeHits(path, a, syn)) {
+          if (!Object.keys(h.attrs).length) continue;
+          const ex = items.find((i) => i.to === to);
+          if (ex) {
+            if (!(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
+          } else if (h.declared) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...h.attrs } });
+        }
       }
+      // Emitted in the order the imports gave them; an edge only the index or the member analysis found comes last.
+      const mapped = withSemantic(sem, items.filter((i) => i.to));
+      let k = 0;
+      const emit = (e) => {
+        resolved.add(e.to);
+        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line, e.low ? 'low' : 'medium')));
+      };
+      for (const i of items) {
+        if (i.fact) push(i.fact);
+        else emit(mapped[k++]);
+      }
+      for (const e of mapped.slice(k)) emit(e);
+      dropMemberAttrs(a);
     }
     importsOf.set(path, resolved);
     if (a.is_test) {
