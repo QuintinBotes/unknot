@@ -12,6 +12,11 @@ import { manifestFacts, manifestKind } from './manifests.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./extract.py', import.meta.url));
 const EXEC_TIMEOUT_MS = 60_000;
+// The broker keeps 16 MiB of a command's output and the extractor writes several times the
+// size of its input, so one batch for a large repository was cut off part-way and every file
+// after the cut was read lexically (dead-code detection skips those). Batches stay small.
+const BATCH_FILES = 300;
+const BATCH_BYTES = 1_500_000;
 
 const isPython = (path) => path.endsWith('.py');
 
@@ -54,9 +59,27 @@ async function runPython(items, ctx) {
   return records;
 }
 
+/** Splits files into runs of at most BATCH_FILES files and about BATCH_BYTES of text, in order. */
+export function batches(items) {
+  const out = [];
+  let cur = [];
+  let bytes = 0;
+  for (const it of items) {
+    if (cur.length && (cur.length >= BATCH_FILES || bytes + it.text.length > BATCH_BYTES)) {
+      out.push(cur);
+      cur = [];
+      bytes = 0;
+    }
+    cur.push(it);
+    bytes += it.text.length;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 export default {
   id: 'python',
-  version: '0.1.8',
+  version: '0.1.9',
   kind: 'language',
   capabilities: {
     files: ['**/*.py', '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'],
@@ -76,7 +99,8 @@ export default {
   async extractBatch(items, ctx) {
     const result = new Map();
     const pyItems = items.filter(({ file }) => isPython(file.path));
-    const records = await runPython(pyItems, ctx);
+    const records = new Map();
+    for (const batch of batches(pyItems)) for (const [path, rec] of await runPython(batch, ctx)) records.set(path, rec);
     for (const { file, text } of items) {
       const path = file.path;
       const rec = records.get(path);

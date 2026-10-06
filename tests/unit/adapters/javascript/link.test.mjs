@@ -201,3 +201,35 @@ test('link is deterministic regardless of the order files are supplied', () => {
   assert.deepEqual(one, two);
   assert.ok(one.length > 0);
 });
+
+test('import type and export type ... from edges are marked type_only; mixed imports are not', () => {
+  const { graph } = runAdapter(new Map([
+    ['a.ts', "import type { B } from './b';\nimport { type C } from './c';\nexport type { D } from './d';\nimport { e, type F } from './e';\nexport const a = e;\n"],
+    ['b.ts', "import { a } from './a';\nexport type B = typeof a;\n"],
+    ['c.ts', 'export type C = 1;\n'],
+    ['d.ts', 'export type D = 1;\n'],
+    ['e.ts', 'export const e = 1;\nexport type F = 2;\n'],
+  ]));
+  const edge = (to) => graph.out('module:a.ts', 'IMPORTS').find((x) => x.to === `module:${to}`).attrs;
+  for (const t of ['b.ts', 'c.ts', 'd.ts']) assert.equal(edge(t).type_only, true, t);
+  assert.equal(edge('e.ts').type_only, undefined);
+  assert.equal(graph.out('module:b.ts', 'IMPORTS')[0].attrs.type_only, undefined);
+});
+
+test('.vue single-file components: script and script setup blocks are read for imports', () => {
+  const { graph, factsByFile } = runAdapter(new Map([
+    ['src/store.ts', 'export const store = 1;\n'],
+    ['src/util.ts', 'export const util = 1;\n'],
+    ['src/types.ts', 'export type T = 1;\n'],
+    ['src/View.vue', "<template>\n  <div>{{ store }}</div>\n</template>\n\n<script lang=\"ts\">\nimport { util } from './util';\nexport default { name: 'View' };\n</script>\n\n<script setup lang=\"ts\">\nimport { store } from './store';\nimport type { T } from './types';\nconst x: T = 1;\n</script>\n"],
+    ['src/Plain.vue', "<template><p/></template>\n<script>\nimport { util } from './util.ts';\nexport default {};\n</script>\n"],
+    ['src/Empty.vue', '<template><p/></template>\n'],
+    ['src/main.ts', "import View from './View.vue';\nexport default View;\n"],
+  ]));
+  const to = (from) => graph.out(`module:${from}`, 'IMPORTS').map((e) => `${e.to} @${e.attrs.line}${e.attrs.type_only ? ' type' : ''}`).sort();
+  assert.deepEqual(to('src/View.vue'), ['module:src/store.ts @11', 'module:src/types.ts @12 type', 'module:src/util.ts @6']);
+  assert.deepEqual(to('src/Plain.vue'), ['module:src/util.ts @3']);
+  assert.deepEqual(to('src/main.ts'), ['module:src/View.vue @1']);
+  assert.equal(factsByFile.get('src/Empty.vue').length, 0);
+  assert.equal(graph.in('module:src/store.ts', 'IMPORTS').length, 1);
+});

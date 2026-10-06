@@ -12,7 +12,7 @@ const edges = (facts, type) => facts.filter((f) => f.kind === 'edge' && f.type =
 
 test('adapter contract: identity and capabilities', () => {
   assert.equal(adapter.id, 'javascript');
-  assert.equal(adapter.version, '0.1.11');
+  assert.equal(adapter.version, '0.1.12');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
