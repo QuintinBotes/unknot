@@ -83,27 +83,29 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
       return deny('state.protected', 'direct access to Unknot state or key material is not allowed');
     }
     const shell = judgeShell(cmd, { pluginRoot, projectRoot: ctx.root });
-    // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
-    // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
-    if (mentionsState(cmd, shell) && !shell.allow) {
-      return deny('state.protected', `commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI (here: ${shell.reasons.join('; ')})`);
-    }
     // Files a command writes, and trees it acts on as a whole (removing, moving, re-permissioning
-    // a directory reaches the state inside it; writing a file into a directory does not).
-    const files = [...shell.writes];
+    // a directory reaches the state inside it; writing a file into a directory does not). Each
+    // target keeps the role it plays, so a refusal can name the operand that caused it.
+    const files = shell.writes.map((t) => [t, 'the redirect target']);
     const trees = [];
     const cwd = op.cwd ?? ctx.root;
     for (const c of shell.commands) {
       const name = c.argv[0]?.value?.split('/').pop();
       const literal = c.argv.slice(1).filter((w) => !w.dynamic).map((w) => w.value);
-      if (name === 'cp' && cpOperands(c)) files.push(...cpTargets(c, cwd));
-      else if (TREE_WRITERS.has(name)) trees.push(...literal);
-      else if (TARGET_WRITERS.has(name) || ['cp', 'dd'].includes(name)) files.push(...literal);
+      if (name === 'cp' && cpOperands(c)) files.push(...cpTargets(c, cwd).map((t) => [t, 'the copy destination']));
+      else if (TREE_WRITERS.has(name)) trees.push(...literal.map((t) => [t, `the ${name} operand`]));
+      else if (TARGET_WRITERS.has(name) || ['cp', 'dd'].includes(name)) files.push(...literal.map((t) => [t, `the ${name} operand`]));
     }
-    for (const [t, tree] of [...files.map((f) => [f, false]), ...trees.map((f) => [f, true])]) {
+    for (const [t, role, tree] of [...files.map(([f, r]) => [f, r, false]), ...trees.map(([f, r]) => [f, r, true])]) {
       const rel = relFrom(ctx.root, realpathLenient(resolve(cwd, t)));
       if (rel === null) continue;
-      if (tree ? coversState(rel) : writesState(rel)) return deny('state.protected', `${rel || 'the project root'} ${isStatePath(rel) ? 'is' : 'contains'} Unknot state; use the unknot CLI`);
+      if (tree ? coversState(rel) : writesState(rel)) return deny('state.protected', `${role} ${rel || 'the project root'} ${isStatePath(rel) ? 'is' : 'contains'} Unknot state; use the unknot CLI`);
+    }
+    // The precise check above names the operand; this fallback is for programs it cannot analyse.
+    // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
+    // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
+    if (mentionsState(cmd, shell) && !shell.allow) {
+      return deny('state.protected', `commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI (here: ${shell.reasons.join('; ')})`);
     }
   }
   return null;

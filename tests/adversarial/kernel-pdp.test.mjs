@@ -152,6 +152,18 @@ describe('human-only commands cannot be reached through shell tricks', () => {
   for (const cmd of viaProgram) test(`denies ${JSON.stringify(cmd)}`, () => assert.equal(bash(cmd)?.decision, 'deny'));
 });
 
+describe('a refusal names the operand and its role (issue #8)', () => {
+  const reason = (cmd) => bash(cmd)?.hookSpecificOutput?.permissionDecisionReason ?? bash(cmd)?.reasons?.join('; ') ?? JSON.stringify(bash(cmd));
+  test('copy destination, redirect target and a tree operand', () => {
+    assert.match(reason('cp /tmp/x /tmp/y .unknot/config.yaml'), /the copy destination \.unknot\/config\.yaml is Unknot state/);
+    assert.match(reason('echo x > .unknot/decisions.jsonl'), /the redirect target \.unknot\/decisions\.jsonl is Unknot state/);
+    assert.match(reason('rm -rf .unknot'), /the rm operand \.unknot contains Unknot state/);
+  });
+  test('several sources and one destination are judged by the destination', () => {
+    assert.equal(bash('cp .unknot/config.yaml .unknot/decisions.jsonl /tmp/out/'), null);
+  });
+});
+
 describe('legitimate commands are never refused outside a run (roadmap item 5)', () => {
   const corpus = JSON.parse(readFileSync(new URL('./legit-commands.json', import.meta.url), 'utf8'));
   for (const cmd of corpus.commands) test(`allows ${JSON.stringify(cmd).slice(0, 80)}`, () => assert.equal(bash(cmd), null, cmd));
