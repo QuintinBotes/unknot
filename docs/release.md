@@ -22,6 +22,16 @@ Only that job holds `contents: write`, `id-token: write` and `attestations: writ
 workflow runs with `permissions: {}` or read-only scope, and every action is pinned to a full
 commit SHA.
 
+### Channels
+
+- **Stable:** the `quintinbotes` catalog installs Unknot from the `stable` branch. After a final
+  release, the release job fast-forwards `stable` to the tag. A tag with a prerelease suffix
+  (`v0.2.0-beta.1`) is published as a GitHub prerelease and leaves `stable` where it is. A
+  ruleset refuses deleting `stable` or force-pushing to it.
+- **Beta:** `main`, reached by adding this repository as a marketplace (`unknot@unknot`).
+  Everything lands on `main` through a pull request with CI green, so beta is always tested,
+  but it is not yet a release.
+
 ### Artifacts
 
 | File | Contents |

@@ -48,5 +48,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          pre=""; case "$TAG" in *-*) pre="--prerelease" ;; esac
           gh release create "$TAG" dist/*.tar.gz dist/SHA256SUMS dist/sbom.cdx.json \
-            --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+            --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag $pre
+      - name: Advance the stable channel
+        # The quintinbotes catalog installs Unknot from the `stable` branch; a final release moves
+        # it to the tag. force=false makes it a fast-forward, so a tag behind stable fails here.
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha="$(git rev-list -n 1 "$TAG")"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -f sha="$sha" -F force=false

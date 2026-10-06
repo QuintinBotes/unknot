@@ -22,14 +22,14 @@ Every finding answers those ten questions or says it cannot. See [docs/concepts.
 
 ## Install
 
-From the author's catalog:
+**Stable** (recommended), from the author's catalog. It installs the latest release:
 
 ```sh
 claude plugin marketplace add QuintinBotes/claude-plugins
 claude plugin install unknot@quintinbotes
 ```
 
-Or directly from this repository:
+**Beta**, directly from this repository. It follows `main`, so you get changes before they are released:
 
 ```sh
 claude plugin marketplace add QuintinBotes/unknot
