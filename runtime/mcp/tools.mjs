@@ -2,6 +2,7 @@
 // appends a schema-validated handoff record. Nothing here approves, applies, starts a run,
 // executes a command or edits a file: those stay in the human-driven CLI.
 
+import { searchText } from '../graph/search.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
@@ -254,6 +255,17 @@ export const TOOLS = {
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
       return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+    },
+  },
+
+  search_text: {
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. Generated, vendored and credential files are excluded.',
+    inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
+    run(ctx, a) {
+      const { config } = loadConfig(ctx);
+      const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
+      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scope: a.scope ?? [], graph, limit: a.limit ?? 50 });
+      return capResult(r, ['definitions', 'uses', 'via_constants'], 'narrow with a scope (a path or glob) or a more specific text');
     },
   },
 
