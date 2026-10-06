@@ -1,0 +1,42 @@
+{
+  "sha256:e4dc1ef52cc296482c8d312a549fb2a3ff12f95ddafbd0b13abcdad7e5c1497d": {
+    "label": "not-worth",
+    "note": "Imports of the shared context-store module from a feature, mostly constants/contexts and stories."
+  },
+  "sha256:036b43c237efd7cbd97f59da81c486fddc3218ccafb1ed9d5784afbcec239560": {
+    "label": "not-worth",
+    "note": "Class has only 5 methods; length comes from a few long methods in a runner service, not a god class."
+  },
+  "sha256:f205166c65024282e883571f2453a16ed95e6c68af8d865a9cb101e883232a30": {
+    "label": "not-worth",
+    "note": "Interpolated values are internal constants and table-name helpers in a dev seeder, not user input."
+  },
+  "sha256:f6ee05a49504bc8563d6b4800067ddcea8b87e881e4646fdcccae5c431f79f92": {
+    "label": "false",
+    "note": "Script is not imported by design; it is run in a sandbox by path and referenced in a skill prompt string."
+  },
+  "sha256:29e604ccb74e0f8891d6e8eede8862263be65038f7a4ab493e23f3b20177ae41": {
+    "label": "true",
+    "note": "Constructor of a NestJS service injects 17 dependencies, a real sign of an overloaded service."
+  },
+  "sha256:3fe7e5e2a690a7d5e82d2a5fef0d32cd62651a031ba6066fd488d8cda4ae77ae": {
+    "label": "not-worth",
+    "note": "Sample k8s terraform with no backend block; example deployment config, not a managed state."
+  },
+  "sha256:ee701bef5349be7786140384a9c1b7a74ea4c6e2554064a672290d5b91c80305": {
+    "label": "true",
+    "note": "Companion package imports twenty-ui source via an @ui alias, bypassing the package export map."
+  },
+  "sha256:60c08d8d0c46c2c881d8ce7ceacfde781f38aff219fc8e6fe5e8b6e2e5c55b86": {
+    "label": "false",
+    "note": "The back edge from repository-state to the adapter is a type-only import, erased at runtime."
+  },
+  "sha256:96473b6e0a9e3eceedfc8f9e9a4267ed492c95de2fab0b4cc1c834f3879883d4": {
+    "label": "not-worth",
+    "note": "Single-implementation config driver interface used as a DI contract; low value to remove."
+  },
+  "sha256:99591e7408d82d7db7549f0a53b54ef2a8ef92e26729f988e1f7e22efcf38c7f": {
+    "label": "true",
+    "note": "Redis deployment manifest has no readiness or liveness probe."
+  }
+}

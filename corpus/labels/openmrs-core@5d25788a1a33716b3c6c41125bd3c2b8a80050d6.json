@@ -1,0 +1,42 @@
+{
+  "sha256:ca7f86e11a8177a7ba41595a321c44423bcb5ae74524e37c2eb8d5963c24ab87": {
+    "label": "false",
+    "note": "The class lives in the api module where web depends on it; same-package users such as DatabaseUpdater need no import, so the 0x count is a measurement artifact."
+  },
+  "sha256:fcdf1a05b40a1ce7c8b8cc6a47b8e0fa5799c2b14ecd17b46859dae6ef3beded": {
+    "label": "not-worth",
+    "note": "The only reference in Operand to LogicExpression is an import used for javadoc in legacy logic code."
+  },
+  "sha256:77a62fcbc9f2067f3ff5ce4e60181f5470ada05c8b952d3d70db3ff7b1a8bade": {
+    "label": "not-worth",
+    "note": "The api changeset and the web installer filter both write global_property by design during setup/upgrade."
+  },
+  "sha256:7e1ab6ed720d25047e5d379b738c26bcea9904016501a3cc3d1cf3e5e9d76450": {
+    "label": "not-worth",
+    "note": "437 lines is under the 500-line threshold; it is a flat DAO of simple delegating methods."
+  },
+  "sha256:cafecb732456d4b01bfed1cf8a41155da42a0562eeb1b9547ac1238837c41ace": {
+    "label": "not-worth",
+    "note": "loki-init is a one-shot chown container in an optional monitoring compose file; a healthcheck does not apply."
+  },
+  "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
+    "label": "not-worth",
+    "note": "hasRole is a domain-model method and throwUnauthorized is inside the authorization advice itself; this is not duplicated logic."
+  },
+  "sha256:6f16af369db74dab49b816b38379f3a5975213bb5f5e2317b060b71788e2a2bb": {
+    "label": "not-worth",
+    "note": "Validators share a similar structure of simple field checks; typical per-class validation boilerplate."
+  },
+  "sha256:8dd8ab8fd95752abab1b106ca41cea7c3ee7d9a30dc764521e590b091692389a": {
+    "label": "true",
+    "note": "dependency-check.yml has no permissions block at workflow or job level."
+  },
+  "sha256:6b776064a1c5970f9ac80dab6345e4d3011f024106dab07325690da5e6c7cb13": {
+    "label": "true",
+    "note": "WebModuleUtil and DispatcherServlet/StaticDispatcherServlet/Listener import each other, a real cycle."
+  },
+  "sha256:4766f9f6cf34a0d06431926e2995a8ae1bcea74ec58ef61f05286e85d2a414ca": {
+    "label": "true",
+    "note": "scorecard.yml references actions by mutable tags, not commit SHAs."
+  }
+}

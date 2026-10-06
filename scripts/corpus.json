@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "note": "Public repositories pinned to a commit. language is the dominant language and the one seeded for recall; style is the architecture; size is small, medium or large; large true means mapping takes minutes and the repository runs only with --include-large or --only; quick true puts it in the weekly --quick run. To add a repository see docs/accuracy.md.",
+  "repositories": [
+    { "name": "nopcommerce", "url": "https://github.com/nopSolutions/nopCommerce", "sha": "db2443c22d9cd27a5843235ff45db7a4c9adcdce", "language": "csharp", "style": "layered monolith (ASP.NET Core MVC)", "size": "large", "large": false, "quick": false },
+    { "name": "openmrs-core", "url": "https://github.com/openmrs/openmrs-core", "sha": "5d25788a1a33716b3c6c41125bd3c2b8a80050d6", "language": "java", "style": "layered monolith (Spring, Hibernate)", "size": "large", "large": false, "quick": false },
+    { "name": "spring-petclinic", "url": "https://github.com/spring-projects/spring-petclinic", "sha": "500158f732419217507c7656904b8e6aa1bcc0d6", "language": "java", "style": "small reference application (Spring Boot)", "size": "small", "large": false, "quick": true },
+    { "name": "saleor", "url": "https://github.com/saleor/saleor", "sha": "ddf48d82e4a1e7f35ba5c9ca6bef1f8bb725c065", "language": "python", "style": "monolith (Django, GraphQL)", "size": "large", "large": false, "quick": false },
+    { "name": "mastodon", "url": "https://github.com/mastodon/mastodon", "sha": "bc0df90b8d49b4e75f6b2ca17df7557986e0cee3", "language": "ruby", "style": "monolith (Rails) with a React frontend", "size": "large", "large": false, "quick": false },
+    { "name": "akaunting", "url": "https://github.com/akaunting/akaunting", "sha": "e3ff34982fd4309131024da817e86b3a1cc7e4cd", "language": "php", "style": "modular monolith (Laravel)", "size": "medium", "large": false, "quick": false },
+    { "name": "prestashop", "url": "https://github.com/PrestaShop/PrestaShop", "sha": "a9e8f98a90dc6c32ecb7a82c567c16f0a892c444", "language": "php", "style": "layered monolith (Symfony, legacy and modern)", "size": "large", "large": false, "quick": false },
+    { "name": "gitea", "url": "https://github.com/go-gitea/gitea", "sha": "43fedd662ad5ec44152d4ddd3d6d88e28a43e03c", "language": "go", "style": "monolith (Go server with a web frontend)", "size": "large", "large": false, "quick": false },
+    { "name": "pocketbase", "url": "https://github.com/pocketbase/pocketbase", "sha": "5cec579da984436a258602a46a96302fbd31f77c", "language": "go", "style": "small server framework (Go)", "size": "small", "large": false, "quick": true },
+    { "name": "twenty", "url": "https://github.com/twentyhq/twenty", "sha": "9a9e812234e6b351e6fec9a92c608fbd6e7ca1fe", "language": "typescript", "style": "monorepo (NestJS backend, React frontend)", "size": "large", "large": true, "quick": false },
+    { "name": "microservices-demo", "url": "https://github.com/GoogleCloudPlatform/microservices-demo", "sha": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389", "language": "go", "style": "microservice set (eleven services in five languages)", "size": "medium", "large": false, "quick": false },
+    { "name": "excalidraw", "url": "https://github.com/excalidraw/excalidraw", "sha": "ed10ac7dca7e40f3f4a31269b4bfba980d0db41e", "language": "typescript", "style": "frontend (React single-page app)", "size": "medium", "large": false, "quick": false }
+  ]
+}

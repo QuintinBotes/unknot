@@ -1,0 +1,42 @@
+{
+  "sha256:3214010191d729f01a94f76e4506f0c33c7d18982374a92cc4bced05a902ca4c": {
+    "label": "not-worth",
+    "note": "Symfony constraint and its validator reference each other by design (validatedBy and instanceof check)."
+  },
+  "sha256:5d4806a7c78a323428a1b55726ded244b235ed739b80da5ddd15d03d9f1a24d5": {
+    "label": "not-worth",
+    "note": "Cyclomatic 18 comes from a flat sequence of null-check merges; simple and tested."
+  },
+  "sha256:5de7d0b8e411995c7dfb98f20eb62657c55e91d8d936b1c150fec7fc27fe8fe5": {
+    "label": "not-worth",
+    "note": "Value object with many accessors; 186 lines, only over the method-count threshold."
+  },
+  "sha256:191514c9d4e231fdf9cadbd5ad462a7a76695ac84d5e6c3b5947168aa2190a37": {
+    "label": "true",
+    "note": "Single handler class of 558 lines and 24 methods mixing list loading, modals and form submit."
+  },
+  "sha256:db19edcb5d53b11c5ed001358b67b22c0c21e63880bf8b7c13a3aab86249dd92": {
+    "label": "not-worth",
+    "note": "Statements after return are only redundant break statements in switch cases."
+  },
+  "sha256:633b301c691f0672ae9e90a3c19a91b34e834e431ed60078f5cc575f1247ebfe": {
+    "label": "not-worth",
+    "note": "innerHTML receives a label from a data attribute and a count, not user input."
+  },
+  "sha256:bdf2c4517707915b41264c555ed3898ce555eb39d015fdff8751263b306daa76": {
+    "label": "not-worth",
+    "note": "Constructor of a documented CLDR value object; parameters are all needed data fields."
+  },
+  "sha256:e1ec5779b60f926cc8d2c3ab230217f6875939c5b85603c68b7ae1e38dbc546f": {
+    "label": "false",
+    "note": "Vendored TinyMCE mobile theme bundle, not project source."
+  },
+  "sha256:b0818d989297fe5f5f6126af70d4893393966aa0d1ace76162b1de6783640109": {
+    "label": "not-worth",
+    "note": "Interface has one implementer but is used as a type contract for a modal; minimal cost."
+  },
+  "sha256:f57c8ef649ee4f16b0c3dc7d1dad25b03d5febf393b73cc5db4acafb2da90b3b": {
+    "label": "not-worth",
+    "note": "maildev is a local development mail catcher in a dev compose file."
+  }
+}
