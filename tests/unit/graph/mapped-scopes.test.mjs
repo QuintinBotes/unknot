@@ -85,3 +85,11 @@ test('the CLI names the covered scopes in map and status; --replace takes the sc
   assert.match(replaced, /dropped from earlier maps: pkg\/a, pkg\/b/);
   assert.match(cli('status', '--json'), /"scope": \{\s*"whole": false,\s*"scopes": \[\s*"pkg\/c"/);
 });
+
+test('a graph mapped before scopes were recorded is replaced with a notice that says so', async () => {
+  const { resolveScopes } = await import('../../../runtime/graph/mapped-scopes.mjs');
+  const store = { meta: () => null, get: () => ({ x: 1 }) };
+  const r = resolveScopes({ root: '/nowhere', store }, { scope: ['src/b'] });
+  assert.match(r.notes.join(' '), /earlier maps did not record their scopes, so the graph now covers only src\/b/);
+  assert.deepEqual(resolveScopes({ root: '/nowhere', store: { meta: () => null, get: () => undefined } }, { scope: ['src/b'] }).notes, []);
+});

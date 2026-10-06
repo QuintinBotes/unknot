@@ -48,6 +48,14 @@ export function resolveScopes(ctx, { scope = [], replace = false }) {
     else kept.push(s);
   }
   const notes = [];
+  // A graph mapped before scopes were recorded: what it covered is unknown, so it is replaced.
+  let unrecorded = false;
+  try {
+    unrecorded = !prev && Boolean(ctx.store.get('SELECT 1 AS x FROM nodes LIMIT 1'));
+  } catch {
+    // no graph yet
+  }
+  if (unrecorded) notes.push(`earlier maps did not record their scopes, so the graph now covers only ${label}; map any other scope once more (scopes are kept from now on), or map them together`);
   if (missing.length) notes.push(`scope no longer on disk, dropped: ${missing.join(', ')}`);
   if (kept.length) notes.push(`kept from earlier maps: ${kept.join(', ')}; use --replace to map only ${label}`);
   return { effective: [...kept, ...scope], record: { whole: false, scopes: [...kept, ...given] }, kept, dropped: [], missing, notes };
