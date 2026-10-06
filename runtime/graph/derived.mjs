@@ -48,7 +48,7 @@ export function computeDerived(graph) {
       : members.length === 1 ? 'a module importing itself is not a dependency cycle'
       : !strictHere.length ? 'closes only through lazy or type-only imports, which are not a runtime cycle'
       : 'fewer than two non-test modules take part';
-    return { key: members[0], body: { members, size: members.length, cycles: b.cycles, truncated: b.truncated, cut: b.cut, declared_only: b.cut.filter((e) => e.declared_only).length, finding: reported, ...(reason && { reason }) } };
+    return { key: members[0], body: { members, size: members.length, cycles: b.cycles, truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(b.cut_minimal === false && { cut_minimal: false }), declared_only: b.cut.filter((e) => e.declared_only).length, finding: reported, ...(reason && { reason }) } };
   });
 
   const declared = graph.edges('IMPORTS').filter((e) => e.attrs?.declared_only && e.from !== e.to)

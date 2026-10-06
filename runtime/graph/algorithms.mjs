@@ -130,6 +130,10 @@ export function shortestCycle(graph, component, edgeTypes = DEFAULT_EDGES) {
  * edge between them is, and then carries the unused member.
  */
 const CUT_CYCLES = 2000;
+// Above this a component's cut comes from an ordering (linear), not the greedy search (quadratic).
+const EXACT_NODES = 50;
+const EXACT_EDGES = 400;
+const RESTORE_BUDGET = 2_000_000;
 
 export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxCycles = 50, maxLength = 12 } = {}) {
   const ids = [...members].sort();
@@ -182,6 +186,19 @@ export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxC
   }
   if (!truncated && ids.length > maxLength) truncated = true;
   const cyclePairs = (c) => c.map((v, i) => edgeOf(v, c[(i + 1) % c.length]));
+  const listed = (cut, extra = {}) => ({
+    members: ids,
+    cycles: cycles.map((c) => ({ length: c.length, nodes: c, edges: cyclePairs(c).map((e) => publicEdge(e)) })),
+    truncated,
+    cut: cut.map((c) => publicEdge(c.e, { closes: c.closes })),
+    ...extra,
+  });
+  if (ids.length > EXACT_NODES || info.size > EXACT_EDGES) {
+    const closing = new Map();
+    for (const c of cycles.slice(0, CUT_CYCLES)) for (const e of cyclePairs(c)) closing.set(e, (closing.get(e) ?? 0) + 1);
+    const { cut, minimal } = orderingCut(ids, [...info.values()]);
+    return listed(cut.map((e) => ({ e, closes: closing.get(e) ?? 0 })), { cut_heuristic: true, ...(!minimal && { cut_minimal: false }) });
+  }
 
   // Greedy feedback arc set over the edges that remain after each cut.
   const removed = new Set();
@@ -233,12 +250,136 @@ export function cycleBreakdown(graph, members, { edgeTypes = DEFAULT_EDGES, maxC
     if (cyclic(ids)) removed.add(key);
     else cut.splice(cut.indexOf(c), 1);
   }
-  return {
-    members: ids,
-    cycles: cycles.map((c) => ({ length: c.length, nodes: c, edges: cyclePairs(c).map((e) => publicEdge(e)) })),
-    truncated,
-    cut: cut.map((c) => publicEdge(c.e, { closes: c.closes })),
+  return listed(cut);
+}
+
+/**
+ * A cut for a large component in linear time. Declared-only edges are set aside first (cutting
+ * them costs nothing), the rest are ordered by the Eades-Lin-Smyth heuristic, and the edges that
+ * run backwards in that order are cut. Then each cut edge is put back if that closes no cycle,
+ * ordinary edges first, while a work budget lasts; `minimal` says whether every one was tried.
+ * @param {string[]} ids sorted
+ * @param {{from: string, to: string, declared_only: boolean}[]} edges
+ */
+function orderingCut(ids, edges) {
+  const n = ids.length;
+  const at = new Map(ids.map((id, i) => [id, i]));
+  const src = edges.map((e) => at.get(e.from));
+  const dst = edges.map((e) => at.get(e.to));
+  const outE = Array.from({ length: n }, () => []);
+  const inE = Array.from({ length: n }, () => []);
+  edges.forEach((e, i) => {
+    if (e.declared_only) return;
+    outE[src[i]].push(i);
+    inE[dst[i]].push(i);
+  });
+  const outDeg = outE.map((l) => l.length);
+  const inDeg = inE.map((l) => l.length);
+  const gone = new Uint8Array(n);
+  const heap = []; // [delta, -index]: largest delta first, then the smallest id
+  const push = (v) => {
+    heap.push([outDeg[v] - inDeg[v], -v]);
+    for (let i = heap.length - 1; i > 0;) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] > heap[i][0] || (heap[p][0] === heap[i][0] && heap[p][1] >= heap[i][1])) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
   };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        for (const c of [l, r]) if (c < heap.length && (heap[c][0] > heap[m][0] || (heap[c][0] === heap[m][0] && heap[c][1] > heap[m][1]))) m = c;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  const sinks = [];
+  const sources = [];
+  const head = [];
+  const tail = [];
+  const take = (v, list) => {
+    gone[v] = 1;
+    list.push(v);
+    for (const i of outE[v]) {
+      const w = dst[i];
+      if (gone[w] || w === v) continue;
+      if (--inDeg[w] === 0) sources.push(w);
+      else push(w);
+    }
+    for (const i of inE[v]) {
+      const u = src[i];
+      if (gone[u] || u === v) continue;
+      if (--outDeg[u] === 0) sinks.push(u);
+      else push(u);
+    }
+  };
+  for (let v = n - 1; v >= 0; v--) {
+    if (outDeg[v] === 0) sinks.push(v);
+    else if (inDeg[v] === 0) sources.push(v);
+    else push(v);
+  }
+  let left = n;
+  while (left > 0) {
+    let moved = false;
+    while (sinks.length) { const v = sinks.pop(); if (!gone[v]) { take(v, tail); left--; moved = true; } }
+    while (sources.length) { const v = sources.pop(); if (!gone[v]) { take(v, head); left--; moved = true; } }
+    if (moved || left === 0) continue;
+    while (heap.length) {
+      const [d, negV] = pop();
+      const v = -negV;
+      if (gone[v] || d !== outDeg[v] - inDeg[v]) continue;
+      take(v, head);
+      left--;
+      break;
+    }
+  }
+  const pos = new Int32Array(n);
+  [...head, ...tail.reverse()].forEach((v, k) => { pos[v] = k; });
+
+  // Cut: every declared-only edge for now, and ordinary edges that run backwards.
+  const cut = new Uint8Array(edges.length);
+  edges.forEach((e, i) => { if (e.declared_only || pos[src[i]] >= pos[dst[i]]) cut[i] = 1; });
+  const live = Array.from({ length: n }, () => []);
+  edges.forEach((_, i) => { if (!cut[i]) live[src[i]].push(i); });
+  // Put back what closes no cycle (its target does not reach its source), ordinary edges first so
+  // that the cut falls on declared-only edges where it can.
+  const order = edges.map((_, i) => i).filter((i) => cut[i])
+    .sort((a, b) => Number(edges[a].declared_only) - Number(edges[b].declared_only) || pos[src[a]] - pos[src[b]] || pos[dst[a]] - pos[dst[b]]);
+  let budget = RESTORE_BUDGET;
+  let minimal = true;
+  const seen = new Int32Array(n).fill(-1);
+  const reaches = (from, target, stamp) => {
+    const stack = [from];
+    seen[from] = stamp;
+    while (stack.length) {
+      const v = stack.pop();
+      if (v === target) return true;
+      if (--budget < 0) return null;
+      for (const i of live[v]) if (seen[dst[i]] !== stamp) { seen[dst[i]] = stamp; stack.push(dst[i]); }
+    }
+    return false;
+  };
+  for (const [k, i] of order.entries()) {
+    const a = src[i];
+    const b = dst[i];
+    if (a === b) continue;
+    const closes = reaches(b, a, k);
+    if (closes === null) { minimal = false; break; }
+    if (closes) continue;
+    cut[i] = 0;
+    live[a].push(i);
+  }
+  return { cut: edges.filter((_, i) => cut[i]), minimal };
 }
 
 /** Components with a cycle among the live edges (iterative Tarjan over plain id lists). */
