@@ -5,6 +5,7 @@
 
 import { makeUtil } from './tokutil.mjs';
 import { clientPath, operations, readMarker, typeBase } from '../http-ops.mjs';
+import { scanRouteGroups } from './route-groups.mjs';
 
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'];
 const HTTP_SET = new Set(HTTP_METHODS);
@@ -243,6 +244,8 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
     for (const r of res.routes) if (r.framework === 'unknown') r.framework = 'router';
   }
 
+  const rg = scanRouteGroups(U, match, analysis);
+
   function endpointCalls() {
     for (let i = 2; i < n; i++) {
       const tk = tokens[i];
@@ -269,14 +272,16 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
         p = routePath;
       } else {
         const obj = at(i - 2);
-        if (obj.t !== 'id' || !ROUTER_OBJ.test(obj.v) || args.length < 2) continue;
+        if (args.length < 2 || !(rg.has(i) || (obj.t === 'id' && ROUTER_OBJ.test(obj.v)))) continue;
         p = literalOf(args[0].s, args[0].e);
         if (p === null || !(p.startsWith('/') || p === '*')) continue;
         if (isP(args[args.length - 1].s, '{')) continue;
       }
       const last = args[args.length - 1];
       const handler = last && last.e - last.s === 1 && at(last.s).t === 'id' ? at(last.s).v : undefined;
-      const e = { method: tk.v.toUpperCase(), path: joinPath(p === '*' ? '*' : p), framework: serverFramework, line: tk.l };
+      const group = rg.at(i);
+      const e = { method: tk.v.toUpperCase(), path: joinPath(group?.prefix, p === '*' ? '*' : p), framework: serverFramework, line: tk.l };
+      if (group) e.group = group;
       if (handler) e.handler = handler;
       res.endpoints.push(e);
     }
@@ -571,5 +576,6 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   mongo();
   stores();
   securitySignals();
+  res.routeLinks = rg.moduleAttrs();
   return res;
 }

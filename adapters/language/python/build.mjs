@@ -146,7 +146,7 @@ export function buildFacts(path, raw, text, quality) {
   }
 
   const heuristic = (line) => pv(line, true);
-  facts.push(...frameworkFacts({ path, raw, moduleId, symbols, pv: heuristic, pvModel }));
+  facts.push(...frameworkFacts({ path, raw, moduleId, symbols, pv: heuristic, pvModel, moduleAttrs: moduleFact.attrs }));
 
   if (facts.length > MAX_FACTS) {
     const dropped = facts.length - MAX_FACTS;

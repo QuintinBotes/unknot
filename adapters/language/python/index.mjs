@@ -109,7 +109,7 @@ async function runPart(items, ctx, timeoutMs) {
 
 export default {
   id: 'python',
-  version: '0.1.10',
+  version: '0.1.11',
   kind: 'language',
   capabilities: {
     files: ['**/*.py', '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'],

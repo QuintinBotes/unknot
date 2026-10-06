@@ -12,7 +12,7 @@ const edges = (facts, type) => facts.filter((f) => f.kind === 'edge' && f.type =
 
 test('adapter contract: identity and capabilities', () => {
   assert.equal(adapter.id, 'javascript');
-  assert.equal(adapter.version, '0.1.13');
+  assert.equal(adapter.version, '0.1.14');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -166,10 +166,10 @@ test('exec is only flagged when child_process is imported and the command is not
 test('express style endpoints, router.route chains and non-routes', () => {
   const facts = extractOne('src/server.js', fixture('express-api', 'src', 'server.js'));
   assert.deepEqual(nodes(facts, 'endpoint'), [
-    'endpoint:GET /health', 'endpoint:GET /items', 'endpoint:GET /orders/:id', 'endpoint:POST /items', 'endpoint:POST /orders',
+    'endpoint:GET /api/orders/:id', 'endpoint:GET /health', 'endpoint:GET /items', 'endpoint:POST /api/orders', 'endpoint:POST /items',
   ]);
   assert.deepEqual(edges(facts, 'EXPOSES').length, 5);
-  const post = facts.find((f) => f.id === 'endpoint:POST /orders');
+  const post = facts.find((f) => f.id === 'endpoint:POST /api/orders');
   assert.equal(post.attrs.handler, 'createOrder');
   assert.equal(post.provenance.confidence, 'medium');
   const plain = extractOne('client.js', "axios.get('/users');\napi.get('/x', { params: {} });\nmap.get('/k');");

@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- Endpoints registered on a route group keep the group's prefix (#45): C# `MapGroup` (held in a variable, chained, or handed to an extension method), Express `Router` mounted with `app.use('/v1', r)`, Go chi `Route` and gin `Group`, FastAPI `APIRouter(prefix=...)` with `include_router(..., prefix=...)` and Flask `Blueprint(url_prefix=...)` all join every prefix up the chain, across files when a group is handed to a registration function or mounted from another file; a prefix that cannot be resolved keeps the endpoint with `prefix_unresolved: true`. `generic` 0.1.8, `javascript` 0.1.14, `python` 0.1.11.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

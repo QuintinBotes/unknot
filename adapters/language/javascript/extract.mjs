@@ -10,7 +10,7 @@ import { tokenize } from './tokenizer.mjs';
 import { detectMicroFrontends } from './mfe.mjs';
 import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
-import { clientFacts } from '../http-ops.mjs';
+import { clientFacts, routeGroupAttrs } from '../http-ops.mjs';
 import { lex } from '../generic/lexer.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
 import { memberAttrs, memberRefs } from '../generic/members.mjs';
@@ -209,6 +209,7 @@ function codeFacts(file, text, as = {}) {
     if (e.handler) attrs.handler = e.handler;
     if (e.controller) attrs.controller = e.controller;
     if (e.methods && e.methods.length) attrs.methods = e.methods;
+    Object.assign(attrs, routeGroupAttrs(e.group));
     const id = node('endpoint', key, { name: key, path, attrs }, p(e.line, 'medium'));
     facts.push(edgeFact('EXPOSES', modId, id, { framework: e.framework }, p(e.line, 'medium')));
   }
@@ -276,6 +277,8 @@ function codeFacts(file, text, as = {}) {
     ...(pathMentions.size && { path_mentions: [...pathMentions].sort() }),
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
+    // Link-only: link() finishes the routes whose group prefix another file supplies and removes these.
+    ...fw.routeLinks,
   };
   // Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted.
   // Types are only stated in TypeScript, so only it can be read for them.
