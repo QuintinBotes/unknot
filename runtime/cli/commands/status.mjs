@@ -1,6 +1,7 @@
 // /unknot:status — campaigns, slices, approvals, blockers and stale evidence.
 
 import { head } from '../../apply/git.mjs';
+import { checkoutNotice } from '../../graph/checkout.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { humanCommand, output, table } from '../util.mjs';
@@ -18,11 +19,18 @@ export async function run({ flags }) {
   const expired = ctx.store.get('SELECT COUNT(*) AS n FROM facts WHERE expires_at IS NOT NULL AND expires_at < ?', now).n;
   const stale = ctx.store.all("SELECT slice_id, COUNT(*) AS n FROM approvals WHERE revoked_at IS NULL AND expires_at < ? GROUP BY slice_id", now);
   const open_obligations = ctx.store.all("SELECT slice_id, COUNT(*) AS n FROM proof_obligations WHERE status IN ('open','inconclusive','fail') GROUP BY slice_id");
+  let mappedCheckout = null;
+  try {
+    mappedCheckout = JSON.parse(ctx.store.meta('mapped_checkout') ?? 'null');
+  } catch {
+    // older store
+  }
+  const behindNote = checkoutNotice(mappedCheckout);
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,
     active_run: run ? { id: run.id, command: run.command, started_at: run.started_at, slice: run.slice_id } : null,
-    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current) },
+    graph: { generation: ctx.store.meta('generation'), mapped_commit: mapped || null, head: current, stale: Boolean(mapped && current && mapped !== current), checkout: mappedCheckout },
     findings: Object.fromEntries(findings.map((f) => [f.status, f.n])),
     campaigns,
     slices,
@@ -46,6 +54,7 @@ export async function run({ flags }) {
   ];
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (in a separate terminal window: ${humanCommand('approve <slice> --role <role> --as <name>')})`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
+  if (behindNote) lines.push(`Graph: ${behindNote}`);
   if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it, in a separate terminal window: ${humanCommand('config diff')}`);
   output(lines.join('\n'));
 }

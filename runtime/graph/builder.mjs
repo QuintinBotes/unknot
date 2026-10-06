@@ -5,6 +5,7 @@
 // Failure is explicit (spec §22.2): a file an adapter could not process is listed, and the
 // map reports `partial` rather than pretending to be complete.
 
+import { checkoutNotice, checkoutState } from './checkout.mjs';
 import { readFileSync, statSync } from 'node:fs';
 import { canonicalJSON, digest } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
@@ -263,6 +264,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   });
 
   const all = [...fileFacts, ...global];
+  // What was mapped, and whether it is behind what the team works on.
+  const checkout = checkoutState(ctx.root);
+  const stale = checkoutNotice(checkout);
+  if (stale) notes.push(stale);
+  if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
   const projection = project(ctx, all, { commit, observedAt });
   writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
   const summary = {
@@ -275,6 +281,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     adapters: stats.adapters,
     unavailable,
     coverage,
+    ...(checkout && { checkout }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
