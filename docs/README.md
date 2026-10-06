@@ -13,6 +13,7 @@ Start with the [top-level README](../README.md) for what Unknot is, how to insta
 | [learning.md](learning.md) | See how accept and reject decisions tune ranking and thresholds |
 | [adapters.md](adapters.md) | See what Unknot can read, at what confidence, and how to write an adapter |
 | [runtime-evidence.md](runtime-evidence.md) | Export traces and metrics from a hosted observability vendor into `evidence.*` files |
+| [roadmap.md](roadmap.md) | What production grade needs, for any language, framework, forge and observability stack, and in what order |
 | [faq.md](faq.md) | Find a quick answer |
 
 ## For security review
