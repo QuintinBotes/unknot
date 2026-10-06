@@ -7,6 +7,7 @@ import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
 import { Graph } from '../../../runtime/graph/graph.mjs';
 import { definitionOn, searchText } from '../../../runtime/graph/search.mjs';
+import { TOOLS } from '../../../runtime/mcp/tools.mjs';
 
 test('definitions are told apart from uses across languages and config formats', () => {
   const name = 'orders.checkout.latency';
@@ -43,4 +44,39 @@ test('search finds the constant, its uses through the constant name, config keys
   assert.deepEqual(via.owners, ['@example/orders']);
   assert.equal(r.counts.by_kind.doc, 1);
   assert.equal(searchText(p.dir, { config, text: 'not-anywhere-at-all' }).counts.hits, 0);
+});
+
+const mapAndSearch = async (files) => {
+  const p = K.makeProject({ files });
+  const config = K.cfg({ mode: 'plan' });
+  await mapRepository(p.ctx, { config, configDigest: 'd', history: false });
+  return { p, config, graph: Graph.fromStore(p.ctx.store) };
+};
+
+test('an exact constant match does not hide the constants that extend it', async () => {
+  const route = '/v1/orders/{id}/lines';
+  const { p, config, graph } = await mapAndSearch({
+    'src/Routes.cs': `namespace Shop;\npublic static class Routes {\n    public const string Lines = "${route}";\n    public const string Line = "${route}/{lineId}";\n    public const string Other = "/v1/orders/{id}/payments";\n}\n`,
+    'src/Client.cs': `namespace Shop;\npublic class Client { string One() => Routes.Line; string Two() => Routes.Lines; }\n`,
+  });
+  const r = searchText(p.dir, { config, graph, store: p.ctx.store, text: route });
+  assert.equal(r.answered_by, 'graph');
+  assert.deepEqual(r.constants.map((k) => k.value), [route, `${route}/{lineId}`]);
+  assert.equal(r.constants_matched, 2);
+  assert.equal(r.constants_left_out, 0);
+  assert.deepEqual(r.definitions.map((h) => h.constant), [route, `${route}/{lineId}`]);
+  assert.equal(r.counts.definitions, 2);
+  // Without the exact constant the same two answer by prefix: adding characters never shrinks it.
+  assert.deepEqual(searchText(p.dir, { config, graph, store: p.ctx.store, text: route.slice(0, -1) }).constants.map((k) => k.value), [route, `${route}/{lineId}`]);
+  assert.equal(TOOLS.search_text.run(p.ctx, { text: route }).constants_matched, 2);
+});
+
+test('when the constant limit cuts the constants that extend an exact match, the result says how many', async () => {
+  const body = Array.from({ length: 25 }, (_, i) => `    public const string K${i} = "app.queue.${String(i).padStart(2, '0')}";`).join('\n');
+  const { p, config, graph } = await mapAndSearch({ 'src/A.cs': `namespace A;\npublic class A {\n    public const string Root = "app.queue";\n${body}\n}\n` });
+  const r = searchText(p.dir, { config, graph, store: p.ctx.store, text: 'app.queue' });
+  assert.equal(r.constants[0].value, 'app.queue');
+  assert.equal(r.constants.length, 20);
+  assert.equal(r.constants_matched, 26);
+  assert.equal(r.constants_left_out, 6);
 });

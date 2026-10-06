@@ -259,7 +259,7 @@ export const TOOLS = {
   },
 
   search_text: {
-    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. scan: true forces the scan. Generated, vendored and credential files are excluded.',
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan. Generated, vendored and credential files are excluded.',
     inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, scan: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
     run(ctx, a) {
       const { config } = loadConfig(ctx);

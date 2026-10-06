@@ -29,13 +29,14 @@ export function definitionOn(line, text) {
 const MAX_CONSTANTS = 20;
 
 /**
- * The constant nodes whose string is `text` or starts with it, with each definition and use site
- * (the facts behind the edges, one per line), or null when none is indexed. Exact and prefix
- * matches only: an answer from the graph never looks at files, so it cannot say a string is absent.
+ * The constant nodes whose string is `text` (first) or starts with it, with each definition and use site
+ * (the facts behind the edges, one per line), or null when none is indexed. An exact match does not
+ * hide the constants that extend it. Exact and prefix matches only: an answer from the graph never looks at files, so it cannot say a string is absent.
  */
 function fromGraph(root, { text, graph, store, scope, limit }) {
   const exact = graph.node(`constant:${text}`);
-  const matches = exact ? [exact] : graph.nodes('constant').filter((n) => n.name.startsWith(text)).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const longer = graph.nodes('constant').filter((n) => n.name !== text && n.name.startsWith(text)).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const matches = exact ? [exact, ...longer] : longer;
   if (!matches.length) return null;
   const shown = matches.slice(0, MAX_CONSTANTS);
   const lines = new Map();
@@ -80,9 +81,10 @@ function fromGraph(root, { text, graph, store, scope, limit }) {
     text,
     regex: false,
     answered_by: 'graph',
-    answered_by_note: `answered from ${exact ? 'the constant node' : `${matches.length} constant node(s) starting with the text`}; docs and strings that are not constants are not in the index (use scan: true to scan the files)`,
+    answered_by_note: `answered from ${exact ? `the constant node${longer.length ? ` and ${longer.length} constant(s) that start with the text` : ''}` : `${matches.length} constant node(s) starting with the text`}; docs and strings that are not constants are not in the index (use scan: true to scan the files)`,
     constants,
     constants_matched: matches.length,
+    constants_left_out: matches.length - shown.length,
     files_searched: 0,
     definitions: definitions.slice(0, limit),
     uses: uses.slice(0, limit),

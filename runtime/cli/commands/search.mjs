@@ -29,6 +29,7 @@ export async function run({ positional, flags }) {
   if (r.uses.length) out.push('', 'Used:', ...r.uses.map(line));
   if (r.via_constants.length) out.push('', 'Used through its constant:', ...r.via_constants.map((h) => `${line(h)}\n      -> via ${h.constant}`));
   if (!c.hits) out.push('', 'Not found in the files the map covers (generated and vendored files and credential files are excluded).');
+  if (r.constants_left_out) out.push('', `${r.constants_left_out} more constant(s) start with this text and are not shown (the first ${r.constants.length} are); use a longer text or a scope to see them.`);
   if (r.truncated) out.push('', `(cut at ${limit} per section; raise --limit or narrow with a scope)`);
   output(out.join('\n'));
 }

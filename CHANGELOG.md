@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- `unknot search` and `search_text` no longer let an exact constant match hide the constants that start with the same text (#20): the exact match comes first, then the constants that extend it with their sites, within the limits, and `constants_left_out` (and a line in the text output) says how many were cut.
 - Upgrading in place no longer locks a running session out of its shell (#18). `schema_version` in the store now names the oldest release that can use it, and migrations that only add something (like 0.2.0's fact digest) leave it alone, so hooks of 0.1.12 to 0.2.0 keep working once a newer CLI has opened the store; a store a 0.2.0 CLI raised is lowered again. A future migration older releases cannot live with waits while their hooks ran in the project in the last 15 minutes, and says to reload plugins. Hooks that find a store newer than themselves still run reads and read-only commands, refuse the rest, and name the fix: reload plugins or start a new session.
 - The `unknot` shim runs the CLI of the plugin version the session loaded (its `bin` is on the session's PATH), not the newest installed; `unknot cli install` updates an older shim. `unknot doctor` warns when a session's hooks run another release than the CLI, or when the shim predates this.
 - The upgrade test runs each earlier release's hook against the store after the current CLI has opened it.
