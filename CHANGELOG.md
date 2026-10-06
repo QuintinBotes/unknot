@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- Findings keep the detector's `confidence` (it was dropped when a finding was stored), so a proven deletion can qualify on a real unused-member finding (#46). Each proven-deletion problem names the measured value against what is needed (`confidence: low; needs medium or high`, `confidence: none recorded`, `evidence: 1 of 3 entries inferred`). Findings stored by earlier releases have no confidence until `diagnose` runs again. A test now runs the real map, diagnose and proven-deletion check in two languages.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

@@ -115,8 +115,8 @@ test('what stands in the way is named: added code, two files, inferred evidence,
   no({ sources: [ok], changes: [{ path: 'src/other.mjs', operation: 'modify' }] }, /reach src\/other\.mjs/);
   no({ sources: [ok], scope: { include: ['src/util.mjs', 'src/other.mjs'], exclude: [] } }, /2 entries/);
   no({ sources: [ok], scope: { include: ['src/*.mjs'], exclude: [] } }, /not one literal file/);
-  no({ sources: [finding({ confidence: 'low', evidence: [{ ref: 'r', label: 'inferred', summary: 'x' }] })] }, /low confidence/);
-  no({ sources: [finding({ evidence: [{ ref: 'r', label: 'observed' }, { ref: 'r', label: 'inferred' }] })] }, /inferred evidence/);
+  no({ sources: [finding({ confidence: 'low', evidence: [{ ref: 'r', label: 'inferred', summary: 'x' }] })] }, /confidence: low; needs medium or high/);
+  no({ sources: [finding({ evidence: [{ ref: 'r', label: 'observed' }, { ref: 'r', label: 'inferred' }] })] }, /entries inferred; needs every entry observed/);
   no({ sources: [finding({ measurements: { 'member.public': true } })] }, /public member/);
   no({ sources: [finding({ status: 'resolved' })] }, /stale/);
   no({ sources: [finding({ kind: 'code.god-class' })] }, /not a removal of unused code/);

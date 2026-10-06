@@ -115,9 +115,13 @@ export function provenDeletion(ctx, slice, { config } = {}) {
     const f = JSON.parse(row.body);
     const kind = f.kind ?? row.kind;
     if (!PROVEN_KINDS.includes(kind)) problems.push(`finding ${src} is ${kind}, not a removal of unused code`);
-    if (!['medium', 'high'].includes(f.confidence)) problems.push(`finding ${src} has ${f.confidence ?? 'no'} confidence`);
+    if (!['medium', 'high'].includes(f.confidence)) {
+      problems.push(`finding ${src} confidence: ${f.confidence ?? 'none recorded (diagnose again to record it)'}; needs medium or high`);
+    }
     const labels = (f.evidence ?? []).map((e) => e.label);
-    if (!labels.length || labels.some((l) => l !== 'observed')) problems.push(`finding ${src} rests on ${labels.filter((l) => l !== 'observed').length ? 'inferred' : 'no'} evidence, not observed evidence`);
+    const other = labels.filter((l) => l !== 'observed');
+    if (!labels.length) problems.push(`finding ${src} evidence: none recorded; needs observed evidence`);
+    else if (other.length) problems.push(`finding ${src} evidence: ${other.length} of ${labels.length} entries ${[...new Set(other)].join('/')}; needs every entry observed`);
     const patterns = (f.patterns ?? []).map((p) => p.id ?? p);
     if (!patterns.includes(REMOVAL_PATTERN)) problems.push(`finding ${src} does not propose ${REMOVAL_PATTERN}`);
     const scope = f.scope ?? [];
