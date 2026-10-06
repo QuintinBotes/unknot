@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
+import { applyObjective } from '../diagnose/objectives.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { neighbourhood, rankHubs, resolveRef, explainRef } from '../graph/algorithms.mjs';
@@ -205,8 +206,8 @@ export const TOOLS = {
   },
 
   findings_list: {
-    description: 'Ranked finding summaries, highest priority first.',
-    inputSchema: schema({ status: str(), category: str(), limit: limit() }),
+    description: 'Ranked finding summaries, highest priority first. objective (decompose, simplify or security) ranks the relevant kinds first and folds generic code-style findings into a hidden count; all shows them last.',
+    inputSchema: schema({ status: str(), category: str(), objective: str(), all: { type: 'boolean' }, limit: limit() }),
     run(ctx, a) {
       const where = [];
       const params = [];
@@ -218,17 +219,19 @@ export const TOOLS = {
         where.push('category = ?');
         params.push(a.category);
       }
+      const named = Boolean(a.objective);
       const rows = ctx.store.all(
-        `SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY priority DESC, id LIMIT ?`,
+        `SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY priority DESC, id${named ? '' : ' LIMIT ?'}`,
         ...params,
-        a.limit ?? 50,
+        ...(named ? [] : [a.limit ?? 50]),
       );
-      return {
-        findings: rows.map((r) => {
-          const body = JSON.parse(r.body);
-          return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, title: body.title ?? body.summary ?? null };
-        }),
-      };
+      const summaries = rows.map((r) => {
+        const body = JSON.parse(r.body);
+        return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
+      });
+      const ranked = named ? applyObjective(summaries, a.objective, { all: a.all }) : null;
+      if (!ranked) return { findings: named ? summaries.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) : summaries };
+      return { objective: ranked.objective, hidden: ranked.hidden, hidden_kinds: ranked.hidden_kinds, findings: ranked.findings.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) };
     },
   },
 

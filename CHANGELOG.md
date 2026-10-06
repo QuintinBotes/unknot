@@ -10,6 +10,9 @@ All notable changes are documented here. The format follows
 
 - A run started by the CLI inside an agent session (`unknot map` through the Bash tool) governs that session and its subagents only (#32): it records the session (`CLAUDE_CODE_SESSION_ID`), so other sessions in the same repository keep only the always-on protections and are no longer refused `git push`, `gh` or `cd` while it runs. A refusal caused by a run names the run, where it was started and how a person ends it. A run started in a person's own terminal still applies to every session.
 - The human-only rule judges the commands that would run, not the words in the command text (#40): a heredoc body, a quoted argument or a commit message that mentions `unknot approve` is data. `bash -c`, `eval`, `env` and similar wrappers are unwrapped and still refused, and when the text mentions a human-only command and the command cannot be read that precisely (a shell or interpreter reading text as code, a package runner, a git or gh alias, a computed command word, an unparseable line), it is refused as before.
+### Added
+
+- `unknot diagnose --objective <decompose|simplify|security>` (and `objective`/`all` on the MCP `findings_list`) ranks findings by relevance to the objective from one table in `runtime/diagnose/objectives.mjs`. For `decompose`, cycles, the unused dependencies that close them, co-change leaks, shared table writers, hubs and misplaced modules come first and generic code-style findings fold into one "N code-style findings hidden (--all to show)" line; `--all` lists them last. JSON carries `objective`, `hidden` and `hidden_kinds`. Output without `--objective` is unchanged, and `/unknot:decompose` uses the decompose objective (#31).
 
 ## [0.2.2] - 2026-10-06
 
