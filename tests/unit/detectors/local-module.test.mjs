@@ -310,6 +310,23 @@ test('unused-injected-member: one finding per declared-only edge, ranked higher 
   assert.deepEqual(run('local.unused-injected-member', [...files, imp('src/a.cs', 'src/b.cs')]), []);
 });
 
+test('unused-injected-member: a member other files may reach only by name is reported at low confidence, naming them', () => {
+  const files = ['a', 'b', 'c'].map((n) => mod(`src/${n}.cs`));
+  const maybe = { use_evidence: 'name-only', possible_use_of: 'Ledger', possible_receivers: 'src/x.cs, src/y.cs' };
+  const out = run('local.unused-injected-member', [...files, imp('src/a.cs', 'src/b.cs', maybe), imp('src/a.cs', 'src/c.cs')]);
+  assert.equal(out.length, 1);
+  const [d] = out;
+  assert.equal(d.confidence, 'low');
+  assert.match(d.title, /src\/a\.cs holds src\/b\.cs only through the possibly unused member Ledger/);
+  assert.match(d.evidence[0].summary, /2 file\(s\) read a member of that name on a receiver whose type is unknown: src\/x\.cs, src\/y\.cs/);
+  assert.ok(d.uncertainties.some((u) => /check those before removing it/.test(u)));
+  assert.ok(d.evidence.some((e) => e.label === 'inferred'));
+  // The same edge proven unused keeps the same finding key, at medium confidence.
+  const proven = run('local.unused-injected-member', [...files, imp('src/a.cs', 'src/b.cs', { declared_only: true, unused_member: 'Ledger', member_visibility: 'public' })]);
+  assert.equal(proven[0].confidence, 'medium');
+  assert.equal(proven[0].key, d.key);
+});
+
 test('dependency-cycle: a cycle closed only by an unused member says so and ranks lower; a surviving cycle lists unused links', () => {
   const files = ['a', 'b', 'c'].map((n) => mod(`src/${n}.cs`));
   const unused = { declared_only: true, unused_member: '_orders' };
