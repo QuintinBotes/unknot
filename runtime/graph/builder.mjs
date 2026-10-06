@@ -181,6 +181,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     if (filesByPath.get(path)?.kind !== 'test') continue;
     for (const f of facts) if (f.kind === 'node' && f.type === 'module' && f.attrs) f.attrs.is_test = true;
   }
+  // Cached files were added before fresh ones, and fresh ones in whatever order extraction
+  // finished; every later step (linking, dedupe, tie-breaks) sees the files in path order.
+  const ordered = [...perFile].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  perFile.clear();
+  for (const [path, facts] of ordered) perFile.set(path, facts);
   lap('extraction_ms');
   const fileFacts = [...perFile.values()].flat();
   const global = [];

@@ -16,7 +16,9 @@ export function defaultWorkers(configured) {
 export async function extractParallel({ moduleURL, root, files, commit, options, workers, batch = 64 }) {
   const queue = [];
   for (let i = 0; i < files.length; i += batch) queue.push(files.slice(i, i + batch));
-  const results = [];
+  // Batches finish in whatever order the threads run them; keep each batch's results under its
+  // queue id and flatten in file order, so the facts reach the store the same way every time.
+  const byBatch = new Array(queue.length);
   const pool = Array.from({ length: Math.min(workers, queue.length) }, () => new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { moduleURL } }));
   let next = 0;
   try {
@@ -30,7 +32,7 @@ export async function extractParallel({ moduleURL, root, files, commit, options,
               w.postMessage({ id, root, items: queue[id], commit, options });
             };
             w.on('message', (msg) => {
-              pushAll(results, msg.results);
+              byBatch[msg.id] = msg.results;
               send();
             });
             w.on('error', reject);
@@ -44,5 +46,7 @@ export async function extractParallel({ moduleURL, root, files, commit, options,
   } finally {
     await Promise.all(pool.map((w) => w.terminate()));
   }
+  const results = [];
+  for (const r of byBatch) pushAll(results, r);
   return results;
 }
