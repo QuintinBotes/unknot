@@ -15,9 +15,9 @@
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { analyzeIndex } from './analyze.mjs';
-import { locateIndexes } from './locate.mjs';
+import { indexTrustProblem, locateIndexes } from './locate.mjs';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const EXTRACTOR = `scip@${VERSION}`;
 const DEFAULT_MAX_BYTES = 2 * 1024 ** 3;
 const MAX_LISTED = 50;
@@ -44,6 +44,14 @@ function link(ctx) {
     }
   }
   const res = analyzeIndex(found.entries.map((e) => e.abs), { root: ctx.root, hasFile: (p) => mods.has(p) });
+  // Only an index the person produced for this code is evidence; otherwise every file keeps its
+  // lexical result and the map says why.
+  const covered = [...res.files.keys()];
+  const problems = found.entries.map((e) => indexTrustProblem(ctx.root, e, covered)).filter(Boolean);
+  if (problems.length) {
+    for (const why of problems) ctx.notes?.push(`SCIP index not used: ${why}`);
+    return [];
+  }
   const tool = res.tools.join(', ');
   const out = [];
 

@@ -203,3 +203,22 @@ test('unknot doctor prints the index check', () => {
   assert.ok(c, r.stdout.slice(0, 500));
   assert.equal(c.level, 'info');
 });
+
+test('an index committed to the repository, or older than a change to a file it covers, is set aside with a notice', async () => {
+  const g = (dir, ...args) => spawnSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' });
+  const committed = K.makeProject({ files: FILES });
+  S.writeIndex(join(committed.dir, 'index.scip'), indexBytes());
+  g(committed.dir, 'add', '-f', 'index.scip');
+  g(committed.dir, 'commit', '-qm', 'add index');
+  const r1 = await map(committed);
+  assert.ok((r1.notices ?? []).some((n) => /SCIP index not used: index\.scip is committed to the repository/.test(n)), JSON.stringify(r1.notices));
+  assert.equal(importEdge(committed, 'Shop/OrderService.cs', 'Shop/Mailer.cs').use_evidence, 'name-only', 'the lexical result stands');
+
+  const edited = K.makeProject({ files: FILES });
+  S.writeIndex(join(edited.dir, 'index.scip'), indexBytes());
+  const old = (Date.now() - 3600_000) / 1000;
+  utimesSync(join(edited.dir, 'index.scip'), old, old);
+  const r2 = await map(edited);
+  assert.ok((r2.notices ?? []).some((n) => /SCIP index not used: .*(changed after index\.scip was written|older than commit)/.test(n)), JSON.stringify(r2.notices));
+  assert.ok(!importEdge(edited, 'Shop/OrderService.cs', 'Shop/Mailer.cs').unused_evidence);
+});

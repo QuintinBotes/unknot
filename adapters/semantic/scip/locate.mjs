@@ -3,6 +3,7 @@
 // index is the person's step, with the indexer's own command.
 
 import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { isSecretPath, resolveInside } from '../../../runtime/core/paths.mjs';
 import { git, isRepo } from '../../../runtime/apply/git.mjs';
@@ -113,4 +114,28 @@ export function scipChecks(root, options = {}) {
     checks.push({ name: 'scip index', level, detail });
   }
   return checks;
+}
+
+/**
+ * Why an index cannot be evidence for this code, or null. An index committed to the repository
+ * is repository content (anyone who can push could write it, and Unknot treats repository text
+ * as data); one older than a commit or a working-tree change to a file it covers describes other
+ * code. Either way its facts would be trusted as compiler-resolved, so it is set aside.
+ */
+export function indexTrustProblem(root, entry, coveredFiles) {
+  if (isRepo(root) && git(root, ['ls-files', '--error-unmatch', '--', `:(literal)${entry.rel}`], { check: false }).status === 0) {
+    return `${entry.rel} is committed to the repository; produce it locally and keep it out of git (add it to .gitignore)`;
+  }
+  const last = lastCommitTouching(root, coveredFiles);
+  if (last && last.time * 1000 > entry.mtimeMs) return `${entry.rel} is older than commit ${last.sha.slice(0, 12)}, which changed files it covers; run the indexer again`;
+  for (const f of coveredFiles) {
+    let m = 0;
+    try {
+      m = statSync(join(root, f)).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (m > entry.mtimeMs) return `${f} changed after ${entry.rel} was written; run the indexer again`;
+  }
+  return null;
 }
