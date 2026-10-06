@@ -113,8 +113,11 @@ export async function run({ positional, flags }) {
       if (flags.to !== undefined) addIn('dst', refIds(g, 'to', flags.to));
       if (nodeArg) {
         const ids = refIds(g, 'node', nodeArg);
-        where.push(`(src IN (${ids.map(() => '?').join(',')}) OR dst IN (${ids.map(() => '?').join(',')}))`);
-        params.push(...ids, ...ids);
+        const dir = flags.direction ?? 'both';
+        if (!['in', 'out', 'both'].includes(dir)) throw usage('--direction is in, out or both');
+        const list = ids.map(() => '?').join(',');
+        where.push(dir === 'out' ? `src IN (${list})` : dir === 'in' ? `dst IN (${list})` : `(src IN (${list}) OR dst IN (${list}))`);
+        params.push(...ids, ...(dir === 'both' ? ids : []));
       }
     }
     const rows = ctx.store.all(`SELECT type, src, dst, label FROM edges ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY src, dst, type LIMIT ?`, ...params, limit);
@@ -186,6 +189,6 @@ export async function run({ positional, flags }) {
     const gap = !types.length && lexical.length && !rows.some((r) => r.type === 'CALLS') ? `\nNo CALLS edges: ${lexical.join(', ')} is read lexically here, so calls between files are not extracted (only imports and type references). The semantic tier adds them (docs/roadmap.md, item 1).` : '';
     return output(`${head}${counts ? ` (${counts})` : ''}${gap}\n${table(rows.slice(0, limit), ['type', 'from', 'to'])}${rows.length > limit ? `\n(${limit} of ${rows.length} edges; raise --limit or narrow with --type)` : ''}`);
   }
-  output('usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
+  output('usage: unknot graph stats|nodes [type] [--name text] [--path glob]|node <id>|edges [TYPE|node [--direction in|out|both]] [--type T,..] [--from X] [--to X]|cycles [EDGE] [scope...]|hubs [EDGE] [--type T,..] [--within] [scope...]|neighbourhood <id|path|Type> [--depth N] [--type T,..]  (--limit N)');
   return 2;
 }

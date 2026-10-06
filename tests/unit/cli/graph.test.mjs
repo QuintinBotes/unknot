@@ -169,3 +169,13 @@ test('neighbourhood: counts per relation, and says when calls cannot be seen for
   const r = graph('neighbourhood', 'src/cat/A.cs');
   assert.match(r.out, /\(IMPORTS \d+.*CALLS 1.*\)|\(.*CALLS 1.*IMPORTS \d+.*\)/);
 });
+
+test('edges <node> --direction narrows to incoming or outgoing; an unknown node is an error', () => {
+  const out = json('edges', 'src/cat/A.cs', '--direction', 'out');
+  assert.ok(out.length && out.every((e) => e.src === 'module:src/cat/A.cs'));
+  const inn = json('edges', 'src/cat/A.cs', '--direction', 'in');
+  assert.ok(inn.length && inn.every((e) => e.dst === 'module:src/cat/A.cs'));
+  const bad = graph('edges', 'src/nowhere/Missing.cs');
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.err + bad.out, /no node|not found|Missing\.cs/i);
+});
