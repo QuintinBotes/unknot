@@ -2,7 +2,7 @@
 // One table names each finding kind's relevance per objective; extend it by adding a row
 // or a column. Any other objective text keeps the free-text category bias in the engine.
 //
-// Relevance, most to least: 'core' ranks first, 'related' next, 'other' after that, and
+// Relevance, most to least: 'first' (dependency cycles) ahead of everything, 'core' next, 'related' next, 'other' after that, and
 // 'folded' is replaced by one count unless every finding is asked for (`--all`).
 // A row's `kind` is an exact kind or a `prefix.*`; the exact row wins over a prefix row,
 // the longer prefix over a shorter one. A kind with no row, or a row without the
@@ -16,8 +16,8 @@ export const OBJECTIVES = {
 
 export const RELEVANCE = [
   // kind                                      decompose   simplify  security
-  { kind: 'module.dependency-cycle', decompose: 'core' },
-  { kind: 'module.package-cycle', decompose: 'core' },
+  { kind: 'module.dependency-cycle', decompose: 'first' }, // a cycle is what a split has to break first
+  { kind: 'module.package-cycle', decompose: 'first' },
   { kind: 'module.hub-module', decompose: 'core' },
   { kind: 'decomposition.co-change-leak', decompose: 'core' },
   { kind: 'decomposition.shared-table-writers', decompose: 'core' },
@@ -39,7 +39,7 @@ export const RELEVANCE = [
   { kind: 'service.missing-idempotency', security: 'related' },
 ];
 
-const TIER = { core: 0, related: 1, other: 2, folded: 3 };
+const TIER = { first: -1, core: 0, related: 1, other: 2, folded: 3 };
 
 export function isNamedObjective(objective) {
   return typeof objective === 'string' && Object.hasOwn(OBJECTIVES, objective.trim().toLowerCase());
