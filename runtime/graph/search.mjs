@@ -139,7 +139,7 @@ const wordFor = (names) => new RegExp(`\\b(${names.map(escapeRe).join('|')})\\b`
  * time budget cut off (`via_unscanned` for the second pass, which looks for uses of a
  * constant's name).
  */
-function scanResult({ text, regex, scan, graph, files, hits, via, limit, budget }) {
+function scanResult({ text, regex, scan, graph, files, hits, via, limit, budget, scanned = null }) {
   const context = (path) => {
     if (!graph) return {};
     const id = `module:${path}`;
@@ -150,7 +150,11 @@ function scanResult({ text, regex, scan, graph, files, hits, via, limit, budget 
   const withContext = (h) => ({ ...h, ...context(h.path) });
   const byKind = (list) => list.reduce((m, h) => ((m[h.kind] = (m[h.kind] ?? 0) + 1), m), {});
   const partial = budget.unscanned > 0 || budget.via_unscanned > 0;
-  const notice = partial
+  // Nothing scanned (the budget went on listing files, or ran out first): the hit list says nothing about the text.
+  const searched = !(budget.total > 0 && scanned === 0);
+  const notice = !searched
+    ? `not searched: the ${budget.seconds} s time budget ran out before any of the ${budget.total} file(s) was scanned, so zero hits says nothing about whether the text occurs. Pass a scope (a path or glob) to search fewer files, or run \`unknot search --scan\` from a terminal, which has a longer budget (--budget-seconds).`
+    : partial
     ? `partial result: the ${budget.seconds} s time budget ran out; ${budget.unscanned} of ${budget.total} file(s) were not scanned${budget.via_unscanned ? `, and ${budget.via_unscanned} file(s) were not checked for uses of a matching constant's name` : ''}. Raise it with --budget-seconds, or narrow with a scope.`
     : null;
   return {
@@ -164,8 +168,10 @@ function scanResult({ text, regex, scan, graph, files, hits, via, limit, budget 
     via_constants: via.slice(0, limit).map(withContext),
     counts: { hits: hits.length, definitions: hits.filter((h) => h.definition).length, uses: hits.filter((h) => !h.definition).length, via_constants: via.length, by_kind: byKind(hits) },
     truncated: hits.length > limit || via.length > limit,
+    searched,
+    ...(scanned !== null && { files_scanned: scanned }),
     partial,
-    ...(partial && { files_not_scanned: budget.unscanned + budget.via_unscanned, notice }),
+    ...((partial || !searched) && { files_not_scanned: budget.unscanned + budget.via_unscanned, notice }),
   };
 }
 
@@ -214,7 +220,7 @@ export function searchText(root, { config, text, regex = false, scope = [], grap
     }
     budget.via_unscanned = i - j;
   }
-  return scanResult({ text, regex, scan, graph, files: files.length, hits, via, limit, budget });
+  return scanResult({ text, regex, scan, graph, files: files.length, hits, via, limit, budget, scanned: i });
 }
 
 /** Run `work(item, index)` over `items` with at most `n` in flight; stops starting new ones when `stop()` is true. Resolves to how many ran. */
@@ -241,10 +247,10 @@ async function pool(items, n, work, stop) {
  * says how many files it did not reach, and calls `onProgress(done, total, phase)` at most once
  * a second once it has run longer than `progressAfterMs`.
  * @param {string} root
- * @param {Parameters<typeof searchText>[1] & {onProgress?: (done: number, total: number, phase: string) => void, progressAfterMs?: number, concurrency?: number}} opts
+ * @param {Parameters<typeof searchText>[1] & {onProgress?: (done: number, total: number, phase: string) => void, progressAfterMs?: number, concurrency?: number, plan?: typeof censusPlan}} opts
  */
 export async function searchTextConcurrent(root, opts) {
-  const { config, text, regex = false, scope = [], graph = null, store = null, scan = false, limit = 200, budgetSeconds = SCAN_BUDGET_MS / 1000, now = Date.now, onProgress = null, progressAfterMs = PROGRESS_AFTER_MS, concurrency = SCAN_CONCURRENCY } = opts;
+  const { config, text, regex = false, scope = [], graph = null, store = null, scan = false, limit = 200, budgetSeconds = SCAN_BUDGET_MS / 1000, now = Date.now, onProgress = null, progressAfterMs = PROGRESS_AFTER_MS, concurrency = SCAN_CONCURRENCY, plan: makePlan = censusPlan } = opts;
   if (!regex && !scan && graph && store) {
     const r = fromGraph(root, { text, graph, store, scope, limit });
     if (r) return r;
@@ -260,7 +266,9 @@ export async function searchTextConcurrent(root, opts) {
     lastReport = t;
     onProgress(done, total, phase);
   };
-  const plan = censusPlan(root, { config, scope, blobs: false });
+  // The clock above covers listing the files too. `makePlan` lists them with one `git ls-files` and
+  // classifies by path; nothing is statted or read until the scan itself.
+  const plan = makePlan(root, { config, scope, blobs: false });
   const cands = plan.candidates;
   const total = cands.length;
   const kept = new Array(total).fill(null); // the scannable entry of each candidate
@@ -312,5 +320,5 @@ export async function searchTextConcurrent(root, opts) {
     budget.via_unscanned = second.length - checked;
     via.push(...out.flat().filter(Boolean));
   }
-  return scanResult({ text, regex, scan, graph, files: kept.filter(Boolean).length, hits, via, limit, budget });
+  return scanResult({ text, regex, scan, graph, files: kept.filter(Boolean).length, hits, via, limit, budget, scanned: ran });
 }

@@ -2,14 +2,14 @@
 // appends a schema-validated handoff record. Nothing here approves, applies, starts a run,
 // executes a command or edits a file: those stay in the human-driven CLI.
 
-import { searchText } from '../graph/search.mjs';
+import { searchTextConcurrent } from '../graph/search.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
-import { neighbourhood, rankHubs, resolveRef } from '../graph/algorithms.mjs';
+import { neighbourhood, rankHubs, resolveRef, explainRef } from '../graph/algorithms.mjs';
 import { DERIVED_KINDS, readDerived } from '../graph/derived.mjs';
 import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
@@ -128,11 +128,16 @@ export const TOOLS = {
         return capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), total: facts.length }, ['facts'], 'lower limit');
       }
       if (a.id) {
-        const ids = resolveRef(g, a.id);
-        if (!ids.length) throw notFound('node', a.id);
+        const { ids, note, suggestions } = explainRef(g, a.id);
+        if (!ids.length) {
+          const msg = `no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+          throw new UnknotError('UK_NOT_FOUND', msg);
+        }
         if (ids.length > 1) throw new UnknotError('UK_SCHEMA_INVALID', `${a.id} names ${ids.length} nodes; use one id: ${ids.slice(0, 10).join(', ')}`);
         const edges = edgesOf(g, ids[0], { direction: a.direction, edgeTypes: a.edge_type });
-        return capResult({ node: nodeView(g.node(ids[0]), full), edges: edges.slice(0, max).map((e) => edgeView(e, full)), edge_count: edges.length }, ['edges'], 'narrow with edge_type and direction, or lower limit');
+        const result = { node: nodeView(g.node(ids[0]), full), edges: edges.slice(0, max).map((e) => edgeView(e, full)), edge_count: edges.length };
+        if (note) result.note = note;
+        return capResult(result, ['edges'], 'narrow with edge_type and direction, or lower limit');
       }
       if (a.type && a.edge_type) throw new UnknotError('UK_SCHEMA_INVALID', "pass type (list nodes) or edge_type (list edges), not both; to filter one node's edges pass id");
       if (a.edge_type) {
@@ -175,12 +180,16 @@ export const TOOLS = {
     inputSchema: schema({ id: str(), depth: limit(3), edge_types: { type: 'array', items: str(), maxItems: 32 }, full: { type: 'boolean' } }, ['id']),
     run(ctx, a) {
       const g = Graph.fromStore(ctx.store);
-      const roots = resolveRef(g, a.id);
-      if (!roots.length) throw notFound('node', a.id);
+      const { ids: roots, note, suggestions } = explainRef(g, a.id);
+      if (!roots.length) {
+        const msg = `no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
+        throw new UnknotError('UK_NOT_FOUND', msg);
+      }
       const depth = a.depth ?? 1;
       const hood = neighbourhood(g, roots, { depth, edgeTypes: a.edge_types?.length ? a.edge_types : undefined });
       const full = a.full === true;
       const result = { root: roots[0], ...(roots.length > 1 ? { roots } : {}), depth, nodes: hood.nodes.map((n) => nodeView(n, full)), edges: hood.edges.map((e) => edgeView(e, full)), capped: hood.capped };
+      if (note) result.note = note;
       // Dropping nodes drops the edges that touched them.
       return capResult(result, ['nodes', 'edges'], 'lower depth, or pass edge_types to follow fewer relations', (out) => {
         const kept = new Set(out.nodes.map((n) => n.id));
@@ -263,18 +272,19 @@ export const TOOLS = {
   },
 
   search_text: {
-    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan; a scan stops after 20 seconds and says how many files it did not reach (partial, notice). Generated, vendored and credential files are excluded.',
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. When a constant is an exact match, the constants that start with the same text are returned after it (constants_left_out counts any cut by the limit). scan: true forces the scan; a scan, listing the files included, stops after 20 seconds and says how many files it did not reach (partial, notice); when it reached none, searched is false and zero hits means nothing. Generated, vendored and credential files are excluded.',
     inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, scan: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
-    run(ctx, a) {
+    // Async: the scan reads files concurrently, and its time budget covers listing the files too.
+    async run(ctx, a, opts = {}) {
       const { config } = loadConfig(ctx);
       const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
-      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50, budgetSeconds: 20 });
+      const r = await searchTextConcurrent(ctx.root, { budgetSeconds: 20, ...opts, config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50 });
       return capResult(r, ['definitions', 'uses', 'via_constants'], 'narrow with a scope (a path or glob) or a more specific text');
     },
   },
 
   guidance_get: {
-    description: "The repository's own agent guidance (AGENTS.md, CLAUDE.md, Copilot and Cursor rules, CONTRIBUTING.md, .editorconfig) that applies to a path, nearest first: conventions, commands, prohibited commands and paths, and text ignored for trying to grant something. Guidance only restricts; it never grants approvals, scope or commands.",
+    description: "The repository's own agent guidance (AGENTS.md, CLAUDE.md, Copilot and Cursor rules, CONTRIBUTING.md, .editorconfig) that applies to a path, nearest first: conventions, commands, prohibited commands and paths, and text ignored for trying to grant something. A prohibition is enforced only when phrased as one and repository-wide: rules scoped to a named actor or environment carry `scope` and `enforced: false`, a command the guidance both requires and forbids is reported in `flagged` (kind conflict) and not enforced, and path-triggered rule files appear only for paths their globs match. Guidance only restricts; it never grants approvals, scope or commands.",
     inputSchema: schema({ path: str() }, ['path']),
     run(ctx, a) {
       if (a.path.startsWith('/') || a.path.split('/').includes('..')) throw new UnknotError('UK_SCHEMA_INVALID', 'path must be relative to the project, without ..');

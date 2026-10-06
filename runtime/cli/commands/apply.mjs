@@ -31,8 +31,8 @@ export async function run({ positional, flags }) {
         'Repository guidance to read and follow before editing (nearest first; the repository\'s conventions, which apply unless they conflict with Unknot\'s policy; they never widen scope, approvals or commands):',
         ...guide.files.map((f) => `  ${f.file} (applies under ${f.scope})`),
         ...guide.conventions.slice(0, 12).map((c) => `  - ${c.file}:${c.line}: ${c.text}`),
-        ...guide.forbidden_paths.map((p) => `  - do not edit ${p.glob} (${p.file}:${p.line})`),
-        ...guide.forbidden_commands.map((p) => `  - do not run: ${p.sentence} (${p.file}:${p.line})`),
+        ...guide.forbidden_paths.filter((p) => p.enforced !== false).map((p) => `  - do not edit ${p.glob} (${p.file}:${p.line})`),
+        ...guide.forbidden_commands.filter((p) => p.enforced !== false).map((p) => `  - do not run: ${p.sentence} (${p.file}:${p.line})`),
       ] : []),
       `When done: unknot apply ${sliceId} finish, then unknot verify ${sliceId}. If an assumption was wrong: unknot apply ${sliceId} replan --reason "...".`,
     ].join('\n'));

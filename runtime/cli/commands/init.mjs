@@ -107,7 +107,9 @@ function guidanceHints(root) {
   const { docs, flagged } = loadGuidance(root);
   const hints = HINT_FILES.flatMap((f) => docs.filter((d) => d.file === f).flatMap((d) => d.commands.map((c) => [f, c.heading, c.command])));
   const all = docs.slice().sort((a, b) => a.file.localeCompare(b.file));
-  return { hints, forbidden: all.flatMap((d) => d.forbiddenCommands), paths: all.flatMap((d) => d.forbiddenPaths), flagged };
+  // Only repository-wide, unflagged prohibitions are enforced; scoped and conflicting ones are reported.
+  const enforced = (r) => r.enforced !== false;
+  return { hints, forbidden: all.flatMap((d) => d.forbiddenCommands).filter(enforced), paths: all.flatMap((d) => d.forbiddenPaths).filter(enforced), flagged, unenforced: all.flatMap((d) => [...d.forbiddenCommands, ...d.forbiddenPaths]).filter((r) => !enforced(r)) };
 }
 
 const ROOT_MANIFESTS = ['package.json', 'pyproject.toml', 'setup.py', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'Makefile', '*.sln', '*.slnx', '*.csproj', '*.fsproj'];
@@ -231,7 +233,11 @@ export function detect(root) {
     protectedPaths.push(r.glob);
     notes.push(`protected ${r.glob}: ${r.file}:${r.line} says "${r.sentence}"`);
   }
-  for (const f of guidance.flagged) notes.push(`ignored ${f.file}:${f.line} (${f.kind} marker; guidance can only add restrictions)`);
+  for (const f of guidance.flagged) {
+    if (f.kind === 'conflict') notes.push(`not enforced: ${f.forbidden.file}:${f.forbidden.line} forbids "${f.forbidden.sentence}" but ${f.required.file}:${f.required.line} requires \`${f.required.command}\`; a person decides`);
+    else notes.push(`ignored ${f.file}:${f.line} (${f.kind} marker; guidance can only add restrictions)`);
+  }
+  for (const r of guidance.unenforced.filter((u) => u.scope)) notes.push(`not enforced: ${r.file}:${r.line} is scoped to ${Object.values(r.scope)[0]} ("${r.sentence}")`);
   const known = Object.entries(commands).map(([k, v]) => [k, v.join(' ')]);
   for (const [file, heading, cmd] of guidance.hints) {
     const same = known.find(([, c]) => c === cmd);
