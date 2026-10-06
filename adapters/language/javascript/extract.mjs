@@ -10,6 +10,7 @@ import { tokenize } from './tokenizer.mjs';
 import { detectMicroFrontends } from './mfe.mjs';
 import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
+import { clientFacts } from '../http-ops.mjs';
 
 const CODE_FILE_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 const TS_RE = /\.(?:ts|mts|cts|tsx)$/;
@@ -127,7 +128,7 @@ function codeFacts(file, text, as = {}) {
   const degraded = tk.issues.length > 0 || bad > 0 || failed;
   const p = mk(path, degraded);
 
-  let fw = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
+  let fw = { endpoints: [], clients: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
   try {
     if (!failed) fw = detectFrameworks({ path, tokens, n, match, analysis });
   } catch {
@@ -206,6 +207,13 @@ function codeFacts(file, text, as = {}) {
     if (e.methods && e.methods.length) attrs.methods = e.methods;
     const id = node('endpoint', key, { name: key, path, attrs }, p(e.line, 'medium'));
     facts.push(edgeFact('EXPOSES', modId, id, { framework: e.framework }, p(e.line, 'medium')));
+  }
+  // A client class (decorated members without bodies) is a contract the module declares.
+  for (const c of fw.clients ?? []) {
+    facts.push(...clientFacts({
+      modId, cid: `${path}#${c.cls.qname}`, name: c.cls.qname, path, line: c.cls.start_line, interfaceId: classByQ.get(c.cls.qname),
+      lang: ts ? 'typescript' : 'javascript', framework: 'decorator', ops: c.ops, pv: (line) => p(line, 'medium', 'inference'),
+    }));
   }
   // A layout route and its index route share a URL, so routes group by path and keep every component.
   const routeGroups = new Map();

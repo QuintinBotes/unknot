@@ -1,6 +1,6 @@
 // Contract evidence for a set of modules: the routes that are written down somewhere other
 // than in the handler. A route counts when
-//   - a typed HTTP client interface (Refit, Feign, Retrofit) declares it and a member declares
+//   - a typed HTTP client (an interface or abstract type whose methods declare an HTTP method and route) declares it and a member declares
 //     that interface, consumes it, or imports a module that declares it;
 //   - a member exposes an endpoint some typed client in the graph declares (its callers use a
 //     typed client);

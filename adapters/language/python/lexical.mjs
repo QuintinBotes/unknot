@@ -22,6 +22,13 @@ const NOT_CALLS = new Set([
   'del', 'raise', 'with', 'as', 'except', 'else', 'def', 'class', 'import', 'from', 'async', 'case', 'match',
 ]);
 
+/** A body that does nothing: only a docstring, `...`, `pass` or `raise NotImplementedError`. */
+function isStub(lines, from, to) {
+  const text = lines.slice(from - 1, to).join('\n');
+  const body = text.replace(/^[\s\S]*?\)\s*(?:->[^:\n]*)?:/, '').replace(/("""|\'\'\')[\s\S]*?\1/g, '').replace(/#.*$/gm, '');
+  return body.split('\n').every((l) => /^\s*(?:\.\.\.|pass|raise\s+NotImplementedError\b.*)?\s*$/.test(l));
+}
+
 /**
  * Split source into logical lines (bracket continuations joined), with comments removed
  * and string contents blanked in `code` so keyword matching never sees string text.
@@ -444,7 +451,7 @@ export function lexicalAnalyze(path, text) {
       const rec = {
         name: def[2], qual, parent: top?.qual ?? null, in_class: inClass, kind, start_line: l.line, end_line: l.endLine,
         params, cyclomatic: 1, cognitive: 0, max_nesting: 0, decorators: pending, async: Boolean(def[1]),
-        returns: ret ? cleanReturn(ret[1]) : null, calls: [],
+        returns: ret ? cleanReturn(ret[1]) : null, calls: [], stub: isStub(rawLines, l.line, l.endLine),
       };
       pending = [];
       functions.push(rec);

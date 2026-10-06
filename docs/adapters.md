@@ -83,17 +83,23 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 
 `link` compares contracts with the endpoints found in code and marks `undocumented` and `unimplemented` ones. Both are medium confidence because path styles differ between frameworks.
 
-#### Typed HTTP clients
+#### HTTP operations: clients and endpoints
 
-A declarative client interface is a contract too, and the `generic` adapter (0.1.6) reads it, at medium confidence and labelled `inference`:
+One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route (in C#, as in ASP.NET, a route that starts with `/` replaces the base). The `generic` (0.1.7), `javascript` (0.1.13) and `python` (0.1.10) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
 
-| Language | Form | Not covered |
-|---|---|---|
-| C# | Refit: `[Get("/v1/orders/{id}")]`, `Post`, `Put`, `Delete`, `Patch`, `Head`, `Options` on interface methods (`[Headers]` and other attributes are ignored; a query string is dropped from the route) | Routes built at run time, `HttpClient` calls |
-| Java, Kotlin | Feign: an interface annotated `@FeignClient` with Spring mapping annotations (`@GetMapping`, `@RequestMapping(method = ...)`, class `path`) or `@RequestLine("GET /x")`; Retrofit: `@GET("x")` with the path as an argument | `@FeignClient` base paths set elsewhere, interface inheritance |
-| TypeScript, JavaScript | none: there is no common declarative form (fetch, axios and Angular `HttpClient` calls are imperative), so no client facts are produced | all |
+| Language | Verb and route markers (examples) | Base path | Client when |
+|---|---|---|---|
+| C# | `[Get("orders/{id}")]`, `[HttpGet("x")]`, any verb-named attribute; `[Route("x")]` plus a bare `[HttpGet]`. Refit and ASP.NET controllers are examples | `[Route("v1")]` on the type; `[controller]` and `[action]` expand | interface, abstract type with `;` methods |
+| Java, Kotlin | `@GET("x")`, `@GetMapping("x")`, `@RequestMapping(method = ..., path/value = ...)`, `@RequestLine("GET /x")`, `@GET` plus `@Path("x")` (endpoints only). Retrofit, Feign, Spring and JAX-RS are examples | `@RequestMapping("/v1")` or `@Path` on the type, or a `path` or `url` argument on another annotation of the type | interface, abstract type with abstract methods |
+| TypeScript, JavaScript | decorators `@Get('x')`, `@Post('x')` on class methods; router calls `app.get('/x', ...)`, `router.post(...)`, `router.route('/x').get(...)` | `@Controller('base')` (or `@Client`, `@Route`, `@Path`) on the class | decorated members without a body: abstract or ambient declarations |
+| Python | `@app.get("/x")`, `@router.post(...)` with a known router; a bare `@get("x")` on a concrete function | `APIRouter(prefix=...)`; `@client("/v1")` (or `@controller`, `@route`, `@prefix`) or a `base_path` / `prefix` class attribute | Protocol or ABC class, an `abstractmethod`, or a method whose body is only `...`, `pass`, a docstring or `raise NotImplementedError` |
+| Go | `r.Get("/x", h)`, `mux.HandleFunc("/x", h)`, `Handle("GET /x", h)`; with no verb in the call, the one method the handler checks (`r.Method != http.MethodPost`) | none | endpoints only |
 
-Each interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
+A client is implemented at run time by a generated proxy, so when a concrete type in the repository implements or extends the interface (or abstract type), it is a server-side API declaration instead: link turns its routes into endpoints served by the implementer (the implementer's own markers win) and emits no client facts for it.
+
+Not covered: routes built at run time, imperative calls (`fetch`, `HttpClient`), inheritance of a base path from a parent type, Go sub-router prefixes. The other router registrations (C# `MapGet`, Rust, Ruby, PHP) are read as endpoints only.
+
+Each client interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
 
 `unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
 

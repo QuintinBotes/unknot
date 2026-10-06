@@ -4,7 +4,7 @@
 // Regexes run on `lx.plain` (comments gone, strings intact) and are filtered through
 // `lx.code` so a match whose first character sits inside a string literal is discarded.
 
-const FIRST_STRING = /"((?:[^"\\\n]|\\.)*)"/;
+import { SYNTAX, clientPath, operations, parseArgs, typeBase } from '../http-ops.mjs';
 
 /** Normalise a route to the repository convention: leading slash, `:id` params, no trailing slash. */
 export function normPath(p) {
@@ -26,14 +26,6 @@ export function pluralize(s) {
   if (/[^aeiou]y$/.test(s)) return `${s.slice(0, -1)}ies`;
   if (/(?:s|x|z|ch|sh)$/.test(s)) return `${s}es`;
   return `${s}s`;
-}
-
-function pathArg(args) {
-  if (args == null) return '';
-  const named = /\b(?:value|path|name)\s*=\s*[[{]?\s*@?"([^"]*)"/.exec(args);
-  if (named) return named[1];
-  const first = /^\s*[[{]?\s*@?"([^"]*)"/.exec(args);
-  return first ? first[1] : '';
 }
 
 function real(lx, off) {
@@ -68,68 +60,24 @@ function bindAnnotations(lx, an, anns) {
   return anns;
 }
 
-const JAVA_ANN = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping|Path|GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Entity|Table)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
-const CS_ATTR = /\[\s*(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|Route|Table)\b(?:\s*\(((?:@?"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
-const SPRING_VERB = { GetMapping: 'GET', PostMapping: 'POST', PutMapping: 'PUT', DeleteMapping: 'DELETE', PatchMapping: 'PATCH' };
+const JAVA_ANN = /@(Entity|Table)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
+const CS_ATTR = /\[\s*(Table)\b(?:\s*\(((?:@?"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
 
 function annotated(lx, an, re) {
   return bindAnnotations(lx, an, codeMatches(lx, re).map((m) => ({ name: m[1], args: m[2], off: m.index, line: lx.lineOf(m.index), target: null })));
 }
 
-function springOrJaxrs(lx, an, endpoints) {
-  const anns = annotated(lx, an, JAVA_ANN);
-  const prefix = new Map();
-  for (const a of anns) {
-    if ((a.name === 'RequestMapping' || a.name === 'Path') && a.target?.type) prefix.set(a.target.type.name, pathArg(a.args));
-  }
-  const byFunc = new Map();
-  for (const a of anns) {
-    if (!a.target?.func) continue;
-    if (!byFunc.has(a.target.func)) byFunc.set(a.target.func, []);
-    byFunc.get(a.target.func).push(a);
-  }
-  for (const [f, list] of byFunc) {
-    const pre = prefix.get(f.owner) ?? '';
-    const pathAnn = list.find((a) => a.name === 'Path');
-    for (const a of list) {
-      let method = null;
-      let sub = '';
-      let framework = 'spring';
-      if (SPRING_VERB[a.name]) { method = SPRING_VERB[a.name]; sub = pathArg(a.args); }
-      else if (a.name === 'RequestMapping') {
-        method = /RequestMethod\.(\w+)/.exec(a.args ?? '')?.[1] ?? 'ANY';
-        sub = pathArg(a.args);
-      } else if (/^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(a.name)) {
-        method = a.name;
-        sub = pathAnn ? pathArg(pathAnn.args) : '';
-        framework = 'jaxrs';
-      }
-      if (method) endpoints.push({ method, path: joinPath(pre, sub), line: a.line, handler: f, framework });
-    }
+function minimalApis(lx, endpoints) {
+  for (const m of codeMatches(lx, /\.Map(Get|Post|Put|Delete|Patch)\(\s*"([^"\n]*)"/g)) {
+    endpoints.push({ method: m[1].toUpperCase(), path: normPath(m[2]), line: lx.lineOf(m.index), handler: null, framework: 'router' });
   }
 }
 
-function aspnet(lx, an, endpoints) {
-  const anns = annotated(lx, an, CS_ATTR);
-  const routeOf = new Map();
-  for (const a of anns) if (a.name === 'Route' && a.target?.type) routeOf.set(a.target.type.name, pathArg(a.args));
-  for (const a of anns) {
-    const f = a.target?.func;
-    if (!f || !a.name.startsWith('Http')) continue;
-    const method = a.name.slice(4).toUpperCase();
-    const own = pathArg(a.args);
-    const ctrl = (f.owner ?? '').replace(/Controller$/, '').toLowerCase();
-    const fill = (s) => s.replace(/\[controller\]/gi, ctrl).replace(/\[action\]/gi, f.name.toLowerCase());
-    const methodRoute = anns.find((b) => b.name === 'Route' && b.target?.func === f);
-    const route = own || (methodRoute ? pathArg(methodRoute.args) : '');
-    const full = route.startsWith('/') || route.startsWith('~/')
-      ? fill(route.replace(/^~/, ''))
-      : joinPath(fill(routeOf.get(f.owner) ?? ''), fill(route));
-    endpoints.push({ method, path: normPath(full), line: a.line, handler: f, framework: 'aspnet' });
-  }
-  for (const m of codeMatches(lx, /\.Map(Get|Post|Put|Delete|Patch)\(\s*"([^"\n]*)"/g)) {
-    endpoints.push({ method: m[1].toUpperCase(), path: normPath(m[2]), line: lx.lineOf(m.index), handler: null, framework: 'aspnet-minimal' });
-  }
+/** The one HTTP method a handler checks its request against (`r.Method != http.MethodPost`), if it names exactly one. */
+function handlerMethod(body) {
+  const found = new Set();
+  for (const m of String(body ?? '').matchAll(/\.Method\s*[!=]=\s*(?:http\.Method([A-Z][a-z]+)|"([A-Z]+)")/g)) found.add((m[1] ?? m[2]).toUpperCase());
+  return found.size === 1 ? [...found][0] : null;
 }
 
 function goRoutes(lx, an, endpoints) {
@@ -143,7 +91,9 @@ function goRoutes(lx, an, endpoints) {
     const withMethod = /^([A-Z]+)\s+(\/.*)$/.exec(p);
     if (withMethod) { method = withMethod[1]; p = withMethod[2]; }
     if (!p.startsWith('/') || (recv === 'http' && /^(?:Get|Post|Head)$/.test(verb))) continue;
-    endpoints.push({ method, path: normPath(p), line: lx.lineOf(m.index), handler: byName.get(handler?.split('.').pop()) ?? null, framework: 'go-http' });
+    const fn = byName.get(handler?.split('.').pop()) ?? null;
+    if (method === 'ANY' && fn) method = handlerMethod(fn.body) ?? method;
+    endpoints.push({ method, path: normPath(p), line: lx.lineOf(m.index), handler: fn, framework: 'router' });
   }
 }
 
@@ -354,76 +304,128 @@ function ormTables(lx, an, lang) {
   return out;
 }
 
-// ---- typed HTTP clients (declarative interfaces whose methods carry route attributes) ----
+// ---- attribute and annotation operations (one rule, per-language table in ../http-ops.mjs) ----
 
-const CS_CLIENT_ATTR = /\[\s*(Get|Post|Put|Delete|Patch|Head|Options)\s*\(\s*@?"([^"\n]*)"/g;
-const JVM_CLIENT_ANN = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping|RequestLine|GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
-const LEADING_MARKERS = /^(?:\s*(?:\[[^\]]*\]|@\w+(?:\s*\((?:"(?:[^"\\\n]|\\.)*"|[^()"])*\))?))*/;
+const MARKER_LANGS = new Set(['csharp', 'java', 'kotlin']);
+const TYPE_DECL = /^\s*(?:[a-z]+\s+)*?(class|interface|struct|record|object)\s+([A-Za-z_]\w*)/;
+const MEMBER_DECL = /^[^;{(]*?([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/d;
+const KOTLIN_FUN = /\bfun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)\s*\(/d;
 
-/** A client route as written: no query string, Refit's catch-all `{**rest}` as a plain parameter. */
-const clientPath = (p) => normPath(String(p).replace(/[?#].*$/, '').replace(/\{\*\*?/g, '{'));
+/** Every attribute or annotation in the file, in order: `[Name(args)]` or `@Name(args)`, args as raw text. */
+function markersOf(lx, an, lang) {
+  const out = [];
+  const take = (name, nameEnd, off) => {
+    let end = nameEnd;
+    while (lx.plain[end] === ' ' || lx.plain[end] === '\t') end++;
+    let args = null;
+    if (lx.plain[end] === '(' && an.pm[end] >= 0) {
+      args = lx.plain.slice(end + 1, an.pm[end]);
+      end = an.pm[end] + 1;
+    }
+    out.push({ name, args: parseArgs(args), off, end, line: lx.lineOf(off) });
+    return end;
+  };
+  if (lang === 'csharp') {
+    for (const m of codeMatches(lx, /\[\s*([A-Za-z_][\w.]*)/g)) {
+      let before = m.index - 1;
+      while (before >= 0 && /\s/.test(lx.plain[before])) before--;
+      if (before >= 0 && /[\w)]/.test(lx.plain[before])) continue; // an indexer, not an attribute list
+      const first = out.length;
+      let end = take(m[1], m.index + m[0].length, m.index);
+      for (;;) { // `[A, B(x)]`
+        const more = /^\s*,\s*([A-Za-z_][\w.]*)/.exec(lx.plain.slice(end, end + 200));
+        if (!more) break;
+        end = take(more[1], end + more[0].length, end + more[0].indexOf(more[1]));
+      }
+      const close = lx.plain.indexOf(']', end);
+      if (close >= 0) out[out.length - 1].end = close + 1;
+      else out.length = first;
+    }
+  } else {
+    for (const m of codeMatches(lx, /@([A-Za-z_][\w.]*)/g)) {
+      if (m[1] === 'interface') continue;
+      take(m[1], m.index + m[0].length, m.index);
+    }
+  }
+  return out;
+}
 
-/** The method name declared right after an attribute list: skip further attributes, take the name before `(`. */
-function declaredName(text) {
-  const rest = text.slice(LEADING_MARKERS.exec(text)[0].length);
-  return /^[^;{(]*?([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/.exec(rest)?.[1] ?? null;
+/** Offsets that sit inside parentheses: parameter markers and nested argument markers are not a declaration's own. */
+function nested(lx, offsets) {
+  const want = new Set(offsets);
+  const inside = new Set();
+  let depth = 0;
+  for (let i = 0; i < lx.code.length; i++) {
+    const c = lx.code[i];
+    if (c === '(') depth++;
+    else if (c === ')' && depth > 0) depth--;
+    else if (depth > 0 && want.has(i)) inside.add(i);
+  }
+  return inside;
+}
+
+/** The declaration after offset `from`: a type, or a member with its name and `(`. */
+function declarationAfter(lx, from, lang) {
+  const rest = lx.plain.slice(from, from + 700);
+  const t = TYPE_DECL.exec(rest);
+  if (t) return { type: t[2] };
+  const m = MEMBER_DECL.exec(rest) ?? (lang === 'kotlin' ? KOTLIN_FUN.exec(rest) : null);
+  if (!m) return null;
+  const nameOff = from + m.indices[1][0];
+  return { name: m[1], nameOff, open: lx.plain.indexOf('(', nameOff), head: rest.slice(0, m.indices[1][0]) };
 }
 
 /**
- * Interfaces that declare calls to an HTTP API: C# Refit (`[Get("/x")]` on interface methods),
- * Java and Kotlin Feign (`@FeignClient` interfaces with Spring mapping annotations or
- * `@RequestLine("GET /x")`) and Retrofit (`@GET("x")` with the path as an argument, which
- * tells it from JAX-RS where the path sits in `@Path`). Only the interface body is read, so a
- * controller never appears here. `[Headers]` and other attributes carry no route and are skipped.
+ * Endpoints and clients declared by attributes and annotations. A run of markers right before a
+ * type gives it a base path; a run before a method makes the method an operation. In an
+ * interface, an abstract type or on a method without a body the operation is a client's;
+ * anywhere else it is an endpoint of the handler that follows.
  */
-function httpClients(lx, an, lang) {
-  const out = [];
-  if (lang !== 'csharp' && lang !== 'java' && lang !== 'kotlin') return out;
-  for (const t of an.types) {
-    if (t.kind !== 'interface' || !t.hasBody) continue;
-    const open = lx.plain.indexOf('{', t.nameOff);
-    if (open < 0 || open > t.end) continue;
-    const body = lx.plain.slice(open, t.end + 1);
-    const at = (i) => open + i;
-    const ops = [];
-    let framework = null;
-    let prefix = '';
-    if (lang === 'csharp') {
-      framework = 'refit';
-      for (const m of body.matchAll(CS_CLIENT_ATTR)) {
-        if (!real(lx, at(m.index))) continue;
-        const name = declaredName(body.slice(m.index + m[0].length).replace(/^[^\]]*\]/, ''));
-        ops.push({ method: m[1].toUpperCase(), path: clientPath(m[2]), name, line: lx.lineOf(at(m.index)) });
-      }
-    } else {
-      // Only the annotations and modifiers right before the declaration belong to it.
-      const before = lx.code.slice(Math.max(0, t.start - 400), t.start);
-      const head = lx.plain.slice(t.start - (before.length - Math.max(before.lastIndexOf(';'), before.lastIndexOf('{'), before.lastIndexOf('}')) - 1), t.start);
-      const feign = /@FeignClient\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/.exec(head);
-      const retrofit = [...body.matchAll(JVM_CLIENT_ANN)].some((m) => /^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(m[1]) && /^\s*"/.test(m[2] ?? ''));
-      if (!feign && !retrofit) continue;
-      framework = feign ? 'feign' : 'retrofit';
-      if (feign) prefix = /\bpath\s*=\s*"([^"]*)"/.exec(feign[1] ?? '')?.[1] ?? '';
-      for (const m of body.matchAll(JVM_CLIENT_ANN)) {
-        if (!real(lx, at(m.index))) continue;
-        let method = null;
-        let sub = '';
-        if (SPRING_VERB[m[1]]) { if (!feign) continue; method = SPRING_VERB[m[1]]; sub = pathArg(m[2]); }
-        else if (m[1] === 'RequestMapping') { if (!feign) continue; method = /RequestMethod\.(\w+)/.exec(m[2] ?? '')?.[1] ?? 'ANY'; sub = pathArg(m[2]); }
-        else if (m[1] === 'RequestLine') {
-          const rl = /^\s*"([A-Z]+)\s+([^"\s]*)/.exec(m[2] ?? '');
-          if (!rl) continue;
-          method = rl[1]; sub = rl[2];
-        } else if (!feign && /^\s*"/.test(m[2] ?? '')) { method = m[1]; sub = pathArg(m[2]); }
-        else continue;
-        const after = body.slice(m.index + m[0].length);
-        const name = declaredName(after) ?? (lang === 'kotlin' ? /\bfun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)/.exec(after.split(';')[0])?.[1] : null);
-        ops.push({ method, path: clientPath(joinPath(prefix, sub)), name: name ?? null, line: lx.lineOf(at(m.index)) });
-      }
-    }
-    if (ops.length) out.push({ type: t, framework, ops });
+function markedOperations(lx, an, lang, endpoints, clients) {
+  if (!MARKER_LANGS.has(lang)) return;
+  const kind = SYNTAX[lang].kind;
+  const all = markersOf(lx, an, lang);
+  const skip = nested(lx, all.map((m) => m.off));
+  const runs = [];
+  for (const m of all) {
+    if (skip.has(m.off)) continue;
+    const last = runs[runs.length - 1];
+    const prev = last?.[last.length - 1];
+    if (prev && m.off >= prev.end && /^\s*$/.test(lx.plain.slice(prev.end, m.off))) last.push(m);
+    else runs.push([m]);
   }
-  return out;
+  const typeRuns = new Map();
+  const methodRuns = [];
+  for (const run of runs) {
+    const from = run[run.length - 1].end;
+    const decl = declarationAfter(lx, from, lang);
+    if (!decl) continue;
+    if (decl.type) {
+      const t = an.types.find((x) => x.name === decl.type && x.nameOff >= from && x.nameOff - from < 400);
+      if (t) typeRuns.set(t, run);
+    } else methodRuns.push({ run, decl });
+  }
+  const byType = new Map();
+  for (const { run, decl } of methodRuns) {
+    const t = typeAt(an, run[0].off);
+    if (!t) continue;
+    const abstract = /\babstract\b/.test(lx.code.slice(lx.lineStartOf(t.start), t.start));
+    const afterParams = lx.plain.slice(an.pm[decl.open] + 1, an.pm[decl.open] + 600);
+    const bodiless = /^[^;{=]*;/.test(afterParams) || /\babstract\b/.test(decl.head);
+    const client = t.kind === 'interface' || (abstract && bodiless);
+    const names = { controller: t.name.replace(/Controller$/, '').toLowerCase(), action: decl.name.toLowerCase() };
+    const ops = operations(lang, run, { base: typeBase(lang, typeRuns.get(t) ?? []), client, norm: normPath, names });
+    if (!ops.length) continue;
+    const line = run[0].line;
+    if (client) {
+      if (!byType.has(t)) byType.set(t, []);
+      for (const o of ops) byType.get(t).push({ ...o, path: clientPath(o.path, normPath), name: decl.name, line });
+    } else {
+      const handler = an.funcs.find((f) => f.nameOff === decl.nameOff) ?? null;
+      for (const o of ops) endpoints.push({ method: o.method, path: o.path, line, handler, framework: kind });
+    }
+  }
+  for (const [t, ops] of byType) clients.push({ type: t, framework: kind, ops });
 }
 
 /**
@@ -432,8 +434,9 @@ function httpClients(lx, an, lang) {
  */
 export function frameworkInfo(lx, an, lang, path) {
   const endpoints = [];
-  if (lang === 'java' || lang === 'kotlin') springOrJaxrs(lx, an, endpoints);
-  else if (lang === 'csharp') aspnet(lx, an, endpoints);
+  const clients = [];
+  markedOperations(lx, an, lang, endpoints, clients);
+  if (lang === 'csharp') minimalApis(lx, endpoints);
   else if (lang === 'go') goRoutes(lx, an, endpoints);
   else if (lang === 'rust') rustRoutes(lx, an, endpoints);
   else if (lang === 'php') laravelRoutes(lx, endpoints);
@@ -441,5 +444,5 @@ export function frameworkInfo(lx, an, lang, path) {
     if (/(?:^|\/)config\/routes\.rb$/.test(path)) railsRoutes(lx, endpoints);
     else sinatraRoutes(lx, endpoints);
   }
-  return { endpoints, clients: httpClients(lx, an, lang), tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang) };
+  return { endpoints, clients, tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang) };
 }
