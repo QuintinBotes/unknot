@@ -12,6 +12,8 @@ import { manifestFacts, manifestKind } from './manifests.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./extract.py', import.meta.url));
 const EXEC_TIMEOUT_MS = 60_000;
+const PART_FILES = 500;
+const PART_BYTES = 8 * 1024 * 1024;
 
 const isPython = (path) => path.endsWith('.py');
 
@@ -22,26 +24,67 @@ function lexicalFacts(path, text) {
   return facts;
 }
 
-/** Run extract.py once for a batch; returns Map<path, record>, empty when python3 is not usable. */
+/**
+ * Run extract.py over a batch, in parts small enough that a slow machine times out one part,
+ * not the batch. A part that times out is retried once with twice the time; a part that still
+ * fails is read lexically, and the map says how many files that was.
+ * @returns {Promise<Map<string, object>>} empty when python3 is not usable
+ */
 async function runPython(items, ctx) {
   const records = new Map();
   if (typeof ctx?.exec !== 'function' || !items.length) return records;
+  const parts = [];
+  let part = [];
+  let bytes = 0;
+  for (const it of items) {
+    if (part.length && (part.length >= PART_FILES || bytes + it.text.length > PART_BYTES)) {
+      parts.push(part);
+      part = [];
+      bytes = 0;
+    }
+    part.push(it);
+    bytes += it.text.length;
+  }
+  if (part.length) parts.push(part);
+  let lost = 0;
+  let reason = null;
+  for (const p of parts) {
+    let res = await runPart(p, ctx, EXEC_TIMEOUT_MS);
+    if (res.timedOut) res = await runPart(p, ctx, EXEC_TIMEOUT_MS * 2);
+    if (res.unavailable) {
+      // python3 missing or refused: every part would fail the same way.
+      ctx.notes?.push(`python AST extractor unavailable (${res.reason}); Python files were read lexically, with lower confidence`);
+      return records;
+    }
+    if (res.reason) {
+      lost += p.length;
+      reason ??= res.reason;
+      continue;
+    }
+    for (const [k, v] of res.records) records.set(k, v);
+  }
+  if (lost) ctx.notes?.push(`python AST extractor failed for ${lost} of ${items.length} Python files (${reason}); those were read lexically, with lower confidence`);
+  return records;
+}
+
+async function runPart(items, ctx, timeoutMs) {
   let res;
   try {
     res = await ctx.exec(['python3', '-I', '-S', SCRIPT], {
       input: JSON.stringify(items.map(({ file, text }) => ({ path: file.path, text }))),
-      timeoutMs: EXEC_TIMEOUT_MS,
+      timeoutMs,
     });
   } catch (err) {
     // UK_ADAPTER_UNSUPPORTED, timeout or spawn failure: the lexical reader covers it, and the
     // map says so (a silent fallback hid degraded analysis in live sessions).
-    ctx.notes?.push(`python AST extractor unavailable (${String(err?.message ?? err).slice(0, 200)}); Python files were read lexically, with lower confidence`);
-    return records;
+    const reason = String(err?.message ?? err).slice(0, 200);
+    return { unavailable: true, reason };
   }
   if (!res || res.exitCode !== 0) {
-    ctx.notes?.push(`python AST extractor exited ${res?.exitCode ?? '?'}: ${String(res?.stderr ?? '').trim().split('\n').slice(-3).join(' | ').slice(0, 300)}; Python files were read lexically, with lower confidence`);
-    return records;
+    const reason = `exited ${res?.exitCode ?? '?'}: ${String(res?.stderr ?? '').trim().split('\n').slice(-3).join(' | ').slice(0, 300)}`;
+    return res?.record?.timed_out ? { timedOut: true, reason: `timed out after ${timeoutMs / 1000} s` } : { reason };
   }
+  const records = new Map();
   for (const line of String(res.stdout).split('\n')) {
     if (!line.trim()) continue;
     try {
@@ -51,12 +94,12 @@ async function runPython(items, ctx) {
       // A malformed line loses that file to the fallback; it must not sink the batch.
     }
   }
-  return records;
+  return { records };
 }
 
 export default {
   id: 'python',
-  version: '0.1.8',
+  version: '0.1.9',
   kind: 'language',
   capabilities: {
     files: ['**/*.py', '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'],
