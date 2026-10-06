@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- `decompose` carries a driver's source and quote along the whole `supersedes` chain, to the nearest record that has them (`carried_from` names it), instead of only from the record directly replaced; `driver_provenance_missing` lists every driver whose saved provenance has neither a source nor a quote, in text and JSON, and is empty only when every driver has some (#47).
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

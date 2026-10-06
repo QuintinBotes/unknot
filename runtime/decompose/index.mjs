@@ -98,10 +98,28 @@ function provenanceFor(config, cliDrivers, allDrivers, given) {
   return allDrivers.map((driver) => ({ driver, source: byId.get(driver)?.source ?? null, quote: byId.get(driver)?.quote ?? null }));
 }
 
+const CHAIN_DEPTH = 50;
+
 /**
- * A driver with neither a source nor a quote takes both from the first earlier record that
- * has them for the same driver id, and says which (`carried_from`). A record rewriting
- * itself keeps what it had, with the note it already carried, if any.
+ * The records a record at `start` replaced, newest first: `start` itself, then the record it
+ * supersedes, and so on. A loop in the links, or a chain past the depth cap, ends the walk.
+ */
+function supersedesChain(records, start) {
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const out = [];
+  const seen = new Set();
+  for (let at = start; at && !seen.has(at.id) && out.length < CHAIN_DEPTH; at = byId.get(at.supersedes)) {
+    seen.add(at.id);
+    out.push(at);
+  }
+  return out;
+}
+
+/**
+ * A driver with neither a source nor a quote takes both from the nearest earlier record in
+ * the chain (newest first) that has them for the same driver id, and says which
+ * (`carried_from`). A record rewriting itself keeps what it had, with the note it already
+ * carried, if any.
  */
 function carryProvenance(base, earlier, self) {
   return base.map((p) => {
@@ -181,7 +199,10 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules, self: existing }, claimed);
     if (pred) claimed.add(pred.id);
     // The drivers' words survive a rerun: what this boundary's earlier record held for the same driver is carried forward.
-    const recProvenance = provenance.length ? carryProvenance(provenance, [prior.find((r) => r.id === existing), pred && prior.find((r) => r.id === pred.id)].filter(Boolean), existing) : [];
+    // The chain is walked to the nearest record that has them, not only the one directly replaced.
+    const own = prior.find((r) => r.id === existing);
+    const chain = [...(own ? [own] : []), ...supersedesChain(prior, prior.find((r) => r.id === (pred?.id ?? own?.supersedes)))].filter((r, i, a) => a.findIndex((x) => x.id === r.id) === i);
+    const recProvenance = provenance.length ? carryProvenance(provenance, chain, existing) : [];
     const card0 = card(sel.card);
     const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
     const rec = {
@@ -247,8 +268,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     }
   }
   // Drivers whose words are recorded nowhere: not given, not in the configuration, not carried from an earlier record.
-  const withWords = new Set(recommendations.flatMap((r) => (r.driver_provenance ?? []).filter((p) => p.source || p.quote).map((p) => p.driver)));
-  const unrecorded = recommendations.length ? allDrivers.filter((id) => !withWords.has(id)) : allDrivers.filter((id) => !provenance.some((p) => p.driver === id && (p.source || p.quote)));
+  // Every driver whose saved provenance has neither: empty only when each record holds words for each driver.
+  const hasWords = (list, id) => (list ?? []).some((p) => p.driver === id && (p.source || p.quote));
+  const unrecorded = allDrivers.filter((id) => (recommendations.length ? recommendations.some((r) => !hasWords(r.driver_provenance, id)) : !hasWords(provenance, id)));
   const summary = { targets, drivers: allDrivers, driver_provenance_missing: unrecorded, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
   if (!dryRun) appendEvent(ctx, { type: 'decomposition.recommended', run_id: run?.id, actor: 'runtime:decompose', payload: summary });
   return { ...summary, details: recommendations };
