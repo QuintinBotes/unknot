@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { UnknotError } from '../../core/errors.mjs';
 import { validateArtifact } from '../../core/schema.mjs';
-import { parseYAML } from '../../core/yaml.mjs';
+import { parseYAML, stringifyYAML } from '../../core/yaml.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { recordAcceptedConfig } from '../../policy/config.mjs';
+import { clearSources, diffConfig, readSources, renderDiff, withoutGuidance } from '../../policy/config-diff.mjs';
 import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
@@ -20,18 +21,39 @@ export async function run({ positional, flags }) {
     const proposed = parseYAML(proposedText);
     const v = validateArtifact('config', proposed);
     if (!v.valid) throw new UnknotError('UK_CONFIG_INVALID', `proposed config is invalid: ${v.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
-    const current = existsSync(ctx.paths.config) ? readFileSync(ctx.paths.config, 'utf8') : '(no config: built-in defaults)';
-    if (sub === 'diff') return output(`--- current\n${current}\n+++ proposed\n${proposedText}`);
+    const currentExists = existsSync(ctx.paths.config);
+    const currentConfig = currentExists ? parseYAML(readFileSync(ctx.paths.config, 'utf8')) ?? {} : {};
+    const sources = fromProposal ? readSources(ctx.paths, proposedText) : null;
+    if (sub === 'diff') return output(renderDiff(diffConfig(currentConfig, proposed, sources ?? (fromProposal ? null : { entries: {}, omitted: [] })), { currentExists }), { json: false });
+    // `--detected-only` leaves out the lines inferred from repository guidance; the rest of the
+    // accept path (human terminal, typed mode) is unchanged.
+    let text = proposedText;
+    let accepting = proposed;
+    let dropped = [];
+    if (flags.detected_only) {
+      if (!sources) throw new UnknotError('UK_CONFIG_INVALID', '--detected-only needs the source record `unknot init` wrote with this proposal; run unknot config diff to see what is known, or accept without the flag');
+      ({ proposed: accepting, dropped } = withoutGuidance(currentConfig, proposed, sources));
+      if (dropped.length) text = stringifyYAML(accepting);
+      const v2 = validateArtifact('config', accepting);
+      if (!v2.valid) throw new UnknotError('UK_CONFIG_INVALID', `config without guidance lines is invalid: ${v2.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
+    }
     // Accepting config can raise the mode; the spec forbids inferring that from language,
     // so it takes a person at a terminal who types the mode back.
     requireHumanTTY('accepting configuration');
-    output(`Proposed mode: ${proposed.mode ?? 'plan'}\n${proposedText}`);
-    const typed = prompt(`Type the mode (${proposed.mode ?? 'plan'}) to accept: `);
-    if (typed.trim() !== (proposed.mode ?? 'plan')) throw new UnknotError('UK_POLICY_DENIED', 'confirmation did not match; nothing changed');
-    if (fromProposal) renameSync(ctx.paths.proposedConfig, ctx.paths.config);
-    const accepted = recordAcceptedConfig(ctx, proposedText, actor);
-    appendEvent(ctx, { type: 'config.accepted', actor, payload: { mode: proposed.mode ?? 'plan', digest: accepted } });
+    output(`Proposed mode: ${accepting.mode ?? 'plan'}\n${dropped.length ? `(without ${dropped.length} line(s) inferred from guidance: ${dropped.map((d) => `${d.key} [${d.label}]`).join('; ')})\n` : ''}${text}`);
+    const typed = prompt(`Type the mode (${accepting.mode ?? 'plan'}) to accept: `);
+    if (typed.trim() !== (accepting.mode ?? 'plan')) throw new UnknotError('UK_POLICY_DENIED', 'confirmation did not match; nothing changed');
+    if (fromProposal) {
+      if (text === proposedText) renameSync(ctx.paths.proposedConfig, ctx.paths.config);
+      else {
+        writeFileSync(ctx.paths.config, text);
+        rmSync(ctx.paths.proposedConfig);
+      }
+      clearSources(ctx.paths);
+    }
+    const accepted = recordAcceptedConfig(ctx, text, actor);
+    appendEvent(ctx, { type: 'config.accepted', actor, payload: { mode: accepting.mode ?? 'plan', digest: accepted, ...(flags.detected_only && { detected_only: true, dropped: dropped.map((d) => d.key) }) } });
     return output('accepted .unknot/config.yaml');
   }
-  throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot config show|diff|accept');
+  throw new UnknotError('UK_CONFIG_INVALID', 'usage: unknot config show|diff|accept [--detected-only]');
 }

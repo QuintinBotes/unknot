@@ -89,7 +89,7 @@ Detects build, test and lint commands from `package.json`, Python, Go, Cargo, Ma
 
 - `show`: effective configuration, digest, acceptance state, notice, sources, org policy bundles and adjustments. Always JSON.
 - `diff`: prints the current file and the proposal (or, with no proposal, the current file) for review.
-- `accept` (human): prints the proposal, asks you to type its mode, then moves `config.proposed.yaml` to `config.yaml` and records its digest and text as accepted. Run it again after any hand edit of `config.yaml`; until then only tightening edits apply. See [configuration.md](configuration.md).
+- `accept` (human): prints the proposal, asks you to type its mode, then moves `config.proposed.yaml` to `config.yaml` and records its digest and text as accepted. `--detected-only` leaves out the lines inferred from repository guidance. `diff` labels every changed line with its source (`detected: <file>:<line>`, `guidance: <file>:<line> "<sentence>"`, `default`). Run it again after any hand edit of `config.yaml`; until then only tightening edits apply. See [configuration.md](configuration.md).
 
 ### `unknot keys generate <name>` (human)
 

@@ -7,6 +7,7 @@ import { delimiter, join } from 'node:path';
 import { matchAny } from '../../core/glob.mjs';
 import { commandMatches, loadGuidance } from '../../core/guidance.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
+import { itemKey, writeSources } from '../../policy/config-diff.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { humanCommand, output } from '../util.mjs';
@@ -119,14 +120,42 @@ const MANIFEST_RE = /(^|\/)(package\.json|pyproject\.toml|setup\.py|requirements
 function detectDotnet(root, files, commands, notes) {
   const sols = files.filter((f) => /\.slnx?$/i.test(f) && depthOf(f) <= 3).sort((a, b) => depthOf(a) - depthOf(b) || a.localeCompare(b));
   const target = sols[0] ?? files.find((f) => !f.includes('/') && /\.(cs|fs)proj$/i.test(f));
-  if (!target) return false;
+  if (!target) return null;
   commands.build ??= ['dotnet', 'build', target];
   commands.test_unit ??= ['dotnet', 'test', target];
   notes.push(`dotnet: ${sols.length ? 'solution' : 'project'} ${target}${sols.length > 1 ? `; other solutions not used: ${sols.slice(1).join(', ')}` : ''}`);
   if (!onPath('dotnet')) notes.push('dotnet is not on PATH: install the .NET SDK before baseline checks run, or every check will fail');
   const sdk = readJSON(join(root, 'global.json'))?.sdk?.version;
   if (sdk) notes.push(`global.json pins .NET SDK ${sdk}`);
-  return true;
+  return target;
+}
+
+/** The 1-based line of the first match of `re` in a root-relative file, else 1. */
+function lineOf(root, file, re) {
+  const i = readText(join(root, file)).split('\n').findIndex((l) => re.test(l));
+  return i < 0 ? 1 : i + 1;
+}
+
+/** The build file and line a detected command came from, as { file, line }. */
+function commandSource(root, argv, pkg) {
+  const first = (...names) => names.find((n) => existsSync(join(root, n))) ?? names[0];
+  const last = argv.at(-1);
+  if (pkg) {
+    if (pkg.scripts?.[last]) return { file: 'package.json', line: lineOf(root, 'package.json', new RegExp(`^\\s*"${last.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`)) };
+    if (argv.includes('eslint')) return { file: 'package.json', line: lineOf(root, 'package.json', /"eslint"/) };
+    if (argv.includes('tsc')) return { file: 'package.json', line: lineOf(root, 'package.json', /"typescript"/) };
+  }
+  const exe = argv[0];
+  if (exe === 'make') return { file: 'Makefile', line: lineOf(root, 'Makefile', new RegExp(`^${last}:`)) };
+  if (exe === 'dotnet') return { file: argv[2], line: 1 };
+  if (exe === 'go') return { file: 'go.mod', line: 1 };
+  if (exe === 'cargo') return { file: 'Cargo.toml', line: 1 };
+  if (exe === 'mvn') return { file: 'pom.xml', line: 1 };
+  if (exe === 'gradle' || exe === './gradlew') return { file: first('build.gradle', 'build.gradle.kts'), line: 1 };
+  if (exe === 'ruff') return { file: 'pyproject.toml', line: lineOf(root, 'pyproject.toml', /\[tool\.ruff/) };
+  if (exe === 'mypy') return { file: 'pyproject.toml', line: lineOf(root, 'pyproject.toml', /\[tool\.mypy/) };
+  const py = first('pyproject.toml', 'setup.py', 'requirements.txt', 'pytest.ini', 'tox.ini');
+  return { file: py, line: 1 };
 }
 
 /** Detect commands without running anything. Every entry says where it came from. */
@@ -195,10 +224,18 @@ export function detect(root) {
   }
   const dotnet = detectDotnet(root, files, commands, notes);
   const protectedPaths = [...DEFAULT_CONFIG.protected_paths];
+  // Where each non-template line came from: commands by name, protected paths by glob.
+  const sources = { commands: {}, protected: {}, omitted: [] };
+  for (const [name, argv] of Object.entries(commands)) sources.commands[name] = { source: 'detected', ...commandSource(root, argv, pkg) };
   const evidence = structuredClone(DEFAULT_CONFIG.evidence);
   const top = readdirSync(root);
   if (top.includes('terraform') || top.includes('infra')) protectedPaths.push('**/*.tfstate*');
-  if (dotnet) protectedPaths.push('**/Directory.Build.props', '**/Directory.Build.targets', '**/Directory.Packages.props', 'global.json', '**/NuGet.config', '**/nuget.config');
+  if (dotnet) {
+    for (const g of ['**/Directory.Build.props', '**/Directory.Build.targets', '**/Directory.Packages.props', 'global.json', '**/NuGet.config', '**/nuget.config']) {
+      protectedPaths.push(g);
+      sources.protected[g] = { source: 'detected', file: dotnet, line: 1 };
+    }
+  }
   // One note per proposed path, however many pipeline directories it covers.
   const pipelineGlobs = new Map();
   for (const [dir, fs] of azurePipelineDirs(root, files)) {
@@ -209,6 +246,7 @@ export function detect(root) {
     const key = globs.join(', ');
     pipelineGlobs.set(key, [...(pipelineGlobs.get(key) ?? []), ...fs]);
     protectedPaths.push(...globs);
+    for (const g of globs) sources.protected[g] ??= { source: 'detected', file: fs[0], line: 1 };
   }
   for (const [key, fs] of pipelineGlobs) notes.push(`protected ${key}: Azure DevOps pipeline definitions (${fs.length} file${fs.length === 1 ? '' : 's'}: ${fs.slice(0, 3).join(', ')}${fs.length > 3 ? ', ...' : ''})`);
   if (!Object.keys(commands).length) {
@@ -221,6 +259,8 @@ export function detect(root) {
     const rule = guidance.forbidden.find((f) => commandMatches(argv, f));
     if (!rule) continue;
     delete commands[name];
+    delete sources.commands[name];
+    sources.omitted.push({ key: `commands.${name}`, argv, source: 'guidance', file: rule.file, line: rule.line, sentence: rule.sentence });
     notes.push(`${name} not proposed: ${rule.file} (${rule.heading}) says "${rule.sentence}"`);
     if (rule.prefix === 'dotnet test') {
       const projects = files.filter((f) => /(^|\/)[^/]*(UnitTests|\.Tests|Tests)\.(cs|fs)proj$/i.test(f)).slice(0, 6);
@@ -231,6 +271,7 @@ export function detect(root) {
   for (const r of guidance.paths) {
     if (matchAny(r.glob, protectedPaths) || protectedPaths.includes(r.glob)) continue;
     protectedPaths.push(r.glob);
+    sources.protected[r.glob] = { source: 'guidance', file: r.file, line: r.line, sentence: r.sentence };
     notes.push(`protected ${r.glob}: ${r.file}:${r.line} says "${r.sentence}"`);
   }
   for (const f of guidance.flagged) {
@@ -243,7 +284,7 @@ export function detect(root) {
     const same = known.find(([, c]) => c === cmd);
     notes.push(`${file} (${heading}) mentions: ${cmd}${same ? `, which confirms ${same[0]}` : ' (a hint; not proposed as a command)'}`);
   }
-  return { commands, notes, protectedPaths, evidence };
+  return { commands, notes, protectedPaths, evidence, sources };
 }
 
 export async function run({ flags }) {
@@ -280,7 +321,12 @@ export async function run({ flags }) {
   }
   const nothingNew = update && !Object.keys(update.added_commands).length && !update.added_protected_paths.length;
   if (!nothingNew) {
-    writeFileSync(ctx.paths.proposedConfig, stringifyYAML(proposed));
+    const proposedText = stringifyYAML(proposed);
+    writeFileSync(ctx.paths.proposedConfig, proposedText);
+    const entries = {};
+    for (const k of Object.keys(proposed.commands ?? {})) if (d.sources.commands[k]) entries[`commands.${k}`] = d.sources.commands[k];
+    for (const g of proposed.protected_paths ?? []) if (d.sources.protected[g]) entries[itemKey('protected_paths', g)] = d.sources.protected[g];
+    writeSources(ctx.paths, proposedText, { entries, omitted: d.sources.omitted.filter((o) => !proposed.commands?.[o.key.slice('commands.'.length)]) });
     appendEvent(ctx, { type: 'config.proposed', actor, payload: { commands: Object.keys(d.commands), ...(update && { added_commands: Object.keys(update.added_commands), added_protected_paths: update.added_protected_paths }) } });
   }
   // .unknot/ itself is ignored only when someone excluded it; its own .gitignore covers local state.

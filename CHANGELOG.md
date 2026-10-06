@@ -9,6 +9,7 @@ All notable changes are documented here. The format follows
 ### Added
 
 - `unknot status` (text and `--json`) and the MCP `status` tool print one block headed "For you, in your own terminal:" with every pending human step as a ready-to-paste command, in order: install the CLI (only when `unknot` does not resolve on a login shell's PATH; a failed or timed-out check counts as unknown, not missing), review and accept a waiting configuration, register an approver key, approve each slice awaiting approval with its role and name, end the active run by id. The human-only refusal and the skills point to this block (#33).
+- `unknot config diff` labels every changed line with its source: `detected: <file>:<line>` for commands found in build files, `guidance: <file>:<line> "<sentence>"` for rules inferred from repository guidance, `default` for template values. Guidance-derived lines (including a command guidance kept out of the proposal) are grouped and marked as needing a person's judgement. `unknot config accept --detected-only` accepts the proposal without them; it stays human-only and uses the same accept path. `init` records the sources in `.unknot/state/config.proposed.sources.json`; the proposal and the accepted config format are unchanged (#34).
 
 ## [0.2.2] - 2026-10-06
 

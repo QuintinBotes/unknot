@@ -44,6 +44,8 @@ export function projectPaths(root) {
     base,
     config: join(base, 'config.yaml'),
     proposedConfig: join(base, 'config.proposed.yaml'),
+    // Where each proposed line came from; local state, ignored and protected like the rest of state/.
+    proposedSources: join(base, 'state', 'config.proposed.sources.json'),
     decisions: join(base, 'decisions.jsonl'),
     campaigns: join(base, 'campaigns'),
     slices: join(base, 'slices'),
