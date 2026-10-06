@@ -7,7 +7,6 @@
 
 const TEST_PATH = /(^|\/)(tests?|__tests__|spec|specs|e2e|fixtures?)\/|\.(test|spec)\.[a-z]+$/i;
 const AUTH_PACKAGE = /(^|\/)(auth|authn|authz|authorization|authentication|security|iam|permissions?|policy|policies|rbac|acl)(\/|\.|$)/i;
-const AUTHZ_NAME = /authori[sz]e|checkPermission|check_permission|hasRole|has_role|canAccess|can_access|isAdmin|is_admin/i;
 
 const COMMAND = new Set(['exec-nonliteral', 'spawn-shell', 'shell_true', 'os_system', 'os_popen']);
 const INJECTION = new Set(['eval', 'exec', 'new-function', 'vm-run', 'inner-html', 'dangerously-set-inner-html', 'document-write', 'sql-interpolation', 'sql_injection']);
@@ -350,24 +349,30 @@ const duplicatedAuthorization = {
   category: 'security',
   kinds: ['security.duplicated-authorization'],
   detect({ graph: g }) {
-    const byModule = new Map();
-    for (const f of [...g.nodes('function'), ...g.nodes('method')]) {
-      if (!f.path || isTest(f) || AUTH_PACKAGE.test(f.path)) continue;
-      const name = String(f.name).split(/[#.]/).pop();
-      if (!AUTHZ_NAME.test(name)) continue;
-      if (!byModule.has(f.path)) byModule.set(f.path, []);
-      byModule.get(f.path).push(f);
+    // Structural evidence only: the same role, permission or policy check (same callee, same
+    // quoted requirement) applied in several modules. A shared function name proves nothing.
+    const byShape = new Map();
+    for (const f of g.nodes('file')) {
+      if (!f.path || isTest(f) || AUTH_PACKAGE.test(f.path) || !Array.isArray(f.attrs.authz_checks)) continue;
+      for (const c of f.attrs.authz_checks) {
+        if (!byShape.has(c.shape)) byShape.set(c.shape, new Map());
+        if (!byShape.get(c.shape).has(f.path)) byShape.get(c.shape).set(f.path, { f, line: c.line });
+      }
     }
-    if (byModule.size < 3) return [];
-    const paths = [...byModule.keys()].sort();
+    const shapes = [...byShape].filter(([, m]) => m.size >= 3).sort((x, y) => y[1].size - x[1].size || (x[0] < y[0] ? -1 : 1));
+    if (!shapes.length) return [];
+    const paths = sortedUniq(shapes.flatMap(([, m]) => [...m.keys()]));
     return [draft({
       kind: 'security.duplicated-authorization',
-      title: `Authorization checks are re-implemented in ${paths.length} modules outside an auth package`,
+      title: `The same authorization check is re-implemented in ${paths.length} modules outside an auth package`,
       scope: paths,
       key: 'authorization-functions',
-      evidence: paths.slice(0, 10).map((p) => ({ ref: byModule.get(p)[0].id, label: 'inferred', summary: `Defines ${byModule.get(p).map((f) => String(f.name).split(/[#.]/).pop()).join(', ')}`, source_ref: p })),
+      evidence: shapes.slice(0, 10).map(([shape, m]) => {
+        const first = [...m.values()].sort((x, y) => (x.f.path < y.f.path ? -1 : 1))[0];
+        return { ref: first.f.id, label: 'inferred', summary: `${shape} appears in ${m.size} modules`, source_ref: `${first.f.path}:${first.line}` };
+      }),
       measurements: { 'duplication.instances': paths.length },
-      thresholds: { min_modules: 3, name_based_inference: true },
+      thresholds: { min_modules: 3, structural_match: 'same callee and quoted requirement' },
       why_accidental: 'Scattered permission checks diverge, so one gets fixed or tightened and the others do not.',
       essential_considerations: ['Resource-specific checks (ownership of a record) legitimately live beside the data'],
       smallest_simplification: 'Introduce one shared authorization module, move the checks behind it one call site at a time, and keep every existing check active until its replacement is tested.',
@@ -375,8 +380,8 @@ const duplicatedAuthorization = {
       risks: ['Subtle differences between copies are lost if merged carelessly'],
       verification: ['A table-driven authorization test passes before and after for every call site'],
       blast_radius: 'moderate',
-      factors: { benefit: 3, evidence: 0.3, reversibility: 0.8, blast: 3, cost: 3, uncertainty: 4 },
-      uncertainties: ['Low confidence: judged only from function names', 'Function bodies are not compared'],
+      factors: { benefit: 3, evidence: 0.5, reversibility: 0.8, blast: 3, cost: 3, uncertainty: 3 },
+      uncertainties: ['Matched by call shape, not by data flow: the surrounding logic is not compared', 'Resource-specific checks may legitimately repeat the same permission'],
       alternatives: [{ id: 'retain', summary: 'Keep local checks and add tests that pin their behaviour.' }, { id: 'central-policy', summary: 'Consolidate behind a shared policy module.' }],
       patterns: ['infrastructure.policy-as-code'],
     })];

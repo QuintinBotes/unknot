@@ -127,6 +127,18 @@ test('rankHubs ranks modules by distinct importers and imports', async () => {
   assert.deepEqual(h.fan_out[0], { id: 'module:a', n: 2 });
 });
 
+test('rankHubs: package-level imports are not fan-in of a file but still count as its fan-out', async () => {
+  const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const g = new Graph();
+  for (const id of ['a', 'b', 'u']) g.addNode(`module:${id}`, 'module', { name: id });
+  g.addEdge('IMPORTS', 'module:a', 'module:u', { package_level: true });
+  g.addEdge('IMPORTS', 'module:b', 'module:u');
+  const h = rankHubs(g);
+  assert.deepEqual(h.fan_in, [{ id: 'module:u', n: 1 }]);
+  assert.equal(h.fan_out.find((x) => x.id === 'module:a').n, 1);
+});
+
 test('rankHubs: several edge types are a union, a node filter ranks accepted nodes, within counts only accepted neighbours', async () => {
   const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
   const { Graph } = await import('../../../runtime/graph/graph.mjs');

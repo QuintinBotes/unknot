@@ -339,7 +339,7 @@ function link(ctx) {
     return (lib.length ? lib : hits).slice(0, 1);
   };
 
-  /** @returns {{ paths: string[], via?: string, low?: boolean, external?: string|null }} */
+  /** @returns {{ paths: string[], via?: string, low?: boolean, external?: string|null, package_level?: boolean }} package_level: the import names a whole package, so every file in it is a target */
   const resolve = (path, a, imp) => {
     const lang = a.language;
     const spec = imp.spec;
@@ -349,13 +349,13 @@ function link(ctx) {
         const gm = gomods.find((g) => spec === g.attrs.go_module || spec.startsWith(`${g.attrs.go_module}/`));
         if (gm) {
           const sub = spec.slice(gm.attrs.go_module.length + 1);
-          return { paths: dirGo.get(resolvePath(gm.attrs.dir, sub)) ?? [] };
+          return { paths: dirGo.get(resolvePath(gm.attrs.dir, sub)) ?? [], package_level: true };
         }
         const segs = spec.split('/');
         return { paths: [], external: segs[0].includes('.') ? segs.slice(0, 3).join('/') : null };
       }
       case 'java': case 'kotlin': case 'scala': {
-        if (/\.[*_]$/.test(spec)) return { paths: (pkgIndex.get(spec.slice(0, -2)) ?? []).slice(0, 50) };
+        if (/\.[*_]$/.test(spec)) return { paths: (pkgIndex.get(spec.slice(0, -2)) ?? []).slice(0, 50), package_level: true };
         const parts = spec.split('.');
         for (let k = parts.length; k >= 2; k--) {
           const hit = fq.get(parts.slice(0, k).join('.'));
@@ -409,7 +409,7 @@ function link(ctx) {
       case 'swift': {
         const tg = swiftTargets.find((t) => t.name === spec);
         const hit = tg ? sortedMods.filter((p) => mods.get(p).attrs.language === 'swift' && (p.includes(`/${spec}/`) || p.startsWith(`${spec}/`))).slice(0, 200) : [];
-        return { paths: hit, external: tg ? null : spec };
+        return { paths: hit, external: tg ? null : spec, package_level: true };
       }
       case 'c': case 'cpp': {
         if (imp.kind === 'include_local') {
@@ -463,7 +463,7 @@ function link(ctx) {
       for (const p of r.paths) {
         if (p === path) continue;
         resolved.add(p);
-        push(edgeFact('IMPORTS', mod.id, mods.get(p).id, { spec: imp.spec, ...(r.via ? { via: r.via } : {}) }, prov_(path, imp.line, r.low ? 'low' : 'medium')));
+        push(edgeFact('IMPORTS', mod.id, mods.get(p).id, { spec: imp.spec, ...(r.via ? { via: r.via } : {}), ...(r.package_level ? { package_level: true } : {}) }, prov_(path, imp.line, r.low ? 'low' : 'medium')));
       }
       if (!r.paths.length && r.external) {
         push(edgeFact('IMPORTS', mod.id, dependency(r.external, path, imp.line), { spec: imp.spec }, prov_(path, imp.line)));
