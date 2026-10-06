@@ -20,6 +20,15 @@ const BOOLEAN_FLAGS = ['json', 'full', 'summary', 'dry_run'];
 
 const cell = (v) => (v === null || v === undefined ? 'unmeasured' : String(v));
 
+/** The routes the candidate calls or serves, with the client interfaces per route and, from a workspace map, who serves it. */
+function contractsText(c, m) {
+  const head = `Contracts: contracts.present ${cell(m['contracts.present'])}, clients.count ${cell(m['clients.count'])} (distinct client interfaces)`;
+  const routes = c.contracts ?? [];
+  if (!routes.length) return `${head}; no route found`;
+  const rows = routes.map((r) => `  ${r.route}  [${r.source}]  ${r.clients} client${r.clients === 1 ? '' : 's'}: ${r.interfaces.join(', ') || '-'}${r.served_by?.length ? `  served by ${r.served_by.join(', ')}` : ''}${r.client_repositories?.length ? `  called from ${r.client_repositories.join(', ')}` : ''}${r.workspace_mapped_at ? `  (workspace map ${r.workspace_mapped_at})` : ''}`);
+  return [head, ...rows].join('\n');
+}
+
 function showText(rec) {
   const c = rec.candidate;
   const m = c.metrics ?? {};
@@ -37,6 +46,7 @@ function showText(rec) {
   lines.push(`Boundary: cohesion ${cell(m['boundary.cohesion'])}, coupling ${cell(m['boundary.coupling'])}, stability ${cell(m['boundary.stability'])}, outbound dependencies ${cell(m['boundary.outbound_dependencies'] ?? m['boundary.reverse_deps'])} (import edges from the candidate into the rest, the number treatment selection uses; into tests: ${cell(m['boundary.outbound_dependencies_test'] ?? m['boundary.reverse_deps_test'])}), reaching ${cell(m['boundary.outbound_dependency_modules'])} distinct modules (boundary.outbound_dependency_modules)`);
   const outbound = c.outbound_dependency_targets ?? c.reverse_dependency_targets;
   if (outbound?.length) lines.push(`The candidate depends on (outbound): ${outbound.map((t) => `${t.module.replace(/^module:/, '')} x${t.edges}`).join(', ')}`);
+  lines.push('', contractsText(c, m));
   if (rec.drivers_not_served?.length) {
     lines.push('', 'Drivers not served:');
     for (const d of rec.drivers_not_served) lines.push(`  ${d.driver}: ${d.reason}`);

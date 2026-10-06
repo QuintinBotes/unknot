@@ -134,6 +134,15 @@ function carryProvenance(base, earlier, self) {
   });
 }
 
+/** Client routes are a routable seam seen from the client side: served elsewhere until a workspace map names the repository. */
+function seamGaps(cand, signals) {
+  const calls = (cand.details?.contracts ?? []).filter((r) => r.source === 'client' && !r.client_repositories);
+  if (!calls.length || signals['requests.interceptable'] === 1) return [];
+  const unmapped = calls.filter((r) => !r.served_by?.length).length;
+  const where = unmapped ? `served outside this repository until a workspace map confirms which repository serves ${unmapped === calls.length ? 'them' : `the other ${unmapped}`}` : 'served by the repository the workspace map names';
+  return [`the candidate declares ${calls.length} client route${calls.length > 1 ? 's' : ''} (contracts.present, clients.count): a routable seam seen from the client side, ${where}`];
+}
+
 /**
  * @param {object} ctx
  * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[], driverProvenance?: {source?: string, quote?: string}, dryRun?: boolean}} opts
@@ -224,7 +233,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         top_files: cand.top_files,
         modules: cand.modules,
         robust: Boolean(cand.robust),
-        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime)\./.test(k))),
+        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime|contracts|clients)\./.test(k))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         // Modules outside the candidate that it imports: the candidate depends on them.
         ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets } : {}),
@@ -244,7 +253,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
       readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
-      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
+      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
       confidence: cand.robust ? cap.confidence : 'low',
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
       ...(cap.capped ? { confidence_cap: cap.reason } : {}),

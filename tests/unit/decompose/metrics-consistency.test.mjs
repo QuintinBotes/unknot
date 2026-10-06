@@ -3,11 +3,13 @@
 // dependencies are two metrics with two names.
 
 import assert from 'node:assert/strict';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse, FIXTURES } from '../../golden/_harness.mjs';
 
 const { decompose } = await import('../../../runtime/decompose/index.mjs');
+const { showRecord } = await import('../../../runtime/decompose/records.mjs');
 const { metricMismatches } = await import('../../../runtime/decompose/records.mjs');
 
 // Four groups of eight modules that import each other heavily: many outbound import edges
@@ -63,5 +65,44 @@ describe('a record names each metric once', () => {
   test('a mismatch is detected', () => {
     const rec = { candidate: { metrics: { 'boundary.outbound_dependencies': 25 } }, rejected_treatments: [{ treatment: 'T3', failed_predicates: [{ signal: 'boundary.outbound_dependencies', value: 2 }] }] };
     assert.deepEqual(metricMismatches(rec), [{ metric: 'boundary.outbound_dependencies', summary: 25, evaluation: 2, where: 'rejected T3' }]);
+  });
+
+  test('every contract route in the record is counted by clients.count, and the metrics reach the record', async () => {
+    const dir = join(FIXTURES, '..', 'clients', 'orders-client', 'src');
+    const clientExtra = { ...extra, 'shop/a/IOrdersApi.cs': readFileSync(join(dir, 'Clients', 'IOrdersApi.cs'), 'utf8'), 'shop/b/OrderService.cs': readFileSync(join(dir, 'Orders', 'OrderService.cs'), 'utf8') };
+    const r = await analyse('modular-monolith', { extra: clientExtra, skipDiagnose: true });
+    const res = await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true });
+    let withRoutes = 0;
+    for (const rec of res.details) {
+      const m = rec.candidate.metrics;
+      assert.deepEqual(metricMismatches(rec), []);
+      const routes = rec.candidate.contracts ?? [];
+      if (!routes.length) {
+        assert.ok(!('clients.count' in m));
+        continue;
+      }
+      withRoutes++;
+      assert.equal(m['contracts.present'], 1);
+      // Every route in the record is counted: its interfaces are among the distinct ones clients.count totals.
+      const interfaces = new Set(routes.flatMap((x) => x.interfaces));
+      for (const x of routes) {
+        assert.ok(x.clients >= 1 && x.clients === x.interfaces.length, x.route);
+        for (const i of x.interfaces) assert.ok(interfaces.has(i));
+      }
+      assert.equal(m['clients.count'], interfaces.size);
+      assert.ok(interfaces.size >= 1 && routes.length >= 1);
+      // The readiness rows of the treatments that use the signals carry the value.
+      for (const row of rec.readiness.filter((x) => x.signal === 'contracts.present' || x.signal === 'clients.count')) assert.equal(row.value, m[row.signal]);
+      assert.ok(rec.evidence_gaps.some((g) => /client route/.test(g)), JSON.stringify(rec.evidence_gaps));
+    }
+    assert.ok(withRoutes >= 1, 'a candidate holds the client interface');
+  });
+
+  test('a prefix a selection card uses is never dropped from the record while it is measured', async () => {
+    // The names a candidate can measure that treatment cards read: none may be filtered out of its metrics.
+    const r = await analyse('modular-monolith', { extra, skipDiagnose: true });
+    for (const rec of (await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true })).details) {
+      for (const row of rec.readiness) if (row.value !== null) assert.equal(rec.candidate.metrics[row.signal], row.value, row.signal);
+    }
   });
 });
