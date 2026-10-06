@@ -188,3 +188,26 @@ test('neighbourhood: call edges appear by default, drop the missing-calls note, 
   assert.deepEqual([...new Set(only.edges.map((e) => e.type))], ['CALLS']);
   assert.ok(!json('neighbourhood', 'src/cat/A.cs', '--type', 'IMPORTS').edges.some((e) => e.type === 'CALLS'));
 });
+
+test('unknown prefix like file: resolves with a note when module: matches', () => {
+  const r = graph('edges', '--from', 'file:src/cat/A.cs');
+  assert.equal(r.code, 0);
+  assert.match(r.err, /treated file:src\/cat\/A\.cs as module:src\/cat\/A\.cs/);
+  const edges = json('edges', '--from', 'file:src/cat/A.cs');
+  assert.ok(edges.every((e) => e.src === 'module:src/cat/A.cs'));
+});
+
+test('a typo in a path fails with suggestions of nearest paths', () => {
+  const r = graph('edges', '--from', 'src/cat/AA.cs');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /no such node/);
+  assert.match(r.err, /Did you mean/);
+  assert.match(r.err, /module:src/);
+  assert.match(r.err, /Accepted: a path, module:<path>/);
+});
+
+test('neighbourhood with unknown prefix shows the note', () => {
+  const r = graph('neighbourhood', 'type:Alpha');
+  assert.equal(r.code, 0);
+  assert.match(r.err, /treated type:Alpha as module:src\/cat\/A\.cs/);
+});

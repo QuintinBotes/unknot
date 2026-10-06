@@ -618,6 +618,26 @@ export function rankHubs(graph, { edgeType = 'IMPORTS', edgeTypes, nodeType = 'm
 }
 
 /**
+ * Levenshtein distance between two strings, capped for performance.
+ * Returns distance, or -1 if one is >10 chars longer than the other.
+ */
+function levenshteinDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 10) return -1;
+  const m = a.length;
+  const n = b.length;
+  const dp = Array(n + 1).fill(0).map(() => Array(m + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[0][i] = i;
+  for (let i = 0; i <= n; i++) dp[i][0] = i;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const cost = b[i - 1] === a[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[n][m];
+}
+
+/**
  * Nodes a user-supplied reference names: an exact id, a module path (`src/x.cs` for
  * `module:src/x.cs`), a type name a module declares, or a bare file name.
  */
@@ -635,6 +655,54 @@ export function resolveRef(graph, ref) {
     .map((n) => n.id)
     .sort();
 }
+
+/**
+ * Explain a reference resolution: returns { ids, note, suggestions }.
+ * - ids: resolveRef result when it matches.
+ * - note: if an unknown prefix resolved to a matching node (e.g., "treated file:src/a.cs as module:src/a.cs").
+ * - suggestions: up to 3 module paths closest to the given path by edit distance (only paths similar in length).
+ */
+export function explainRef(graph, ref) {
+  const ids = resolveRef(graph, ref);
+  if (ids.length) return { ids, note: undefined, suggestions: [] };
+
+  // No direct resolution; check for unknown prefix
+  const colonIdx = ref.indexOf(':');
+  if (colonIdx > 0) {
+    const prefix = ref.substring(0, colonIdx);
+    const remainder = ref.substring(colonIdx + 1);
+
+    // Check if the prefix is a node type in the graph (e.g., module, package, type)
+    // by seeing if any node starts with that prefix (module:, package:, etc.)
+    const mods = graph.nodes('module');
+    const hasNodeWithPrefix = mods.some(n => n.id.startsWith(`${prefix}:`));
+
+    // If prefix is not a known node prefix, try resolving the remainder
+    if (!hasNodeWithPrefix) {
+      const remainderIds = resolveRef(graph, remainder);
+      if (remainderIds.length) {
+        return { ids: remainderIds, note: `treated ${ref} as ${remainderIds[0]}`, suggestions: [] };
+      }
+    }
+  }
+
+  // No resolution at all: collect suggestions
+  const mods = graph.nodes('module');
+  const paths = mods.map(n => n.path || n.id).filter(Boolean);
+
+  // For edit distance, only compare with paths of similar length
+  const candidates = paths.map(path => {
+    const dist = levenshteinDistance(ref, path);
+    return dist >= 0 ? { path, dist } : null;
+  })
+    .filter(Boolean)
+    .sort((a, b) => a.dist - b.dist || a.path.localeCompare(b.path))
+    .slice(0, 3)
+    .map(c => `module:${c.path}`);
+
+  return { ids: [], note: undefined, suggestions: candidates };
+}
+
 
 /** Breadth-first subgraph around `roots` (both directions), bounded to `nodeCap` nodes. */
 export function neighbourhood(graph, roots, { depth = 1, edgeTypes, nodeCap = 300 } = {}) {
