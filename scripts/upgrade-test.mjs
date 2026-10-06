@@ -9,12 +9,12 @@
 // Needs the release tags in the clone (CI: fetch-depth 0). Exit 1 when any upgrade fails.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { LATEST_SCHEMA_VERSION } from '../runtime/state/migrations.mjs';
+import { compatLevel, LATEST_SCHEMA_VERSION, MIGRATIONS } from '../runtime/state/migrations.mjs';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 
@@ -180,10 +180,35 @@ function upgradeFrom(tag, work) {
   const doc = step(root, 'doctor', ['doctor', '--json']);
   note.push(`schema ${before.schema_version ?? 'none'} -> ${storeMeta(project).schema_version}`);
 
-  // The store migrated: opened by this checkout, recorded as current.
+  // The store migrated: opened by this checkout, recorded as current, and still at a
+  // schema_version the earlier release accepts unless a migration it cannot live with ran.
   const meta = storeMeta(project);
   const latest = LATEST_SCHEMA_VERSION;
-  if (Number(meta.schema_version) !== latest) fail(`store schema ${meta.schema_version} after the upgrade, expected ${latest}`);
+  const compat = compatLevel(new Set(MIGRATIONS.map((x) => x.name)));
+  if (Number(meta.schema_applied) !== latest) fail(`store migrations applied up to ${meta.schema_applied} after the upgrade, expected ${latest}`);
+  if (Number(meta.schema_version) !== compat) fail(`store schema_version ${meta.schema_version} after the upgrade, expected ${compat}`);
+
+  // A session still running the earlier release's hooks keeps its shell once this checkout
+  // has opened the store (an upgrade in place, before the session reloads its plugins).
+  const oldHook = join(old, 'bin', 'unknot-hook');
+  if (existsSync(oldHook)) {
+    for (const command of ['echo hi', 'git status']) {
+      const h = spawnSync(process.execPath, [oldHook, 'PreToolUse'], {
+        cwd: project,
+        input: JSON.stringify({ cwd: project, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } }),
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: { ...process.env, UNKNOT_HOME: home, CLAUDE_PLUGIN_ROOT: old },
+      });
+      let answer = null;
+      try {
+        answer = h.stdout.trim() ? JSON.parse(h.stdout).hookSpecificOutput ?? null : null;
+      } catch {
+        answer = { permissionDecision: 'unreadable', permissionDecisionReason: h.stdout.slice(0, 160) };
+      }
+      if (answer?.permissionDecision === 'deny' || answer?.permissionDecision === 'unreadable') fail(`the ${tag} hook refuses \`${command}\` once this checkout has opened the store: ${String(answer.permissionDecisionReason ?? '').slice(0, 200)}`);
+    }
+  } else note.push('no hook in this tag');
   if (!meta.migrations || !JSON.parse(meta.migrations).includes('initial-schema')) fail(`migrations not recorded in meta (${meta.migrations})`);
 
   // Stable fingerprints: every earlier finding is still found, under the same fingerprint.

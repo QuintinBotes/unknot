@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
 import { detectSandbox } from '../../broker/sandbox.mjs';
 import { findProjectRoot, isInitialized, unknotHome } from '../../core/project.mjs';
+import { VERSION } from '../../core/version.mjs';
+import { hooksSeen } from '../../state/hooks-seen.mjs';
 import { verifyLedger } from '../../state/ledger.mjs';
 import { cliPath, humanCommand, output, stableUnknot } from '../util.mjs';
 import { SHIM_MARK } from './cli.mjs';
@@ -37,10 +39,18 @@ export async function run({ flags }) {
   const shimOurs = existsSync(shim) && readFileSync(shim, 'utf8').includes(SHIM_MARK);
   const stable = Boolean(onPath);
   add('unknot cli', true, `${cliPath()}; shim ${shimOurs ? `installed at ${shim}` : 'not installed'}; \`unknot\` ${stable ? `on PATH (${onPath})` : 'not a stable command in a normal terminal'}${stable ? '' : `. Fix: node ${cliPath()} cli install (once, in a separate terminal window)`}`, stable ? 'ok' : 'warn');
+  if (shimOurs && !readFileSync(shim, 'utf8').includes('function sessionBin')) {
+    add('unknot shim', false, `${shim} runs the newest installed version even inside a session that loaded an older one; run \`unknot cli install\` to update it`, 'warn');
+  }
   const root = findProjectRoot(flags.cwd ?? process.cwd());
   if (!isInitialized(root)) {
     add('project', false, `${root} is not initialised; run /unknot:init`, 'warn');
   } else {
+    // Hooks of another release ran here lately: a session whose hooks and CLI differ.
+    const others = hooksSeen(join(root, '.unknot', 'state')).filter((h) => h.version !== VERSION);
+    if (others.length) {
+      add('session hooks', false, `hooks of Unknot ${others.map((h) => h.version).join(', ')} ran here in the last 15 minutes while this CLI is ${VERSION}; reload plugins or start a new session so they match`, 'warn');
+    }
     try {
       const { openProject } = await import('../../context.mjs');
       const { loadConfig, waitingProposal } = await import('../../policy/config.mjs');

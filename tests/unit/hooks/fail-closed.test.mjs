@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
 
@@ -172,4 +173,29 @@ describe('hook process: fail-closed when state cannot be read', () => {
       const r = hook(p, 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: join(p.dir, '.env') } });
       assert.equal(decision(r), 'deny');
     });
+});
+
+describe('hook process: a store written by a newer release', () => {
+  test('read-only commands and reads still run; mutations are refused with the real fix; the hook notes its release', () => {
+    const p = project();
+    K.store.closeAllStores();
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const db = new DatabaseSync(p.ctx.paths.db);
+    db.prepare("UPDATE meta SET value = '99' WHERE key = 'schema_version'").run();
+    db.close();
+    const bash = (command) => decision(hook(p, 'PreToolUse', { tool_name: 'Bash', tool_input: { command } }));
+    assert.equal(bash('echo hi'), null);
+    assert.equal(bash('git status'), null);
+    assert.equal(bash(`cd ${tmpdir()} && ls`), null);
+    assert.equal(decision(hook(p, 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: join(p.dir, 'src/a.js') } })), null);
+    assert.equal(decision(hook(p, 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: join(p.dir, '.env') } })), 'deny');
+    assert.equal(bash('cat .env'), 'deny');
+    const write = hook(p, 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'touch src/new.js' } });
+    assert.equal(decision(write), 'deny');
+    assert.match(write.json.hookSpecificOutput.permissionDecisionReason, /Reload plugins or start a new session; read-only commands still run/);
+    assert.doesNotMatch(write.json.hookSpecificOutput.permissionDecisionReason, /unknot doctor/);
+    assert.equal(decision(hook(p, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: join(p.dir, 'src/a.js') } })), 'deny');
+    const seen = JSON.parse(readFileSync(join(p.dir, '.unknot', 'state', 'hooks.json'), 'utf8'));
+    assert.ok(Object.values(seen).every((e) => Number.isFinite(e.schema) && e.at));
+  });
 });

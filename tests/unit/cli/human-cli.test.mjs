@@ -110,6 +110,24 @@ test('the shim runs the newest installed version with the same arguments and exi
   }
 });
 
+test('inside a session the shim runs the version the session loaded (its bin on PATH), not the newest', () => {
+  const dir = tmp();
+  try {
+    fakeVersions(join(dir, 'cache'), ['0.1.9', '0.1.10']);
+    const shim = join(dir, 'unknot');
+    writeFileSync(shim, shimSource(join(dir, 'cache', '0.1.10', 'bin', 'unknot')));
+    chmodSync(shim, 0o755);
+    const run = (path) => spawnSync(process.execPath, [shim, 'status'], { encoding: 'utf8', env: { ...process.env, PATH: path } }).stdout.trim();
+    assert.equal(run(`/usr/bin:${join(dir, 'cache', '0.1.9', 'bin')}/`), '0.1.9 status');
+    assert.equal(run('/usr/bin'), '0.1.10 status');
+    // A bin directory outside the plugin's versions directory is not the session's plugin.
+    fakeVersions(join(dir, 'elsewhere'), ['0.0.1']);
+    assert.equal(run(`${join(dir, 'elsewhere', '0.0.1', 'bin')}:/usr/bin`), '0.1.10 status');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('cli install and uninstall are denied without a terminal; status reports ownership', () => {
   const dir = tmp();
   const cli = (...args) => spawnSync(process.execPath, [BIN, 'cli', ...args, '--dir', dir], { encoding: 'utf8' });
