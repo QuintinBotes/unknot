@@ -31,7 +31,8 @@ All notable changes are documented here. The format follows
 - The read budget counts each file once, however many adapters read it, and a map of a repository above it stops before reading anything, naming the setting. Defaults: 250,000 files, 4 GiB.
 - `duplicated-authorization` needs the same check shape (a call or annotation with a quoted role or permission) in three or more modules outside an auth package; matching names alone no longer count.
 - Imports of a whole package (Go, Java wildcards, Swift) are marked `package_level` and are not fan-in of each file in the package, so hub findings are about files.
-<!-- delta projection entry pending -->
+- A re-map writes only the facts, nodes and edges that changed (a content digest per fact, migration `facts-digest`); with nothing changed the store is not written and the generation stays. Derived facts are recomputed only when the graph changed. A fact's `observed_at`, `commit_sha` and `generation` now record when it last changed.
+- Components above 50 modules or 400 edges get their cut from an ordering in linear time (declared-only edges first, then the Eades-Lin-Smyth heuristic); the derived record says `cut_heuristic`, and `cut_minimal: false` when the work budget ran out. Smaller components keep the greedy search.
 
 ### Fixed
 
