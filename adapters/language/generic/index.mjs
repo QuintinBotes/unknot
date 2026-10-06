@@ -10,7 +10,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo } from './frameworks.mjs';
-import { clientFacts } from '../http-ops.mjs';
+import { clientFacts, serverInterfaces } from '../http-ops.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
@@ -540,6 +540,8 @@ function link(ctx) {
       if (srcs.length === 1 && tr.length === 1) push(edgeFact('IMPLEMENTS', srcs[0].id, tr[0].id, { by: 'impl' }, prov_(path, im.line, 'low')));
     }
   }
+
+  for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------
   const nameIndex = new Map();

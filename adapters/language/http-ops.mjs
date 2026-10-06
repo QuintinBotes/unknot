@@ -196,3 +196,76 @@ export function clientFacts(c) {
   }
   return facts;
 }
+
+const bare = (n) => String(n).replace(/<.*$/, '').split(/[.:]/).pop();
+const tail = (n) => String(n).slice(String(n).lastIndexOf('.') + 1);
+
+/**
+ * A client interface is implemented at run time by a generated proxy, so a concrete type in the
+ * repository that implements or extends the interface makes it a server-side API declaration
+ * instead: its operations are endpoints served by that type. Run from an adapter's link step,
+ * where the cross-file inheritance is known. It removes the client facts of such an interface
+ * from `factsByFile` (in place) and returns the endpoint facts for the implementers; a method of
+ * the implementer that already exposes an endpoint keeps its own.
+ * @param {Map<string, object[]>} factsByFile
+ * @param {string} extractorPrefix `name@` of the adapter that wrote the client facts
+ * @param {(path: string, line: number) => object} pv provenance for the new endpoint facts
+ */
+export function serverInterfaces(factsByFile, extractorPrefix, pv) {
+  const own = (f) => String(f.provenance?.extractor ?? '').startsWith(extractorPrefix);
+  const types = new Map();
+  const byId = new Map();
+  const children = new Map();
+  const exposers = new Set();
+  const handled = new Set();
+  const clients = [];
+  for (const [path, facts] of factsByFile) {
+    for (const f of facts) {
+      if (!own(f)) continue;
+      if (f.kind === 'node') {
+        if (f.type === 'class' || f.type === 'interface') {
+          byId.set(f.id, f);
+          if (!types.has(bare(f.name))) types.set(bare(f.name), []);
+          types.get(bare(f.name)).push(f);
+        } else if (f.type === 'contract' && f.attrs?.kind === 'http_client') clients.push({ path, c: f });
+        else if (f.type === 'endpoint' && typeof f.attrs?.handler === 'string') {
+          exposers.add(f.attrs.handler);
+          if (f.attrs.file) handled.add(`${f.attrs.file}#${f.attrs.handler}`);
+        }
+      } else if (f.type === 'CONTAINS') {
+        if (!children.has(f.from)) children.set(f.from, []);
+        children.get(f.from).push(f.to);
+      } else if (f.type === 'EXPOSES') exposers.add(f.from);
+    }
+  }
+  const out = [];
+  const seen = new Set();
+  for (const { path, c } of clients) {
+    const iface = byId.get(c.attrs.interface);
+    if (!iface) continue;
+    const name = bare(iface.name);
+    const sole = (types.get(name) ?? []).length === 1;
+    const impls = [...byId.values()].filter((t) => t.type === 'class' && t.id !== iface.id
+      && [t.attrs?.extends, t.attrs?.implements, t.attrs?.bases].some((l) => [].concat(l ?? []).some((n) => bare(n) === name))
+      && (sole || t.path === iface.path));
+    if (!impls.length) continue;
+    for (const impl of impls) {
+      for (const o of c.attrs.operations) {
+        const handler = (children.get(impl.id) ?? []).find((id) => tail(id.slice(id.indexOf('#') + 1)) === o.name);
+        if (handler && (exposers.has(handler) || handled.has(handler.slice(handler.indexOf(':') + 1)))) continue;
+        const eid = `${o.method} ${o.path}`;
+        if (!seen.has(eid)) {
+          seen.add(eid);
+          out.push(nodeFact('endpoint', eid, { name: eid, attrs: { method: o.method, path: o.path, framework: c.attrs.framework, via_interface: iface.name } }, pv(path, o.line)));
+        }
+        out.push(edgeFact('EXPOSES', handler ?? `module:${impl.path}`, `endpoint:${eid}`, { framework: c.attrs.framework, via_interface: iface.name }, pv(path, o.line)));
+      }
+    }
+    // The interface is not a client: drop its contract and the route facts only it declared.
+    const facts = factsByFile.get(path).filter((f) => !(f.id === c.id || (f.kind === 'edge' && (f.from === c.id || f.to === c.id
+      || (f.type === 'CONSUMES' && f.attrs?.interface === c.name && f.from === `module:${path}` && String(f.to).startsWith('contract:'))))));
+    const used = new Set(facts.filter((f) => f.kind === 'edge').map((f) => f.to));
+    factsByFile.set(path, facts.filter((f) => !(f.kind === 'node' && f.type === 'contract' && f.attrs?.kind === 'client_operation' && !used.has(f.id))));
+  }
+  return out;
+}

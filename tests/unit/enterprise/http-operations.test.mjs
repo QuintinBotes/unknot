@@ -262,3 +262,68 @@ abstract class Base {
   assert.deepEqual(clients.map((c) => [c.name, c.attrs.operations.map((o) => `${o.method} ${o.path}`)]), [['Base', ['GET /abstract/:id']]]);
   assert.deepEqual(facts.filter((f) => f.type === 'endpoint').map((f) => f.id), ['endpoint:GET /concrete']);
 });
+
+// An interface a concrete type in the repository implements is a server-side API declaration: its
+// routes are endpoints served by the implementer. Without an implementer it is a client.
+const { mapRepository } = await import('../../../runtime/graph/builder.mjs');
+const { Graph } = await import('../../../runtime/graph/graph.mjs');
+
+const IMPLEMENTED = [
+  {
+    lang: 'Java',
+    api: { 'src/main/java/shop/OrdersApi.java': 'package shop;\n@RequestMapping("/v1")\npublic interface OrdersApi {\n  @GetMapping("/orders/{id}")\n  String get(String id);\n  @PostMapping("/orders")\n  String create();\n}\n' },
+    impl: { 'src/main/java/shop/OrdersController.java': 'package shop;\npublic class OrdersController implements OrdersApi {\n  public String get(String id) { return id; }\n  public String create() { return ""; }\n}\n' },
+    owns: { 'src/main/java/shop/OrdersController.java': 'package shop;\npublic class OrdersController implements OrdersApi {\n  @GetMapping("/own/{id}")\n  public String get(String id) { return id; }\n  public String create() { return ""; }\n}\n' },
+  },
+  {
+    lang: 'C#',
+    api: { 'src/IOrdersApi.cs': 'namespace Shop {\n  [Route("v1")]\n  public interface IOrdersApi {\n    [Get("orders/{id}")]\n    string Get(string id);\n    [Post("orders")]\n    string Create();\n  }\n}\n' },
+    impl: { 'src/OrdersController.cs': 'namespace Shop {\n  public class OrdersController : IOrdersApi {\n    public string Get(string id) { return id; }\n    public string Create() { return ""; }\n  }\n}\n' },
+    owns: { 'src/OrdersController.cs': 'namespace Shop {\n  public class OrdersController : IOrdersApi {\n    [HttpGet("/own/{id}")]\n    public string Get(string id) { return id; }\n    public string Create() { return ""; }\n  }\n}\n' },
+  },
+  {
+    lang: 'TypeScript',
+    api: { 'src/orders-api.ts': "@Controller('v1')\nexport abstract class OrdersApi {\n  @Get('orders/:id')\n  abstract get(id: string): string;\n  @Post('orders')\n  abstract create(): string;\n}\n" },
+    impl: { 'src/orders.controller.ts': "import { OrdersApi } from './orders-api';\nexport class OrdersController extends OrdersApi {\n  get(id: string) { return id; }\n  create() { return ''; }\n}\n" },
+    owns: { 'src/orders.controller.ts': "import { OrdersApi } from './orders-api';\nexport class OrdersController extends OrdersApi {\n  @Get('/own/:id')\n  get(id: string) { return id; }\n  create() { return ''; }\n}\n" },
+  },
+];
+
+async function mapped(dir) {
+  const ctx = openProject(dir, { create: true });
+  const cfg = loadConfig(ctx);
+  await mapRepository(ctx, { config: cfg.config, configDigest: cfg.digest, history: false });
+  return Graph.fromStore(ctx.store);
+}
+
+const routesOf = (g) => ({
+  clients: g.nodes('contract').filter((n) => n.attrs?.kind === 'client_operation').map((n) => n.name).sort(),
+  interfaces: g.nodes('contract').filter((n) => n.attrs?.kind === 'http_client').length,
+  endpoints: g.nodes('endpoint').map((n) => n.name).sort(),
+  consumes: g.edges('CONSUMES').filter((e) => e.to.startsWith('contract:')).length,
+});
+
+for (const row of IMPLEMENTED) {
+  test(`${row.lang}: an interface with an implementer in the repository serves endpoints; without one it is a client`, { timeout: 120_000 }, async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'uk-impl-'));
+    repo(parent, 'alone', row.api);
+    const client = routesOf(await mapped(join(parent, 'alone')));
+    assert.deepEqual(client.clients, CLIENT_ROUTES);
+    assert.equal(client.interfaces, 1);
+    assert.deepEqual(client.endpoints, []);
+
+    repo(parent, 'served', { ...row.api, ...row.impl });
+    const served = routesOf(await mapped(join(parent, 'served')));
+    assert.deepEqual(served.endpoints, ['GET /v1/orders/:id', 'POST /v1/orders']);
+    assert.deepEqual(served.clients, []);
+    assert.equal(served.interfaces, 0);
+    assert.equal(served.consumes, 0, 'no CONSUMES client facts');
+
+    // The implementer's own markers win for the methods that have them.
+    repo(parent, 'own', { ...row.api, ...row.owns });
+    const own = routesOf(await mapped(join(parent, 'own')));
+    assert.ok(own.endpoints.includes('GET /own/:id'));
+    assert.ok(!own.endpoints.includes('GET /v1/orders/:id'));
+    assert.ok(own.endpoints.includes('POST /v1/orders'));
+  });
+}

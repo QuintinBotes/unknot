@@ -95,6 +95,8 @@ One rule covers every language: a method or function that declares an HTTP metho
 | Python | `@app.get("/x")`, `@router.post(...)` with a known router; a bare `@get("x")` on a concrete function | `APIRouter(prefix=...)`; `@client("/v1")` (or `@controller`, `@route`, `@prefix`) or a `base_path` / `prefix` class attribute | Protocol or ABC class, an `abstractmethod`, or a method whose body is only `...`, `pass`, a docstring or `raise NotImplementedError` |
 | Go | `r.Get("/x", h)`, `mux.HandleFunc("/x", h)`, `Handle("GET /x", h)`; with no verb in the call, the one method the handler checks (`r.Method != http.MethodPost`) | none | endpoints only |
 
+A client is implemented at run time by a generated proxy, so when a concrete type in the repository implements or extends the interface (or abstract type), it is a server-side API declaration instead: link turns its routes into endpoints served by the implementer (the implementer's own markers win) and emits no client facts for it.
+
 Not covered: routes built at run time, imperative calls (`fetch`, `HttpClient`), inheritance of a base path from a parent type, Go sub-router prefixes. The other router registrations (C# `MapGet`, Rust, Ruby, PHP) are read as endpoints only.
 
 Each client interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.

@@ -5,6 +5,7 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { EXTRACTOR } from './config.mjs';
+import { serverInterfaces } from '../http-ops.mjs';
 import { createResolver, normalize as normalizePath } from './resolver.mjs';
 
 const KIND_ORDER = ['static', 'reexport', 'require', 'dynamic', 'type'];
@@ -332,5 +333,6 @@ export function linkFacts(ctx) {
       }
     }
   }
+  for (const f of serverInterfaces(ctx.factsByFile, 'javascript@', (p, line) => P(p, line, 'medium'))) out.push(f);
   return out;
 }
