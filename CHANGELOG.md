@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- `unknot status` (text and `--json`) and the MCP `status` tool print one block headed "For you, in your own terminal:" with every pending human step as a ready-to-paste command, in order: install the CLI (only when `unknot` does not resolve on a login shell's PATH; a failed or timed-out check counts as unknown, not missing), review and accept a waiting configuration, register an approver key, approve each slice awaiting approval with its role and name, end the active run by id. The human-only refusal and the skills point to this block (#33).
+
 ## [0.2.2] - 2026-10-06
 
 ### Fixed

@@ -20,8 +20,11 @@ missing, blockers and stale evidence.
 Lead with what needs attention, in this order:
 
 1. Blockers (baseline failing, policy, uncertainty) with the stated cause.
-2. Approvals missing, per slice, with the role and the command a person runs in a separate
-   terminal window (not `!`): `unknot approve <slice> --role <role> --as <approver>`.
+2. Everything only a person can do: print the `for_you` text of the status output (the block
+   headed "For you, in your own terminal:") verbatim and tell the person to copy it into a
+   separate terminal window (not `!`). It already holds the exact commands, in order: install
+   the CLI, accept the config, register a key, approve each slice, end a run. Do not retype
+   or paraphrase them.
 3. Human attestations pending (`unknot attest <PO-id> --result pass|fail --note "..." --as <name>`).
 4. Stale evidence: a graph mapped at an older commit, or expired facts. Suggest `/unknot:map`.
 5. Everything else: counts of findings by status and slices by state.
