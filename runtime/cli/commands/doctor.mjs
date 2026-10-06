@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
+import { scipChecks } from '../../../adapters/semantic/scip/locate.mjs';
 import { detectSandbox } from '../../broker/sandbox.mjs';
 import { findProjectRoot, isInitialized, unknotHome } from '../../core/project.mjs';
 import { VERSION } from '../../core/version.mjs';
@@ -77,6 +78,7 @@ export async function run({ flags }) {
       const { loaded, unavailable } = await loadAdapters(cfg.config);
       add('adapters', true, `${loaded.map((a) => `${a.id}@${a.version}`).join(', ')}`, 'info');
       for (const u of unavailable) add(`adapter ${u.id}`, false, u.reason, 'warn');
+      if (cfg.config.adapters?.scip?.enabled !== false) checks.push(...scipChecks(root, cfg.config.adapters?.scip ?? {}));
       const errLog = join(ctx.paths.state, 'hook-errors.log');
       if (existsSync(errLog)) add('hook errors', false, `see ${errLog}`, 'warn');
     } catch (err) {

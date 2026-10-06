@@ -154,6 +154,7 @@ function extract(file, text, ctx) {
     attrs.refs = r.refs;
     if (Object.keys(r.declOnly).length) attrs.decl_only = r.declOnly;
     if (Object.keys(r.declPublic).length) attrs.decl_public = r.declPublic;
+    if (Object.keys(r.declCands).length) attrs.decl_cands = r.declCands;
     attrs.words = r.words;
     attrs.acc = r.acc;
     attrs.calls = r.calls;
@@ -447,7 +448,7 @@ function link(ctx) {
 
   // --- imports, tests -----------------------------------------------------------------
   const importsOf = new Map();
-  const csLink = csharpLinker(mods, sortedMods);
+  const csLink = csharpLinker(mods, sortedMods, ctx.semantic);
   for (const path of sortedMods) {
     const mod = mods.get(path);
     const a = mod.attrs;
@@ -458,8 +459,9 @@ function link(ctx) {
         resolved.add(e.to);
         push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
           spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member, member_visibility: e.member_visibility }),
+          ...(e.unused_evidence && { unused_evidence: e.unused_evidence }),
           ...(e.use_evidence && { use_evidence: e.use_evidence, possible_use_of: e.possible_use_of, possible_receivers: e.possible_receivers }),
-        }, prov_(path, e.line)));
+        }, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line)));
       }
       for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium')));
       for (const imp of cs.externals) {
@@ -470,6 +472,7 @@ function link(ctx) {
       delete a.refs;
       delete a.decl_only;
       delete a.decl_public;
+      delete a.decl_cands;
       delete a.words;
       delete a.acc;
       delete a.calls;

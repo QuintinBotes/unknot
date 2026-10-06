@@ -40,7 +40,8 @@ export default {
 
 `ctx` for `extract`: `{ commit, options }` (adapter options from config).
 
-`ctx` for `link`: `{ files: Map<path, entry>, factsByFile: Map<path, GraphFact[]>, options, resolve }`.
+`ctx` for `link`: `{ root, files: Map<path, entry>, factsByFile: Map<path, GraphFact[]>, options, notes, stats, semantic }`.
+`semantic` is one `Map` per map run: a semantic adapter (`scip`, registered before `generic`) records, per file it covers, what the compiler's index decided (`{ members }`), and a language adapter's link reads it in place of name matching. A semantic adapter reads its index through `ctx.root` (the one adapter allowed to open a file, because an index is too large to hand over as text); it never runs the indexer.
 
 `ctx` for `discover`: `{ root, census, readText(path), exec(argv, opts), options, evidence }`
 where `evidence` lists user-supplied files from `config.evidence` (traces, plans, catalog

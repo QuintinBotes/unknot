@@ -20,7 +20,7 @@ export async function run({ positional, flags }) {
     `Cache: ${summary.cache.hits} reused, ${summary.cache.extracted} extracted.`,
     `Files by kind: ${Object.entries(summary.by_kind).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
   ];
-  if (summary.coverage?.length) lines.push(`Language coverage: ${summary.coverage.map((c) => `${c.language} ${c.files} files, ${c.adapter}, ${c.quality}`).join('; ')}.`);
+  if (summary.coverage?.length) lines.push(`Language coverage: ${summary.coverage.map((c) => `${c.language} ${c.files} files, ${c.adapter}, ${c.qualities ? Object.entries(c.qualities).map(([q, n]) => `${q} ${n}`).join(' + ') : c.quality}`).join('; ')}.`);
   if (summary.constants) lines.push(`${constantsLine(summary.constants)}.`);
   if (summary.history) lines.push(`History: ${summary.history.commits} commits, ${summary.history.co_change_pairs} co-change pairs (${summary.history.ignored_large_commits} oversized commits ignored).`);
   if (summary.status === 'partial' && !summary.failure_count && summary.unavailable.every((u) => String(u.id ?? u.adapter).startsWith('language:'))) lines.push('Status partial: the dominant language was read lexically (see below); the graph is usable, but its dependency and call edges for that language are approximate.');

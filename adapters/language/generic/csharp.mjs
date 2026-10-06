@@ -147,7 +147,8 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * every attribute-injected member visible outside it (used or not); `words`/`accessed` are the
  * identifiers the file contains, `acc` its receiver-typed member accesses and `calls` its resolved
  * calls per type (see csharpAccess), so link can ask whether another file touches a public member.
- * @returns {{ refs: string[], declOnly: Record<string, string>, declPublic: Record<string, string[]>, publicMembers: string[], publicOwners: Record<string, string>, words: string[], acc: object, calls: object, typeBases: Record<string, string[]> }}
+ * `declCands` lists, per type name whose every mention declares a member or parameter, those members, the ones not private to the file, and whether a parameter is used.
+ * @returns {{ refs: string[], declOnly: Record<string, string>, declCands: Record<string, {members: string[], pub: string[], paramUsed: boolean}>, declPublic: Record<string, string[]>, publicMembers: string[], publicOwners: Record<string, string>, words: string[], acc: object, calls: object, typeBases: Record<string, string[]> }}
  */
 export function csharpRefs(lx, an) {
   const code = lx.code.replace(USING_LINE, blank);
@@ -166,6 +167,7 @@ export function csharpRefs(lx, an) {
   }
   const declOnly = {};
   const declPublic = {};
+  const declCands = {};
   const publicMembers = new Set();
   const access = csharpAccess(lx, an, code);
   const publicOwners = {};
@@ -204,6 +206,8 @@ export function csharpRefs(lx, an) {
     // Constructor injection: `member = param;` (or `param ?? throw ...;`) keeps neither of them in use.
     masked = masked.replace(new RegExp(`(?:\\bthis\\s*\\.\\s*)?\\b(\\w+)\\s*=\\s*(\\w+)${GUARD}\\s*;`, 'g'), (all, l, r) => (members.has(l) && params.has(r) ? ' '.repeat(all.length) : all));
     const used = (n) => new RegExp(`\\b${esc(n)}\\b`).test(masked);
+    // Kept for a semantic index: it decides the members' use, the name match above only the parameters'.
+    declCands[name] = { members: [...members].sort(), pub: [...pub].sort(), paramUsed: [...params].some(used) };
     if ([...params].some(used) || [...members].some(used)) continue;
     declOnly[name] = [...members].sort().join(', ');
     if (pub.size) declPublic[name] = [...pub].sort();
@@ -212,14 +216,16 @@ export function csharpRefs(lx, an) {
   const words = new Set(lx.plain.match(/[A-Za-z_]\w+/g));
   const typeBases = {};
   for (const t of an.types) typeBases[t.name] = [...new Set([...(typeBases[t.name] ?? []), ...t.extends, ...t.implements, ...t.bases])].sort();
-  return { refs, declOnly, declPublic, publicMembers: [...publicMembers].sort(), publicOwners, words: [...words].sort(), acc: access.acc, calls: access.calls, typeBases };
+  return { refs, declOnly, declPublic, declCands, publicMembers: [...publicMembers].sort(), publicOwners, words: [...words].sort(), acc: access.acc, calls: access.calls, typeBases };
 }
 
 /**
  * Link-side resolver for every C# module. `mods` maps path to its module fact; the result
- * answers, per file, which other files it uses at type level.
+ * answers, per file, which other files it uses at type level. `semantic` (path to what a SCIP index
+ * decided, see adapters/semantic/scip) replaces the name matching for the files it covers: whether an
+ * injected member is used comes from the index, and the name-matched module calls are dropped.
  */
-export function csharpLinker(mods, sortedMods) {
+export function csharpLinker(mods, sortedMods, semantic = null) {
   const byName = new Map();
   const full = new Map();
   const known = new Set();
@@ -326,12 +332,26 @@ export function csharpLinker(mods, sortedMods) {
     const declOnly = a.decl_only ?? {};
     const hits = new Map();
     const declPublic = a.decl_public ?? {};
-    const hit = (to, spec, line, decl, member, pub = []) => {
+    const sem = semantic?.get(path) ?? null;
+    const cands = a.decl_cands ?? {};
+    // The index's verdict on a type's injected members: unused (true), used (false), or null when
+    // it does not know every member (the name matching stays for that mention).
+    const judged = (ref) => {
+      const c = cands[ref];
+      if (!sem || !c) return null;
+      const used = c.members.map((m) => sem.members.get(m));
+      if (used.some((u) => u === undefined)) return null;
+      return { unused: !c.paramUsed && !used.some(Boolean), c };
+    };
+    const hit = (to, spec, line, decl, member, pub = [], semantic_ = false) => {
       if (to === path) return;
       let h = hits.get(to);
-      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set() }));
-      if (decl) { h.members.add(member); for (const m of pub) h.pub.add(m); }
-      else h.decl = false;
+      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set(), sem: 0, lex: 0 }));
+      if (decl) {
+        h.members.add(member);
+        for (const m of pub) h.pub.add(m);
+        h[semantic_ ? 'sem' : 'lex']++;
+      } else h.decl = false;
     };
     const lookup = (name) => {
       const all = byName.get(name) ?? [];
@@ -362,19 +382,26 @@ export function csharpLinker(mods, sortedMods) {
       let name = ref;
       let es = lookup(name);
       if (!es.length) es = lookup((name = `${ref}Attribute`));
-      for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref], declPublic[ref]);
+      const j = judged(ref);
+      for (const e of es) {
+        if (j) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, j.unused, j.c.members.join(', '), j.c.pub, true);
+        else hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref], declPublic[ref]);
+      }
     }
     for (const s of statics) for (const p of full.get(s.spec) ?? []) hit(p, s.spec, s.line, false);
     // A member another file reaches is an ordinary use, however the declaring file treats it.
     const owners = a.public_owners ?? {};
     const edges = [...hits].map(([to, h]) => {
       const where = new Set();
-      const reaches = h.decl && h.members.size ? [...h.pub].map((m) => reach(path, m, owners[m], where)) : [];
+      // Decided by the index alone when every unused-member mention in this file was: no name matching.
+      const bySemantic = h.sem > 0 && !h.lex;
+      const reaches = h.decl && h.members.size && !bySemantic ? [...h.pub].map((m) => reach(path, m, owners[m], where)) : [];
       const declared = h.decl && h.members.size && !reaches.some(Boolean);
       const nameOnly = h.decl && h.members.size && !reaches.includes('typed') && reaches.includes('name-only');
       return {
         to, spec: h.spec, line: h.line,
-        ...(declared && { declared_only: true, unused_member: [...h.members].sort().join(', '), member_visibility: h.pub.size ? 'public' : 'private' }),
+        ...(bySemantic && { semantic: true }),
+        ...(declared && { declared_only: true, unused_member: [...h.members].sort().join(', '), member_visibility: h.pub.size ? 'public' : 'private', ...(bySemantic && { unused_evidence: 'semantic' }) }),
         ...(nameOnly && { use_evidence: 'name-only', possible_use_of: [...h.pub].filter((m, i) => reaches[i]).sort().join(', '), possible_receivers: [...where].sort().join(', ') }),
       };
     });
@@ -391,7 +418,7 @@ export function csharpLinker(mods, sortedMods) {
         callTo.set(e.path, c);
       }
     }
-    const calls = [...callTo].map(([to, c]) => ({ to, ...c })).sort((x, y) => (x.to < y.to ? -1 : 1));
+    const calls = sem ? [] : [...callTo].map(([to, c]) => ({ to, ...c })).sort((x, y) => (x.to < y.to ? -1 : 1));
     return { edges, externals, calls };
   };
 }
