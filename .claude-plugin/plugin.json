@@ -1,7 +1,7 @@
 {
   "name": "unknot",
   "displayName": "Unknot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Architecture-aware incremental codebase simplification with verification and recovery.",
   "author": {
     "name": "Quintin Botes",
