@@ -13,7 +13,7 @@ import { frameworkInfo } from './frameworks.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -155,8 +155,10 @@ function extract(file, text, ctx) {
     if (Object.keys(r.declOnly).length) attrs.decl_only = r.declOnly;
     if (Object.keys(r.declPublic).length) attrs.decl_public = r.declPublic;
     attrs.words = r.words;
-    attrs.accessed = r.accessed;
-    if (r.publicMembers.length) attrs.public_members = r.publicMembers;
+    attrs.acc = r.acc;
+    attrs.calls = r.calls;
+    attrs.type_bases = r.typeBases;
+    if (r.publicMembers.length) { attrs.public_members = r.publicMembers; attrs.public_owners = r.publicOwners; }
   }
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
@@ -438,8 +440,10 @@ function link(ctx) {
         resolved.add(e.to);
         push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, {
           spec: e.spec, via: 'type', ...(e.declared_only && { declared_only: true, unused_member: e.unused_member, member_visibility: e.member_visibility }),
+          ...(e.use_evidence && { use_evidence: e.use_evidence, possible_use_of: e.possible_use_of }),
         }, prov_(path, e.line)));
       }
+      for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium')));
       for (const imp of cs.externals) {
         const first = imp.spec.split('.');
         const ext = first[0] === 'System' ? null : first[0] === 'Microsoft' ? first.slice(0, 2).join('.') : first[0];
@@ -449,7 +453,10 @@ function link(ctx) {
       delete a.decl_only;
       delete a.decl_public;
       delete a.words;
-      delete a.accessed;
+      delete a.acc;
+      delete a.calls;
+      delete a.type_bases;
+      delete a.public_owners;
     }
     for (const imp of a.language === 'csharp' ? [] : a.imports ?? []) {
       const r = resolve(path, a, imp);

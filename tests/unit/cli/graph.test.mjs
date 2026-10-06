@@ -169,3 +169,12 @@ test('neighbourhood: counts per relation, and says when calls cannot be seen for
   const r = graph('neighbourhood', 'src/cat/A.cs');
   assert.match(r.out, /\(IMPORTS \d+.*CALLS 1.*\)|\(.*CALLS 1.*IMPORTS \d+.*\)/);
 });
+
+test('neighbourhood: call edges appear by default, drop the missing-calls note, and --type narrows them', () => {
+  const all = graph('neighbourhood', 'src/cat/A.cs');
+  assert.match(all.out, /CALLS\s+module:src\/ord\/Y\.cs\s+module:src\/cat\/A\.cs/);
+  assert.doesNotMatch(all.out, /No CALLS edges/);
+  const only = json('neighbourhood', 'src/cat/A.cs', '--type', 'CALLS');
+  assert.deepEqual([...new Set(only.edges.map((e) => e.type))], ['CALLS']);
+  assert.ok(!json('neighbourhood', 'src/cat/A.cs', '--type', 'IMPORTS').edges.some((e) => e.type === 'CALLS'));
+});

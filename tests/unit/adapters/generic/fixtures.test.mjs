@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import adapter from '../../../../adapters/language/generic/index.mjs';
 import { lineOf, loadFixture } from './helpers.mjs';
 
-const EXTRACTOR = 'generic@0.1.3';
+const EXTRACTOR = 'generic@0.1.4';
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'generic');
-  assert.equal(adapter.version, '0.1.3');
+  assert.equal(adapter.version, '0.1.4');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
