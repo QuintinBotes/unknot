@@ -8,6 +8,17 @@
     "schema_version": {
       "const": "1.0"
     },
+    "supersedes": {
+      "description": "The earlier record this boundary replaces: its members changed, so it has a new id.",
+      "type": "string",
+      "pattern": "^DEC-\\d{4,}$"
+    },
+    "supersedes_overlap": {
+      "description": "Share of members the two records have in common (of the larger).",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
     "run_id": {
       "description": "The decompose run that wrote this record.",
       "oneOf": [

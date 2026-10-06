@@ -22,7 +22,7 @@ How to work:
    recorded `boundary.cohesion`, `boundary.coupling` and `boundary.stability`, and whether it
    is robust or unstable under perturbation. Report reverse dependencies with the
    `reverse_dependency_targets` so the reader can check them; low-confidence and test-module
-   edges are counted separately. If the record is `stale` (the graph was rebuilt since), say so; if it is `superseded`, say why
+   edges are counted separately. If the record is `stale` (the graph was rebuilt since), say so; if it `supersedes` an earlier record, name it so a reader comparing versions can follow the boundary; if it is `superseded`, say why
    and that `unknot decompose prune` removes it. Name `folded_siblings` (modules folded in because
    only members import them), the `owners` with their shares beside `owners.count` and
    `ownership.alignment`, and for an unstable candidate the `robustness_detail`: which run and

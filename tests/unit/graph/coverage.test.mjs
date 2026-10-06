@@ -51,3 +51,33 @@ test('ns: and seed: scope entries get a notice that map only narrows by path', a
   const r = await map(p, ['src', 'ns:Shop.Billing']);
   assert.ok(r.notices.some((n) => /ns: and seed:/.test(n)));
 });
+
+test('a file that becomes test code under a new classification is extracted again, not served from cache', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const p = K.makeProject({ files: { 'src/Shop.Checks/Helper.cs': cs(1), 'src/Shop.Checks/Shop.Checks.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n' } });
+  const isTest = () => JSON.parse(p.ctx.store.get("SELECT attrs FROM nodes WHERE id = 'module:src/Shop.Checks/Helper.cs'").attrs).is_test;
+  await map(p);
+  assert.equal(isTest(), false);
+  // Only the project file changes; the helper's bytes (and so its blob) stay the same.
+  writeFileSync(join(p.dir, 'src/Shop.Checks/Shop.Checks.csproj'), '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit" /></ItemGroup></Project>\n');
+  K.git(p.dir, 'commit', '-qam', 'make it a test project');
+  await map(p);
+  assert.equal(isTest(), true);
+});
+
+test('a project named like a test project, or declaring IsTestProject, is test code even without a test package', async () => {
+  const p = K.makeProject({ files: {
+    'src/Shop/Checks/Helper.cs': cs(1),
+    'src/Shop/Checks/Shop.Orders.UnitTests.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n',
+    'src/Shop/Probe/Helper2.cs': cs(2),
+    'src/Shop/Probe/Shop.Probe.csproj': '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup></Project>\n',
+    'src/Shop/Core/Order.cs': cs(3),
+    'src/Shop/Core/Shop.Core.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n',
+  } });
+  await map(p);
+  const isTest = (f) => JSON.parse(p.ctx.store.get('SELECT attrs FROM nodes WHERE id = ?', `module:${f}`).attrs).is_test;
+  assert.equal(isTest('src/Shop/Checks/Helper.cs'), true);
+  assert.equal(isTest('src/Shop/Probe/Helper2.cs'), true);
+  assert.equal(isTest('src/Shop/Core/Order.cs'), false);
+});

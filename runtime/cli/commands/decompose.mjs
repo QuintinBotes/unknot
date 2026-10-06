@@ -20,7 +20,7 @@ function showText(rec) {
   const c = rec.candidate;
   const m = c.metrics ?? {};
   const lines = [
-    `${rec.id}  ${c.name}  (${rec.target}, ${c.modules.length} modules, naming basis: ${c.name_basis ?? 'path'})${rec.stale ? '  STALE: the graph was rebuilt since this was written' : ''}${rec.superseded ? `  SUPERSEDED: ${rec.superseded}` : ''}`,
+    `${rec.id}  ${c.name}  (${rec.target}, ${c.modules.length} modules, naming basis: ${c.name_basis ?? 'path'})${rec.stale ? '  STALE: the graph was rebuilt since this was written' : ''}${rec.superseded ? `  SUPERSEDED: ${rec.superseded}` : ''}${rec.supersedes ? `  (replaces ${rec.supersedes}, ${Math.round((rec.supersedes_overlap ?? 0) * 100)}% of members shared)` : ''}`,
     `Treatment ${rec.treatment}, confidence ${rec.confidence}. ${rec.selection_reason ?? rec.retain_reason ?? ''}`,
     `Drivers: ${rec.driver.join(', ') || 'none recorded'}`,
   ];
@@ -66,7 +66,7 @@ export async function run({ positional, flags }) {
   if (sub === 'list') {
     const rows = listRecords(ctx);
     if (flags.json) return output(rows, { json: true });
-    return output(table(rows.map((r) => ({ ...r, stale: r.stale === null ? '?' : r.stale ? 'stale' : '', superseded: r.superseded ? 'superseded' : '', why: r.superseded ?? '' })), ['id', 'name', 'target', 'treatment', 'confidence', 'size', 'stale', 'superseded', 'why']));
+    return output(table(rows.map((r) => ({ ...r, stale: r.stale === null ? '?' : r.stale ? 'stale' : '', superseded: r.superseded ? 'superseded' : '', replaces: r.supersedes ?? '', why: r.superseded ?? '' })), ['id', 'name', 'target', 'treatment', 'confidence', 'size', 'stale', 'superseded', 'replaces', 'why']));
   }
   if (sub === 'prune') {
     const res = pruneRecords(ctx, { dryRun: Boolean(flags.dry_run) });

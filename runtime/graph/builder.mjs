@@ -75,6 +75,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   for (const adapter of loaded) {
     if (!adapter.extract && !adapter.extractBatch) continue;
     const od = optionsDigest(adapter, config);
+    // Facts depend on how the census classified the file (a test, a context file), not only on
+    // its bytes: a file that becomes test code under a newer rule must be extracted again.
+    const keyOf = (f) => `${od}|${f?.kind ?? ''}${f?.is_test ? '|test' : ''}${f?.context ? '|context' : ''}`;
     const options = config.adapters?.[adapter.id] ?? {};
     // Repository-level context files (kept outside the scope) go only to adapters that declare them.
     const files = cen.files.filter((f) => analysable(f) && matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []));
@@ -89,7 +92,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         }
       }
       const hit = getIndex.get(f.path, adapter.id);
-      if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === od) {
+      if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === keyOf(f)) {
         addFacts(f.path, JSON.parse(hit.facts), adapter.id);
         stats.cached++;
       } else misses.push(f);
@@ -138,7 +141,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           facts = facts.map((f) => redactDeep(assertFact(f)));
           const entry = filesByPath.get(r.path);
           if (entry && !entry.blob) entry.blob = r.blob;
-          if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, od, r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
+          if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, keyOf(entry), r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
           addFacts(r.path, facts, adapter.id);
           stats.extracted++;
           extracted++;

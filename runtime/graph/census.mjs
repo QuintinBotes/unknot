@@ -71,8 +71,11 @@ export function looksGenerated(text) {
 // .NET keeps tests in projects, not in files named *Tests.cs: a directory named like a test
 // project (Shop.Orders.Tests, Shop.UnitTests, Shop.Specs, ...Tests) holds only test code.
 const TEST_DIR = /(^|\/)[^/]*(Tests|\.Test|\.Specs?)\//;
-// A project that references a test framework is a test project wherever it sits.
-const TEST_SDK = /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i;
+// A project that references a test framework, says it is one, or is named like one is a test
+// project wherever it sits (the test SDK often arrives through shared build files instead).
+const TEST_SDK = /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest|<IsTestProject>\s*true/i;
+const TEST_PROJECT_NAME = /(Tests?|Specs?)\.(cs|fs|vb)proj$/i;
+const PROJECT = /\.(cs|fs|vb)proj$/i;
 const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
 
 /**
@@ -82,7 +85,11 @@ const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/'
 function testProjectDirs(root, paths) {
   const found = new Set();
   for (const p of paths) {
-    if (!/\.csproj$/i.test(p)) continue;
+    if (!PROJECT.test(p)) continue;
+    if (TEST_PROJECT_NAME.test(p)) {
+      found.add(dirOf(p));
+      continue;
+    }
     try {
       if (TEST_SDK.test(readFileSync(join(root, p), 'utf8'))) found.add(dirOf(p));
     } catch {
@@ -170,7 +177,7 @@ export function census(root, { config, scope = [] } = {}) {
   const vendoredGlobs = [...VENDORED, ...attrs.vendored];
   const maxBytes = config?.limits?.max_file_bytes ?? 2 * 1024 * 1024;
   const scopeGlobs = pathGlobs(scope) ?? [];
-  const csproj = paths.filter((p) => /\.csproj$/i.test(p));
+  const csproj = paths.filter((p) => PROJECT.test(p));
   const testProjects = csproj.length ? testProjectDirs(root, paths) : new Set();
   const projectDirs = new Set(csproj.map(dirOf));
   const files = [];

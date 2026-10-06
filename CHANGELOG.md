@@ -4,6 +4,28 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.1.14] - 2026-10-06
+
+Fixes from a third review run, on 0.1.13.
+
+### Fixed
+
+- A re-map extracts a file again when the census classifies it differently, even if its bytes
+  did not change. Before, files that newer rules (or a new test `.csproj`) make test code kept
+  their cached `is_test: false`, so test helpers stayed decomposition candidate members after an
+  upgrade. The first map after upgrading re-extracts every file once.
+- A project file named like a test project (`*Tests.csproj`, `*Specs.csproj`) or setting
+  `<IsTestProject>true` marks its directory as test code, also when the test SDK arrives through
+  shared build files rather than the project's own references.
+
+### Changed
+
+- Sibling folding reaches below a directory where the candidate has at least two members (never
+  below the root or a top-level directory), and a whole small cluster used only by one candidate
+  joins it instead of standing as a candidate of its own.
+- A decomposition record whose members changed, and so its id, names the record it replaces
+  (`supersedes`, `supersedes_overlap`); `decompose list` shows the earlier one as replaced.
+
 ## [0.1.13] - 2026-10-05
 
 Fixes from a second first-run review on 0.1.11.

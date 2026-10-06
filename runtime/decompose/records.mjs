@@ -15,6 +15,24 @@ export function fingerprintOf({ target, drivers, modules }) {
   return createHash('sha256').update(JSON.stringify({ target, drivers: [...drivers].sort(), modules: [...modules].sort() })).digest('hex');
 }
 
+/**
+ * The earlier record a boundary replaces when its members changed (and so its fingerprint and
+ * id): same target, the most members shared, at least half of the larger of the two, and not
+ * already the current record of another boundary.
+ * @returns {{id: string, overlap: number}|null}
+ */
+export function predecessorOf(records, { target, modules }, claimed) {
+  const set = new Set(modules);
+  let best = null;
+  for (const r of records) {
+    if (r.target !== target || claimed.has(r.id)) continue;
+    const other = r.candidate?.modules ?? [];
+    const overlap = other.filter((m) => set.has(m)).length / Math.max(set.size, other.length, 1);
+    if (overlap >= 0.5 && (!best || overlap > best.overlap)) best = { id: r.id, overlap: +overlap.toFixed(2) };
+  }
+  return best;
+}
+
 /** Every readable record, sorted by id. Unreadable files are skipped. */
 export function loadRecords(ctx) {
   const dir = dirOf(ctx);
@@ -43,6 +61,8 @@ const staleOf = (ctx, r) => (r.graph_generation === undefined ? null : r.graph_g
  * produced records again (until then it is only stale: nothing has replaced it).
  */
 function supersededBy(r, all, gen) {
+  const by = all.find((o) => o.supersedes === r.id);
+  if (by) return `replaced by ${by.id} (${Math.round((by.supersedes_overlap ?? 0) * 100)}% of members shared; its members changed, so it has a new id)`;
   if (!r.fingerprint) return 'written by an older version (no fingerprint), so no rerun overwrites it';
   if (r.graph_generation !== undefined && r.graph_generation < gen && all.some((o) => o.graph_generation === gen)) {
     return `older graph generation (${r.graph_generation}, now ${gen}) and not produced again since`;
@@ -78,6 +98,7 @@ export function listRecords(ctx) {
     graph_generation: r.graph_generation ?? null,
     stale: staleOf(ctx, r),
     superseded: supersededBy(r, all, gen),
+    supersedes: r.supersedes ?? null,
   }));
 }
 
