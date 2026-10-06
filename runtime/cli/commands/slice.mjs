@@ -5,6 +5,7 @@
 import { UnknotError } from '../../core/errors.mjs';
 import { git } from '../../apply/git.mjs';
 import { redact } from '../../core/redact.mjs';
+import { staleEvidence } from '../../plan/staleness.mjs';
 import { output } from '../util.mjs';
 import { open, sliceRow } from './_shared.mjs';
 
@@ -26,5 +27,6 @@ export async function run({ positional, flags }) {
   const approvals = ctx.store.all('SELECT id, stage, role, approver, expires_at, revoked_at, revoked_reason FROM approvals WHERE slice_id = ?', s.id);
   const { sliceStanding } = await import('../../policy/lanes.mjs');
   const st = sliceStanding(s, config);
-  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
+  const stale = staleEvidence(ctx, s.body);
+  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(stale.length && { stale_evidence: stale }), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
 }

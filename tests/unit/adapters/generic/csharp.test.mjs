@@ -407,3 +407,34 @@ test('calls: a receiver name declared with two types is a low-confidence call', 
   });
   assert.equal(callEdge(g, 'S/Journal.cs', 'S/Ledger.cs').provenance.confidence, 'low');
 });
+
+// Issue #19: a receiver whose declared type is outside the mapped files is not a use of a mapped type's member.
+const FOREIGN = '        private readonly ShopContext ctx;\n        int A(Entity entity) { return entity.Ledgers; }\n        int B() { return ctx.Ledgers; }';
+
+test('foreign-typed receivers: a declared type outside the mapped scope is not a possible use', () => {
+  const g = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', FOREIGN) }));
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.equal(a.declared_only, true);
+  assert.equal(a.use_evidence, undefined);
+});
+
+test('foreign-typed receivers: receivers with no declared type keep the name-only path and are named', () => {
+  const g = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', `${FOREIGN}\n        int C() { return Get().Ledgers; }`) }));
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.ok(!a.declared_only);
+  assert.equal(a.use_evidence, 'name-only');
+  assert.equal(a.possible_use_of, 'Ledgers');
+  assert.match(a.possible_receivers, /Use\.cs/);
+});
+
+test('foreign-typed receivers: a mapped, unrelated type is a full-confidence finding; the declaring type still counts', () => {
+  const g = build(ledgerFiles(HOST, {
+    'S/Context.cs': cls('Shop.Svc', 'ShopContext', '        public int Ledgers { get; set; }'),
+    'S/Use.cs': cls('Shop.Svc', 'Use', '        private readonly ShopContext ctx;\n        int B() { return ctx.Ledgers; }'),
+  }));
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.equal(a.declared_only, true);
+  assert.equal(a.use_evidence, undefined);
+  const t = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', `${FOREIGN}\n        void F(Host h) { h.Ledgers.Write(); }`) }));
+  assert.ok(!t.edge('S/Host.cs', 'S/Ledger.cs').attrs.declared_only);
+});
