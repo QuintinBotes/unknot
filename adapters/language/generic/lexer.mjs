@@ -18,6 +18,8 @@ const OPTS = {
   c: { char: true },
   cpp: { char: true, cppRaw: true },
   groovy: { sq: true, tq: true },
+  typescript: { sq: true, backtick: true },
+  python: { sq: true, tq: true, hash: true, noSlash: true },
 };
 
 const CHAR_RE = /'(?:\\(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2}|[0-7]{1,3}|[^\n])|[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\\'\n])'/y;
@@ -30,7 +32,20 @@ const isWord = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
 
 /** Overwrite a range with spaces, keeping newlines so line numbers survive. */
 function wipe(arr, a, b) {
-  for (let k = a; k < b; k++) if (arr[k] !== '\n' && arr[k] !== '\r') arr[k] = ' ';
+  for (let k = a; k < b; k++) if (arr[k] !== 10 && arr[k] !== 13) arr[k] = 32;
+}
+
+// The text as UTF-16 code units and back: typed arrays, not one string per character, so a
+// large file costs two buffers instead of millions of objects.
+function units(text) {
+  const out = new Uint16Array(text.length);
+  for (let k = 0; k < text.length; k++) out[k] = text.charCodeAt(k);
+  return out;
+}
+function str(arr) {
+  let out = '';
+  for (let k = 0; k < arr.length; k += 8192) out += String.fromCharCode.apply(null, arr.subarray(k, k + 8192));
+  return out;
 }
 
 /**
@@ -41,7 +56,7 @@ function wipe(arr, a, b) {
 export function lex(text, lang) {
   const o = OPTS[lang] ?? OPTS.c;
   const n = text.length;
-  const plain = text.split('');
+  const plain = units(text);
   const code = plain.slice();
   const lits = [];
   const pending = [];
@@ -97,7 +112,7 @@ export function lex(text, lang) {
       continue;
     }
     // comments
-    if ((o.hash && c === '#' && !(o.php && d === '[')) || (!o.ruby && c === '/' && d === '/')) {
+    if ((o.hash && c === '#' && !(o.php && d === '[')) || (!o.ruby && !o.noSlash && c === '/' && d === '/')) {
       const e = lineEnd(i);
       wipe(plain, i, e); wipe(code, i, e);
       i = e;
@@ -110,7 +125,7 @@ export function lex(text, lang) {
       i = stop;
       continue;
     }
-    if (!o.ruby && c === '/' && d === '*') {
+    if (!o.ruby && !o.noSlash && c === '/' && d === '*') {
       let depth = 1;
       let j = i + 2;
       while (j < n && depth > 0) {
@@ -228,7 +243,7 @@ export function lex(text, lang) {
     byStart.set(l.start, l);
   }
   return {
-    text, code: code.join(''), plain: plain.join(''), literals: lits, lineStarts, lineOf,
+    text, code: str(code), plain: str(plain), literals: lits, lineStarts, lineOf,
     lineStartOf: (off) => lineStarts[lineOf(off) - 1],
     litAt: (off) => byStart.get(off),
   };

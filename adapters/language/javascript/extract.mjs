@@ -10,11 +10,16 @@ import { tokenize } from './tokenizer.mjs';
 import { detectMicroFrontends } from './mfe.mjs';
 import { findUnreachable } from './unreachable.mjs';
 import { buildMatch } from './tokutil.mjs';
+import { clientFacts } from '../http-ops.mjs';
+import { lex } from '../generic/lexer.mjs';
+import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
+import { memberAttrs, memberRefs } from '../generic/members.mjs';
 
 const CODE_FILE_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 const TS_RE = /\.(?:ts|mts|cts|tsx)$/;
 const NO_JSX_RE = /\.(?:ts|mts|cts)$/;
 const MAX_FACTS = 5000;
+const MAX_MEMBER_TEXT = 1_500_000;
 const TEST_FILE_RE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/|(?:^|\/)tests?\/)/;
 
 export const isTestPath = (p) => TEST_FILE_RE.test(p);
@@ -127,7 +132,7 @@ function codeFacts(file, text, as = {}) {
   const degraded = tk.issues.length > 0 || bad > 0 || failed;
   const p = mk(path, degraded);
 
-  let fw = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
+  let fw = { endpoints: [], clients: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
   try {
     if (!failed) fw = detectFrameworks({ path, tokens, n, match, analysis });
   } catch {
@@ -207,6 +212,13 @@ function codeFacts(file, text, as = {}) {
     const id = node('endpoint', key, { name: key, path, attrs }, p(e.line, 'medium'));
     facts.push(edgeFact('EXPOSES', modId, id, { framework: e.framework }, p(e.line, 'medium')));
   }
+  // A client class (decorated members without bodies) is a contract the module declares.
+  for (const c of fw.clients ?? []) {
+    facts.push(...clientFacts({
+      modId, cid: `${path}#${c.cls.qname}`, name: c.cls.qname, path, line: c.cls.start_line, interfaceId: classByQ.get(c.cls.qname),
+      lang: ts ? 'typescript' : 'javascript', framework: 'decorator', ops: c.ops, pv: (line) => p(line, 'medium', 'inference'),
+    }));
+  }
   // A layout route and its index route share a URL, so routes group by path and keep every component.
   const routeGroups = new Map();
   for (const r of [...fw.routes, ...conv.routes]) {
@@ -265,6 +277,16 @@ function codeFacts(file, text, as = {}) {
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
   };
+  // Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted.
+  // Types are only stated in TypeScript, so only it can be read for them.
+  if (ts && !failed && text.length < MAX_MEMBER_TEXT) {
+    try {
+      const types = [...analysis.classes, ...analysis.interfaces].map((c) => ({ name: c.name ?? c.qname, startLine: c.start_line, endLine: c.end_line, bases: [c.extends, ...(c.implements ?? [])].filter(Boolean) }));
+      Object.assign(attrs, memberAttrs(memberRefs(lex(text, 'typescript'), types, MEMBER_SYNTAX.typescript)));
+    } catch {
+      // Optional signal: a failure here only costs the unused-member analysis of this file.
+    }
+  }
   if (degraded) attrs.parse_issues = tk.issues.concat(bad ? [`bracket mismatches: ${bad}`] : [], failed ? ['structure pass failed'] : []).slice(0, 10);
   if (truncated) attrs.truncated = true;
   return [nodeFact('module', path, { name: path, path, attrs }, p(1)), ...facts];

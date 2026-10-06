@@ -363,7 +363,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   m['module.consumers'] = consumers.size;
   details.evidence['module.consumers'] = [...consumers].sort();
   // A contract is an OpenAPI or Pact description of a served endpoint, or a typed HTTP client
-  // (Refit, Feign, Retrofit) its callers use; the routes and the clients per route go in the record.
+  // its callers use; the routes and the clients per route go in the record.
   const contract = contractEvidence(graph, members);
   if (endpointsTotal || contract.present) m['contracts.present'] = contract.present ? 1 : 0;
   if (contract.present) {

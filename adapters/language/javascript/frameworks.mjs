@@ -4,10 +4,10 @@
 // that cannot see a literal name simply emits nothing.
 
 import { makeUtil } from './tokutil.mjs';
+import { clientPath, operations, readMarker, typeBase } from '../http-ops.mjs';
 
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'];
 const HTTP_SET = new Set(HTTP_METHODS);
-const NEST_DECOS = new Map([['Get', 'GET'], ['Post', 'POST'], ['Put', 'PUT'], ['Patch', 'PATCH'], ['Delete', 'DELETE'], ['Options', 'OPTIONS'], ['Head', 'HEAD'], ['All', 'ALL']]);
 const ROUTER_OBJ = /^(?:app|router|server|fastify|hono|koa|routes?|\w+Router|\w+App|\w+Server|\w+Routes?)$/i;
 const NEXT_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
 const CODE_EXT = '(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)';
@@ -90,7 +90,7 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   const { at, isP, isId, splitArgs, literalOf, objectEntries } = U;
   const imports = new Set(analysis.imports.map((i) => i.specifier));
   const importsAny = (...names) => names.some((x) => [...imports].some((s) => s === x || s.startsWith(`${x}/`)));
-  const res = { endpoints: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
+  const res = { endpoints: [], clients: [], routes: [], messaging: [], stores: [], security: [], reqMethods: [], mongo: { collections: [], ops: [] } };
 
   const serverFramework = importsAny('express') ? 'express'
     : importsAny('fastify') ? 'fastify'
@@ -300,21 +300,37 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
     }
   }
 
-  function nestEndpoints() {
+  // Decorated members: a verb decorator with a route on a method with a body is an endpoint, on
+  // a signature without one (abstract or ambient) it is a client operation. A class decorator
+  // that names a base path (see SYNTAX in ../http-ops.mjs) is joined to every route.
+  function decoratedOperations() {
+    const norm = (p) => joinPath(p);
+    const marker = (d) => ({ name: d.name, args: { route: d.args[0] ?? null } });
+    // Decorated methods grouped by class once: a class with no decorator anywhere has no route.
+    const methodsOf = new Map();
+    for (const f of analysis.functions) {
+      if (!f.cls || !f.decorators?.length) continue;
+      if (!methodsOf.has(f.cls)) methodsOf.set(f.cls, []);
+      methodsOf.get(f.cls).push(f);
+    }
     for (const c of analysis.classes) {
-      const ctl = c.decorators.find((d) => d.name === 'Controller');
-      if (!ctl) continue;
-      const prefix = ctl.args[0] ?? '';
-      for (const f of analysis.functions) {
-        if (f.cls !== c.qname) continue;
-        for (const d of f.decorators) {
-          const method = NEST_DECOS.get(d.name);
-          if (!method) continue;
-          res.endpoints.push({
-            method, path: joinPath(prefix, d.args[0] ?? ''), framework: 'nestjs', line: d.line, handler: f.qname, controller: c.qname,
-          });
+      if (!c.decorators.length && !methodsOf.has(c.qname) && !(c.signatures ?? []).some((sig) => sig.decorators.length)) continue;
+      const base = typeBase('typescript', c.decorators.map(marker));
+      const ctl = c.decorators.find((d) => readMarker('typescript', d.name, marker(d).args)?.base);
+      for (const f of methodsOf.get(c.qname) ?? []) {
+        for (const o of operations('typescript', f.decorators.map(marker), { base, norm })) {
+          const e = { method: o.method, path: o.path, framework: 'decorator', line: f.decorators[0]?.line ?? f.start_line, handler: f.qname };
+          if (ctl) e.controller = c.qname;
+          res.endpoints.push(e);
         }
       }
+      const ops = [];
+      for (const sig of c.signatures ?? []) {
+        for (const o of operations('typescript', sig.decorators.map(marker), { base, client: true, norm })) {
+          ops.push({ ...o, path: clientPath(o.path, norm), name: sig.name, line: sig.line });
+        }
+      }
+      if (ops.length) res.clients.push({ cls: c, ops });
     }
   }
 
@@ -548,7 +564,7 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   requestMethods();
   endpointCalls();
   fastifyRoutes();
-  nestEndpoints();
+  decoratedOperations();
   jsxRoutes();
   routeArrays();
   messaging();

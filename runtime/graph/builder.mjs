@@ -200,7 +200,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   perFile.clear();
   for (const [path, facts] of ordered) perFile.set(path, facts);
   lap('extraction_ms');
-  const fileFacts = [...perFile.values()].flat();
+  let fileFacts = [];
   const global = [];
   // Files a semantic adapter (a SCIP index) covers, with what it decided about them; read by the language adapters' link.
   const semantic = new Map();
@@ -212,6 +212,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  // Linking may retract per-file facts (a client interface a repository implements is a server API).
+  fileFacts = [...perFile.values()].flat();
   lap('link_ms');
   const readText = evidenceReader(ctx, config);
   // Discovery is cached like extraction: keyed by everything its result can depend on

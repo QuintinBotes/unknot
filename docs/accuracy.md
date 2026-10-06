@@ -131,7 +131,7 @@ Saleor's seeded dead function is now found.
 
 Dead code is reported only where the code is parsed into a syntax tree, so the lexical
 languages (C#, Java, Go, PHP, Ruby) do not report it by design; the unused injected member is
-resolved for C# only. Labelling the new samples is the next step to tighten these numbers.
+resolved for C#, Java, Kotlin, TypeScript, Python and Go (and, with an index, for any language). Labelling the new samples is the next step to tighten these numbers.
 
 ## First results (Unknot 0.1.15)
 
@@ -209,8 +209,9 @@ Java 4 of 8. The misses are explained:
   will rise with the semantic tier of roadmap item 1. It was also missed for the Python seed
   (a private function in a new module of Saleor), which is worth investigating; only TypeScript
   found it.
-- **Unused injected member** is implemented for C# only. It was found in nopCommerce and not in
-  the two Java repositories.
+- **Unused injected member** was implemented for C# only when these samples were taken. It was found in
+  nopCommerce and not in the two Java repositories; Java, Kotlin, TypeScript, Python and Go now use the
+  same engine, which these numbers do not cover.
 
 ### Cost and caveats
 

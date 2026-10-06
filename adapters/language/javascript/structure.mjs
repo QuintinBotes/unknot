@@ -748,6 +748,7 @@ export function analyze(tokens, n, match, { ts = false } = {}) {
       exported: false,
       parent: t.own?.qname ?? null,
       methods: [],
+      signatures: [], // decorated members without a body: abstract or ambient declarations
     };
     cls.lines = cls.end_line - cls.start_line + 1;
     pend = [];
@@ -814,6 +815,7 @@ export function analyze(tokens, n, match, { ts = false } = {}) {
           jump.set(k, body);
           k = bodyClose + 1;
         } else {
+          if (decos.length) cls.signatures.push({ name, decorators: decos, line: at(nameIdx).l });
           k = exprEnd(c + 1, true) + 1; // overload or abstract signature
           jump.set(nameIdx, k);
         }
