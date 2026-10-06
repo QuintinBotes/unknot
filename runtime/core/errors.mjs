@@ -18,6 +18,7 @@ export const ERROR_CLASSES = Object.freeze({
   UK_SCHEMA_INVALID: { class: 'configuration', retryable: false },
   UK_NOT_FOUND: { class: 'configuration', retryable: false },
   UK_NOT_INITIALIZED: { class: 'configuration', retryable: false },
+  UK_WORKSPACE_UNACCEPTED: { class: 'configuration', retryable: false },
   UK_INTEGRITY: { class: 'recovery-required', retryable: false },
 });
 

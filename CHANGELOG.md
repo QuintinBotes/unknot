@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- `unknot workspace add <name> <path>` and `workspace remove <name>` (#50) write the workspace repositories into the configuration proposal (never the accepted config), validating a git root, a unique name and path, and a path outside `.unknot/`, and record `workspace add` as the source for `config diff`. `workspace list` and `map` in a root whose repositories are only in an unaccepted proposal fail with the new error code `UK_WORKSPACE_UNACCEPTED`, and `status` says why the accept step is listed.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

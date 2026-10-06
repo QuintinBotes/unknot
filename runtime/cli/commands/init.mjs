@@ -287,8 +287,8 @@ export function detect(root) {
   return { commands, notes, protectedPaths, evidence, sources };
 }
 
-export async function run({ flags }) {
-  const { ctx, actor } = open(flags, { create: true });
+/** The template proposal for a root, or its accepted configuration plus what is newly detected. */
+export async function baseProposal(ctx) {
   const d = detect(ctx.root);
   const proposed = {
     version: 1,
@@ -321,6 +321,12 @@ export async function run({ flags }) {
     Object.keys(proposed).forEach((k) => delete proposed[k]);
     Object.assign(proposed, accepted, { commands: { ...(accepted.commands ?? {}), ...commands }, protected_paths: [...(accepted.protected_paths ?? []), ...paths] });
   }
+  return { d, proposed, update };
+}
+
+export async function run({ flags }) {
+  const { ctx, actor } = open(flags, { create: true });
+  const { d, proposed, update } = await baseProposal(ctx);
   const nothingNew = update && !Object.keys(update.added_commands).length && !update.added_protected_paths.length;
   if (!nothingNew) {
     const proposedText = `# repository.publishes_api: true treats public members as possible library API, so removing one is never a proven deletion.\n# Set it to false only if this repository publishes no library API and its public members are internal.\n${stringifyYAML(proposed)}`;
