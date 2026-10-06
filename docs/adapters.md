@@ -54,6 +54,20 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 
 `link` compares contracts with the endpoints found in code and marks `undocumented` and `unimplemented` ones. Both are medium confidence because path styles differ between frameworks.
 
+#### Typed HTTP clients
+
+A declarative client interface is a contract too, and the `generic` adapter (0.1.6) reads it, at medium confidence and labelled `inference`:
+
+| Language | Form | Not covered |
+|---|---|---|
+| C# | Refit: `[Get("/v1/orders/{id}")]`, `Post`, `Put`, `Delete`, `Patch`, `Head`, `Options` on interface methods (`[Headers]` and other attributes are ignored; a query string is dropped from the route) | Routes built at run time, `HttpClient` calls |
+| Java, Kotlin | Feign: an interface annotated `@FeignClient` with Spring mapping annotations (`@GetMapping`, `@RequestMapping(method = ...)`, class `path`) or `@RequestLine("GET /x")`; Retrofit: `@GET("x")` with the path as an argument | `@FeignClient` base paths set elsewhere, interface inheritance |
+| TypeScript, JavaScript | none: there is no common declarative form (fetch, axios and Angular `HttpClient` calls are imperative), so no client facts are produced | all |
+
+Each interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
+
+`unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
+
 ### Databases
 
 The `database` adapter parses SQL and migrations and reads catalog exports you supply. It never connects, never runs SQL.

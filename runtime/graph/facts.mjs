@@ -8,6 +8,8 @@ export const NODE_TYPES = Object.freeze(new Set([
   // code and build
   'repository', 'workspace', 'package', 'module', 'namespace', 'build_target', 'file', 'dependency',
   'function', 'method', 'class', 'interface', 'type', 'endpoint', 'command', 'route', 'component', 'store',
+  // a declared client of an HTTP API (an interface of route-attributed operations) and each operation it declares
+  'contract',
   // messaging and deployment
   'event', 'topic', 'queue', 'job', 'workflow', 'service', 'deployable', 'feature_flag',
   // identifier-like string constants: metric names, config keys, routes, roles, queue names

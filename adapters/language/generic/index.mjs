@@ -13,7 +13,7 @@ import { frameworkInfo } from './frameworks.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.5';
+const VERSION = '0.1.6';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -235,8 +235,26 @@ function extract(file, text, ctx) {
     }
     body.push(edgeFact('EXPOSES', (e.handler && ids.get(e.handler)) || modId, `endpoint:${eid}`, { framework: e.framework }, prov_(path, e.line, 'medium', 'inference')));
   }
+  // A typed HTTP client is a contract the module declares: one `contract` per interface holding
+  // its operations, one `contract` per distinct route, and the client module consumes each.
+  for (const c of fw.clients) {
+    const cid = key('contract', `${path}#${c.type.name}`, c.type.startLine);
+    const operations = c.ops.map((o) => ({ method: o.method, path: o.path, name: o.name, line: o.line }));
+    body.push(nodeFact('contract', cid, {
+      name: c.type.name,
+      path,
+      attrs: { kind: 'http_client', framework: c.framework, language: lang, interface: ids.get(c.type), operations },
+    }, prov_(path, c.type.startLine, 'medium', 'inference')));
+    body.push(edgeFact('CONTAINS', modId, `contract:${cid}`, {}, prov_(path, c.type.startLine, 'medium', 'inference')));
+    for (const o of c.ops) {
+      const oid = `${o.method} ${o.path}`;
+      body.push(nodeFact('contract', oid, { name: oid, attrs: { kind: 'client_operation', method: o.method, path: o.path } }, prov_(path, o.line, 'medium', 'inference')));
+      body.push(edgeFact('DEFINES', `contract:${cid}`, `contract:${oid}`, { operation: o.name }, prov_(path, o.line, 'medium', 'inference')));
+      body.push(edgeFact('CONSUMES', modId, `contract:${oid}`, { framework: c.framework, interface: c.type.name, operation: o.name }, prov_(path, o.line, 'medium', 'inference')));
+    }
+  }
   for (const t of fw.tables) {
-    const tid = `public.${t.name}`;
+    const tid =`public.${t.name}`;
     body.push(nodeFact('table', tid, { name: t.name, attrs: { schema: 'public', orm: t.orm } }, prov_(path, t.line, t.confidence, 'inference')));
     // A fluent mapping names an entity whose file may differ from this one: link() adds that owner.
     if (t.entity) (attrs.ef_tables ??= []).push({ entity: t.entity, table: t.name, line: t.line });

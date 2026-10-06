@@ -8,6 +8,7 @@ import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
+import { contractEvidence } from './contracts.mjs';
 
 /**
  * @returns {{candidates: object[], modularity: number, stats: object}}
@@ -354,17 +355,24 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
   const consumers = new Set();
-  let contracts = 0;
   let endpointsTotal = 0;
   for (const id of members) {
     for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') consumers.add(e.from);
     const eps = [...graph.out(id, 'EXPOSES'), ...graph.children(id).flatMap((c) => graph.out(c.id, 'EXPOSES'))];
     endpointsTotal += eps.length;
-    contracts += eps.filter((e) => graph.node(e.to)?.attrs?.contract).length;
   }
   m['module.consumers'] = consumers.size;
   details.evidence['module.consumers'] = [...consumers].sort();
-  if (endpointsTotal) m['contracts.present'] = contracts > 0 ? 1 : 0;
+  // A contract is an OpenAPI or Pact description of a served endpoint, or a typed HTTP client
+  // (Refit, Feign, Retrofit) its callers use; the routes and the clients per route go in the record.
+  const contract = contractEvidence(graph, members);
+  if (endpointsTotal || contract.present) m['contracts.present'] = contract.present ? 1 : 0;
+  if (contract.present) {
+    details.contracts = contract.routes;
+    details.evidence['contracts.present'] = contract.evidence;
+    m['clients.count'] = contract.clients;
+    details.evidence['clients.count'] = contract.routes.flatMap((r) => r.interfaces).filter((x, i, a) => a.indexOf(x) === i).sort();
+  }
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
   const common = dirs.reduce((a, b) => {
     const x = a.split('/');
