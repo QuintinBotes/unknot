@@ -1,0 +1,42 @@
+{
+  "sha256:9d806da24fe515b074ef55f4c5d8e9f8084cc929aa5be3f90c5decaa4c4784f2": {
+    "label": "true",
+    "note": "Modules trait dispatches DisableModule, which itself uses the Modules trait; a real mutual dependency."
+  },
+  "sha256:aeec72a6a90f283afccc9d3118679ff0cb64511d083701cb0b17e4c1be614392": {
+    "label": "true",
+    "note": "handle mixes validation, media, role sync, company sync and seeding in one 69-line transaction."
+  },
+  "sha256:7443afd5cb90a5ec634d586115fb5d99d67cfc4033fefa78fa8f4e5dfbaed9df": {
+    "label": "true",
+    "note": "Abstract Report class has 64 methods over 1000 lines of mixed responsibilities."
+  },
+  "sha256:9262134f54c9f4b5cdbe938d15828b3d009b3fc462b69426825fd397984c2fc9": {
+    "label": "not-worth",
+    "note": "Overlap is Eloquent model boilerplate; the models differ in scopes and relations."
+  },
+  "sha256:7a733b574899c63cdeb686d7e251f6f5fcdc9200033d860d7636e2b9b7710dd8": {
+    "label": "true",
+    "note": "tests.yml has no permissions block so the default token scope applies."
+  },
+  "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
+    "label": "not-worth",
+    "note": "canAccess and errorUnauthorized are per-controller helpers, not a re-implemented auth layer."
+  },
+  "sha256:76f61eb43d0f8ebd0ca49132fee6131b22ed8413c8b2f88488de88fa10505786": {
+    "label": "not-worth",
+    "note": "Official actions pinned by major tag in a test-only workflow."
+  },
+  "sha256:6bb3b37e39c77994e2c0ee4a6cd72bbf71410bc3d96d27a1b980a0ab0d2a4890": {
+    "label": "false",
+    "note": "The line is an api_key text input bound to a form model, not a hardcoded secret."
+  },
+  "sha256:51d7ccdd95b5195eda1faff09dac9ec5a4d3a6e0e06a0190d9595009539546ba": {
+    "label": "not-worth",
+    "note": "Nesting of 5 is just over threshold in a straightforward error-reporting loop."
+  },
+  "sha256:a682196c0272cb074ee82796196416479d66cf985217d8712a002b68d7bf45cb": {
+    "label": "not-worth",
+    "note": "Blade view component constructor passing display props; framework boilerplate."
+  }
+}

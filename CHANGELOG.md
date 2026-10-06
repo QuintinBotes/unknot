@@ -4,6 +4,52 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [0.2.0] - 2026-10-06
+
+### Added
+
+- Identifier-like string constants (metric names, configuration keys, routes, roles, queue names) are graph nodes: `constant:<value>` with an inferred `subkind`, `DEFINES` edges from where a string or key is defined and `REFERENCES` edges from where it is used, directly or through its constant's name (`literals` adapter). Prose and log messages are not indexed; per-file and per-repository caps give a notice; `map` and `status` report the count. `unknot search` and `search_text` answer exact and prefix matches from these nodes and say whether the graph or a scan answered (`--scan` forces the scan).
+- Store migrations are ordered and named (`runtime/state/migrations.mjs`), recorded in `meta`, and run in one transaction on open; a store newer than the runtime is refused.
+- Saved decomposition records, and slice and campaign bodies shown by tools, are upgraded on read when an older release wrote them (`runtime/state/upgrade.mjs`).
+- `scripts/upgrade-test.mjs` and the `upgrade from previous releases` CI job map a fixture project with each of the last five releases and upgrade it in place with the current checkout.
+- Repository guidance (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, Copilot and Cursor rules, `CONTRIBUTING.md`) is read nearest-first and can only tighten policy: a path it forbids becomes a protected path, recorded with its source.
+- Derived graph facts (components, declared-only edges, public surface, test code, ownership) are computed once per map and read by every command, and a consistency suite checks that commands agree.
+- Release channels: `main` is beta (the repository's own marketplace); a release tag advances the `stable` branch, which the catalog entry pins.
+- Accuracy harness (`scripts/accuracy.mjs`, `docs/accuracy.md`): a pinned corpus of public repositories in seven languages, stratified precision per finding kind and language against labels, and recall of seeded defects.
+- Benchmark tiers of 50k, 250k and 1m generated files in five languages, with per-phase timings, peak memory and store size (`docs/benchmarks.md`).
+- `unknot search <text>` and the `search_text` MCP tool: where a string is defined, what references it (one hop through constants) and who owns those files.
+- C# member accesses resolve their receiver's declared type (fields, properties, parameters, locals, `new`, casts, patterns, `foreach`), so a same-named member on another type no longer hides an unused one; resolved calls become module-level `CALLS` edges with a count (#9, #12).
+- `unknot graph edges <node> --direction in|out|both`; `unknot graph nodes --name/--path`; `graph neighbourhood` counts edges per relation (#12).
+- `unknot graph cycles --max-cycles N|all` (default 50; `all` lists up to 5,000), a notice when the cap is hit, and cut candidates on every listed cycle, ranked by how many listed cycles each edge is in (#13).
+- `unknot map --branch-ok <branch>`: the map warns when the mapped checkout is not the default branch, is behind it or its upstream, is a detached HEAD or has uncommitted changes, and `status` repeats it (#11).
+- `unknot policy denials`: recent refusals with their rule and next step.
+
+### Changed
+
+- `boundary.outbound_dependencies` (and `_test`, `_low_confidence`) and `outbound_dependency_targets` name what a candidate depends on; the `reverse_deps*` metrics and `reverse_dependency_targets` remain as deprecated aliases until 0.3.0 (#15).
+- Refusals name the rule, the operand and its role (the copy destination, the redirect target, the rm operand) and the next step, and the precise check runs before the general one (#8).
+- The read budget counts each file once, however many adapters read it, and a map of a repository above it stops before reading anything, naming the setting. Defaults: 250,000 files, 4 GiB.
+- `duplicated-authorization` needs the same check shape (a call or annotation with a quoted role or permission) in three or more modules outside an auth package; matching names alone no longer count.
+- Imports of a whole package (Go, Java wildcards, Swift) are marked `package_level` and are not fan-in of each file in the package, so hub findings are about files.
+- A re-map writes only the facts, nodes and edges that changed (a content digest per fact, migration `facts-digest`); with nothing changed the store is not written and the generation stays. Derived facts are recomputed only when the graph changed. A fact's `observed_at`, `commit_sha` and `generation` now record when it last changed.
+- Components above 50 modules or 400 edges get their cut from an ordering in linear time (declared-only edges first, then the Eades-Lin-Smyth heuristic); the derived record says `cut_heuristic`, and `cut_minimal: false` when the work budget ran out. Smaller components keep the greedy search.
+
+### Fixed
+
+- `supersedes` links the newest record of a chain and never makes a loop when a boundary changes back (#14).
+- Commands that mention `.unknot` are allowed when the plugin path changed after an update or the CLI shim is used, and a plain `cp` that only reads from `.unknot` is allowed (#8).
+- Extraction results reach the graph in file order, not worker completion order, so repeated maps give identical facts and findings.
+- Python files reach the AST extractor in parts of at most 300 files or about 1.5 MB. A large repository's extractor output was cut at the 16 MiB command output limit and later files were read lexically without a notice, hiding dead code; a part that times out is now retried once with twice the time, and only a part that fails again is read lexically, with a notice giving the count.
+- TypeScript `import type` / `export type … from` and Python imports under `if TYPE_CHECKING:` are marked `type_only` and no longer close dependency cycles.
+- Vendored files are recognised by their header (a `/*!` licence banner, emscripten output) and more vendored directories, and are no longer analysed as project code.
+- `.vue` single-file components: their `<script>` and `<script setup>` blocks are read, so the modules they import are no longer reported as unused.
+
+### Known gaps
+
+- Go repositories get no hub findings until imports are matched to the files whose symbols are used.
+- Constant sub-kinds are heuristic and labelled inferred.
+- Java receiver types are not resolved yet, so unused injected members are found for C# only.
+
 ## [0.1.15] - 2026-10-06
 
 Fixes from a first attempt to build with Unknot on 0.1.13.

@@ -127,6 +127,18 @@ test('rankHubs ranks modules by distinct importers and imports', async () => {
   assert.deepEqual(h.fan_out[0], { id: 'module:a', n: 2 });
 });
 
+test('rankHubs: package-level imports are not fan-in of a file but still count as its fan-out', async () => {
+  const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const g = new Graph();
+  for (const id of ['a', 'b', 'u']) g.addNode(`module:${id}`, 'module', { name: id });
+  g.addEdge('IMPORTS', 'module:a', 'module:u', { package_level: true });
+  g.addEdge('IMPORTS', 'module:b', 'module:u');
+  const h = rankHubs(g);
+  assert.deepEqual(h.fan_in, [{ id: 'module:u', n: 1 }]);
+  assert.equal(h.fan_out.find((x) => x.id === 'module:a').n, 1);
+});
+
 test('rankHubs: several edge types are a union, a node filter ranks accepted nodes, within counts only accepted neighbours', async () => {
   const { rankHubs } = await import('../../../runtime/graph/algorithms.mjs');
   const { Graph } = await import('../../../runtime/graph/graph.mjs');
@@ -202,4 +214,54 @@ test('cycleBreakdown: caps the cycle list and says so', () => {
   assert.equal(r.truncated, true);
   assert.ok(r.cycles.every((c, i, l) => !i || l[i - 1].length <= c.length));
   assert.ok(r.cut.length >= 4);
+});
+
+test('cycleBreakdown on a large component: linear-time cut that breaks every cycle and prefers declared-only edges', async () => {
+  const { cycleBreakdown } = await import('../../../runtime/graph/algorithms.mjs');
+  const n = 3000;
+  const ids = Array.from({ length: n }, (_, i) => `module:m${String(i).padStart(4, '0')}`);
+  const out = new Map(ids.map((id) => [id, []]));
+  let seed = 7;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const add = (a, b, attrs = {}) => out.get(ids[a]).push({ from: ids[a], to: ids[b], type: 'IMPORTS', attrs });
+  // The ring's closing edge is declared-only, as are a few forward ring edges that close nothing.
+  for (let i = 0; i < n; i++) add(i, (i + 1) % n, i % 500 === 0 || i === n - 1 ? { declared_only: true } : {});
+  for (let k = 0; k < 4 * n; k++) { const a = Math.floor(rand() * n); const b = Math.floor(rand() * n); if (a < b) add(a, b); }
+  const graph = { out: (id) => out.get(id) ?? [] };
+  const t = Date.now();
+  const b = cycleBreakdown(graph, ids, { edgeTypes: ['IMPORTS'], maxCycles: 50 });
+  assert.ok(Date.now() - t < 5000, `took ${Date.now() - t} ms`);
+  assert.equal(b.cut_heuristic, true);
+  // Only the ring's back edge closes cycles (the random edges all point forward); it is the cut.
+  assert.deepEqual(b.cut.map((e) => [e.from, e.to, e.declared_only]), [[ids[n - 1], ids[0], true]]);
+  // Every cycle is broken: the remaining edges admit a topological order.
+  const cut = new Set(b.cut.map((e) => `${e.from}>${e.to}`));
+  const indeg = new Map(ids.map((id) => [id, 0]));
+  for (const id of ids) for (const e of out.get(id)) if (!cut.has(`${e.from}>${e.to}`)) indeg.set(e.to, indeg.get(e.to) + 1);
+  const queue = ids.filter((id) => indeg.get(id) === 0);
+  let seen = 0;
+  while (queue.length) { const v = queue.pop(); seen++; for (const e of out.get(v)) if (!cut.has(`${e.from}>${e.to}`)) { indeg.set(e.to, indeg.get(e.to) - 1); if (indeg.get(e.to) === 0) queue.push(e.to); } }
+  assert.equal(seen, n);
+});
+
+test('cycleBreakdown on a large dense component breaks every cycle with ordinary edges when it must', async () => {
+  const { cycleBreakdown } = await import('../../../runtime/graph/algorithms.mjs');
+  const n = 400;
+  const ids = Array.from({ length: n }, (_, i) => `module:d${String(i).padStart(3, '0')}`);
+  const out = new Map(ids.map((id) => [id, []]));
+  let seed = 11;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let k = 0; k < 6 * n; k++) { const a = Math.floor(rand() * n); const b = Math.floor(rand() * n); if (a !== b) out.get(ids[a]).push({ from: ids[a], to: ids[b], type: 'IMPORTS', attrs: {} }); }
+  for (let i = 0; i < n; i++) out.get(ids[i]).push({ from: ids[i], to: ids[(i + 1) % n], type: 'IMPORTS', attrs: {} });
+  const graph = { out: (id) => out.get(id) ?? [] };
+  const b = cycleBreakdown(graph, ids, { edgeTypes: ['IMPORTS'], maxCycles: 50 });
+  const cut = new Set(b.cut.map((e) => `${e.from}>${e.to}`));
+  const indeg = new Map(ids.map((id) => [id, 0]));
+  for (const id of ids) for (const e of out.get(id)) if (!cut.has(`${e.from}>${e.to}`)) indeg.set(e.to, indeg.get(e.to) + 1);
+  const queue = ids.filter((id) => indeg.get(id) === 0);
+  let seen = 0;
+  while (queue.length) { const v = queue.pop(); seen++; for (const e of out.get(v)) if (!cut.has(`${e.from}>${e.to}`)) { indeg.set(e.to, indeg.get(e.to) - 1); if (indeg.get(e.to) === 0) queue.push(e.to); } }
+  assert.equal(seen, n, 'acyclic after the cut');
+  assert.ok(b.cut.length > 0 && b.cut.length < out.size * 7);
+  assert.deepEqual(cycleBreakdown(graph, ids, { edgeTypes: ['IMPORTS'], maxCycles: 50 }).cut, b.cut, 'deterministic');
 });

@@ -6,6 +6,7 @@ export const ADAPTERS = Object.freeze([
   { id: 'javascript', module: './language/javascript/index.mjs' },
   { id: 'python', module: './language/python/index.mjs' },
   { id: 'generic', module: './language/generic/index.mjs' },
+  { id: 'literals', module: './literals/index.mjs' },
   { id: 'quality', module: './quality/index.mjs' },
   { id: 'database', module: './database/index.mjs' },
   { id: 'iac', module: './infrastructure/iac/index.mjs' },

@@ -5,6 +5,7 @@
 
 import { globToRegExp } from '../../core/glob.mjs';
 import { condense, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
+import { derivedFor, strictView } from '../../graph/derived.mjs';
 import { clamp, isTestModule, opt } from './local.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
@@ -120,10 +121,10 @@ const dependencyCycle = define({
     const mods = sourceModules(graph);
     const modIds = new Set(mods.map((m) => m.id));
 
-    // Lazy (function-body) and type-only imports do not form a runtime cycle.
-    const strict = Object.create(graph);
-    strict.out = (id, type) => graph.out(id, type).filter((e) => !(e.attrs?.lazy || e.attrs?.type_only));
-    for (const comp of stronglyConnected(strict, { edgeTypes: IMPORT, nodeTypes: ['module'] })) {
+    // Lazy (function-body) and type-only imports do not form a runtime cycle: the derived
+    // runtime components, the same ones `graph cycles` marks as reported.
+    const strict = strictView(graph);
+    for (const comp of derivedFor(graph, 'scc_strict').map((r) => r.body.members)) {
       const members = comp.filter((id) => modIds.has(id));
       if (members.length < o.min_size) continue;
       const cycle = shortestCycle(strict, members, IMPORT) ?? members.slice(0, 2);
@@ -335,7 +336,8 @@ const hubModule = define({
     const mods = sourceModules(graph);
     const ids = new Set(mods.map((m) => m.id));
     for (const m of mods) {
-      const fi = sortedUnique(graph.in(m.id, IMPORT).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
+      // An import of a whole package targets every file in it, so it says nothing about this file.
+      const fi = sortedUnique(graph.in(m.id, IMPORT).filter((e) => !e.attrs?.package_level).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
       const fo = sortedUnique(graph.out(m.id, IMPORT).map((e) => e.to).filter((t) => t !== m.id && ids.has(t)));
       if (fi.length < o.fan_in || fo.length < o.fan_out) continue;
       const tests = graph.in(m.id, 'TESTS').length;

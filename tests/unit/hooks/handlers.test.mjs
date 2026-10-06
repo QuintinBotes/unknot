@@ -577,6 +577,28 @@ describe('UserPromptSubmit', () => {
     assert.equal(K.runs.activeRun(h.p.ctx.store).command, 'apply');
   });
 
+  test('every refusal names its rule and the next step', async () => {
+    const h = hookProject({ run: false });
+    const always = await pre(h, 'Write', { file_path: join(h.p.dir, '.unknot/config.yaml'), content: 'mode: campaign' });
+    assert.match(always.hookSpecificOutput.permissionDecisionReason, /\[rule state\.protected\]\. Next: change Unknot state only through the unknot CLI/);
+    await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:diagnose' });
+    const inRun = await pre(h, 'Edit', { file_path: join(h.p.dir, 'src/a.js') });
+    assert.match(inRun.hookSpecificOutput.permissionDecisionReason, /\[rule [a-z.]+\]\. Next: /);
+  });
+
+  test('unknot policy denials groups recent refusals by rule with the latest example', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const h = hookProject({ run: false });
+    await pre(h, 'Write', { file_path: join(h.p.dir, '.unknot/config.yaml'), content: 'mode: campaign' });
+    await pre(h, 'Bash', { command: 'rm -rf .unknot' });
+    const bin = new URL('../../../bin/unknot', import.meta.url).pathname;
+    const r = spawnSync(process.execPath, [bin, 'policy', 'denials', '--json'], { cwd: h.p.dir, encoding: 'utf8', env: process.env });
+    const out = JSON.parse(r.stdout);
+    const g = out.groups.find((x) => x.rule === 'state.protected');
+    assert.equal(g.count, 2);
+    assert.match(g.latest.what, /rm -rf \.unknot/);
+  });
+
   test('a run applies only to the session that started it', async () => {
     const h = hookProject({ run: false });
     await H.onUserPromptSubmit({ ...h.base, prompt: '/unknot:diagnose' });

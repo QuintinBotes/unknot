@@ -7,11 +7,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadAdapters } from '../../adapters/registry.mjs';
 import { matchAny } from '../core/glob.mjs';
+import { guidanceFor, loadGuidance, protectedByGuidance } from '../core/guidance.mjs';
 import { isSecretPath } from '../core/paths.mjs';
 import { findSecrets } from '../core/redact.mjs';
 import { git } from '../apply/git.mjs';
 import { diffStat } from '../apply/worktree.mjs';
-import { stronglyConnected } from '../graph/algorithms.mjs';
+import { derivedFor, sccsOf } from '../graph/derived.mjs';
 import { languageOf } from '../graph/census.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
@@ -104,14 +105,16 @@ const sccKey = (c) => [...c].sort().join('|');
 
 /** Each check returns {verdict: 'pass'|'fail'|'inconclusive', detail, data}. */
 export const CHECKS = {
-  scope({ slice, config, changes }) {
+  scope({ ctx, slice, config, changes }) {
     const bad = [];
+    const guide = loadGuidance(ctx.root);
     const inc = slice.body.scope.include;
     const exc = slice.body.scope.exclude;
     for (const c of changes) {
       if (matchAny(c.path, exc) || (inc.length && !matchAny(c.path, inc))) bad.push(`${c.path}: outside slice scope`);
       else if (matchAny(c.path, config.generated_paths ?? []) || matchAny(c.path, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) bad.push(`${c.path}: generated or vendored`);
       else if (matchAny(c.path, config.protected_paths ?? [], { nocase: true }) && !['high', 'critical'].includes(slice.risk)) bad.push(`${c.path}: protected path in a ${slice.risk}-risk slice`);
+      for (const h of protectedByGuidance(guidanceFor(ctx.root, c.path, guide), [c.path])) bad.push(`${c.path}: ${h.file}:${h.line} says not to edit it ("${h.sentence}")`);
       if (isSecretPath(c.path)) bad.push(`${c.path}: credential path`);
       if (matchAny(c.path, DEP_MANIFESTS)) {
         if (config.security.dependency_changes === 'forbidden') bad.push(`${c.path}: dependency changes are forbidden (security.dependency_changes)`);
@@ -136,8 +139,8 @@ export const CHECKS = {
     return pair.parseErrors.length ? { verdict: 'fail', detail: pair.parseErrors.map((e) => `${e.path} [${e.adapter}]: ${e.error}`).join('; '), data: pair.parseErrors } : { verdict: 'pass', detail: 'changed files extract cleanly', data: {} };
   },
   cycles({ pair }) {
-    const before = new Set(stronglyConnected(pair.before, { edgeTypes: ['IMPORTS'] }).map(sccKey));
-    const after = stronglyConnected(pair.after, { edgeTypes: ['IMPORTS'] });
+    const before = new Set(sccsOf(pair.before).map((c) => sccKey(c.members)));
+    const after = sccsOf(pair.after).map((c) => c.members);
     const added = after.filter((c) => !before.has(sccKey(c)) && ![...before].some((k) => c.every((x) => k.split('|').includes(x))));
     return added.length ? { verdict: 'fail', detail: `new dependency cycle(s): ${added.map((c) => c.slice(0, 6).join(' → ')).join('; ')}`, data: { cycles: added } } : { verdict: 'pass', detail: `no new cycles (${after.length} pre-existing)`, data: {} };
   },
@@ -149,12 +152,14 @@ export const CHECKS = {
       const was = pair.before.node(id);
       if (!was) continue;
       const now = pair.after.node(id);
-      const names = (n) => new Set((n?.attrs?.exports ?? []).map((e) => e.name ?? e));
-      for (const name of names(was)) if (!names(now).has(name)) removed.push(`${c.path}: export ${name}`);
-      // A public injected member the graph marks declared-only was unused anywhere in this repository.
-      const free = new Set(pair.before.out(id, 'IMPORTS').filter((e) => e.attrs?.declared_only && e.attrs.member_visibility === 'public').flatMap((e) => String(e.attrs.unused_member ?? '').split(', ')));
-      for (const name of was.attrs?.public_members ?? []) {
-        if ((now?.attrs?.public_members ?? []).includes(name)) continue;
+      // The stored public surface; a public member the graph marks declared-only was unused anywhere in this repository.
+      const surface = (g) => derivedFor(g, 'public_surface').find((r) => r.key === id)?.body;
+      const exported = new Set(surface(pair.after)?.exports ?? []);
+      for (const name of surface(pair.before)?.exports ?? []) if (!exported.has(name)) removed.push(`${c.path}: export ${name}`);
+      const free = new Set(derivedFor(pair.before, 'declared_only').filter((r) => r.body.from === id && r.body.visibility === 'public').flatMap((r) => String(r.body.member ?? '').split(', ')));
+      const kept = new Set(surface(pair.after)?.public_members ?? []);
+      for (const name of surface(pair.before)?.public_members ?? []) {
+        if (kept.has(name)) continue;
         (free.has(name) ? unused : removed).push(`${c.path}: member ${name}`);
       }
       const eps = (g) => new Set(g.out(id, 'EXPOSES').map((e) => e.to));

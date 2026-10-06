@@ -50,7 +50,7 @@ For each recommendation (DEC id) show:
 - candidate name (and `name_basis`), size and `top_files`; treatment and its sequence (retain,
   modularize in place, extract module, then service or micro-frontend only when justified);
 - boundary metrics: cohesion, coupling, stability, and reverse dependencies (low-confidence
-  and test-module edges are counted apart; `reverse_dependency_targets` lets you check);
+  and test-module edges are counted apart; `outbound_dependency_targets`, what the candidate depends on, lets you check);
 - favouring signals with their measured values, `evidence` ids and sources, and the
   `selection_reason` (or `retain_reason` for retain);
 - `drivers_not_served`: a recorded driver the chosen treatment does not serve although a more

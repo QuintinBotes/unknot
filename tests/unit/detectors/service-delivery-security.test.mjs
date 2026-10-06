@@ -362,15 +362,17 @@ test('dangerous-ci-trigger: only the pull_request_target + PR head pattern', () 
   assert.equal(run('security.dangerous-ci-trigger', wf({ triggers: ['pull_request'] })).length, 0);
 });
 
-test('duplicated-authorization: three modules outside an auth package; low confidence', () => {
-  const fn = (path, name) => N('function', `${path}#${name}`, {}, { name, path });
-  const three = [fn('src/a.ts', 'isAdmin'), fn('src/b.ts', 'checkPermission'), fn('src/c.ts', 'canAccess')];
+test('duplicated-authorization: the same check in three modules outside an auth package', () => {
+  const file = (path, ...shapes) => N('file', path, { authz_checks: shapes.map((shape, i) => ({ shape, line: i + 1 })) }, { path });
+  const three = [file('src/a.ts', "hasrole('admin')"), file('src/b.ts', "hasrole('admin')"), file('src/c.ts', "hasrole('admin')", "can('x')")];
   const out = run('security.duplicated-authorization', three);
   assert.equal(out.length, 1);
-  assert.ok(out[0].factors.evidence <= 0.35);
+  assert.ok(out[0].factors.evidence <= 0.5);
   assert.equal(run('security.duplicated-authorization', three.slice(0, 2)).length, 0);
-  assert.equal(run('security.duplicated-authorization', [...three.slice(0, 2), fn('src/auth/policy.ts', 'canAccess')]).length, 0, 'auth package is the right home');
-  assert.equal(run('security.duplicated-authorization', [fn('src/a.ts', 'isAdmin'), fn('src/a.ts', 'hasRole'), fn('src/a.ts', 'canAccess')]).length, 0, 'one module is not duplication');
+  assert.equal(run('security.duplicated-authorization', [...three.slice(0, 2), file('src/auth/policy.ts', "hasrole('admin')")]).length, 0, 'auth package is the right home');
+  assert.equal(run('security.duplicated-authorization', [file('src/a.ts', "hasrole('admin')"), file('src/b.ts', "hasrole('editor')"), file('src/c.ts', "can('x')")]).length, 0, 'different checks are not duplicates');
+  const fn = (path, name) => N('function', `${path}#${name}`, {}, { name, path });
+  assert.equal(run('security.duplicated-authorization', [fn('src/a.ts', 'isAdmin'), fn('src/b.ts', 'checkPermission'), fn('src/c.ts', 'canAccess')]).length, 0, 'names alone are not evidence');
 });
 
 test('scanner-findings: from the security adapter attrs', () => {

@@ -2,7 +2,7 @@
 // nothing here touches the filesystem, so resolution is deterministic and cacheable.
 
 const CODE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
-export const CODE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+export const CODE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|vue)$/;
 const TS_SWAP = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
 const CONDITIONS = ['types', 'import', 'module', 'default', 'require', 'node', 'browser'];
 

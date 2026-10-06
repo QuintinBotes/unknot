@@ -9,6 +9,7 @@ import { UnknotError } from '../core/errors.mjs';
 import { assertArtifact } from '../core/schema.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { globalSignals } from '../diagnose/signals.mjs';
+import { readDerived, testSet } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
@@ -94,6 +95,8 @@ function provenanceFor(config, cliDrivers, allDrivers, given) {
 export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false }) {
   const graph = Graph.fromStore(ctx.store);
   if (!graph.size.nodes) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
+  readDerived(ctx, 'scc', { graph }); // seeds the stored facts candidates read
+  const tests = testSet(graph);
   const allDrivers = [...new Set([...(config.decomposition.drivers ?? []).map((d) => d.id), ...drivers])];
   const effective = { ...config, decomposition: { ...config.decomposition, drivers: allDrivers.map((id) => ({ id })) } };
   const inScope = scopePredicate(graph, scope);
@@ -102,7 +105,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   const warning = emptyScopeWarning(res);
   // A scope that selects nothing (or names a seed that is not there) records nothing.
   if (!res.all && (res.matched === 0 || res.unresolved.length)) return { targets: [], drivers: allDrivers, analyses: {}, recommendations: [], scope: scopeInfo, warning, dry_run: dryRun, details: [] };
-  const source = graph.nodes('module').filter((n) => !n.attrs.is_test && !n.attrs.placeholder && inScope(n));
+  const source = graph.nodes('module').filter((n) => !tests.has(n.id) && !n.attrs.placeholder && inScope(n));
   const front = source.filter((n) => isFrontendModule(graph, n));
   const targets = target === 'auto' ? [source.length - front.length >= 2 ? 'backend' : null, front.length >= 2 ? 'frontend' : null].filter(Boolean) : [target];
   const global = globalSignals(graph, effective);
@@ -145,7 +148,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     // A boundary whose members changed gets a new id; it names the record it replaces. A record
     // a rerun rewrites keeps the link it had.
     const kept = existing && prior.find((r) => r.id === existing && r.supersedes);
-    const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules }, claimed);
+    const pred = kept ? { id: kept.supersedes, overlap: kept.supersedes_overlap } : predecessorOf(prior, { target: t, modules: cand.modules, self: existing }, claimed);
     if (pred) claimed.add(pred.id);
     const card0 = card(sel.card);
     const rejectedTreatments = sel.rejected_treatments.map(({ treatment, reason, failed_predicates, evidence_needed }) => ({ treatment, reason, ...(failed_predicates ? { failed_predicates } : {}), ...(evidence_needed?.length ? { evidence_needed } : {}) }));
@@ -170,7 +173,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         robust: Boolean(cand.robust),
         metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer)\./.test(k))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
-        ...(cand.details?.reverse_targets ? { reverse_dependency_targets: cand.details.reverse_targets } : {}),
+        // Modules outside the candidate that it imports: the candidate depends on them.
+        // reverse_dependency_targets is the 0.1.x name, kept until 0.3.0.
+        ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets, reverse_dependency_targets: cand.details.reverse_targets } : {}),
         ...(cand.folded ? { folded_siblings: cand.folded } : {}),
         ...(cand.details?.owners ? { owners: cand.details.owners, ...(cand.details.unowned ? { unowned_modules: cand.details.unowned } : {}) } : {}),
         ...(cand.broken_by ? { robustness_detail: { stability: cand.stability, threshold: d.thresholds.robustness, broken_by: cand.broken_by } } : {}),

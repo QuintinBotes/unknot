@@ -1,0 +1,42 @@
+{
+  "sha256:79144f2548f538ce8cfac553b1c09c77979a81108584ed47d48aac87f0852efb": {
+    "label": "not-worth",
+    "note": "Semgrep rule test fixture, not application code."
+  },
+  "sha256:205bd20237af90398337ae660d11575663eb9f55e11129304e05038dc9556858": {
+    "label": "not-worth",
+    "note": "Dev-container dashboard service, healthcheck irrelevant."
+  },
+  "sha256:cdd12ff5e1894c6d0fc6d8d6a54e714718db2e22efe445d6e8fdee3b7a45715e": {
+    "label": "not-worth",
+    "note": "Test fixture RSA key used to sign test tokens."
+  },
+  "sha256:832cec29ac6b898f28c7c70a47b5b3402d8887ba97209eb9894b5abed4443613": {
+    "label": "not-worth",
+    "note": "f-string interpolates an internal integer count into a sequence query, not user input."
+  },
+  "sha256:f68d27baf3a883d9df288f92e9e0228bd4d2a786e37ca3f55ccca56f3a8b61a7": {
+    "label": "false",
+    "note": "The plugin import is under TYPE_CHECKING only, so there is no runtime import cycle."
+  },
+  "sha256:15de0c933a3eb6b98d09fc3e64561307658b88d4278cc68cda00c2afc24e9f9c": {
+    "label": "not-worth",
+    "note": "Nesting of 5 is just over threshold in a short, flat loop."
+  },
+  "sha256:59c2dc51f1e9eeafe46eb453cfd4d098d238342f2d11d3953b7b0fcec9eb51ee": {
+    "label": "true",
+    "note": "Final stage creates a saleor user but never sets USER, so the image runs as root."
+  },
+  "sha256:0786c232bc09b91a998b56f42aeda4f19d42092f57b0272c5950c52f9ff626c8": {
+    "label": "not-worth",
+    "note": "Unbatched UPDATE is a 2021 search-vector backfill migration, already applied."
+  },
+  "sha256:47c0e8a05c04899601fe7b44eb6e8e192ea0d2c3ce67a880ac50b02bc5ca3fd0": {
+    "label": "not-worth",
+    "note": "Dev-container env file with local placeholder database credentials."
+  },
+  "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
+    "label": "false",
+    "note": "Matched names like _update_authorize_status and authorize_payment are payment-authorization, not access checks."
+  }
+}

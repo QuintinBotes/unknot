@@ -89,6 +89,8 @@ export function linkFacts(ctx) {
     const kinds = KIND_ORDER.filter((k) => agg.kinds.has(k));
     const attrs = { names: [...agg.names].sort(), kind: kinds[0], line: agg.line };
     if (kinds.length > 1) attrs.kinds = kinds;
+    // `import type` and `export type ... from` are erased at compile time: no runtime edge.
+    if (kinds.length === 1 && kinds[0] === 'type') attrs.type_only = true;
     out.push(edgeFact('IMPORTS', agg.from, agg.to, attrs, P(agg.path, agg.line, agg.via === 'relative' || !agg.internal ? 'high' : 'medium')));
   }
   for (const [path, list] of [...unresolved.entries()].sort((a, b) => cmp(a[0], b[0]))) {

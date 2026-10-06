@@ -1,0 +1,42 @@
+{
+  "sha256:e190de6557151927c9d97072dbac32572be5ff72c579bc27b80312b80bb120df": {
+    "label": "not-worth",
+    "note": "Following page deliberately reuses followers list components; small shared coupling."
+  },
+  "sha256:496e8ecef75a8b3c58fe02463a35e13624497b7baa2ecae948efb4438db1dfdd": {
+    "label": "not-worth",
+    "note": "innerHTML is an oEmbed iframe rebuilt from server-provided card html, deliberate design."
+  },
+  "sha256:4205f9e5c394347740526c8325e1d27912b2617fd3cbe1b6656639d21c08c88f": {
+    "label": "false",
+    "note": "Both columns are declared with belongs_to foreign_key and schema.rb has the foreign key."
+  },
+  "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
+    "label": "false",
+    "note": "Matches are unrelated authorize methods (Doorkeeper, follow-request accept), not duplicated access checks."
+  },
+  "sha256:66768b3151c85c756fc679c881cb5ac814c8f061ced0d0b74645185727c63d93": {
+    "label": "false",
+    "note": "The 7 counted are generics plus args; the implementation takes 3 parameters and the rest are overloads."
+  },
+  "sha256:61af9e423dfe0fe83a21ddbec9451f0d67c7fbd7dfb68d0f2a469e3f1060dceb": {
+    "label": "true",
+    "note": "database.ts and loader.ts import each other with runtime values, a genuine two-module cycle."
+  },
+  "sha256:9e00433ffd07664d60ee5643a6b4a6f568121a9f8ea2ed61284ba93aad3668a3": {
+    "label": "true",
+    "note": "filter_from_home packs about 26 branches with long inline comments in a hot feed path."
+  },
+  "sha256:c9f25d11682b700753bbd1340c46a2e9826597d3702b2c6e30aeef655333aa07": {
+    "label": "not-worth",
+    "note": "Devcontainer compose service running sleep infinity, healthcheck meaningless."
+  },
+  "sha256:84aee9bc8c5aeed79ba44d4e47bc9dad6aa88c7b61fcb69200cdc1d3d3175c11": {
+    "label": "false",
+    "note": "The cited drop_column is only in the down method; the up migration adds a column."
+  },
+  "sha256:deb8852c2a341d8646909d96ca7b697922453c7f6fed6530b2dd70e0d255cfcb": {
+    "label": "not-worth",
+    "note": "Large vendored-style migration helper module with independent helpers."
+  }
+}

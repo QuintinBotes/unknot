@@ -9,7 +9,7 @@ import { linkFacts } from './link.mjs';
 
 export default {
   id: 'javascript',
-  version: '0.1.11',
+  version: '0.1.12',
   kind: 'language',
   capabilities: {
     files: [
@@ -18,6 +18,7 @@ export default {
       '**/tsconfig*.json',
       '**/jsconfig.json',
       '**/+page.svelte',
+      '**/*.vue',
     ],
     executes: [],
     network: false,

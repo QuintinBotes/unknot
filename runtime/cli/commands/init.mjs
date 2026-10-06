@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { matchAny } from '../../core/glob.mjs';
+import { commandMatches, loadGuidance } from '../../core/guidance.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
@@ -96,50 +97,17 @@ function azurePipelineDirs(root, files) {
 }
 
 const HINT_FILES = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md'];
-const HINT_HEADING = /validat|build|test|lint|check/i;
-const HINT_TOOL = /^(dotnet|npm|pnpm|yarn|bun|make|cargo|go|pytest|python3? -m|\.\/gradlew|gradle|mvn|just|task)(\s|$)/;
-
-const HINT_NEG = /\b(do not|don't|never|avoid|must not|should not)\b/i;
-const HINT_TOOL_ANY = /\b(dotnet|npm|pnpm|yarn|bun|make|cargo|go|pytest|gradle|mvn|just|task)\s+([a-z][\w:-]*)/gi;
 
 /**
- * Commands the repository's own guidance names in its validation sections, as [file, heading,
- * command], and the command shapes it tells people not to run (`Do not use dotnet test on the
- * whole solution`), as {file, heading, sentence, prefix}.
+ * What the repository's guidance says to validate with, as [file, heading, command] (root files
+ * only), the command shapes it says not to run, the paths it says not to edit, and the text
+ * dropped because it tried to grant something. See runtime/core/guidance.mjs.
  */
 function guidanceHints(root) {
-  const hints = [];
-  const forbidden = [];
-  for (const file of HINT_FILES) {
-    const text = readText(join(root, file));
-    let heading = null;
-    let fenced = false;
-    let count = 0;
-    const push = (c) => {
-      const cmd = c.replace(/^\$\s+/, '').replace(/[\x00-\x1f\x7f]/g, ' ').trim();
-      if (heading && count < 8 && cmd.length <= 200 && HINT_TOOL.test(cmd) && !hints.some((h) => h[0] === file && h[2] === cmd)) {
-        hints.push([file, heading, cmd]);
-        count++;
-      }
-    };
-    for (const line of text.split('\n')) {
-      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-      else if (fenced) push(line.trim());
-      else {
-        const h = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-        if (h) heading = HINT_HEADING.test(h[1]) ? h[1] : null;
-        else if (heading && HINT_NEG.test(line)) {
-          for (const sentence of line.split(/(?<=[.!?])\s+/).filter((x) => HINT_NEG.test(x))) {
-            for (const m of sentence.replace(/`/g, '').matchAll(HINT_TOOL_ANY)) {
-              const prefix = `${m[1].toLowerCase()} ${m[2]}`;
-              if (!forbidden.some((f) => f.file === file && f.prefix === prefix)) forbidden.push({ file, heading, sentence: sentence.trim().slice(0, 240), prefix });
-            }
-          }
-        } else for (const m of line.matchAll(/`([^`]+)`/g)) push(m[1]);
-      }
-    }
-  }
-  return { hints, forbidden };
+  const { docs, flagged } = loadGuidance(root);
+  const hints = HINT_FILES.flatMap((f) => docs.filter((d) => d.file === f).flatMap((d) => d.commands.map((c) => [f, c.heading, c.command])));
+  const all = docs.slice().sort((a, b) => a.file.localeCompare(b.file));
+  return { hints, forbidden: all.flatMap((d) => d.forbiddenCommands), paths: all.flatMap((d) => d.forbiddenPaths), flagged };
 }
 
 const ROOT_MANIFESTS = ['package.json', 'pyproject.toml', 'setup.py', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'Makefile', '*.sln', '*.slnx', '*.csproj', '*.fsproj'];
@@ -248,7 +216,7 @@ export function detect(root) {
   // A command the repository's guidance says not to run is not proposed, whatever detected it.
   const guidance = guidanceHints(root);
   for (const [name, argv] of Object.entries(commands)) {
-    const rule = guidance.forbidden.find((f) => argv.join(' ').toLowerCase().startsWith(f.prefix));
+    const rule = guidance.forbidden.find((f) => commandMatches(argv, f));
     if (!rule) continue;
     delete commands[name];
     notes.push(`${name} not proposed: ${rule.file} (${rule.heading}) says "${rule.sentence}"`);
@@ -257,6 +225,13 @@ export function detect(root) {
       if (projects.length) notes.push(`test projects that could be run one at a time instead: ${projects.join(', ')}`);
     }
   }
+  // Paths the guidance says not to edit are proposed as protected; a person accepts them.
+  for (const r of guidance.paths) {
+    if (matchAny(r.glob, protectedPaths) || protectedPaths.includes(r.glob)) continue;
+    protectedPaths.push(r.glob);
+    notes.push(`protected ${r.glob}: ${r.file}:${r.line} says "${r.sentence}"`);
+  }
+  for (const f of guidance.flagged) notes.push(`ignored ${f.file}:${f.line} (${f.kind} marker; guidance can only add restrictions)`);
   const known = Object.entries(commands).map(([k, v]) => [k, v.join(' ')]);
   for (const [file, heading, cmd] of guidance.hints) {
     const same = known.find(([, c]) => c === cmd);

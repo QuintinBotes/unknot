@@ -7,24 +7,34 @@ adapters, history length) will move them.
 
 ## Method
 
-`node scripts/bench.mjs [--quick] [--large] [--sizes 1k,10k] [--out <dir>]`
+`node scripts/bench.mjs [--quick] [--large] [--sizes 1k,50k,250k,1m] [--out <dir>] [--work <dir>] [--keep]`
 
 - **Fixtures** are generated deterministically from a seed (`tests/fixtures/bench/shape.json`,
   PRNG mulberry32), so every machine builds the same repository. Files are grouped into modules of
-  50, each module a single language chosen by the seed (about 45% TypeScript, 30% Python, 25% Go).
-  Each file has 2 to 4 imports (about 15% cross-module, same language), a few branches and three
-  functions. A `go.mod` and `package.json` sit at the root. The generated tree is committed to a
-  throwaway git repository.
+  50, each module a single language chosen by the seed (30% TypeScript, 20% Python, 20% C#, 15%
+  Java, 15% Go). Each file has 2 to 4 imports (about 15% cross-module, same language) with the
+  language's own namespaces or packages, a few branches and functions; every tenth file is a test
+  importing code under test; three files per module import each other in a cycle (not Go). A
+  `go.mod` and `package.json` sit at the root. The tree is written under `--work` (default: the
+  system temp directory, never this repository), committed to a throwaway git repository, and
+  removed afterwards unless `--keep` is given.
 - **Cold map**: `mapRepository` is called in-process with a temporary `UNKNOT_HOME` and an empty
   index, including census, extraction, linking, discovery, git history and projection.
-- **Incremental map**: 5 files spread across the repository get an appended function, the change is
-  committed, and `mapRepository` runs again against the warm index. Unchanged files are served from
-  the file-level cache.
+- **Re-map, no change**: the same call again on the unchanged commit.
+- **Re-map, 10 files changed**: 10 files spread across the repository get an appended function,
+  the change is committed, and `mapRepository` runs against the warm index. Unchanged files are
+  served from the file-level cache.
+- **Phases** are wall time inside one map (`phases` in the builder's summary): census, extraction
+  (cache lookup, extraction, and the per-file cache commits), link (cross-file linking), discovery,
+  history, coverage, projection (writing the graph to the store). There is no separate
+  derived-facts phase; derived facts are produced by linking and projection.
+- **Store size** is the size of the project's `.unknot` directory after the last map.
 - **Peak RSS** is `process.resourceUsage().maxRSS`, a process-lifetime high-water mark. Each size
-  runs in its own child process so sizes do not contaminate each other. The incremental column is
-  the high-water mark after both runs.
+  runs in its own child process (with a 16 GB heap limit, `--heap-mb`) so sizes do not contaminate
+  each other. The column is the high-water mark after all three maps.
 - Wall time excludes fixture generation and `git` setup. `--large` adds the 100,000-file fixture
-  (slow, and not run in CI); `--quick` is a 300-file smoke used by CI.
+  (slow, and not run in CI); `--quick` is a 300-file smoke used by CI. The 1,000,000-file tier
+  (`--sizes 1m`) runs only when named.
 - The cache counts in `results.json` are per adapter-file pair (more than one adapter
   reads each file), so they exceed the file count.
 
@@ -32,6 +42,9 @@ Results are written as `results.json` and `results.md` in the output directory (
 temp directory).
 
 ## Measured run
+
+The first table is the earlier, three-language fixture (45% TypeScript, 30% Python, 25% Go,
+5 files changed); it is kept for history and is not reproducible with the current generator.
 
 Machine: Apple M1 Max, 10 cores, 32 GB RAM, darwin arm64, Node v22.18.0.
 
@@ -43,6 +56,84 @@ Machine: Apple M1 Max, 10 cores, 32 GB RAM, darwin arm64, Node v22.18.0.
 
 Graph sizes: 1k 3,753 nodes and 13,253 edges; 10k 37,903 and 126,671; 100k 375,103 and
 1,309,413. The incremental runs re-extracted 15 adapter-file pairs (5 files) and reused the rest.
+
+### Scale tiers (five languages)
+
+`node scripts/bench.mjs --sizes 50k,250k`, same machine. Other work was running on the machine
+during the 250k run (it was swapping, 2.8 GB of swap in use afterwards), so the 250k re-map
+times are an upper bound and noisier than the cold time.
+
+| Fixture | Files | Cold map | Re-map, no change | Re-map, 10 files changed | Peak RSS | Store size |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 50k | 50,000 | 77.1 s | 43.5 s | 39.8 s | 3,829 MB | 2,044 MB |
+| 250k | 250,000 | 654.2 s | 842.2 s | 1,347.5 s | 6,705 MB | 10,401 MB |
+
+Graph sizes: 50k 194,793 nodes and 556,383 edges; 250k 971,318 and 2,820,082. Status was
+`complete` with no failures in every run. The changed-file runs re-extracted 30 adapter-file
+pairs (10 files).
+
+Time per phase:
+
+| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 50k cold | 3.9 s | 37.5 s | 2.5 s | 0.4 s | 0.8 s | 0.1 s | 31.9 s |
+| 50k no change | 7.2 s | 3.5 s | 2.5 s | 0.4 s | 0.1 s | 0.0 s | 29.7 s |
+| 50k 10 changed | 5.9 s | 4.5 s | 2.2 s | 0.4 s | 0.8 s | 0.2 s | 25.9 s |
+| 250k cold | 49.4 s | 219.0 s | 16.1 s | 2.4 s | 6.3 s | 1.0 s | 360.1 s |
+| 250k no change | 80.8 s | 41.1 s | 24.7 s | 6.0 s | 5.7 s | 2.0 s | 681.8 s |
+| 250k 10 changed | 108.5 s | 133.3 s | 118.8 s | 20.9 s | 31.0 s | 9.1 s | 925.8 s |
+
+Reading the phases: projection (rewriting the whole graph to the store) is the largest cost of
+every map, cold or not, and at 250k it is 70 to 80% of a re-map that changed nothing. Cold
+extraction is the second largest (219 s at 250k, in parallel workers). Link is small (16 to 25 s
+unchanged). The 1,000,000-file tier was not attempted: the 250k run took about 54 minutes in
+total, well over the 20 minute limit set for this package, and projection at that size would
+also need a much larger store and heap.
+
+### Delta projection
+
+A map now writes only the facts, nodes and edges that changed (facts matched by id and a content
+signature; nodes and edges recomputed only where a changed fact touches them), and an unchanged
+graph is not rewritten, keeps its generation and its derived facts. Cached per-file facts are
+still read back on every map: linking, discovery and coverage all read every file's facts, so
+that cost (the `extraction` phase, 3.5 s at 50k) remains.
+
+Same machine, 50k fixture, derived facts switched off for the measurement (see below), load
+average 38 at the start (not idle, so treat times as upper bounds):
+
+| Run | Projection before | Projection after | Whole map before | Whole map after |
+| --- | ---: | ---: | ---: | ---: |
+| 50k cold | 31.9 s | 45.9 s | 77.1 s | 98.2 s |
+| 50k no change | 29.7 s | 5.6 s | 43.5 s | 18.0 s |
+| 50k 10 changed | 25.9 s | 4.9 s | 39.8 s | 18.1 s |
+
+At 10k: projection 5.4 s cold, 1.0 s unchanged and 10 changed. Cold projection is no faster
+(it writes everything, plus signatures); the 250k tier was not re-run. The remaining
+unchanged-map cost is hashing every fact (about 5 s at 50k), census and the cached-facts read.
+
+**Derived facts, bounded.** The `derived` step (cycle breakdown of each strongly connected
+component) used a greedy cut search that re-checked the whole component after every edge it
+cut; at 10,000 and 50,000 files it did not finish within 10 and 30 minutes. Components above 50
+modules or 400 edges now get their cut from an ordering in linear time (see `cycleBreakdown` in
+`runtime/graph/algorithms.mjs`). Whole maps with derived facts on, same machine, load average 6
+at the start:
+
+| Tier | Cold | No change | 10 changed | Peak RSS | Store |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10k | 16.0 s | 2.8 s | 4.1 s | 1014 MB | 438 MB |
+| 50k | 81.4 s | 19.6 s | 23.3 s | 5964 MB | 2189 MB |
+
+| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10k cold | 0.8 s | 8.7 s | 0.4 s | 0.1 s | 0.2 s | 0.0 s | 4.7 s |
+| 10k no change | 0.7 s | 0.6 s | 0.4 s | 0.1 s | 0.0 s | 0.0 s | 0.9 s |
+| 10k 10 changed | 0.7 s | 0.8 s | 0.3 s | 0.1 s | 0.2 s | 0.0 s | 1.0 s |
+| 50k cold | 3.8 s | 40.6 s | 2.3 s | 0.4 s | 0.7 s | 0.1 s | 27.5 s |
+| 50k no change | 5.8 s | 3.2 s | 2.1 s | 0.4 s | 0.1 s | 0.0 s | 8.1 s |
+| 50k 10 changed | 5.5 s | 3.9 s | 2.2 s | 0.4 s | 1.1 s | 0.1 s | 5.0 s |
+
+The rest of each total is the derived step and opening the store. The 250k tier has not been
+re-run with these changes.
 
 ## Reading the results against the targets
 

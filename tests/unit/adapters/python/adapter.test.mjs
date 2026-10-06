@@ -21,7 +21,7 @@ for (const mode of MODES) {
 
   test(`[${mode.name}] adapter descriptor and fact validity`, { skip }, async () => {
     assert.equal(adapter.id, 'python');
-    assert.equal(adapter.version, '0.1.8');
+    assert.equal(adapter.version, '0.1.9');
     assert.equal(adapter.kind, 'language');
     assert.deepEqual(adapter.capabilities.executes, ['python3']);
     assert.equal(adapter.capabilities.network, false);
@@ -313,4 +313,23 @@ test('required parameters exclude optional keyword-only ones and self (dogfood F
   const fns = Object.fromEntries(out.functions.map((f) => [f.name, f]));
   assert.equal(fns.__init__.params_required, 1, 'only `session` is required');
   assert.equal(fns.h.params_required, 3, 'a, b and keyword-only d');
+});
+
+test('a large batch runs in parts; a part that times out is retried once with more time, and only a part that fails again is read lexically', async () => {
+  const items = Array.from({ length: 900 }, (_, i) => ({ file: { path: `pkg/m${i}.py` }, text: `def f${i}():\n    return ${i}\n` }));
+  const calls = [];
+  const exec = (argv, { input, timeoutMs }) => {
+    const paths = JSON.parse(input).map((x) => x.path);
+    calls.push({ n: paths.length, first: paths[0], timeoutMs });
+    // The second part times out the first time only; the third always does.
+    const part = Number(paths[0].match(/m(\d+)/)[1]) / 300;
+    if (part === 2 || (part === 1 && calls.filter((c) => c.first === paths[0]).length === 1)) return Promise.resolve({ exitCode: null, stdout: '', stderr: '', record: { timed_out: true } });
+    return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
+  };
+  const notes = [];
+  const out = await adapter.extractBatch(items, { exec, notes });
+  assert.deepEqual(calls.map((c) => c.n), [300, 300, 300, 300, 300]);
+  assert.equal(calls[2].timeoutMs, calls[1].timeoutMs * 2, 'the retry gets twice the time');
+  assert.equal(out.size, 900);
+  assert.deepEqual(notes, ['python AST extractor failed for 300 of 900 Python files (timed out after 120 s); those were read lexically, with lower confidence']);
 });

@@ -1,7 +1,7 @@
 ---
 name: domain-analyst
 description: Identifies business capabilities, candidate bounded contexts and vocabulary from the graph, code and docs, and names them as proposals. Use when the question is what the system does and where its natural boundaries lie, or to name decomposition candidates.
-tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__decomposition_get
+tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__decomposition_get, mcp__plugin_unknot_unknot__search_text
 model: sonnet
 ---
 

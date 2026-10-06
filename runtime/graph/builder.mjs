@@ -5,6 +5,8 @@
 // Failure is explicit (spec §22.2): a file an adapter could not process is listed, and the
 // map reports `partial` rather than pretending to be complete.
 
+import { checkoutNotice, checkoutState } from './checkout.mjs';
+import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { canonicalJSON, digest } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
@@ -20,6 +22,8 @@ import { charge } from '../policy/budget.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
+import { writeDerived } from './derived.mjs';
+import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
 import { pushAll } from '../core/arrays.mjs';
@@ -48,10 +52,19 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope = [], only = null, history = true, adapters = null, branchOk = null }) {
   const t0 = Date.now();
+  // Wall time per phase, so a slow map says where the time went (docs/benchmarks.md).
+  const phases = {};
+  let mark = t0;
+  const lap = (name) => {
+    const now = Date.now();
+    phases[name] = now - mark;
+    mark = now;
+  };
   const observedAt = nowISO();
   const cen = census(ctx.root, { config, scope });
+  lap('census_ms');
   const commit = cen.commit;
   // `adapters` replaces the registry; tests use it to stand in a failing extractor.
   const { loaded, unavailable } = adapters ? { loaded: adapters, unavailable: [] } : await loadAdapters(config, only);
@@ -72,6 +85,15 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     list.push(...facts);
   };
 
+  // Too big for the run's read budget: say so before reading anything, naming the setting.
+  const charged = new Set();
+  if (run) {
+    const budget = config.limits?.max_files_read;
+    const analysed = cen.files.filter((f) => analysable(f) && !f.context).length;
+    if (Number.isFinite(budget) && analysed > budget) {
+      throw new UnknotError('UK_BUDGET_EXCEEDED', `${analysed} files to analyse is above limits.max_files_read (${budget}): raise it in .unknot/config.yaml (a person accepts the change), or map a scope`, { details: { files: analysed, limit: budget } });
+    }
+  }
   for (const adapter of loaded) {
     if (!adapter.extract && !adapter.extractBatch) continue;
     const od = optionsDigest(adapter, config);
@@ -98,8 +120,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       } else misses.push(f);
     }
     if (run) {
-      charge(ctx, run, 'files_read', misses.length);
-      charge(ctx, run, 'bytes_read', misses.reduce((n, f) => n + f.size, 0));
+      // A file read by several adapters is still one file read.
+      const fresh = misses.filter((f) => !charged.has(f.path));
+      for (const f of fresh) charged.add(f.path);
+      charge(ctx, run, 'files_read', fresh.length);
+      charge(ctx, run, 'bytes_read', fresh.reduce((n, f) => n + f.size, 0));
     }
     // Extract and commit in chunks, so an interrupted cold map resumes from the per-file
     // cache instead of redoing a whole adapter pass (spec §28: resumable at 100k files).
@@ -151,16 +176,36 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     stats.adapters[adapter.id] = { files: files.length, extracted, cached: files.length - misses.length };
   }
 
+  // Census order, whatever the order cache hits and extractions arrived in, so a re-map merges
+  // facts exactly as a cold map of the same tree does.
+  const arrived = new Map(perFile);
+  perFile.clear();
+  for (const f of cen.files) if (arrived.has(f.path)) perFile.set(f.path, arrived.get(f.path));
+  for (const [path, facts] of arrived) if (!perFile.has(path)) perFile.set(path, facts);
+
+  // The census decides what is test code (test projects included); an adapter's own path rule
+  // only adds to it, so every command sees one classification.
+  for (const [path, facts] of perFile) {
+    if (filesByPath.get(path)?.kind !== 'test') continue;
+    for (const f of facts) if (f.kind === 'node' && f.type === 'module' && f.attrs) f.attrs.is_test = true;
+  }
+  // Cached files were added before fresh ones, and fresh ones in whatever order extraction
+  // finished; every later step (linking, dedupe, tie-breaks) sees the files in path order.
+  const ordered = [...perFile].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  perFile.clear();
+  for (const [path, facts] of ordered) perFile.set(path, facts);
+  lap('extraction_ms');
   const fileFacts = [...perFile.values()].flat();
   const global = [];
   for (const adapter of loaded) {
     if (!adapter.link) continue;
     try {
-      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {} }) ?? []).map(assertFact));
+      pushAll(global, (adapter.link({ files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats }) ?? []).map(assertFact));
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  lap('link_ms');
   const readText = evidenceReader(ctx, config);
   // Discovery is cached like extraction: keyed by everything its result can depend on
   // (adapter version and options, the blobs of the files it reads, the evidence files'
@@ -213,6 +258,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  lap('discovery_ms');
   let historyStats = null;
   if (history && cen.repo) {
     try {
@@ -242,6 +288,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     }
   }
 
+  lap('history_ms');
   const ps = parseScope(scope);
   if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
@@ -255,7 +302,19 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   });
 
   const all = [...fileFacts, ...global];
+  lap('coverage_ms');
+  // What was mapped, and whether it is behind what the team works on.
+  const checkout = checkoutState(ctx.root);
+  const stale = checkoutNotice(checkout, { expected: branchOk });
+  if (stale) notes.push(stale);
+  if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
   const projection = project(ctx, all, { commit, observedAt });
+  lap('projection_ms');
+  ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
+  // Derived facts are a function of the graph: an unchanged graph keeps the stored ones.
+  const derivedDone = ctx.store.get("SELECT 1 AS ok FROM derived WHERE kind = '_done' AND generation = ?", projection.generation);
+  if (projection.changed || !derivedDone) writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
+  lap('derived_ms');
   const summary = {
     commit,
     generation: projection.generation,
@@ -266,14 +325,17 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     adapters: stats.adapters,
     unavailable,
     coverage,
+    ...(checkout && { checkout }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
     facts: all.length,
     nodes: projection.nodes,
     edges: projection.edges,
+    ...(stats.constants && { constants: stats.constants }),
     history: historyStats,
     duration_ms: Date.now() - t0,
+    phases,
     config_digest: configDigest,
   };
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
@@ -334,74 +396,170 @@ function historyFacts(root, config, sourcePaths) {
 
 const PLACEHOLDER_TYPE = (id) => {
   const t = id.slice(0, id.indexOf(':'));
-  return NODE_TYPES.has(t) ? t : null;
+  return t !== 'constant' && NODE_TYPES.has(t) ? t : null; // a constant exists only if its adapter kept it (the cap)
 };
 
+// Bump when how facts merge into nodes and edges changes: stored rows are only trusted while
+// the fact signatures (which include this) match.
+const PROJECTION_VERSION = 1;
+
+const labelOf = (sources) => {
+  if (sources.some((s) => s.contradicts?.length)) return 'contradicted';
+  const kinds = new Set(sources.map((s) => s.source_type));
+  if (kinds.size === 1 && kinds.has('inference')) return 'inferred';
+  kinds.delete('inference');
+  return kinds.size >= 2 ? 'corroborated' : 'observed';
+};
+
+/** What a fact row holds beyond what its id (key, source, extractor, attrs) already pins down. */
+const sigOf = (f, p) => createHash('sha1').update(JSON.stringify([PROJECTION_VERSION, p.source_type, p.confidence, p.scope ?? [], p.contradicts ?? [], f.type, f.name ?? null, f.path ?? null])).digest('base64').slice(0, 16);
+const ID_LEN = 26; // `f-` and 24 hex digits (facts.mjs factId)
+
 /**
- * Replace the facts table with this generation and rebuild nodes/edges with evidence
- * labels (spec §10.3): corroborated when independent source types agree, inferred when
- * every source is inference, contradicted when any fact declares a contradiction.
+ * Bring the facts, nodes and edges tables to this fact set, writing only what differs.
+ * Facts are matched by id and a signature of their content; nodes and edges merge several
+ * facts, so only those a changed (inserted, updated or deleted) fact touches are recomputed
+ * and compared with their stored rows. With nothing changed the tables are not written and
+ * the generation stays; otherwise it advances. The result is the one a full rewrite gives
+ * (spec §10.3): corroborated when independent source types agree, inferred when every source
+ * is inference, contradicted when any fact declares a contradiction.
  */
 export function project(ctx, facts, { commit, observedAt }) {
-  const generation = Number(ctx.store.meta('generation') ?? 0) + 1;
+  const { store } = ctx;
+  const gen0 = store.meta('generation');
+  const generation0 = Number(gen0 ?? 0);
+  const stored = new Map(); // id + signature → whether this fact set holds it
+  for (const r of store.db.prepare("SELECT id || COALESCE(digest, '') AS k FROM facts").iterate()) stored.set(r.k, 0);
+  // Pass 1: which facts are new or changed. A matching id and signature is unchanged; stored
+  // entries nothing matched are stale.
+  const fresh = []; // indexes of facts to write
+  const ids = new Map(); // index → id and signature, for those
+  for (let i = 0; i < facts.length; i++) {
+    const f = facts[i];
+    const id = factId(f);
+    const sig = sigOf(f, f.provenance);
+    const key = id + sig;
+    if (stored.has(key)) {
+      stored.set(key, 1);
+      continue;
+    }
+    fresh.push(i);
+    ids.set(i, { id, sig });
+  }
+  const touchedNodes = new Set();
+  const touchedEdges = new Set();
+  const ends = new Set(); // endpoints of touched edges: their placeholders may appear or go
+  const touch = (kind, subject, predicate, object) => {
+    if (kind === 'node') touchedNodes.add(subject);
+    else {
+      touchedEdges.add(edgeId(predicate, subject, object));
+      ends.add(subject).add(object);
+    }
+  };
+  for (const i of fresh) {
+    const f = facts[i];
+    touch(f.kind, f.kind === 'node' ? f.id : f.from, f.type, f.to);
+  }
+  const staleIds = [];
+  for (const [key, hit] of stored) if (!hit) staleIds.push(key.slice(0, ID_LEN));
+  const getStale = store.db.prepare('SELECT kind, subject, predicate, object FROM facts WHERE id = ?');
+  for (const id of staleIds) {
+    const r = getStale.get(id);
+    if (r) touch(r.kind, r.subject, r.predicate, r.object);
+  }
+  const changed = !!(fresh.length || staleIds.length) || gen0 == null;
+  if (!changed) {
+    store.tx(() => {
+      store.meta('mapped_commit', commit ?? '');
+      store.meta('mapped_at', observedAt);
+    });
+    return { generation: generation0, changed: false, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+  }
+  const generation = generation0 + 1;
+
+  // Pass 2: merge the facts of every touched node and edge, in fact order (the merge depends on it).
+  const invalidEnd = (id) => !PLACEHOLDER_TYPE(id); // an edge to one exists only while a real node does
   const nodes = new Map();
   const edges = new Map();
-  const insertFact = ctx.store.db.prepare(
-    'INSERT OR REPLACE INTO facts(id, generation, kind, subject, predicate, object, attrs, source_type, source_ref, extractor, observed_at, commit_sha, confidence, scope, contradicts, path, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  const referenced = new Set(); // ids in `recheck` some edge fact (touched or not) still names
+  const recheck = new Set([...touchedNodes, ...ends]); // nodes to rebuild and compare
+  const idAt = (i, f) => ids.get(i)?.id ?? factId(f);
+  for (let i = 0; i < facts.length; i++) {
+    const f = facts[i];
+    if (f.kind === 'node') {
+      if (!recheck.has(f.id)) continue;
+      let n = nodes.get(f.id);
+      if (!n) nodes.set(f.id, (n = { id: f.id, type: f.type, name: f.name, path: f.path, attrs: {}, sources: [], fact_ids: [] }));
+      Object.assign(n.attrs, f.attrs);
+      if (!n.path && f.path) n.path = f.path;
+      n.sources.push(f.provenance);
+      n.fact_ids.push(idAt(i, f));
+    } else {
+      if (recheck.has(f.from)) referenced.add(f.from);
+      if (recheck.has(f.to)) referenced.add(f.to);
+      const eid = edgeId(f.type, f.from, f.to);
+      if (!touchedEdges.has(eid) && !(touchedNodes.has(f.from) && invalidEnd(f.from)) && !(touchedNodes.has(f.to) && invalidEnd(f.to))) continue;
+      let e = edges.get(eid);
+      if (!e) edges.set(eid, (e = { id: eid, type: f.type, from: f.from, to: f.to, attrs: {}, sources: [], fact_ids: [] }));
+      const count = (e.attrs.count ?? 0) + (f.attrs?.count ?? 1);
+      Object.assign(e.attrs, f.attrs, { count });
+      e.sources.push(f.provenance);
+      e.fact_ids.push(idAt(i, f));
+    }
+  }
+  const db = store.db;
+  const insertFact = db.prepare(
+    'INSERT OR REPLACE INTO facts(id, generation, kind, subject, predicate, object, attrs, source_type, source_ref, extractor, observed_at, commit_sha, confidence, scope, contradicts, path, expires_at, digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
-  const label = (sources) => {
-    if (sources.some((s) => s.contradicts?.length)) return 'contradicted';
-    const kinds = new Set(sources.map((s) => s.source_type));
-    if (kinds.size === 1 && kinds.has('inference')) return 'inferred';
-    kinds.delete('inference');
-    return kinds.size >= 2 ? 'corroborated' : 'observed';
-  };
-  ctx.store.tx(() => {
-    ctx.store.run('DELETE FROM facts');
-    for (const f of facts) {
-      const id = factId(f);
+  const getNode = db.prepare('SELECT * FROM nodes WHERE id = ?');
+  const getEdge = db.prepare('SELECT * FROM edges WHERE id = ?');
+  const putNode = db.prepare('INSERT OR REPLACE INTO nodes(id, type, name, path, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const putEdge = db.prepare('INSERT OR REPLACE INTO edges(id, type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
+  store.tx(() => {
+    const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
+    for (const id of staleIds) delFact.run(id);
+    for (const i of fresh) {
+      const f = facts[i];
+      const { id, sig } = ids.get(i);
       const p = f.provenance;
       const path = p.source_ref ? String(p.source_ref).split(/[:#]/)[0] : null;
-      insertFact.run(id, generation, f.kind, f.kind === 'node' ? f.id : f.from, f.kind === 'edge' ? f.type : null, f.kind === 'edge' ? f.to : null, canonicalJSON(f.attrs ?? {}), p.source_type, p.source_ref ?? null, p.extractor, observedAt, commit, p.confidence, canonicalJSON(p.scope ?? []), canonicalJSON(p.contradicts ?? []), path, f.attrs?.expires_at ?? null);
-      if (f.kind === 'node') {
-        let n = nodes.get(f.id);
-        if (!n) nodes.set(f.id, (n = { id: f.id, type: f.type, name: f.name, path: f.path, attrs: {}, sources: [], fact_ids: [] }));
-        Object.assign(n.attrs, f.attrs);
-        if (!n.path && f.path) n.path = f.path;
-        n.sources.push(p);
-        n.fact_ids.push(id);
-      } else {
-        const eid = edgeId(f.type, f.from, f.to);
-        let e = edges.get(eid);
-        if (!e) edges.set(eid, (e = { id: eid, type: f.type, from: f.from, to: f.to, attrs: {}, sources: [], fact_ids: [] }));
-        const count = (e.attrs.count ?? 0) + (f.attrs?.count ?? 1);
-        Object.assign(e.attrs, f.attrs, { count });
-        e.sources.push(p);
-        e.fact_ids.push(id);
+      insertFact.run(id, generation, f.kind, f.kind === 'node' ? f.id : f.from, f.kind === 'edge' ? f.type : null, f.kind === 'edge' ? f.to : null, canonicalJSON(f.attrs ?? {}), p.source_type, p.source_ref ?? null, p.extractor, observedAt, commit, p.confidence, canonicalJSON(p.scope ?? []), canonicalJSON(p.contradicts ?? []), path, f.attrs?.expires_at ?? null, sig);
+    }
+    // Nodes: a touched id, or an endpoint of a touched edge, may now be real, a placeholder, or gone.
+    const ofNode = (id) => {
+      const n = nodes.get(id);
+      if (n) return { type: n.type, name: n.name ?? null, path: n.path ?? null, attrs: canonicalJSON(n.attrs), label: labelOf(n.sources), fact_ids: JSON.stringify(n.fact_ids.slice(0, 50)) };
+      const type = referenced.has(id) ? PLACEHOLDER_TYPE(id) : null;
+      return type && { type, name: id.slice(type.length + 1), path: null, attrs: canonicalJSON({ placeholder: true }), label: 'inferred', fact_ids: '[]' };
+    };
+    for (const id of recheck) {
+      const want = ofNode(id);
+      const have = getNode.get(id);
+      if (!want) {
+        if (have) store.run('DELETE FROM nodes WHERE id = ?', id);
+      } else if (!have || have.type !== want.type || have.name !== want.name || have.path !== want.path || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
+        putNode.run(id, want.type, want.name, want.path, want.attrs, want.label, want.fact_ids);
       }
     }
-    for (const e of edges.values()) {
-      for (const end of [e.from, e.to]) {
-        if (nodes.has(end)) continue;
-        const type = PLACEHOLDER_TYPE(end);
-        if (!type) continue;
-        nodes.set(end, { id: end, type, name: end.slice(type.length + 1), path: null, attrs: { placeholder: true }, sources: [{ source_type: 'inference' }], fact_ids: [] });
+    // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
+    for (const eid of new Set([...touchedEdges, ...edges.keys()])) {
+      const e = edges.get(eid);
+      const have = getEdge.get(eid);
+      if (!e || !exists.get(e.from) || !exists.get(e.to)) {
+        if (have) store.run('DELETE FROM edges WHERE id = ?', eid);
+        continue;
+      }
+      const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
+      if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
+        putEdge.run(eid, want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
       }
     }
-    ctx.store.run('DELETE FROM nodes');
-    ctx.store.run('DELETE FROM edges');
-    const insN = ctx.store.db.prepare('INSERT INTO nodes(id, type, name, path, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const insE = ctx.store.db.prepare('INSERT INTO edges(id, type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    for (const n of nodes.values()) insN.run(n.id, n.type, n.name ?? null, n.path ?? null, canonicalJSON(n.attrs), label(n.sources), JSON.stringify(n.fact_ids.slice(0, 50)));
-    for (const e of edges.values()) {
-      if (!nodes.has(e.from) || !nodes.has(e.to)) continue;
-      insE.run(e.id, e.type, e.from, e.to, canonicalJSON(e.attrs), label(e.sources), JSON.stringify(e.fact_ids.slice(0, 50)));
-    }
-    ctx.store.meta('generation', generation);
-    ctx.store.meta('mapped_commit', commit ?? '');
-    ctx.store.meta('mapped_at', observedAt);
+    store.meta('generation', generation);
+    store.meta('mapped_commit', commit ?? '');
+    store.meta('mapped_at', observedAt);
   });
-  return { generation, nodes: nodes.size, edges: ctx.store.get('SELECT COUNT(*) AS n FROM edges').n };
+  return { generation, changed: true, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
 }
 
 /** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */

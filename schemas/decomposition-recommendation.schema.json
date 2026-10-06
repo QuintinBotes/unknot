@@ -22,8 +22,13 @@
     "run_id": {
       "description": "The decompose run that wrote this record.",
       "oneOf": [
-        { "type": "string", "pattern": "^run-[a-z0-9-]+$" },
-        { "type": "null" }
+        {
+          "type": "string",
+          "pattern": "^run-[a-z0-9-]+$"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "id": {
@@ -175,7 +180,8 @@
             ],
             "additionalProperties": false
           },
-          "maxItems": 10
+          "maxItems": 10,
+          "description": "Deprecated since 0.2.0: the same list as outbound_dependency_targets. Removed in 0.3.0."
         },
         "folded_siblings": {
           "type": "array",
@@ -271,6 +277,27 @@
             "broken_by"
           ],
           "additionalProperties": false
+        },
+        "outbound_dependency_targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "module": {
+                "type": "string"
+              },
+              "edges": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "module",
+              "edges"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 10,
+          "description": "Modules outside the candidate that it imports (the candidate depends on them), with the number of import edges to each; the most imported first."
         }
       },
       "required": [

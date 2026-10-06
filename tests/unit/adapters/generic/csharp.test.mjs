@@ -102,11 +102,11 @@ test('declared-only: an unused injected property and a constructor-injected fiel
   const g = build({
     'S/Mailer.cs': cls('Shop.Svc', 'Mailer'),
     'S/Billing.cs': cls('Shop.Svc', 'Billing'),
-    'S/Audit.cs': cls('Shop.Svc', 'Audit'),
+    'S/Journal.cs': cls('Shop.Svc', 'Tracker'),
     'S/Shipper.cs': cls('Shop.Svc', 'Shipper'),
     'S/Unused.cs': cls('Shop.Svc', 'Unused', '        [Dependency]\n        public Mailer Mailer { get; set; }\n        private readonly Billing _billing;\n        public Unused(Billing billing) { _billing = billing; }'),
     'S/Used.cs': cls('Shop.Svc', 'Used', '        [Dependency]\n        public Mailer Mailer { get; set; }\n        void Go() { Mailer.Send(); }'),
-    'S/Mixed.cs': cls('Shop.Svc', 'Mixed', '        private readonly Audit _audit;\n        public Mixed(Audit audit) { _audit = audit; }\n        void Go() { _audit.Log(); }\n        void Make() { var s = new Shipper(); }\n        private readonly Shipper _s;'),
+    'S/Mixed.cs': cls('Shop.Svc', 'Mixed', '        private readonly Tracker _tracker;\n        public Mixed(Tracker tracker) { _tracker = tracker; }\n        void Go() { _tracker.Log(); }\n        void Make() { var s = new Shipper(); }\n        private readonly Shipper _s;'),
   });
   const a = g.edge('S/Unused.cs', 'S/Mailer.cs').attrs;
   assert.equal(a.declared_only, true);
@@ -115,7 +115,7 @@ test('declared-only: an unused injected property and a constructor-injected fiel
   assert.equal(b.declared_only, true);
   assert.equal(b.unused_member, '_billing');
   assert.ok(!g.edge('S/Used.cs', 'S/Mailer.cs').attrs.declared_only);
-  assert.ok(!g.edge('S/Mixed.cs', 'S/Audit.cs').attrs.declared_only, 'used member');
+  assert.ok(!g.edge('S/Mixed.cs', 'S/Journal.cs').attrs.declared_only, 'used member');
   assert.ok(!g.edge('S/Mixed.cs', 'S/Shipper.cs').attrs.declared_only, 'new T');
 });
 
@@ -266,11 +266,11 @@ test('declared-only: a public member used from another file is an ordinary edge'
   }
   // A member whose name is no type is also reached by a bare name (a derived class).
   const g = build({
-    'S/Audit.cs': cls('Shop.Svc', 'Audit'),
-    'S/Host.cs': hostWith('public Audit Journal { get; set; }'),
+    'S/Journal.cs': cls('Shop.Svc', 'Tracker'),
+    'S/Host.cs': hostWith('public Tracker Journal { get; set; }'),
     'S/Derived.cs': cls('Shop.Svc', 'Derived : Host', '        void F() { Journal.Write(); }'),
   });
-  assert.ok(!g.edge('S/Host.cs', 'S/Audit.cs').attrs.declared_only);
+  assert.ok(!g.edge('S/Host.cs', 'S/Journal.cs').attrs.declared_only);
 });
 
 test('declared-only: a mention of the type alone does not count as use of the member elsewhere', () => {
@@ -290,4 +290,120 @@ test('public injected members are recorded for the API check and link-only sets 
   const m = g.factsByFile.get('S/Host.cs').find((f) => f.type === 'module');
   assert.deepEqual(m.attrs.public_members, ['Ledger']);
   for (const k of ['decl_public', 'words', 'accessed']) assert.equal(m.attrs[k], undefined, k);
+});
+
+// Receiver types: a same-named member on another type is not a use of the injected one.
+const ledgerFiles = (hostBody, other) => ({
+  'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public void Write() { }'),
+  'S/Host.cs': hostWith(hostBody),
+  ...other,
+});
+const HOST = 'public Ledger Ledgers { get; set; }';
+
+test('typed receivers: same-named members on unrelated types leave the injected member unused', () => {
+  const g = build(ledgerFiles(HOST, {
+    'S/Context.cs': cls('Shop.Svc', 'Context', '        public int Ledgers { get; set; }'),
+    'S/Order.cs': cls('Shop.Svc', 'Order', '        public int Ledgers { get; set; }'),
+    'S/Use.cs': cls('Shop.Svc', 'Use', '        private readonly Context _context;\n        int A(Order order) { return order.Ledgers; }\n        int B() { return _context.Ledgers; }\n        int C() { var o = new Order(); return o.Ledgers; }\n        int D(object x) { var o = (Order)x; return o.Ledgers; }\n        int E(object x) { var c = x as Context; return c.Ledgers; }\n        int F(object x) { return x is Order q ? q.Ledgers : 0; }\n        int G(List<Order> xs) { foreach (Order e in xs) { return e.Ledgers; } return 0; }\n        int H() { return this._context.Ledgers; }'),
+  }));
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.equal(a.declared_only, true);
+  assert.equal(a.use_evidence, undefined);
+});
+
+test('typed receivers: a read through the declaring type, a subtype or a base counts as a use', () => {
+  const cases = {
+    param: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        void F(Host h) { h.Ledgers.Write(); }') },
+    field: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        private Host _h;\n        void F() { _h.Ledgers.Write(); }') },
+    created: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        void F() { var h = new Host(); h.Ledgers.Write(); }') },
+    subtype: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        void F(Child c) { c.Ledgers.Write(); }'), 'S/Child.cs': cls('Shop.Svc', 'Child : Host') },
+    base: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        void F(IHost c) { c.Ledgers.Write(); }'), 'S/IHost.cs': cls('Shop.Svc', 'IHost'), 'S/Host.cs': cls('Shop.Svc', 'Host : IHost', `        [Dependency]\n        ${HOST}`) },
+    derivedBare: { 'S/Use.cs': cls('Shop.Svc', 'Use : Host', '        void F() { Ledgers.Write(); }') },
+    derivedThis: { 'S/Use.cs': cls('Shop.Svc', 'Use : Host', '        void F() { this.Ledgers.Write(); }') },
+    initializer: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        Host F() { return new Host { Ledgers = null }; }') },
+    staticAccess: { 'S/Use.cs': cls('Shop.Svc', 'Use', '        void F() { Host.Ledgers.Write(); }') },
+  };
+  for (const [name, files] of Object.entries(cases)) {
+    const g = build({ 'S/Ledger.cs': cls('Shop.Svc', 'Ledger'), 'S/Host.cs': hostWith(HOST), ...files });
+    const e = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+    assert.ok(!e.declared_only, name);
+    assert.equal(e.use_evidence, undefined, name);
+  }
+});
+
+test('typed receivers: an unresolved receiver is a possible use, labelled name-only', () => {
+  for (const use of ['int F() { return Get().Ledgers; }', 'int F(Order o) { return o.Parent.Ledgers; }', 'int F() { var x = Make(); return x.Ledgers; }', 'int F() { return Items.Select(i => i.Ledgers).Count(); }', 'object F() { return Bind("Ledgers"); }']) {
+    const g = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', `        ${use}`) }));
+    const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+    assert.ok(!a.declared_only, use);
+    assert.equal(a.use_evidence, 'name-only', use);
+    assert.equal(a.possible_use_of, 'Ledgers', use);
+  }
+  // A typed use outranks name-only evidence.
+  const g = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', '        int F() { return Get().Ledgers; }\n        void G(Host h) { h.Ledgers.Write(); }') }));
+  assert.equal(g.edge('S/Host.cs', 'S/Ledger.cs').attrs.use_evidence, undefined);
+});
+
+test('typed receivers: a variable name declared with a type and without one stays a possible use', () => {
+  const g = build(ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', '        int A(Order x) { return x.Ledgers; }\n        int B() { var x = Make(); return 0; }') }));
+  const a = g.edge('S/Host.cs', 'S/Ledger.cs').attrs;
+  assert.ok(!a.declared_only);
+  assert.equal(a.use_evidence, 'name-only');
+});
+
+test('typed receivers: a cycle held only by the unused member keeps that member as its only declared-only edge', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public Host Owner { get; set; }'),
+    'S/Host.cs': hostWith(HOST),
+    'S/Order.cs': cls('Shop.Svc', 'Order', '        public int Ledgers { get; set; }'),
+    'S/Use.cs': cls('Shop.Svc', 'Use', '        int A(Order o) { return o.Ledgers; }'),
+  });
+  assert.ok(!g.edge('S/Ledger.cs', 'S/Host.cs').attrs.declared_only);
+  assert.equal(g.edge('S/Host.cs', 'S/Ledger.cs').attrs.declared_only, true);
+});
+
+test('typed receivers: results are identical across runs and link-only sets are dropped', () => {
+  const src = ledgerFiles(HOST, { 'S/Use.cs': cls('Shop.Svc', 'Use', '        int F(Order o) { return o.Ledgers + Get().Ledgers; }\n        void G(Host h) { h.Ledgers.Write(); }') });
+  const key = (g) => JSON.stringify(g.all.filter((f) => f.kind === 'edge').map((f) => [f.type, f.from, f.to, f.attrs]));
+  assert.equal(key(build(src)), key(build(src)));
+  const g = build(src);
+  for (const facts of g.factsByFile.values()) {
+    const m = facts.find((f) => f.type === 'module');
+    for (const k of ['acc', 'calls', 'type_bases', 'public_owners']) assert.equal(m.attrs[k], undefined, k);
+  }
+});
+
+// Module-level CALLS edges from receiver-resolved member calls.
+const callEdge = (g, from, to) => g.edges('CALLS', from).find((e) => e.to === `module:${to}`);
+
+test('calls: typed members, new and static access make CALLS edges to the declaring file', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public void Write() { }\n        public static Ledger Open() { return null; }'),
+    'S/Tracker.cs': cls('Shop.Svc', 'Tracker', '        public int Count { get; set; }'),
+    'S/Journal.cs': cls('Shop.Svc', 'Journal', '        private readonly Ledger _ledger;\n        public Journal(Ledger ledger) { _ledger = ledger; }\n        void A() { _ledger.Write(); _ledger.Write(); }\n        void B() { var t = new Tracker(); }\n        void C() { Ledger.Open(); }'),
+    'S/Idle.cs': cls('Shop.Svc', 'Idle', '        Ledger _l;'),
+  });
+  const l = callEdge(g, 'S/Journal.cs', 'S/Ledger.cs');
+  assert.equal(l.attrs.via, 'member-call');
+  assert.equal(l.attrs.count, 3);
+  assert.equal(l.provenance.confidence, 'medium');
+  assert.equal(callEdge(g, 'S/Journal.cs', 'S/Tracker.cs').attrs.count, 1);
+  assert.equal(callEdge(g, 'S/Idle.cs', 'S/Ledger.cs'), undefined, 'a mention without a member access is no call');
+  assert.equal(callEdge(g, 'S/Ledger.cs', 'S/Ledger.cs'), undefined);
+});
+
+test('calls: types outside the repository, unresolved receivers and own members make none', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public void Write() { }\n        void Own() { this.Write(); Write(); }'),
+    'S/Journal.cs': cls('Shop.Svc', 'Journal', '        void A(List<int> xs, string s) { xs.Add(1); s.Trim(); Console.WriteLine(Get().Write()); Math.Max(1, 2); }'),
+  });
+  assert.deepEqual(g.edges('CALLS').filter((e) => e.from.startsWith('module:')).map((e) => `${e.from}>${e.to}`), []);
+});
+
+test('calls: a receiver name declared with two types is a low-confidence call', () => {
+  const g = build({
+    'S/Ledger.cs': cls('Shop.Svc', 'Ledger', '        public void Write() { }'),
+    'S/Journal.cs': cls('Shop.Svc', 'Journal', '        void A(Ledger x) { x.Write(); }\n        void B(Order x) { x.Print(); }'),
+  });
+  assert.equal(callEdge(g, 'S/Journal.cs', 'S/Ledger.cs').provenance.confidence, 'low');
 });

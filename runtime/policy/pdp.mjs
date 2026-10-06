@@ -3,8 +3,8 @@
 // run, the actor's capability and the effective config. Recording and budget charging
 // happen in the caller, so this module is easy to test exhaustively.
 
-import { existsSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { matchAny } from '../core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.mjs';
 import { unknotHome } from '../core/project.mjs';
@@ -83,39 +83,69 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
       return deny('state.protected', 'direct access to Unknot state or key material is not allowed');
     }
     const shell = judgeShell(cmd, { pluginRoot, projectRoot: ctx.root });
+    // Files a command writes, and trees it acts on as a whole (removing, moving, re-permissioning
+    // a directory reaches the state inside it; writing a file into a directory does not). Each
+    // target keeps the role it plays, so a refusal can name the operand that caused it.
+    const files = shell.writes.map((t) => [t, 'the redirect target']);
+    const trees = [];
+    const cwd = op.cwd ?? ctx.root;
+    for (const c of shell.commands) {
+      const name = c.argv[0]?.value?.split('/').pop();
+      const literal = c.argv.slice(1).filter((w) => !w.dynamic).map((w) => w.value);
+      if (name === 'cp' && cpOperands(c)) files.push(...cpTargets(c, cwd).map((t) => [t, 'the copy destination']));
+      else if (TREE_WRITERS.has(name)) trees.push(...literal.map((t) => [t, `the ${name} operand`]));
+      else if (TARGET_WRITERS.has(name) || ['cp', 'dd'].includes(name)) files.push(...literal.map((t) => [t, `the ${name} operand`]));
+    }
+    for (const [t, role, tree] of [...files.map(([f, r]) => [f, r, false]), ...trees.map(([f, r]) => [f, r, true])]) {
+      const rel = relFrom(ctx.root, realpathLenient(resolve(cwd, t)));
+      if (rel === null) continue;
+      if (tree ? coversState(rel) : writesState(rel)) return deny('state.protected', `${role} ${rel || 'the project root'} ${isStatePath(rel) ? 'is' : 'contains'} Unknot state; use the unknot CLI`);
+    }
+    // The precise check above names the operand; this fallback is for programs it cannot analyse.
     // Any program could rewrite Unknot's state (`sed -i`, `perl -pi`, an interpreter,
     // `cd .unknot && ... >`); only commands that pass the read-only rules may mention it.
     if (mentionsState(cmd, shell) && !shell.allow) {
       return deny('state.protected', `commands that mention .unknot must be read-only; Unknot state changes only through the unknot CLI (here: ${shell.reasons.join('; ')})`);
-    }
-    const touched = [...shell.writes];
-    for (const c of shell.commands) {
-      const name = c.argv[0]?.value?.split('/').pop();
-      if (name === 'cp' && cpOperands(c)) touched.push(cpOperands(c).at(-1).value);
-      else if (['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'touch', 'dd', 'install', 'rsync'].includes(name)) {
-        touched.push(...c.argv.slice(1).filter((w) => !w.dynamic).map((w) => w.value));
-      }
-    }
-    for (const t of touched) {
-      const rel = relFrom(ctx.root, realpathLenient(resolve(op.cwd ?? ctx.root, t)));
-      if (rel !== null && isStatePath(rel)) return deny('state.protected', `${rel} is Unknot state; use the unknot CLI`);
     }
   }
   return null;
 }
 
 const STATE_MENTION = /\.unknot(\/|\b)/i;
+// Programs whose every argument is a path they may write (options included, harmlessly).
+const TARGET_WRITERS = new Set(['rm', 'mv', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'touch', 'install', 'mkdir', 'rmdir']);
+// Of those, the ones that act on a directory as a whole.
+const TREE_WRITERS = new Set(['rm', 'rmdir', 'mv', 'chmod', 'chown', 'ln', 'rsync']);
 // Programs that only print what they are given (no option of theirs writes a file).
 const PRINTERS = new Set(['cat', 'echo', 'printf']);
 
 // `cp` reads every operand but the last: a copy out of .unknot reads it, a copy into it writes.
 // With -t (target directory first) the operands cannot be told apart, so it gets no exemption.
+// A computed destination is accepted only when it starts in the home or temp directory, which
+// Unknot's state never is; one that names .unknot is refused by the mention check.
+const OUTSIDE_PREFIX = /^(~\/|\$\{?(HOME|TMPDIR|TMP|TEMP)\}?\/|\/tmp\/)/;
 const cpOperands = (c) => {
   const args = c.argv.slice(1);
   if (args.some((w) => /^(-[a-zA-Z]*t|--target-directory)/.test(w.value))) return null;
   const ops = args.filter((w) => !w.value.startsWith('-'));
-  return ops.length >= 2 && !ops.some((w) => w.dynamic || w.glob) ? ops : null;
+  if (ops.length < 2 || ops.slice(0, -1).some((w) => w.dynamic || w.glob)) return null;
+  const dest = ops.at(-1);
+  return dest.glob || (dest.dynamic && !OUTSIDE_PREFIX.test(dest.value)) ? null : ops;
 };
+
+/** The files a copy writes: into a directory, each source under its own name. */
+function cpTargets(c, cwd) {
+  const ops = cpOperands(c);
+  const dest = ops.at(-1).value;
+  if (OUTSIDE_PREFIX.test(dest)) return [];
+  let dir = dest.endsWith('/');
+  try {
+    dir ||= statSync(resolve(cwd, dest)).isDirectory();
+  } catch {
+    // a new file
+  }
+  return dir ? ops.slice(0, -1).map((w) => join(dest, basename(w.value))) : [dest];
+}
 
 /**
  * Whether a shell command mentions .unknot where a program could act on it. A command line made
@@ -137,10 +167,25 @@ function mentionsState(cmd, shell) {
     if (ctx.pipeline || ctx.substitution || ctx.viaWrapper || ctx.fromStdin || c.assignments.length) return false;
     if (!c.redirects.every((r) => (r.heredoc !== undefined ? !r.heredocDynamic : !r.target?.dynamic && !r.target?.glob))) return false;
     if (PRINTERS.has(name)) return !(name === 'printf' && c.argv.some((w) => /^-v/.test(w.value)));
-    return name === 'cp' && Boolean(cpOperands(c));
+    if (name === 'cp') return Boolean(cpOperands(c));
+    // Every argument of these is a path they write: the write check judges each one.
+    return TARGET_WRITERS.has(name) && c.argv.slice(1).every((w) => !w.dynamic && !w.glob);
   });
   if (!readsOnly) return true;
   return shell.commands.some((c) => [c.argv[0]?.value ?? '', ...c.redirects.filter((r) => r.heredoc === undefined).map((r) => r.target?.value ?? ''), ...(nameOf(c) === 'cp' ? [cpOperands(c).at(-1).value] : [])].some((t) => STATE_MENTION.test(t)));
+}
+
+// A path that is Unknot state, or a directory holding some (`rm -rf .unknot`, `chmod -R .`).
+const STATE_ROOTS = ['.unknot/config.yaml', '.unknot/decisions.jsonl', '.unknot/.gitignore', '.unknot/state', '.unknot/cas', '.unknot/runs', '.unknot/campaigns', '.unknot/slices', '.unknot/telemetry', '.unknot/decompositions'];
+/** A file write that lands on Unknot state (a file of it, or one of its directories by name). */
+function writesState(rel) {
+  const r = rel.toLowerCase().replace(/\/+$/, '');
+  return isStatePath(r) || STATE_ROOTS.includes(r);
+}
+
+function coversState(rel) {
+  const r = rel.toLowerCase().replace(/\/+$/, '');
+  return isStatePath(r) || STATE_ROOTS.some((s) => s === r || r === '' || s.startsWith(`${r}/`));
 }
 
 // Compared case-insensitively: on case-insensitive filesystems `.unknot/DECISIONS.jsonl`

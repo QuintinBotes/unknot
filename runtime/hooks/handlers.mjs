@@ -5,6 +5,7 @@
 // Every handler is a function of (event) → answer object | null, so tests drive them
 // directly without spawning processes.
 
+import { explainDenial } from '../policy/next-steps.mjs';
 import { relative } from 'node:path';
 import { digest } from '../core/canonical.mjs';
 import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../core/injection.mjs';
@@ -91,7 +92,7 @@ export async function onPreToolUse(event) {
   const always = alwaysOn(ctx, op, { pluginRoot: PLUGIN_ROOT });
   if (always) {
     recordDecision(ctx, null, op, always, actorOf(event));
-    return preToolDeny(`Unknot: ${always.reasons.join('; ')}`);
+    return preToolDeny(`Unknot: ${explainDenial(always)}`);
   }
   const { run, config, slice } = await loadRunState(ctx, event);
   if (!run) return null;
@@ -107,7 +108,7 @@ export async function onPreToolUse(event) {
     return preToolDeny(`Unknot: ${err.message}. The run is over budget; stop and report what was completed.`);
   }
   recordDecision(ctx, run, op, d, actorOf(event));
-  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${d.reasons.join('; ')}${await runScopeNote(run)}`);
+  if (d.decision === 'deny') return preToolDeny(`Unknot (${run.command}, mode ${config.mode}): ${explainDenial(d)}${await runScopeNote(run)}`);
   return null;
 }
 

@@ -3,6 +3,7 @@
 // rules; a minimal environment with no credentials; an OS sandbox; hard timeouts and
 // output caps; and an evidence record whose digests cover the complete output.
 
+import { forbiddenAtRoot } from '../core/guidance.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, appendFileSync, constants, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -147,6 +148,14 @@ export async function brokerExec(ctx, req) {
   }
   if ((config?.forbid_executables ?? []).includes(basename(argv[0]))) {
     throw new UnknotError('UK_POLICY_DENIED', `${basename(argv[0])} is forbidden by organization policy`);
+  }
+  if (origin === 'configured') {
+    // The repository's guidance can forbid a command shape here; it can never allow one.
+    let rule = null;
+    try {
+      rule = forbiddenAtRoot(ctx.root, argv);
+    } catch {}
+    if (rule) throw new UnknotError('UK_POLICY_DENIED', `${argv.join(' ')} is not run: ${rule.file}:${rule.line} says "${rule.sentence}"; a person decides`, { details: { policy: 'guidance.command', file: rule.file, line: rule.line } });
   }
   const realCwd = realpathLenient(cwd);
   if (!isInside(realpathLenient(ctx.root), realCwd)) throw new UnknotError('UK_SCOPE_VIOLATION', `cwd ${cwd} is outside the project`);

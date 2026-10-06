@@ -24,8 +24,34 @@ export function extractFile(file, text, _ctx) {
   if (isPackageJson(path)) return packageFacts(path, text);
   if (isTsConfig(path)) return tsconfigFacts(path, text);
   if (/(?:^|\/)\+page\.svelte$/.test(path)) return svelteFacts(path, text);
+  if (VUE_RE.test(path)) return vueFacts(file, text);
   if (!CODE_FILE_RE.test(path)) return [];
   return codeFacts(file, text);
+}
+
+const VUE_RE = /\.vue$/;
+const VUE_SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+
+/**
+ * A single-file component keeps its code in `<script>` and `<script setup>` blocks. They are
+ * read as one module: the text outside the blocks is blanked but its line breaks stay, so
+ * every line number still points into the `.vue` file. A component without a script block
+ * (template only) yields no facts, as before.
+ */
+function vueFacts(file, text) {
+  let code = '';
+  let at = 0;
+  let ts = false;
+  const blank = (s) => s.replace(/[^\n]/g, '');
+  for (const m of text.matchAll(VUE_SCRIPT_RE)) {
+    const bodyStart = m.index + m[0].indexOf('>') + 1;
+    code += blank(text.slice(at, bodyStart)) + m[2];
+    at = bodyStart + m[2].length;
+    if (/\blang\s*=\s*["']?tsx?\b/i.test(m[1])) ts = true;
+  }
+  if (!code) return [];
+  code += blank(text.slice(at));
+  return codeFacts(file, code, { ts, jsx: false });
 }
 
 function mk(path, degraded) {
@@ -56,10 +82,10 @@ function svelteFacts(path, text) {
   return facts;
 }
 
-function codeFacts(file, text) {
+function codeFacts(file, text, as = {}) {
   const path = file.path;
-  const ts = TS_RE.test(path);
-  const tk = tokenize(text, { jsx: !NO_JSX_RE.test(path), ts });
+  const ts = as.ts ?? TS_RE.test(path);
+  const tk = tokenize(text, { jsx: as.jsx ?? !NO_JSX_RE.test(path), ts });
   const { tokens, n } = tk;
   // How often each identifier occurs in the file. A function whose name occurs more than
   // once is used somewhere — called, passed by reference (`map(lineTotal)`), exported in a

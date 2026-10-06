@@ -19,6 +19,7 @@ import { matchAny } from '../core/glob.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { gitHead } from '../state/runs.mjs';
+import { forbiddenCommand, guidanceForScope, loadGuidance, protectedByGuidance, scopeHits } from '../core/guidance.mjs';
 import { generateObligations } from './obligations.mjs';
 
 const RECOVERY_BY_TREATMENT = { T3: 'roll_forward', T6: 'roll_forward', T7: 'revert' };
@@ -79,12 +80,26 @@ export function createSlice(ctx, { config, campaignId, draft, actor }) {
   if (config.security.dependency_changes === 'forbidden' && body.changes.some((c) => matchAny(c.path, DEP_MANIFESTS))) {
     throw new UnknotError('UK_POLICY_DENIED', `slice "${draft.objective}" changes dependency manifests, which security.dependency_changes forbids`, { details: { policy: 'security.dependency_changes' } });
   }
+  // The repository's own guidance can only tighten: a planned change to a path it says not to
+  // edit is refused; a scope that merely reaches such a path is raised to high risk with its reason.
+  const loaded = loadGuidance(ctx.root);
+  const guide = guidanceForScope(ctx.root, body.scope.include, loaded);
+  const blocked = protectedByGuidance(guide, changes.map((c) => c.path));
+  if (blocked.length) {
+    throw new UnknotError('UK_POLICY_DENIED', `slice "${draft.objective}" changes ${blocked.map((b) => b.path).join(', ')}, which ${blocked[0].file}:${blocked[0].line} says not to edit ("${blocked[0].sentence}")`, { details: { policy: 'guidance.protected_path', paths: blocked } });
+  }
+  const reached = scopeHits(guide, body.scope.include);
+  body.guidance = guide.files.map((f) => ({ file: f.file, scope: f.scope, ...(reached.some((r) => r.file === f.file) && { protects: [...new Set(reached.filter((r) => r.file === f.file).map((r) => r.glob))] }) }));
   const risk = classifyRisk(body, { config, surfaces: body.surfaces ?? {} });
   body.risk = risk.risk;
   if (body.irreversible && riskRank(body.risk) < riskRank('critical')) body.risk = 'critical';
   const needed = requiredApprovals(risk, config);
   body.approvals = needed.roles;
-  const obligations = generateObligations(body, { config, risk });
+  // A command the guidance forbids is not run: its obligation is for a person, citing the sentence.
+  const obligations = generateObligations(body, { config, risk }).map((o) => {
+    const rule = o.command && forbiddenCommand(guide, o.command);
+    return rule ? { ...o, command: null, requires_human: true, description: `${o.description} (not run: ${rule.file}:${rule.line} says "${rule.sentence}"; a person confirms)` } : o;
+  });
   return ctx.store.tx(() => {
     const ids = [];
     for (const o of obligations) {

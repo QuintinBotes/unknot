@@ -8,10 +8,36 @@ import { effectivePolicy, generatePolicyKey, loadPolicyKey, policyKeyDir, signPo
 import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
-const USAGE = 'usage: unknot policy keygen <name> | sign <org-policy.yaml> --key <name> | trust <dir> --key <name> | verify <dir> | effective';
+const USAGE = 'usage: unknot policy keygen <name> | sign <org-policy.yaml> --key <name> | trust <dir> --key <name> | verify <dir> | effective | denials [--limit N] [--run <id>]';
+
+/**
+ * Recent refusals grouped by rule, with the latest example of each: the way to find a rule that
+ * refuses legitimate work (roadmap item 5). Command text is cut and passed through redaction.
+ */
+function denials(flags) {
+  const { ctx } = open(flags);
+  const limit = Math.min(Number(flags.limit ?? 500) || 500, 5000);
+  const rows = ctx.store.all(`SELECT run_id, operation, reasons, policy_ids, at FROM policy_results WHERE decision = 'deny'${flags.run ? ' AND run_id = ?' : ''} ORDER BY id DESC LIMIT ?`, ...(flags.run ? [flags.run, limit] : [limit]));
+  const byRule = new Map();
+  for (const r of rows) {
+    const ids = JSON.parse(r.policy_ids);
+    const key = ids.join(', ') || '(none)';
+    const op = JSON.parse(r.operation);
+    const g = byRule.get(key) ?? { rule: key, count: 0, runs: new Set(), latest: null };
+    g.count++;
+    g.runs.add(r.run_id ?? 'no run');
+    g.latest ??= { at: r.at, run_id: r.run_id, what: op.command ?? op.paths?.join(', ') ?? op.tool, reason: JSON.parse(r.reasons).join('; ') };
+    byRule.set(key, g);
+  }
+  const groups = [...byRule.values()].sort((a, b) => b.count - a.count).map((g) => ({ rule: g.rule, count: g.count, runs: g.runs.size, latest: g.latest }));
+  if (flags.json) return output({ examined: rows.length, groups }, { json: true });
+  if (!groups.length) return output('No refusals recorded.');
+  return output([`${rows.length} most recent refusal(s), by rule:`, ...groups.map((g) => `  ${g.rule}: ${g.count} (in ${g.runs} run(s)); latest ${g.latest.at}: ${String(g.latest.what).slice(0, 160)}\n    ${g.latest.reason.slice(0, 240)}`)].join('\n'));
+}
 
 export async function run({ positional, flags }) {
   const [sub, arg] = positional;
+  if (sub === 'denials') return denials(flags);
   if (sub === 'keygen') {
     if (!arg) throw new UnknotError('UK_CONFIG_INVALID', USAGE);
     requireHumanTTY('generating a policy signing key');

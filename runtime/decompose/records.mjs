@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
+import { upgradeDecomposition } from '../state/upgrade.mjs';
 import { INVASIVENESS } from './select.mjs';
 
 const ID = /^DEC-\d{4,}$/;
@@ -21,14 +22,23 @@ export function fingerprintOf({ target, drivers, modules }) {
  * already the current record of another boundary.
  * @returns {{id: string, overlap: number}|null}
  */
-export function predecessorOf(records, { target, modules }, claimed) {
+export function predecessorOf(records, { target, modules, self = null }, claimed) {
   const set = new Set(modules);
+  const byId = new Map(records.map((r) => [r.id, r]));
+  // A record another record already replaced is not the latest of its chain.
+  const replaced = new Set(records.map((r) => r.supersedes).filter(Boolean));
+  // Linking to a record whose own chain leads back here would make a loop.
+  const leadsTo = (id, target) => {
+    for (let at = byId.get(id), n = 0; at && n < records.length; at = byId.get(at.supersedes), n++) if (at.id === target) return true;
+    return false;
+  };
+  const num = (id) => Number(id.slice(4));
   let best = null;
   for (const r of records) {
-    if (r.target !== target || claimed.has(r.id)) continue;
+    if (r.target !== target || claimed.has(r.id) || replaced.has(r.id) || (self && leadsTo(r.id, self))) continue;
     const other = r.candidate?.modules ?? [];
-    const overlap = other.filter((m) => set.has(m)).length / Math.max(set.size, other.length, 1);
-    if (overlap >= 0.5 && (!best || overlap > best.overlap)) best = { id: r.id, overlap: +overlap.toFixed(2) };
+    const overlap = +(other.filter((m) => set.has(m)).length / Math.max(set.size, other.length, 1)).toFixed(2);
+    if (overlap >= 0.5 && (!best || overlap > best.overlap || (overlap === best.overlap && num(r.id) > num(best.id)))) best = { id: r.id, overlap };
   }
   return best;
 }
@@ -40,7 +50,7 @@ export function loadRecords(ctx) {
   const out = [];
   for (const f of readdirSync(dir).filter((n) => /^DEC-\d+\.json$/.test(n)).sort()) {
     try {
-      out.push(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+      out.push(upgradeDecomposition(JSON.parse(readFileSync(join(dir, f), 'utf8'))));
     } catch {
       // a half-written file is not a record
     }

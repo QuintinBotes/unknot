@@ -1,0 +1,42 @@
+{
+  "sha256:275decffd0889ddad615f8e7cfb8a68ae4a4edbe282eb3df53b957cec5508359": {
+    "label": "not-worth",
+    "note": "common-page imports shared comp helpers as initialisers; ordinary composition."
+  },
+  "sha256:a167742bb500f6c2c951921a056efdab71a4ab7d63600172498ac435d2c0defc": {
+    "label": "not-worth",
+    "note": "Web component with many small private formatters; 270 lines, under the line threshold."
+  },
+  "sha256:3f5d40495acab227bd32125b992e5d3d66e4700c42e4e3c8b9d5aa0e62522e31": {
+    "label": "not-worth",
+    "note": "innerHTML is set from server-rendered HTML fetched from the same app, a deliberate pattern."
+  },
+  "sha256:5d7e4865ad84f09e847ce9c2ae32ba554ee85f1a7d434f262689e6de3e8d3da8": {
+    "label": "not-worth",
+    "note": "Constructor of a small duration value type with one field per unit."
+  },
+  "sha256:13ce8bd0e3d577a21a0c6a77cfb5fc8930b4728b386b3cb278bf49cb082b5704": {
+    "label": "false",
+    "note": "The back edge from command-palette to main is an import type, erased at compile time; no runtime cycle."
+  },
+  "sha256:5533226a1bb4fe6660c160a8c39236d4e27ada944932f7a05b2ae619b35d2d21": {
+    "label": "false",
+    "note": "Fan-in and fan-out come from package-level attribution; the file is 169 lines with four functions."
+  },
+  "sha256:98b3f29165cc3a31ec62fa654d785cf6cd52b02a8581e9e3b5a620b1b18031f0": {
+    "label": "false",
+    "note": "ViewFileTreeStore.ts is imported by ViewFileTree.vue and ViewFileTreeItem.vue, which the scan did not follow."
+  },
+  "sha256:df1edfd5db208db6ba5f6ba57854ddd16955199353c86783c1c429a91bd73310": {
+    "label": "not-worth",
+    "note": "Form struct imports a middleware validator type; stability metric on a file is not meaningful here."
+  },
+  "sha256:d7f5d04ec7ef0b10ac82a838b48be7222d977dbef052baf7889c1a7b4aa70500": {
+    "label": "not-worth",
+    "note": "Long function is a mostly declarative list of palette commands with cyclomatic 5."
+  },
+  "sha256:6e05182c9a56aa8956fd9b0a6ed2d4aacdabd3fd481c5bd31ded62534842f80d": {
+    "label": "not-worth",
+    "note": "Package registry handlers share a similar skeleton per package format; parallel design."
+  }
+}

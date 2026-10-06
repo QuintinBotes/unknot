@@ -366,6 +366,16 @@ test('hub-module: needs both fan-in and fan-out at the threshold', () => {
   assert.equal(run('module.hub-module', build(15, 14), { fan_out: 14 }).length, 1);
 });
 
+test('hub-module: package-level imports are not fan-in of one file', () => {
+  const build = (attrs) => [
+    mod('src/hub.js'),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`src/in${i}.js`), imp(`src/in${i}.js`, 'src/hub.js', attrs)]).flat(),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`src/out${i}.js`), imp('src/hub.js', `src/out${i}.js`)]).flat(),
+  ];
+  assert.equal(run('module.hub-module', build({})).length, 1);
+  assert.deepEqual(run('module.hub-module', build({ package_level: true })), []);
+});
+
 test('shotgun-surgery: strong co-change partners across four or more packages', () => {
   const partners = (pkgs, degree) => pkgs.map((p, i) => [mod(`src/${p}/f${i}.js`), edge('CO_CHANGES', 'module:src/core/m.js', `module:src/${p}/f${i}.js`, { shared: 12, degree })]).flat();
   const base = [mod('src/core/m.js'), mod('src/core/other.js')];

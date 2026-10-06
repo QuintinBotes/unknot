@@ -1,0 +1,42 @@
+{
+  "sha256:456728bb4145f00282be01e2dda1dde33bd6914c7203556b17cf5b457ba45a89": {
+    "label": "not-worth",
+    "note": "Few methods; class was deliberately extracted from App and is long but cohesive."
+  },
+  "sha256:a63d9b39b74ce47861a25e282a381c9481c6f931e7ebe85ed85b75b5d88b777c": {
+    "label": "false",
+    "note": "File is vendored emscripten output marked eslint-disable and ts-nocheck; new Function body is not user-controlled."
+  },
+  "sha256:08061fb628f8fa50a7beecf76d6af645ca05558ad9872c4d6982b2811a3d6f69": {
+    "label": "not-worth",
+    "note": "Internal render helper with 7 parameters, one over threshold."
+  },
+  "sha256:3d2227a8a79f5e47f2396f6bee3539c93994b62f9b09f8fa61a3724d4265f1bc": {
+    "label": "false",
+    "note": "ErrorDialog is public through the package wildcard export, so the import is not a boundary violation."
+  },
+  "sha256:fbabb50503c92d6ddc1117630ee5809a1c198a410d78b6c37947cb51f131b138": {
+    "label": "false",
+    "note": "Portal imports Collab with import type only, so no runtime cycle exists."
+  },
+  "sha256:007ecc15ef0572787f65af66466b60b6c349a80f5964f8881a1e6f03590a775d": {
+    "label": "not-worth",
+    "note": "Interface is a deliberate extension point with a public setCustomTextMetricsProvider."
+  },
+  "sha256:ed3da358e08f51c770640e66a55b119bca11942af9a234807c80fdd9438bf550": {
+    "label": "not-worth",
+    "note": "Common is a shared utility package; being imported mostly by dependents is expected."
+  },
+  "sha256:017e54cc0629019dad46729eb1e7532933954c5852ee80720e234f3dda8d41f5": {
+    "label": "false",
+    "note": "The method is called at library.ts:616 via transaction.getLibraryItems."
+  },
+  "sha256:d4ed56f0d93d6076e4728f09ddfa5905887b8bc4cae3b8a377fdb9180d638dfc": {
+    "label": "false",
+    "note": "packages/excalidraw/index.tsx is the package's main entry point, so importing it is public use."
+  },
+  "sha256:99814f5b8d6bc35afa0acef9a0bc02b6e3d575567c53bceaa4cc0b9fc1abc423": {
+    "label": "not-worth",
+    "note": "Barrel index re-exports one more module; instability metric is not meaningful here."
+  }
+}

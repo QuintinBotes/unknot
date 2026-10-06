@@ -72,6 +72,9 @@ describe('boundary metrics', () => {
   test('namespace-only imports are not counted, test imports are counted apart, and targets are listed', () => {
     const { metrics, details, gaps } = run();
     assert.equal(metrics['boundary.reverse_deps'], 3);
+    // Issue #15: the direction is in the name; the 0.1.x name carries the same number until 0.3.0.
+    assert.equal(metrics['boundary.outbound_dependencies'], 3);
+    assert.equal(metrics['boundary.outbound_dependencies_test'], metrics['boundary.reverse_deps_test']);
     assert.equal(metrics['boundary.reverse_deps_test'], 1);
     assert.equal(metrics['boundary.reverse_deps_low_confidence'], 1);
     assert.deepEqual(details.reverse_targets, [{ module: 'module:out/real.ts', edges: 2 }, { module: 'module:out/other.ts', edges: 1 }]);

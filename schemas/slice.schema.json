@@ -177,6 +177,32 @@
       },
       "description": "Findings or decomposition recommendations this slice addresses."
     },
+    "guidance": {
+      "type": "array",
+      "description": "Repository guidance files (AGENTS.md and the like) that apply to this scope, nearest first; `protects` lists path globs they say not to edit that the scope reaches. Guidance only restricts.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "protects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "file",
+          "scope"
+        ],
+        "additionalProperties": false
+      }
+    },
     "patterns": {
       "type": "array",
       "items": {

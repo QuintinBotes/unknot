@@ -1,7 +1,7 @@
 ---
 name: runtime-observer
 description: Interprets imported runtime evidence (traces, metrics, profiles, topology) against the static graph and reports where runtime confirms, contradicts or is silent. Use when a question depends on how the system behaves rather than how it is written.
-tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__status
+tools: Read, Grep, Glob, Bash, mcp__plugin_unknot_unknot__graph_query, mcp__plugin_unknot_unknot__graph_neighbourhood, mcp__plugin_unknot_unknot__status, mcp__plugin_unknot_unknot__search_text
 model: sonnet
 ---
 

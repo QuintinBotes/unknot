@@ -2,12 +2,15 @@
 // appends a schema-validated handoff record. Nothing here approves, applies, starts a run,
 // executes a command or edits a file: those stay in the human-driven CLI.
 
+import { searchText } from '../graph/search.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
+import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { neighbourhood, rankHubs, resolveRef } from '../graph/algorithms.mjs';
+import { DERIVED_KINDS, readDerived } from '../graph/derived.mjs';
 import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
@@ -16,6 +19,7 @@ import { loadConfig } from '../policy/config.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
 import { bindToRun, validateHandoff, recordHandoff } from '../state/handoff.mjs';
 import { activeRun } from '../state/runs.mjs';
+import { upgradeDecomposition, upgradeSlice } from '../state/upgrade.mjs';
 
 const str = (extra = {}) => ({ type: 'string', maxLength: 512, ...extra });
 const limit = (max = 200) => ({ type: 'integer', minimum: 1, maximum: max });
@@ -102,12 +106,13 @@ export const TOOLS = {
 
   graph_query: {
     description:
-      'List graph nodes by type (type), list edges by type (edge_type, without id), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
+      'List graph nodes by type (type), list edges by type (edge_type, without id), read the derived facts every command shares (derived: scc, scc_strict, declared_only, public_surface, test_code or ownership), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
     inputSchema: schema({
       type: str(),
       id: str(),
       edge_type: str(),
       direction: { type: 'string', enum: ['out', 'in'] },
+      derived: { type: 'string', enum: DERIVED_KINDS },
       limit: limit(),
       full: { type: 'boolean' },
     }),
@@ -115,6 +120,10 @@ export const TOOLS = {
       const g = Graph.fromStore(ctx.store);
       const max = a.limit ?? 50;
       const full = a.full === true;
+      if (a.derived) {
+        const facts = readDerived(ctx, a.derived, { graph: g });
+        return capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), total: facts.length }, ['facts'], 'lower limit');
+      }
       if (a.id) {
         const ids = resolveRef(g, a.id);
         if (!ids.length) throw notFound('node', a.id);
@@ -245,7 +254,27 @@ export const TOOLS = {
         a.id,
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config);
-      return { slice: body, meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, obligations, approvals };
+    },
+  },
+
+  search_text: {
+    description: 'Where a string occurs in the files the map covers (metric names, setting keys, role names, feature flags, durations): definitions (a constant or config key holding it) apart from uses, the uses of a constant that holds it, and each hit\'s module, kind and owners. An exact or prefix match on an indexed constant (metric name, config key, route, role, queue) is answered from the graph with its sub-kind (inferred) and every definition and use site; anything else is scanned for, and answered_by says which. scan: true forces the scan. Generated, vendored and credential files are excluded.',
+    inputSchema: schema({ text: str({ minLength: 2, maxLength: 200 }), regex: { type: 'boolean' }, scan: { type: 'boolean' }, limit: limit(200), scope: { type: 'array', items: str(), maxItems: 20 } }, ['text']),
+    run(ctx, a) {
+      const { config } = loadConfig(ctx);
+      const graph = ctx.store.meta('generation') ? Graph.fromStore(ctx.store) : null;
+      const r = searchText(ctx.root, { config, text: a.text, regex: Boolean(a.regex), scan: Boolean(a.scan), scope: a.scope ?? [], graph, store: ctx.store, limit: a.limit ?? 50 });
+      return capResult(r, ['definitions', 'uses', 'via_constants'], 'narrow with a scope (a path or glob) or a more specific text');
+    },
+  },
+
+  guidance_get: {
+    description: "The repository's own agent guidance (AGENTS.md, CLAUDE.md, Copilot and Cursor rules, CONTRIBUTING.md, .editorconfig) that applies to a path, nearest first: conventions, commands, prohibited commands and paths, and text ignored for trying to grant something. Guidance only restricts; it never grants approvals, scope or commands.",
+    inputSchema: schema({ path: str() }, ['path']),
+    run(ctx, a) {
+      if (a.path.startsWith('/') || a.path.split('/').includes('..')) throw new UnknotError('UK_SCHEMA_INVALID', 'path must be relative to the project, without ..');
+      return { path: a.path, ...guidanceFor(ctx.root, a.path) };
     },
   },
 
@@ -262,7 +291,7 @@ export const TOOLS = {
       // Checked again here: the id becomes part of a path, so never rely on the schema alone.
       if (!/^DEC-\d{4,}$/.test(a.id)) throw new UnknotError('UK_SCHEMA_INVALID', 'decomposition id must match ^DEC-\\d{4,}$');
       try {
-        const rec = JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8'));
+        const rec = upgradeDecomposition(JSON.parse(readFileSync(join(ctx.paths.base, 'decompositions', `${a.id}.json`), 'utf8')));
         // Stale when the graph was rebuilt since the record was written.
         return rec.graph_generation === undefined ? rec : { ...rec, stale: rec.graph_generation !== Number(ctx.store.meta('generation') ?? 0) };
       } catch (err) {

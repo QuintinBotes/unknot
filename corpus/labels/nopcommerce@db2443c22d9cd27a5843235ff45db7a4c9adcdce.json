@@ -1,0 +1,42 @@
+{
+  "sha256:288fe5ba9c165e1633abc43a46fde45c63c515ecddb2abaa9e222110843fe25b": {
+    "label": "false",
+    "note": "NopRoutingDefaults only has a string constant named LanguageParameterTransformer; it has no type reference or import of the class."
+  },
+  "sha256:f15e18781c6742cd4e353ca61790011a92a5e41ca6e835c99b2b02a54bc9677f": {
+    "label": "not-worth",
+    "note": "A plugin depends mostly on the framework and services packages by design."
+  },
+  "sha256:9e180d4e51ec2086a19d5c0c6176f991da38c8952716b4267f844091ec756d1d": {
+    "label": "false",
+    "note": "purify.js is a vendored third-party DOMPurify bundle, not maintained code."
+  },
+  "sha256:8224790d7ff5e6c79dac2bb61e05a956754b44a3f6a948bdac883f2e9d95f06c": {
+    "label": "false",
+    "note": "The table 'from' is a misparse of SQL text; the cache manager only deletes from a configured cache table."
+  },
+  "sha256:be9a56b0ac958d8c6c52914dd2046bb87f9a39c6f59874af3421bdb8794e1ae0": {
+    "label": "true",
+    "note": "_permissionService is declared and assigned in the UPS controller but never read."
+  },
+  "sha256:a3f707870786f67cc6d1e41102d280be30379bcc554f92049c5313a0babc16df": {
+    "label": "not-worth",
+    "note": "Sample dev compose file for a single service; no healthcheck is a minor omission."
+  },
+  "sha256:59ed386fbef431719240f43bb9b06b87c9fbd83e2bb93eb49f1b71626bd3b1ed": {
+    "label": "not-worth",
+    "note": "A core settings class being consumed by the web layer is the intended design."
+  },
+  "sha256:c50453bd4ee4369fcbf94b8a276bb2d0bed0648ae1675814b840a81ac3d810e0": {
+    "label": "not-worth",
+    "note": "Cyclomatic 16 vs threshold 15 in a linear model-preparation method."
+  },
+  "sha256:16620f68f30d77f00455b7d9fd910e22e7c64365ce406fa1a06e564bd25b8d6c": {
+    "label": "not-worth",
+    "note": "A controller applying a framework filter attribute from the framework project is normal layering."
+  },
+  "sha256:cfa407fd6e474d8e850efdd8feafbee1feb49636bedd260767325be8ad94a1d7": {
+    "label": "true",
+    "note": "The workflow has no permissions block, so default token permissions apply."
+  }
+}

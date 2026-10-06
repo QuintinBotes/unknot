@@ -15,7 +15,8 @@ const { boundaryMetrics } = await import('../../../runtime/decompose/candidates.
 const { decompose } = await import('../../../runtime/decompose/index.mjs');
 const { robustness } = await import('../../../runtime/graph/community.mjs');
 const { foldReason, foldSiblings } = await import('../../../runtime/decompose/fold.mjs');
-const { listRecords, pruneRecords, showRecord, summaryLine } = await import('../../../runtime/decompose/records.mjs');
+const records = await import('../../../runtime/decompose/records.mjs');
+const { listRecords, pruneRecords, showRecord, summaryLine } = records;
 const { selectTreatment } = await import('../../../runtime/decompose/select.mjs');
 
 const p = prov({ source_type: 'ast', extractor: 'test@1.0.0' });
@@ -145,8 +146,8 @@ const select = (signals) => selectTreatment({ target: 'backend', signals: { ...b
 describe('rejection reasons', () => {
   test('a treatment that fails two predicates leads with both, signal, value and threshold', () => {
     const t3 = select({ 'boundary.reverse_deps': 12, 'ownership.alignment': 0.3 }).rejected_treatments.find((x) => x.treatment === 'T3');
-    assert.match(t3.reason, /^failed: ownership\.alignment=0\.3 \(contraindicated when < 0\.8\); boundary\.reverse_deps=12 \(contraindicated when > 3\)/);
-    assert.deepEqual(t3.failed_predicates.map((f) => [f.signal, f.value, f.op, f.threshold]).slice(0, 2), [['ownership.alignment', 0.3, '<', 0.8], ['boundary.reverse_deps', 12, '>', 3]]);
+    assert.match(t3.reason, /^failed: ownership\.alignment=0\.3 \(contraindicated when < 0\.8\); boundary\.outbound_dependencies=12 \(contraindicated when > 3\)/);
+    assert.deepEqual(t3.failed_predicates.map((f) => [f.signal, f.value, f.op, f.threshold]).slice(0, 2), [['ownership.alignment', 0.3, '<', 0.8], ['boundary.outbound_dependencies', 12, '>', 3]]);
   });
 
   test('missing evidence follows the failed predicates', () => {
@@ -286,3 +287,22 @@ describe('superseded records and prune', () => {
 function readdirNames() {
   return JSON.parse(JSON.stringify(listRecords(r.ctx).map((x) => `${x.id}.json`)));
 }
+
+describe('supersedes chains (issue #14)', () => {
+  const rec = (id, members, extra = {}) => ({ id, target: 'backend', candidate: { modules: members.map((m) => `module:src/${m}.ts`) }, ...extra });
+  const mods = (...xs) => xs.map((m) => `module:src/${m}.ts`);
+  const { predecessorOf } = records;
+
+  test('each new record supersedes the latest of its chain, not one already replaced', () => {
+    const all = [rec('DEC-0001', ['a', 'b', 'c', 'd']), rec('DEC-0002', ['a', 'b', 'c', 'e'], { supersedes: 'DEC-0001' }), rec('DEC-0003', ['x', 'y', 'z'])];
+    assert.equal(predecessorOf(all, { target: 'backend', modules: mods('a', 'b', 'c', 'f') }, new Set()).id, 'DEC-0002');
+    assert.equal(predecessorOf(all, { target: 'backend', modules: mods('x', 'y', 'z', 'w') }, new Set()).id, 'DEC-0003', 'a different candidate keeps its own chain');
+    assert.equal(predecessorOf([rec('DEC-0001', ['a', 'b'])], { target: 'backend', modules: mods('q', 'r') }, new Set()), null, 'the first record has none');
+  });
+
+  test('a boundary that changes back does not make a loop', () => {
+    const all = [rec('DEC-0001', ['a', 'b', 'c', 'd']), rec('DEC-0002', ['a', 'b', 'c', 'e'], { supersedes: 'DEC-0001' })];
+    // DEC-0001's members came back: its rerun must not supersede DEC-0002, which supersedes it.
+    assert.equal(predecessorOf(all, { target: 'backend', modules: mods('a', 'b', 'c', 'd'), self: 'DEC-0001' }, new Set(['DEC-0001'])), null);
+  });
+});

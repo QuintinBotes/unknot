@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
+import { forbiddenCommand, guidanceForScope, loadGuidance } from '../core/guidance.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { loadSlice, approvalStatus } from '../apply/apply.mjs';
 import { stagePatch } from '../apply/worktree.mjs';
@@ -48,6 +49,7 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   const pair = needsGraph ? await graphPair(ctx, { config, worktree: slice.worktree, base: slice.baseline_commit, changes }) : null;
   const results = [];
   const checkNotes = [];
+  const guide = guidanceForScope(ctx.root, slice.body.scope.include, loadGuidance(ctx.root));
   for (const o of obligations) {
     if (o.body.builtin) {
       const t0 = Date.now();
@@ -78,6 +80,13 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
       };
       recordEvidence(ctx, { run, slice, obligation: o, record, verdict: res.verdict });
       results.push({ id: o.id, kind: o.kind, verdict: res.verdict, detail: res.detail });
+    } else if (o.body.command && forbiddenCommand(guide, o.body.command)) {
+      // Guidance can forbid a command, never permit one: the obligation is left for a person.
+      const rule = forbiddenCommand(guide, o.body.command);
+      const note = `not run: ${rule.file}:${rule.line} says "${rule.sentence}"; a person confirms`;
+      const body = { ...o.body, command: null, requires_human: true, description: `${String(o.body.description).replace(/ \(not run: .*$/, '')} (${note})` };
+      ctx.store.run('UPDATE proof_obligations SET requires_human = 1, body = ?, version = version + 1 WHERE id = ?', JSON.stringify(body), o.id);
+      results.push({ id: o.id, kind: o.kind, verdict: 'needs_human', detail: `${o.body.command.join(' ')} ${note}` });
     } else if (o.body.command) {
       const r = await brokerExec(ctx, { argv: o.body.command, cwd: slice.worktree, origin: 'configured', run, config, writable: [slice.worktree], timeoutMs: (config.limits.max_runtime_minutes ?? 30) * 60_000, obligation: o.id, sliceId, diffHash: slice.diff_hash });
       recordEvidence(ctx, { run, slice, obligation: o, record: { ...r.record, kind: 'command' }, verdict: r.record.verdict });

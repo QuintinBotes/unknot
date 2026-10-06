@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
+import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations.mjs';
 
 // node:sqlite prints an ExperimentalWarning on load. Hooks and the MCP server share stderr
 // with Claude Code, so the one known warning is dropped and every other passes through.
@@ -20,7 +21,7 @@ process.emitWarning = function filtered(warning, ...rest) {
 };
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 
-export const STORE_SCHEMA_VERSION = 1;
+export const STORE_SCHEMA_VERSION = LATEST_SCHEMA_VERSION;
 
 const DDL_V1 = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -122,6 +123,9 @@ CREATE TABLE IF NOT EXISTS idempotency (
 CREATE TABLE IF NOT EXISTS checkpoints (
   run_id TEXT NOT NULL, stage TEXT NOT NULL, cursor TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (run_id, stage));
+CREATE TABLE IF NOT EXISTS derived (
+  generation INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, body TEXT NOT NULL,
+  PRIMARY KEY (generation, kind, key));
 `;
 
 // Tables whose rows are entities with a `version` column and a JSON `body`.
@@ -143,19 +147,7 @@ export class Store {
   }
 
   migrate() {
-    const row = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='meta'").get();
-    const current = row ? Number(this.db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value ?? 0) : 0;
-    if (current > STORE_SCHEMA_VERSION) {
-      throw new UnknotError(
-        'UK_STATE_CONFLICT',
-        `store schema ${current} is newer than this runtime supports (${STORE_SCHEMA_VERSION}); upgrade Unknot`,
-      );
-    }
-    if (current >= 1) this.db.exec(DDL_V1); // idempotent: adds triggers introduced after creation
-    if (current < 1) {
-      this.db.exec(DDL_V1);
-      this.db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)").run(String(STORE_SCHEMA_VERSION));
-    }
+    return runMigrations(this.db, { ddl: DDL_V1 });
   }
 
   /** Idempotent; a closed store leaves the cache so the next openStore reopens the file. */
