@@ -1,12 +1,25 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
 
 const { decide, alwaysOn, toOperation } = K.pdp;
 
-after(() => K.cleanup());
+const taskRoots = [];
+after(() => {
+  for (const root of taskRoots) rmSync(root, { recursive: true, force: true });
+  K.cleanup();
+});
+
+function taskOutput(session, name = 'task-123.output') {
+  const root = mkdtempSync('/tmp/claude-');
+  taskRoots.push(root);
+  const file = join(root, 'project', session, 'tasks', name);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, 'task output\n');
+  return file;
+}
 
 const FILES = {
   'src/auth/login.js': 'x\n',
@@ -145,11 +158,21 @@ describe('decide: reads', () => {
 
   test('inert tools are allowed; unknown tools are denied', () => {
     assert.equal(dec(w, 'TodoWrite', {}).decision, 'allow');
+    assert.equal(dec(w, 'SubagentHandback', {}, { actor: { agent_id: 'a3', agent_type: 'general-purpose' } }).decision, 'allow');
     for (const t of ['Frobnicate', 'computer', 'ExitWorktree', 'NotebookRead2']) {
       const d = dec(w, t, {});
       assert.equal(d.decision, 'deny', t);
       assert.equal(policy(d), 'tool.unknown');
     }
+  });
+
+  test('a subagent may read its own session harness task output', () => {
+    const session = 'task-session-1';
+    const output = taskOutput(session);
+    const run = { ...w.run, session_id: session };
+    const extra = { run, actor: { agent_id: 'a4', agent_type: 'general-purpose' }, capability: { id: 'cap-task', ops: ['fs.read'], write: [] } };
+    assert.equal(read(output, extra).decision, 'allow');
+    assert.equal(dec(w, 'Bash', { command: `cat ${output}` }, extra).decision, 'allow');
   });
 });
 

@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- During an open run, subagents can deliver a final report through `SubagentHandback` and can read an existing regular background-task `.output` file from their session's harness task directory (#52). The exception is limited to that direct file path: other temporary files, traversal outside the directory and symlink targets remain denied.
+
 ## [0.3.3] - 2026-10-06
 
 ### Fixed

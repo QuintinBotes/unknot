@@ -3,8 +3,8 @@
 // run, the actor's capability and the effective config. Recording and budget charging
 // happen in the caller, so this module is easy to test exhaustively.
 
-import { existsSync, statSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { matchAny } from '../core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, toPosix } from '../core/paths.mjs';
 import { unknotHome } from '../core/project.mjs';
@@ -19,7 +19,7 @@ export const DOC_PATHS = Object.freeze(['docs/architecture/**', 'docs/adr/**', '
 // Tools that neither read project content nor change anything outside the conversation.
 const INERT_TOOLS = new Set([
   'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop', 'AskUserQuestion',
-  'ToolSearch', 'Skill', 'EnterPlanMode', 'ExitPlanMode', 'ListMcpResourcesTool',
+  'ToolSearch', 'Skill', 'EnterPlanMode', 'ExitPlanMode', 'ListMcpResourcesTool', 'SubagentHandback',
 ]);
 // Scheduling a later turn (wake-ups, monitors, cron, remote triggers) or leaving a command
 // running in the background would let work continue after the run's turn ends, where the run
@@ -31,6 +31,40 @@ const AGENT_TOOLS = new Set(['Task', 'Agent']);
 
 const allow = (policy, extra = {}) => ({ decision: 'allow', reasons: [], policy_ids: [policy], ...extra });
 const deny = (policy, reason, extra = {}) => ({ decision: 'deny', reasons: [reason], policy_ids: [policy], ...extra });
+
+const HARNESS_ROOT = /^claude(?:-[A-Za-z0-9]+)?$/;
+const TASK_OUTPUT_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.output$/;
+
+/**
+ * The host writes background-task output beneath its session-specific `/tmp` harness
+ * directory. This is deliberately narrower than a general temporary-directory exception:
+ * only an existing regular output file directly under that session's `tasks/` directory
+ * qualifies. Canonical paths and the final lstat keep traversal and symlink targets out.
+ */
+export function isHarnessTaskOutputFile(path, sessionId) {
+  if (typeof path !== 'string' || !sessionId) return false;
+  try {
+    const real = realpathLenient(path);
+    const tmp = realpathLenient('/tmp');
+    if (!isInside(tmp, real)) return false;
+    const parts = toPosix(relative(tmp, real)).split('/');
+    if (
+      parts.length !== 5 ||
+      !HARNESS_ROOT.test(parts[0]) ||
+      !parts[1] || parts[1] === '.' || parts[1] === '..' ||
+      parts[2] !== String(sessionId) ||
+      parts[3] !== 'tasks' ||
+      !TASK_OUTPUT_FILE.test(parts[4])
+    ) return false;
+    // The task file must be a direct child of the canonical task directory, not a
+    // link to another file.
+    if (!lstatSync(path).isFile()) return false;
+    const expectedDir = resolve(tmp, ...parts.slice(0, -1));
+    return dirname(real) === expectedDir && real === resolve(expectedDir, parts[4]);
+  } catch {
+    return false;
+  }
+}
 
 /** Translate a Claude Code tool call into an Unknot operation. */
 export function toOperation(toolName, input = {}, cwd) {
@@ -265,7 +299,8 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
         const real = realpathLenient(p);
         const inRoot = isInside(realpathLenient(ctx.root), real);
         const inPlugin = pluginRoot && isInside(realpathLenient(pluginRoot), real);
-        if (!inRoot && !inPlugin) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${p}`, base);
+        const taskOutput = isHarnessTaskOutputFile(p, run.session_id);
+        if (!inRoot && !inPlugin && !taskOutput) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${p}`, base);
         if (inRoot) {
           const rel = relFrom(ctx.root, real);
           if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file; Unknot does not read secrets into model context`, base);
@@ -288,7 +323,8 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
         if (isInside(home, real)) return deny('keys.protected', 'Unknot key material is not readable by agents', base);
         const inRoot = isInside(root, real);
         const inPlugin = pluginRoot && isInside(realpathLenient(pluginRoot), real);
-        if (!inRoot && !inPlugin) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${r}`, base);
+        const taskOutput = isHarnessTaskOutputFile(real, run.session_id);
+        if (!inRoot && !inPlugin && !taskOutput) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${r}`, base);
         const rel = inRoot ? relFrom(ctx.root, real) : null;
         if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file`, base);
       }
@@ -373,4 +409,3 @@ function decideWrite({ ctx, config, run, slice, profile, capability, op, base })
   }
   return allow('fs.write.scoped', base);
 }
-

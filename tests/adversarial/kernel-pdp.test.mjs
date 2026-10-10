@@ -3,11 +3,15 @@
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import * as K from '../helpers/kernel.mjs';
 
-after(() => K.cleanup());
+const taskRoots = [];
+after(() => {
+  for (const root of taskRoots) rmSync(root, { recursive: true, force: true });
+  K.cleanup();
+});
 
 const p = K.makeProject({ files: { '.env': 'T=1\n', 'src/auth/login.js': 'x\n' }, config: 'version: 1\nmode: plan\n' });
 const { dir } = p;
@@ -18,6 +22,27 @@ const caseInsensitive = (() => {
   writeFileSync(join(dir, 'CaseProbe'), 'x');
   return existsSync(join(dir, 'caseprobe'));
 })();
+
+function taskOutput(session, name = 'task-123.output') {
+  const root = mkdtempSync('/tmp/claude-');
+  taskRoots.push(root);
+  const file = join(root, 'project', session, 'tasks', name);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, 'task output\n');
+  return file;
+}
+
+function taskDecision(run, config, tool, input) {
+  return K.pdp.decide({
+    ctx: p.ctx,
+    config,
+    run,
+    actor: { agent_id: 'task-reader', agent_type: 'general-purpose' },
+    capability: { id: 'cap-task', ops: ['fs.read'], write: [] },
+    op: toOp(tool, input),
+    pluginRoot: K.REPO_ROOT,
+  });
+}
 
 describe('state protection against path tricks (Write/Edit)', () => {
   const variants = [
@@ -74,6 +99,39 @@ describe('state protection against path tricks (Write/Edit)', () => {
         assert.equal(always('Write', { file_path: join(dir, rel) })?.decision, 'deny', rel);
       }
     });
+});
+
+describe('harness task-output reads stay narrowly scoped', () => {
+  test('allows one session output file but denies other files, traversal and symlink escapes', () => {
+    const session = 'task-session-1';
+    const config = K.cfg({ mode: 'plan' });
+    const run = K.runs.startRun(p.ctx, { command: 'map', actor: 'human:test', session_id: session, config, configDigest: 'sha256:task', supersede: true });
+    const output = taskOutput(session);
+    const otherSessionOutput = taskOutput('other-session');
+    const notOutput = taskOutput(session, 'notes.txt');
+    const escapeRoot = mkdtempSync('/tmp/escape-');
+    taskRoots.push(escapeRoot);
+    const outside = join(escapeRoot, 'outside.txt');
+    writeFileSync(outside, 'outside\n');
+    const traversal = `${dirname(output)}/${relative(dirname(output), outside)}`;
+    const linked = join(dirname(output), 'escape.output');
+    symlinkSync(outside, linked);
+
+    assert.equal(taskDecision(run, config, 'Read', { file_path: output }).decision, 'allow');
+    assert.equal(taskDecision(run, config, 'Bash', { command: `cat ${output}` }).decision, 'allow');
+    for (const [tool, input] of [
+      ['Read', { file_path: traversal }],
+      ['Read', { file_path: linked }],
+      ['Read', { file_path: otherSessionOutput }],
+      ['Read', { file_path: notOutput }],
+      ['Bash', { command: `cat ${traversal}` }],
+      ['Bash', { command: `cat ${linked}` }],
+    ]) {
+      const d = taskDecision(run, config, tool, input);
+      assert.equal(d.decision, 'deny', `${tool} ${JSON.stringify(input)}`);
+      assert.equal(d.policy_ids[0], 'scope.read_outside');
+    }
+  });
 });
 
 describe('human-only commands cannot be reached through shell tricks', () => {

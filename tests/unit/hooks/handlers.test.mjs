@@ -1,6 +1,6 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
@@ -24,10 +24,10 @@ let sliceN = 8000;
  * exists; `patching` adds an approved slice in PATCHING with a real worktree and an
  * `apply` run attached to it.
  */
-function hookProject({ mode = 'plan', command = 'diagnose', run = true, patching = false, limits = '', sliceBody = {}, sliceState = 'PATCHING', risk = 'low' } = {}) {
+function hookProject({ mode = 'plan', command = 'diagnose', run = true, patching = false, limits = '', sliceBody = {}, sliceState = 'PATCHING', risk = 'low', sessionId = null } = {}) {
   const config = `version: 1\nmode: ${mode}\n${limits}`;
   const p = K.makeProject({ files: { 'docs/architecture/x.md': 'x\n', '.env': 'TOKEN=abc\n' }, config });
-  const base = { cwd: p.dir, session_id: 's1' };
+  const base = { cwd: p.dir, session_id: sessionId ?? 's1' };
   let slice = null;
   let wt = null;
   if (patching) {
@@ -38,11 +38,21 @@ function hookProject({ mode = 'plan', command = 'diagnose', run = true, patching
   let current = null;
   if (run) {
     const cfg = K.cfg({ mode });
-    current = K.runs.startRun(p.ctx, { command: patching ? 'apply' : command, actor: 'human:test', config: cfg, configDigest: 'sha256:c', slice_id: slice?.id ?? null, supersede: true });
+    current = K.runs.startRun(p.ctx, { command: patching ? 'apply' : command, actor: 'human:test', session_id: sessionId, config: cfg, configDigest: 'sha256:c', slice_id: slice?.id ?? null, supersede: true });
   }
   return { p, base, slice, wt, run: current };
 }
 const pre = (h, tool_name, tool_input, extra = {}) => H.onPreToolUse({ ...h.base, hook_event_name: 'PreToolUse', tool_name, tool_input, ...extra });
+
+function taskOutput(session, name = 'task-123.output') {
+  const root = mkdtempSync('/tmp/claude-');
+  scratch.push(root);
+  const dir = join(root, 'project', session, 'tasks');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, name);
+  writeFileSync(file, 'task output\n');
+  return file;
+}
 
 describe('not initialised', () => {
   test('every handler returns null for a project without .unknot', async () => {
@@ -117,6 +127,26 @@ describe('PreToolUse in an active plan-mode run', () => {
     assert.equal(await pre(h, 'Bash', { command: 'git status' }), null);
     assert.equal(await pre(h, 'TodoWrite', {}), null);
     assert.equal(await pre(h, 'mcp__plugin_unknot_unknot__status', {}), null);
+  });
+
+  test('a subagent may hand back its report; another unknown tool still names the active run', async () => {
+    const h = hookProject();
+    const agent = { agent_id: 'reporter-1', agent_type: 'general-purpose' };
+    await H.onSubagentStart({ ...h.base, ...agent });
+    assert.equal(await pre(h, 'SubagentHandback', { message: 'finished' }, agent), null);
+    const denied = await pre(h, 'Frobnicate', {}, agent);
+    assert.ok(denies(denied));
+    assert.match(reason(denied), new RegExp(`\\[run ${h.run.id}, started from a terminal; a person ends it early with: unknot run end ${h.run.id}\\]`));
+  });
+
+  test('a subagent may read the owning session background-task output', async () => {
+    const session = 'task-session-1';
+    const h = hookProject({ sessionId: session });
+    const agent = { agent_id: 'reader-1', agent_type: 'general-purpose' };
+    await H.onSubagentStart({ ...h.base, ...agent });
+    const output = taskOutput(session);
+    assert.equal(await pre(h, 'Read', { file_path: output }, agent), null);
+    assert.equal(await pre(h, 'Bash', { command: `cat ${output}` }, agent), null);
   });
 
   test('docs may be written by a plan command and by nothing else', async () => {
