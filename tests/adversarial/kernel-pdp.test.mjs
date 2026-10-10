@@ -116,6 +116,10 @@ describe('harness task-output reads stay narrowly scoped', () => {
     const traversal = `${dirname(output)}/${relative(dirname(output), outside)}`;
     const linked = join(dirname(output), 'escape.output');
     symlinkSync(outside, linked);
+    // A link to another output in the same tasks/ directory passes every path check once resolved;
+    // only the final lstat of the path as asked can refuse it.
+    const sibling = join(dirname(output), 'sibling.output');
+    symlinkSync(output, sibling);
 
     assert.equal(taskDecision(run, config, 'Read', { file_path: output }).decision, 'allow');
     assert.equal(taskDecision(run, config, 'Bash', { command: `cat ${output}` }).decision, 'allow');
@@ -126,6 +130,8 @@ describe('harness task-output reads stay narrowly scoped', () => {
       ['Read', { file_path: notOutput }],
       ['Bash', { command: `cat ${traversal}` }],
       ['Bash', { command: `cat ${linked}` }],
+      ['Read', { file_path: sibling }],
+      ['Bash', { command: `cat ${sibling}` }],
     ]) {
       const d = taskDecision(run, config, tool, input);
       assert.equal(d.decision, 'deny', `${tool} ${JSON.stringify(input)}`);

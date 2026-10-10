@@ -319,11 +319,13 @@ export function decide({ ctx, config, run, slice = null, actor = {}, capability 
       for (const r of [...verdict.reads, ...(verdict.args ?? [])]) {
         if (r === '/dev/null' || r === '-' || r === '.' || r === '..') continue;
         if (!r.includes('/') && !r.startsWith('.') && !existsSync(resolve(op.cwd ?? ctx.root, r))) continue; // a pattern or word, not a path
-        const real = realpathLenient(resolve(op.cwd ?? ctx.root, r));
+        const asked = resolve(op.cwd ?? ctx.root, r);
+        const real = realpathLenient(asked);
         if (isInside(home, real)) return deny('keys.protected', 'Unknot key material is not readable by agents', base);
         const inRoot = isInside(root, real);
         const inPlugin = pluginRoot && isInside(realpathLenient(pluginRoot), real);
-        const taskOutput = isHarnessTaskOutputFile(real, run.session_id);
+        // The unresolved path, so the final lstat still sees a symlink.
+        const taskOutput = isHarnessTaskOutputFile(asked, run.session_id);
         if (!inRoot && !inPlugin && !taskOutput) return deny('scope.read_outside', `reading outside the project is not allowed during a run: ${r}`, base);
         const rel = inRoot ? relFrom(ctx.root, real) : null;
         if (rel && isSecretPath(rel)) return deny('secrets.read', `${rel} looks like a credential file`, base);
