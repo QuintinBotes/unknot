@@ -102,7 +102,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `approvals` | map | see below | Who must approve at each risk level. |
 | `approvers` | map | `{}` | Registered approvers and their public keys. |
 | `evidence` | map | all empty | Files of imported runtime, data and infrastructure evidence. |
-| `adapters` | map of id to options | `scip.run: false`; otherwise `{}` | Per-adapter options. `enabled: false` disables an adapter. |
+| `adapters` | map of id to options | `scip.run: false`; otherwise `{}` | Per-adapter options. `enabled: false` disables an adapter. `scip.run: true` takes effect only from a configuration a person accepted (`unknot config accept`), and an indexer that runs the repository's build (scip-dotnet, scip-java) never starts without an OS sandbox. |
 | `detectors` | map of id to options | `{}` | Per-detector options. `enabled: false` disables a detector. |
 | `decomposition` | map | see below | Monolith decomposition tuning and drivers. |
 | `mcp.allowed_servers` | list of strings | `[]` | Other MCP servers the model may call during a run. Unknot's own server is always allowed. |

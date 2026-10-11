@@ -113,3 +113,14 @@ test('with run off, a marked indexer is never spawned', async () => {
   assert.equal(existsSync(marker), false);
   assert.equal(existsSync(output(project)), false);
 });
+
+test('an indexer that runs the repository build is refused without an OS sandbox', async () => {
+  const { unsandboxedBuildProblem } = await import('../../runtime/broker/broker.mjs');
+  const builds = { executesRepositoryCode: true };
+  const reads = { executesRepositoryCode: false };
+  assert.match(unsandboxedBuildProblem(['scip-dotnet', 'index'], builds, 'none'), /needs an OS sandbox/);
+  assert.equal(unsandboxedBuildProblem(['scip-dotnet', 'index'], builds, 'linux-bwrap'), null);
+  assert.equal(unsandboxedBuildProblem(['scip-dotnet', 'index'], builds, 'macos-sandbox-exec'), null);
+  assert.equal(unsandboxedBuildProblem(['scip-typescript', 'index'], reads, 'none'), null, 'an indexer that only reads keeps the existing sandbox policy');
+  assert.ok(INDEXERS.filter((entry) => entry.executesRepositoryCode).length > 0);
+});

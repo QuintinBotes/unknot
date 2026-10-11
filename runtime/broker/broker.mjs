@@ -155,6 +155,15 @@ function observeMemory(child, memoryMb) {
   };
 }
 
+/**
+ * An indexer that runs the repository's build never runs without an OS sandbox, whatever
+ * security.require_os_sandbox says: the sandbox is all that stands between that build and the host.
+ */
+export function unsandboxedBuildProblem(argv, writeAccess, sandbox) {
+  if (!writeAccess.executesRepositoryCode || sandbox !== 'none') return null;
+  return `${basename(argv[0])} runs the repository's build and needs an OS sandbox, which is not available here`;
+}
+
 /** Restrict SCIP indexer writes to its one, table-selected cache file. */
 function indexerWritable(ctx, argv, writable) {
   if (!Array.isArray(writable) || writable.some((path) => typeof path !== 'string' || !path)) {
@@ -174,7 +183,7 @@ function indexerWritable(ctx, argv, writable) {
   if (output.real !== expected || asked.real !== expected) {
     throw new UnknotError('UK_POLICY_DENIED', `${name} may write only ${expected}`, { details: { argv, writable } });
   }
-  return { writable: [asked.real], strictWritable: true };
+  return { writable: [asked.real], strictWritable: true, executesRepositoryCode: invocation.entry.executesRepositoryCode === true };
 }
 
 /** Absolute path of an executable, or null. Bare names are searched on PATH. */
@@ -282,6 +291,8 @@ export async function brokerExec(ctx, req) {
   // the broker after the child exits, and indexers do not receive a writable temp directory.
   const childWritable = writeAccess.strictWritable ? writeAccess.writable : [...writeAccess.writable, runDir, tmp];
   const wrapped = wrap(argv, { kind: sandboxKind, writable: childWritable, sockets: childWritable, hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false, strictWritable: writeAccess.strictWritable });
+  const unsandboxed = unsandboxedBuildProblem(argv, writeAccess, wrapped.sandbox);
+  if (unsandboxed) throw new UnknotError('UK_POLICY_DENIED', unsandboxed, { details: { argv } });
   const env = minimalEnv({ tmp });
   // In a slice worktree, editable Python installs must resolve to the worktree's code.
   if (wt) {
