@@ -3,6 +3,7 @@
 // call targets through import bindings, class inheritance, tests and package containment.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { LANGUAGE_IDS, extensionsFor, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { normalizeRoute } from './frameworks.mjs';
@@ -15,10 +16,14 @@ import { declaredEdge, dropMemberAttrs, memberReach, withSemantic } from '../gen
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const join = (dir, rest) => (dir ? `${dir}/${rest}` : rest);
 const cleanRoot = (r) => String(r).replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '').replace(/^\.$/, '');
+const PYTHON_EXTENSIONS = extensionsFor([LANGUAGE_IDS.PYTHON]);
+const pythonExtension = (path) => PYTHON_EXTENSIONS.find((extension) => path.endsWith(extension)) ?? null;
+const pythonPath = (base) => `${base}${PYTHON_EXTENSIONS[0]}`;
 
 /** Dotted module name of a file relative to a source root, or null when not importable. */
 function dottedName(rel) {
-  const parts = rel.replace(/\.py$/, '').split('/');
+  const extension = pythonExtension(rel);
+  const parts = (extension ? rel.slice(0, -extension.length) : rel).split('/');
   if (parts[parts.length - 1] === '__init__') parts.pop();
   if (!parts.length || parts.some((s) => !/^[A-Za-z_]\w*$/.test(s))) return null;
   return parts.join('.');
@@ -48,7 +53,7 @@ export function link(ctx) {
     for (const f of facts) {
       if (f.kind !== 'node') continue;
       nodeIds.add(f.id);
-      if (f.type === 'module' && f.attrs.language === 'python') modules.set(path, f);
+      if (f.type === 'module' && f.attrs.language === LANGUAGE_IDS.PYTHON) modules.set(path, f);
       else if (f.type === 'function' || f.type === 'method' || f.type === 'class') {
         if (!symbols.has(path)) symbols.set(path, new Map());
         symbols.get(path).set(f.id.slice(f.id.indexOf('#') + 1), f.id);
@@ -58,11 +63,11 @@ export function link(ctx) {
     }
   }
   const classNames = new Set();
-  for (const facts of factsByFile.values()) for (const f of facts) if (f.kind === 'node' && f.type === 'class' && f.attrs?.language === 'python') classNames.add(f.name.split('.').pop());
+  for (const facts of factsByFile.values()) for (const f of facts) if (f.kind === 'node' && f.type === 'class' && f.attrs?.language === LANGUAGE_IDS.PYTHON) classNames.add(f.name.split('.').pop());
   const memberFiles = [...modules].filter(([, m]) => m.attrs.acc).map(([path, m]) => ({ path, attrs: m.attrs }));
   const reach = memberReach(memberFiles, classNames, () => false);
   const pyPaths = new Set([...modules.keys()]);
-  for (const p of ctx.files?.keys?.() ?? []) if (p.endsWith('.py')) pyPaths.add(p);
+  for (const p of ctx.files?.keys?.() ?? []) if (languageForPath(p)?.id === LANGUAGE_IDS.PYTHON) pyPaths.add(p);
 
   // --- source roots and the dotted-name index ------------------------------------------
   const roots = new Set(['', 'src']);
@@ -101,7 +106,8 @@ export function link(ctx) {
   };
   const tryRel = (dir, parts) => {
     const base = join(dir, parts.join('/'));
-    for (const cand of parts.length ? [`${base}.py`, `${base}/__init__.py`] : [join(dir, '__init__.py')]) {
+    const stems = parts.length ? [base, `${base}/__init__`] : [join(dir, '__init__')];
+    for (const cand of stems.flatMap((stem) => PYTHON_EXTENSIONS.map((extension) => `${stem}${extension}`))) {
       if (pyPaths.has(cand)) return cand;
     }
     return null;
@@ -237,11 +243,13 @@ export function link(ctx) {
   }
 
   // --- Django conventions that need the project layout (manage.py, sibling apps.py) ------
-  const hasManage = [...pyPaths].some((p) => p === 'manage.py' || p.endsWith('/manage.py'));
+  const managePath = pythonPath('manage');
+  const appsPath = pythonPath('apps');
+  const hasManage = [...pyPaths].some((p) => p === managePath || p.endsWith(`/${managePath}`));
   for (const [path, mod] of modules) {
     if (mod.attrs.django_convention || !isDjangoConventionPath(path)) continue;
     const base = path.slice(path.lastIndexOf('/') + 1);
-    const sibling = ['apps.py', 'admin.py', 'models.py', 'urls.py'].includes(base) && pyPaths.has(join(dirOf(path), 'apps.py'));
+    const sibling = [appsPath, pythonPath('admin'), pythonPath('models'), pythonPath('urls')].includes(base) && pyPaths.has(join(dirOf(path), appsPath));
     if (hasManage || sibling) emit(nodeFact('module', path, { name: path, path, attrs: { django_convention: true } }, pvFor(path, 1, 'medium')));
   }
 

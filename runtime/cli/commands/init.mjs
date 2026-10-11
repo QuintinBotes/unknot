@@ -7,6 +7,7 @@ import { delimiter, join } from 'node:path';
 import { matchAny } from '../../core/glob.mjs';
 import { commandMatches, loadGuidance } from '../../core/guidance.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
+import { LANGUAGE_IDS } from '../../graph/languages.mjs';
 import { itemKey, writeSources } from '../../policy/config-diff.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
@@ -143,12 +144,12 @@ function commandSource(root, argv, pkg) {
   if (pkg) {
     if (pkg.scripts?.[last]) return { file: 'package.json', line: lineOf(root, 'package.json', new RegExp(`^\\s*"${last.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`)) };
     if (argv.includes('eslint')) return { file: 'package.json', line: lineOf(root, 'package.json', /"eslint"/) };
-    if (argv.includes('tsc')) return { file: 'package.json', line: lineOf(root, 'package.json', /"typescript"/) };
+    if (argv.includes('tsc')) return { file: 'package.json', line: lineOf(root, 'package.json', new RegExp(`"${LANGUAGE_IDS.TYPESCRIPT}"`)) };
   }
   const exe = argv[0];
   if (exe === 'make') return { file: 'Makefile', line: lineOf(root, 'Makefile', new RegExp(`^${last}:`)) };
   if (exe === 'dotnet') return { file: argv[2], line: 1 };
-  if (exe === 'go') return { file: 'go.mod', line: 1 };
+  if (exe === LANGUAGE_IDS.GO) return { file: `${LANGUAGE_IDS.GO}.mod`, line: 1 };
   if (exe === 'cargo') return { file: 'Cargo.toml', line: 1 };
   if (exe === 'mvn') return { file: 'pom.xml', line: 1 };
   if (exe === 'gradle' || exe === './gradlew') return { file: first('build.gradle', 'build.gradle.kts'), line: 1 };
@@ -182,7 +183,7 @@ export function detect(root) {
       commands.lint = [...runner, 'eslint', '.'];
       notes.push('lint: proposed from the ESLint config and dependency (no lint script)');
     }
-    if (!commands.typecheck && deps.typescript && has(root, 'tsconfig.json')) {
+    if (!commands.typecheck && deps[LANGUAGE_IDS.TYPESCRIPT] && has(root, 'tsconfig.json')) {
       commands.typecheck = [...runner, 'tsc', '--noEmit'];
       notes.push('typecheck: proposed from tsconfig.json and the TypeScript dependency (no typecheck script)');
     }
@@ -204,9 +205,9 @@ export function detect(root) {
     notes.push('python project detected');
   }
   if (has(root, 'go.mod')) {
-    commands.build ??= ['go', 'build', './...'];
-    commands.test_unit ??= ['go', 'test', './...'];
-    commands.lint ??= ['go', 'vet', './...'];
+    commands.build ??= [LANGUAGE_IDS.GO, 'build', './...'];
+    commands.test_unit ??= [LANGUAGE_IDS.GO, 'test', './...'];
+    commands.lint ??= [LANGUAGE_IDS.GO, 'vet', './...'];
   }
   if (has(root, 'Cargo.toml')) {
     commands.build ??= ['cargo', 'build'];

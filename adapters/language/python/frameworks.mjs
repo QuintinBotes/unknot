@@ -4,6 +4,7 @@
 // module, Django include()) is deliberately not attempted here.
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
+import { LANGUAGE_IDS, extensionsFor } from '../../../runtime/graph/languages.mjs';
 import { SYNTAX, clientFacts, clientPath, createGroups, operations, readMarker, routeGroupAttrs, typeBase, urlPath } from '../http-ops.mjs';
 
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
@@ -12,6 +13,11 @@ const lastSeg = (name) => name.slice(name.lastIndexOf('.') + 1);
 const recvOf = (name) => (name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : '');
 const lit = (v) => (typeof v === 'string' ? v : null);
 const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+const PYTHON_EXTENSIONS = extensionsFor([LANGUAGE_IDS.PYTHON]);
+const withoutPythonExtension = (path) => {
+  const extension = PYTHON_EXTENSIONS.find((candidate) => path.endsWith(candidate));
+  return extension ? path.slice(0, -extension.length) : path;
+};
 
 /** `<int:id>`, `<id>`, `{id}`, `{id:path}` -> `:id`; one leading slash, no doubled slashes. */
 export function normalizeRoute(p, { trim = true } = {}) {
@@ -65,7 +71,7 @@ function abstractClass(rec, symbols) {
 
 /** The base path a class states: a base decorator (`@client("/v1")`) or a class attribute (`base_path = "/v1"`). */
 function classBase(rec) {
-  const marked = typeBase('python', (rec.decorators ?? []).map((d) => ({ name: d.name, args: { route: lit(d.args[0]) ?? lit(d.kwargs.prefix) ?? lit(d.kwargs.path) } })));
+  const marked = typeBase(LANGUAGE_IDS.PYTHON, (rec.decorators ?? []).map((d) => ({ name: d.name, args: { route: lit(d.args[0]) ?? lit(d.kwargs.prefix) ?? lit(d.kwargs.path) } })));
   if (marked) return marked;
   for (const k of SYNTAX.python.baseAttrs) {
     const v = lit(rec.assigns?.[k]);
@@ -88,7 +94,7 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
   const facts = [];
   const detail = raw.calls_detail ?? [];
   const importedModules = new Set(raw.imports.map((i) => i.module.split('.')[0]));
-  const dottedModule = path.replace(/\.py$/, '').split('/').filter((s, i, a) => !(s === '__init__' && i === a.length - 1))
+  const dottedModule = withoutPythonExtension(path).split('/').filter((s, i, a) => !(s === '__init__' && i === a.length - 1))
     .filter((s, i) => !(i === 0 && s === 'src')).join('.');
   const symId = (qual) => symbols.get(qual)?.id ?? moduleId;
 
@@ -96,7 +102,7 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
   // Route groups (see SYNTAX.python.groups): a router or blueprint created with a prefix, mounted
   // below an app or another router with another, and handed to functions that register on it.
   const vars = new Map();
-  const gs = createGroups('python');
+  const gs = createGroups(LANGUAGE_IDS.PYTHON);
   const create = gs.syn.create ?? {};
   for (const c of detail) {
     if (!c.assign || c.scope || c.owner_class) continue;
@@ -176,17 +182,17 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
       const recv = recvOf(d.name);
       const route = lit(d.args[0]) ?? lit(d.kwargs.path) ?? lit(d.kwargs.rule);
       if (client) {
-        const ops = operations('python', [{ name: d.name, args: { route } }], { base: classBase(owner.rec), client: true, norm: normalizeRoute });
+        const ops = operations(LANGUAGE_IDS.PYTHON, [{ name: d.name, args: { route } }], { base: classBase(owner.rec), client: true, norm: normalizeRoute });
         for (const o of ops) {
           if (!clientOps.has(owner)) clientOps.set(owner, []);
           clientOps.get(owner).push({ ...o, path: clientPath(o.path, normalizeRoute), name: sym.rec.name, line: d.line });
         }
         continue;
       }
-      if (!recv && route !== null && readMarker('python', d.name, { route })) {
+      if (!recv && route !== null && readMarker(LANGUAGE_IDS.PYTHON, d.name, { route })) {
         // A bare `@get("/x")` on a concrete handler; the class, if any, gives the base path.
         const base = owner ? classBase(owner.rec) : '';
-        for (const o of operations('python', [{ name: d.name, args: { route } }], { base, norm: normalizeRoute })) {
+        for (const o of operations(LANGUAGE_IDS.PYTHON, [{ name: d.name, args: { route } }], { base, norm: normalizeRoute })) {
           const key = `${o.method} ${o.path}`;
           if (seenEndpoints.has(`${key}|${sym.id}`)) continue;
           seenEndpoints.add(`${key}|${sym.id}`);
@@ -218,7 +224,7 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
   }
   for (const [cls, ops] of clientOps) {
     facts.push(...clientFacts({
-      modId: moduleId, cid: `${path}#${cls.rec.qual}`, name: cls.rec.qual, path, line: cls.rec.start_line, interfaceId: cls.id, lang: 'python',
+      modId: moduleId, cid: `${path}#${cls.rec.qual}`, name: cls.rec.qual, path, line: cls.rec.start_line, interfaceId: cls.id, lang: LANGUAGE_IDS.PYTHON,
       framework: 'decorator', ops, pv,
     }));
   }

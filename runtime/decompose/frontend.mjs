@@ -2,16 +2,17 @@
 // (route/domain) splits by default; a horizontal fragment split needs an explicit owner
 // per fragment, which this module reports as missing rather than inventing.
 
+import { frontendDirectoryLanguageIds, frontendExtensions } from '../graph/languages.mjs';
+
 const FSD_LAYERS = ['app', 'processes', 'pages', 'widgets', 'features', 'entities', 'shared'];
-const FRONTEND_EXT = /\.(jsx|tsx|vue|svelte)$/;
 const FRONTEND_DIR = /(^|\/)(components|pages|views|screens|features|widgets|entities|routes|ui|frontend|web|client|app)\//;
 
 export function isFrontendModule(graph, node) {
   if (node.type !== 'module' || node.attrs.is_test) return false;
   const path = node.path ?? node.id.slice(7);
-  if (FRONTEND_EXT.test(path)) return true;
+  if (frontendExtensions().some((extension) => path.endsWith(extension))) return true;
   if (graph.in(node.id, 'RENDERS').length) return true;
-  return ['javascript', 'typescript'].includes(node.attrs.language) && FRONTEND_DIR.test(path) && !/(^|\/)(server|api|backend)\//.test(path);
+  return frontendDirectoryLanguageIds().includes(node.attrs.language) && FRONTEND_DIR.test(path) && !/(^|\/)(server|api|backend)\//.test(path);
 }
 
 /** FSD layer and slice of a path, or null when the project does not use FSD names. */

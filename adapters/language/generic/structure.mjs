@@ -4,6 +4,8 @@
 // (or def/end matching for Ruby). It is honest about being approximate: no scoping, no
 // type resolution, no indentation-sensitive syntax (Scala 3 braceless, Python-likes).
 
+import { language } from '../../../runtime/graph/languages.mjs';
+
 /** Match bracket pairs over the blanked code; unmatched brackets stay -1. */
 export function matchPairs(code, open, close) {
   const m = new Int32Array(code.length).fill(-1);
@@ -167,31 +169,29 @@ function expandGroups(str, sep) {
   return out;
 }
 
-const EXTENDS_IMPLEMENTS_BASES = new Set(['java', 'php', 'dart']);
-const COLON_BASES = new Set(['kotlin', 'csharp', 'swift', 'cpp']);
-
 function parseBases(lang, typeKw, hdr) {
   const out = { extends: [], implements: [], bases: [] };
   const h = hdr.replace(/\bwhere\b[\s\S]*$/, '');
-  if (EXTENDS_IMPLEMENTS_BASES.has(lang)) {
+  const syntax = language(lang)?.inheritance;
+  if (syntax === 'extends_implements') {
     const flat = stripGroups(h);
     const ext = /\bextends\s+([\s\S]*?)(?=\bimplements\b|\bpermits\b|$)/.exec(flat);
     const imp = /\bimplements\s+([\s\S]*?)(?=\bpermits\b|\bextends\b|$)/.exec(flat);
     if (ext) out.extends = nameList(ext[1]);
     if (imp) out.implements = nameList(imp[1]);
-  } else if (lang === 'scala') {
+  } else if (syntax === 'scala') {
     const ext = /\bextends\s+([\s\S]*)$/.exec(h.replace(/\[[^[\]]*\]/g, ''));
     if (ext) {
       const parts = stripGroups(ext[1]).split(/\bwith\b/).map((p) => simpleName(p)).filter(Boolean);
       if (typeKw === 'trait') out.extends = parts;
       else { out.extends = parts.slice(0, 1); out.implements = parts.slice(1); }
     }
-  } else if (lang === 'rust') {
+  } else if (syntax === 'rust') {
     if (typeKw === 'trait') {
       const m = /^[^:]*:\s*([\s\S]*)$/.exec(stripAngles(h));
       if (m) out.extends = nameList(m[1], '+');
     }
-  } else if (COLON_BASES.has(lang)) {
+  } else if (syntax === 'colon') {
     if (typeKw === 'enum') return out;
     const flat = stripAngles(stripGroups(h));
     const m = /(?<!:):(?!:)([\s\S]*)$/.exec(flat);
@@ -204,34 +204,6 @@ function parseBases(lang, typeKw, hdr) {
 const MAX_DECLS = 5000;
 const NAME_BLACKLIST = new Set(['where', 'new', 'extends', 'implements', 'func', 'var', 'let', 'init', 'subscript', 'typealias', 'fun', 'is', 'as', 'of', 'in']);
 
-const TYPE_RES = {
-  java: [/(?<![.\w])(@interface|class|interface|enum|record)\s+([A-Za-z_$][\w$]*)/g],
-  csharp: [/(?<![.\w@])(class|interface|struct|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_]\w*)/g],
-  kotlin: [/(?<![.\w:])(class|interface|object)\s+([A-Za-z_]\w*)/g],
-  scala: [/(?<![.\w])(class|trait|object)\s+([A-Za-z_]\w*)/g],
-  swift: [/(?<![.\w])(class|struct|enum|protocol|actor)\s+([A-Za-z_]\w*)/g],
-  dart: [/(?<![.\w@])(class|mixin|enum|extension)\s+([A-Za-z_]\w*)/g],
-  php: [/(?<![\w:>$\\])(class|interface|trait|enum)\s+([A-Za-z_]\w*)/g],
-  rust: [/(?<![.\w])(struct|enum|trait)\s+([A-Za-z_]\w*)/g],
-  c: [/(?<![.\w])(struct|enum|union)\s+([A-Za-z_]\w*)/g],
-  cpp: [/(?<![.\w])(enum\s+(?:class|struct)|class|struct|enum|union)\s+([A-Za-z_]\w*)/g],
-};
-
-const KW_FN = {
-  kotlin: [/(?<![\w.])fun\s+(?:<[^>\n]*>\s*)?(?:[\w<>?,. ]+\.)?([A-Za-z_]\w*)\s*\(/gd],
-  scala: [/(?<![\w.])def\s+([A-Za-z_]\w*|[+\-*/%<>=!&|^~:]+)/gd],
-  swift: [/(?<![\w.])func\s+([A-Za-z_]\w*|[+\-*/%<>=!&|^~.]+)\s*(?:<[^>\n]*>\s*)?\(/gd, /(?<![\w.])(init)\??\s*\(/gd],
-  rust: [/(?<![\w.])fn\s+([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/gd],
-  php: [/(?<![\w$>:])function\s+&?\s*([A-Za-z_]\w*)\s*\(/gd],
-  go: [
-    /(?<![\w.])func\s*\(\s*(?:\w+\s+)?\*?\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?\s*\)\s*([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*\(/gd,
-    /(?<![\w.])func\s+([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*\(/gd,
-  ],
-};
-
-// Languages whose declarations use a brace-delimited body can share headerFunc: it works
-// backwards from that body rather than relying on a language-specific return-type grammar.
-const BRACE_FUNCTION_LANGUAGES = new Set(['java', 'csharp', 'dart', 'c', 'cpp']);
 
 const CONTROL = new Set(['if', 'for', 'foreach', 'while', 'switch', 'catch', 'using', 'lock', 'synchronized', 'fixed', 'when',
   'try', 'return', 'sizeof', 'delegate', 'else', 'do', 'unsafe', 'checked', 'unchecked', 'typeof', 'nameof', 'default', 'await',
@@ -493,6 +465,13 @@ function findImports(lx, lang, pm, types) {
   };
   const inType = (off) => types.some((t) => t.start < off && off < t.end);
   const re = (r) => code.matchAll(r);
+  const custom = language(lang)?.importPatterns ?? [];
+  if (custom.length) {
+    for (const rule of custom) {
+      for (const m of re(rule.pattern)) add(m[rule.spec ?? 1], rule.kind ?? 'import', m.index);
+    }
+    return out.slice(0, 2000);
+  }
   switch (lang) {
     case 'java':
       for (const m of re(/^[ \t]*import\s+(static\s+)?([\w.]+(?:\.\*)?)\s*;/gm)) add(m[2], m[1] ? 'static' : 'import', m.index);
@@ -575,6 +554,7 @@ export function analyze(lx, lang) {
   const { code } = lx;
   const n = code.length;
   const pm = matchPairs(code, 40, 41);
+  const declaration = language(lang)?.declarations ?? { typePatterns: [], functionPatterns: [] };
   const bm = lang === 'ruby' ? null : matchPairs(code, 123, 125);
   const { pkg, namespaces } = findPackage(code, lang);
   const types = [];
@@ -652,8 +632,8 @@ export function analyze(lx, lang) {
           if (close > 0) goType(code.slice(after + 1, close), after + 1);
         } else goType(code.slice(m.index, code.indexOf('\n', m.index) < 0 ? n : code.indexOf('\n', m.index)), m.index);
       }
-    } else if (TYPE_RES[lang]) {
-      for (const re of TYPE_RES[lang]) {
+    } else if (declaration.typePatterns.length) {
+      for (const re of declaration.typePatterns) {
         for (const m of code.matchAll(re)) {
           const nameOff = m.index + m[0].length - m[2].length;
           const nameEnd = nameOff + m[2].length;
@@ -720,7 +700,7 @@ export function analyze(lx, lang) {
         body,
       });
     };
-    if (BRACE_FUNCTION_LANGUAGES.has(lang)) {
+    if (language(lang)?.braceFunctions) {
       let skipUntil = -1;
       let b = code.indexOf('{');
       while (b >= 0) {
@@ -734,10 +714,10 @@ export function analyze(lx, lang) {
         }
         b = code.indexOf('{', Math.max(b, skipUntil) + 1);
       }
-    } else if (KW_FN[lang]) {
+    } else if (declaration.functionPatterns.length) {
       let skipUntil = -1;
       const found = [];
-      for (const re of KW_FN[lang]) {
+      for (const re of declaration.functionPatterns) {
         for (const m of code.matchAll(re)) {
           let name;
           let owner = null;

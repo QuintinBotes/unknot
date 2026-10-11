@@ -1,9 +1,14 @@
 // Module specifier resolution against the repository census. Pure functions over path sets:
 // nothing here touches the filesystem, so resolution is deterministic and cacheable.
 
-const CODE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
-export const CODE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|vue)$/;
-const TS_SWAP = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
+
+const js = language(LANGUAGE_IDS.JAVASCRIPT);
+const ts = language(LANGUAGE_IDS.TYPESCRIPT);
+const vue = language(LANGUAGE_IDS.VUE);
+const CODE_EXTS = [...(ts?.resolverExtensions ?? []), ...(js?.resolverExtensions ?? [])];
+export const CODE_RE = new RegExp(`(?:${[...CODE_EXTS, ...(vue?.extensions ?? [])].map((extension) => extension.replace('.', '\\.')).join('|')})$`);
+const TS_SWAP = ts?.swapFrom?.[LANGUAGE_IDS.JAVASCRIPT] ?? {};
 const CONDITIONS = ['types', 'import', 'module', 'default', 'require', 'node', 'browser'];
 
 const NODE_BUILTINS = new Set([
@@ -208,7 +213,7 @@ export function createResolver({ has, tsconfigs, packages }) {
    *   | { t: 'asset' } | { t: 'ignore' } | { t: 'unresolved', reason: string }}
    */
   function resolve(importer, spec) {
-    const ck = `${dirOf(importer)}\0${importer.endsWith('.ts') || importer.endsWith('.tsx')}\0${spec}`;
+    const ck = `${dirOf(importer)}\0${(ts?.tsconfigPriorityExtensions ?? []).some((extension) => importer.endsWith(extension))}\0${spec}`;
     if (cache.has(ck)) return cache.get(ck);
     const r = resolveUncached(importer, spec);
     cache.set(ck, r);

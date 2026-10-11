@@ -6,12 +6,13 @@
 import { makeUtil } from './tokutil.mjs';
 import { clientPath, operations, readMarker, typeBase } from '../http-ops.mjs';
 import { scanRouteGroups } from './route-groups.mjs';
+import { LANGUAGE_IDS, extensionsFor } from '../../../runtime/graph/languages.mjs';
 
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'];
 const HTTP_SET = new Set(HTTP_METHODS);
 const ROUTER_OBJ = /^(?:app|router|server|fastify|hono|koa|routes?|\w+Router|\w+App|\w+Server|\w+Routes?)$/i;
 const NEXT_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
-const CODE_EXT = '(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)';
+const CODE_EXT = `(?:${extensionsFor([LANGUAGE_IDS.TYPESCRIPT, LANGUAGE_IDS.JAVASCRIPT]).map((extension) => extension.slice(1)).join('|')})`;
 const APP_ROUTE_RE = new RegExp(`(?:^|/)(?:src/)?app/(?:(.*)/)?route\\.${CODE_EXT}$`);
 const APP_PAGE_RE = new RegExp(`(?:^|/)(?:src/)?app/(?:(.*)/)?page\\.${CODE_EXT}$`);
 const PAGES_API_RE = new RegExp(`(?:^|/)(?:src/)?pages/api(?:/(.*))?\\.${CODE_EXT}$`);
@@ -320,10 +321,10 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
     }
     for (const c of analysis.classes) {
       if (!c.decorators.length && !methodsOf.has(c.qname) && !(c.signatures ?? []).some((sig) => sig.decorators.length)) continue;
-      const base = typeBase('typescript', c.decorators.map(marker));
-      const ctl = c.decorators.find((d) => readMarker('typescript', d.name, marker(d).args)?.base);
+      const base = typeBase(LANGUAGE_IDS.TYPESCRIPT, c.decorators.map(marker));
+      const ctl = c.decorators.find((d) => readMarker(LANGUAGE_IDS.TYPESCRIPT, d.name, marker(d).args)?.base);
       for (const f of methodsOf.get(c.qname) ?? []) {
-        for (const o of operations('typescript', f.decorators.map(marker), { base, norm })) {
+        for (const o of operations(LANGUAGE_IDS.TYPESCRIPT, f.decorators.map(marker), { base, norm })) {
           const e = { method: o.method, path: o.path, framework: 'decorator', line: f.decorators[0]?.line ?? f.start_line, handler: f.qname };
           if (ctl) e.controller = c.qname;
           res.endpoints.push(e);
@@ -331,7 +332,7 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
       }
       const ops = [];
       for (const sig of c.signatures ?? []) {
-        for (const o of operations('typescript', sig.decorators.map(marker), { base, client: true, norm })) {
+        for (const o of operations(LANGUAGE_IDS.TYPESCRIPT, sig.decorators.map(marker), { base, client: true, norm })) {
           ops.push({ ...o, path: clientPath(o.path, norm), name: sig.name, line: sig.line });
         }
       }

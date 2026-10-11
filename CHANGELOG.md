@@ -12,6 +12,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Per-language ids, extensions, globs, lexical rules and analysis coverage now derive from one registry; language adapters and SCIP use it too. Python stubs (`.pyi`), C++ `.hxx` files and batch files are now classified wherever their language is supported (#64).
 - `map` and `config show` now name `adapters.scip.run` when an unaccepted configuration forced it off, and say that a person enables it with `unknot config accept` in a terminal (#58).
 - `doctor` now gives every detected language with a SCIP indexer-table row an indexer line, including the required project marker when it is absent (#59).
 - `explain` now renders its ten answers, evidence locations and alternatives as readable terminal text by default; `--json` retains the existing record (#60).

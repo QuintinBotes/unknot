@@ -1,0 +1,5 @@
+class Helper {
+  int value() {
+    return 1;
+  }
+}

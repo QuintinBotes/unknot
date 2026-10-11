@@ -6,20 +6,16 @@
 
 import { extractFile } from './extract.mjs';
 import { linkFacts } from './link.mjs';
+import { LANGUAGE_IDS, adapterGlobs } from '../../../runtime/graph/languages.mjs';
 
 export default {
-  id: 'javascript',
+  id: LANGUAGE_IDS.JAVASCRIPT,
   version: '0.1.14',
   kind: 'language',
   capabilities: {
-    files: [
-      '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}',
-      '**/package.json',
-      '**/tsconfig*.json',
-      '**/jsconfig.json',
-      '**/+page.svelte',
-      '**/*.vue',
-    ],
+    get files() {
+      return [...adapterGlobs(LANGUAGE_IDS.JAVASCRIPT), '**/package.json', '**/tsconfig*.json', '**/jsconfig.json'];
+    },
     executes: [],
     network: false,
   },

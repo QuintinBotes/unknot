@@ -7,6 +7,7 @@
 // module says `parse_quality: 'lexical'`. Nothing here opens files or runs code.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { analysesFor, genericGlobs, language, languageForPath, languagesForEcosystem } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
@@ -15,50 +16,25 @@ import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
+import { resolveFlatSiblingImport } from './imports.mjs';
 
 const VERSION = '0.1.9';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
-// These metrics are structural, not semantic: the lexical pass runs them for every source
-// language it accepts. Keeping the declaration on the module lets diagnose distinguish an
-// analysis that ran but found no candidate from a language no adapter read at all.
-const LEXICAL_ANALYSES = Object.freeze(['size', 'complexity', 'nesting', 'member_count']);
-
-const EXT_LANG = {
-  go: 'go', java: 'java', kt: 'kotlin', kts: 'kotlin', cs: 'csharp', rs: 'rust', rb: 'ruby', php: 'php', scala: 'scala',
-  swift: 'swift', dart: 'dart', c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
-};
-
-const ECOSYSTEM_LANGS = {
-  go: ['go'], cargo: ['rust'], maven: ['java', 'kotlin', 'scala'], gradle: ['java', 'kotlin', 'scala'], dotnet: ['csharp'],
-  bundler: ['ruby'], composer: ['php'], swiftpm: ['swift'], cmake: ['c', 'cpp'],
-};
-
 const prov_ = (path, line, confidence = 'medium', source_type = 'ast') =>
   prov({ source_type, source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence });
 
 /** Language from the extension; `.h` is C++ when it plainly uses C++ constructs. */
 export function languageOf(path, text = '') {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
-  const lang = EXT_LANG[ext];
-  if (ext === 'h' && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return 'cpp';
-  return lang ?? null;
+  const row = languageForPath(path);
+  if (!row?.generic) return null;
+  if (row.headerLanguage && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return row.headerLanguage;
+  return row.id;
 }
 
 /** Language test conventions (spec: `_test.go`, `*Test.java`, `*Tests.cs`, Rust `tests/`, `_spec.rb`, `*Test.php`...). */
 export function isTestPath(path, lang) {
-  switch (lang) {
-    case 'go': return /_test\.go$/.test(path);
-    case 'java': case 'kotlin': case 'scala':
-      return /(?:^|\/)src\/test\//.test(path) || /(?:Tests?|IT|Spec|Suite)\.(?:java|kt|kts|scala)$/.test(path);
-    case 'csharp': return /Tests?\.cs$/.test(path) || /(?:^|\/)[^/]*\.Tests?\//.test(path) || /(?:^|\/)Tests?\//.test(path);
-    case 'rust': return /(?:^|\/)tests\//.test(path);
-    case 'ruby': return /_(?:spec|test)\.rb$/.test(path) || /(?:^|\/)(?:spec|test)\//.test(path);
-    case 'php': return /Test\.php$/.test(path) || /(?:^|\/)tests?\//.test(path);
-    case 'swift': return /Tests?\.swift$/.test(path) || /(?:^|\/)Tests\//.test(path);
-    case 'c': case 'cpp': return /(?:_tests?|Tests?)\.(?:c|cc|cpp|cxx)$/.test(path) || /(?:^|\/)test_[^/]*\.(?:c|cc|cpp)$/.test(path) || /(?:^|\/)tests?\//.test(path);
-    default: return false;
-  }
+  return language(lang)?.testPathPatterns?.some((pattern) => pattern.test(path)) ?? false;
 }
 
 /** Inheritance edge type from how the base was declared and what it turned out to be. */
@@ -155,7 +131,7 @@ function extract(file, text, ctx) {
     namespaces: [...new Set(an.namespaces)],
     types: typeNames,
     parse_quality: 'lexical',
-    analyses: [...LEXICAL_ANALYSES],
+    analyses: [...analysesFor(lang)],
   };
   if (an.impls.length) attrs.impls = an.impls;
   // Link-only inputs for type resolution and unused members; link() removes them so they are never persisted.
@@ -305,6 +281,7 @@ function link(ctx) {
   };
   const sortedMods = [...mods.keys()].sort();
   const has = (p) => mods.has(p);
+  const modulePaths = new Set(sortedMods);
 
   // --- indexes ----------------------------------------------------------------------
   const fq = new Map();
@@ -433,7 +410,10 @@ function link(ctx) {
         const std = !spec.includes('/') && (!/\./.test(spec) || /^(?:std\w+|string|math|time|errno|assert|ctype|limits|signal|stdarg|stddef|unistd|fcntl)\.h$/.test(spec));
         return { paths: [], external: std ? null : spec.split('/')[0] };
       }
-      default: return { paths: [] };
+      default: {
+        const sibling = resolveFlatSiblingImport(lang, path, spec, modulePaths);
+        return sibling ? { paths: [sibling.path], via: sibling.via, low: true } : { paths: [] };
+      }
     }
   };
 
@@ -609,7 +589,7 @@ function link(ctx) {
   // --- packages ---------------------------------------------------------------------
   const nameIndex = new Map();
   for (const p of pkgs) if (p.type === 'package') add(nameIndex, p.name, p);
-  const compat = (p, lang) => (ECOSYSTEM_LANGS[p.attrs.ecosystem] ?? []).includes(lang);
+  const compat = (p, lang) => languagesForEcosystem(p.attrs.ecosystem).includes(lang);
   const byDepth = pkgs.filter((p) => p.type === 'package').sort((a, b) => b.attrs.dir.length - a.attrs.dir.length || a.id.localeCompare(b.id));
   for (const path of sortedMods) {
     const lang = mods.get(path).attrs.language;
@@ -663,14 +643,14 @@ export default {
   version: VERSION,
   kind: 'language',
   capabilities: {
-    files: [
-      '**/*.go', '**/*.java', '**/*.kt', '**/*.kts', '**/*.cs', '**/*.rs', '**/*.rb', '**/*.php', '**/*.scala', '**/*.swift',
-      '**/*.dart',
-      '**/*.c', '**/*.h', '**/*.cc', '**/*.cpp', '**/*.cxx', '**/*.hpp', '**/*.hh',
-      '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle',
-      '**/settings.gradle.kts', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift',
-      '**/CMakeLists.txt',
-    ],
+    get files() {
+      return [
+        ...genericGlobs(),
+        '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle',
+        '**/settings.gradle.kts', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift',
+        '**/CMakeLists.txt',
+      ];
+    },
     executes: [],
     network: false,
   },

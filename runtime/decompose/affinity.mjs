@@ -3,7 +3,9 @@
 // over source modules. Each component is normalised to [0, 1] before weighting, so the
 // weights mean what they say. The default weights are heuristics and are reported as such.
 
-const STOP = new Set(['src', 'lib', 'app', 'apps', 'packages', 'internal', 'pkg', 'cmd', 'main', 'index', 'utils', 'util', 'common', 'shared', 'core', 'helpers', 'helper', 'base', 'impl', 'types', 'type', 'model', 'models', 'service', 'services', 'controller', 'controllers', 'handler', 'handlers', 'module', 'modules', 'test', 'tests', 'spec', 'js', 'ts', 'tsx', 'jsx', 'py', 'go', 'java', 'kt', 'rb', 'cs', 'rs', 'php', 'mjs', 'cjs', 'default', 'get', 'set', 'new', 'init']);
+import { affinityTerms } from '../graph/languages.mjs';
+
+const STOP = new Set(['src', 'lib', 'app', 'apps', 'packages', 'internal', 'pkg', 'cmd', 'main', 'index', 'utils', 'util', 'common', 'shared', 'core', 'helpers', 'helper', 'base', 'impl', 'types', 'type', 'model', 'models', 'service', 'services', 'controller', 'controllers', 'handler', 'handlers', 'module', 'modules', 'test', 'tests', 'spec', ...affinityTerms(), 'default', 'get', 'set', 'new', 'init']);
 
 export function terms(text) {
   return String(text)

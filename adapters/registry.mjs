@@ -2,11 +2,13 @@
 // language adapters first, so later adapters (database, contracts, ownership) can read
 // the module facts they produced.
 
+import { LANGUAGE_IDS } from '../runtime/graph/languages.mjs';
+
 export const ADAPTERS = Object.freeze([
   // Before the language adapters: its link hands the semantic unused-member verdicts to theirs.
   { id: 'scip', module: './semantic/scip/index.mjs' },
-  { id: 'javascript', module: './language/javascript/index.mjs' },
-  { id: 'python', module: './language/python/index.mjs' },
+  { id: LANGUAGE_IDS.JAVASCRIPT, module: './language/javascript/index.mjs' },
+  { id: LANGUAGE_IDS.PYTHON, module: './language/python/index.mjs' },
   { id: 'generic', module: './language/generic/index.mjs' },
   { id: 'literals', module: './literals/index.mjs' },
   { id: 'quality', module: './quality/index.mjs' },

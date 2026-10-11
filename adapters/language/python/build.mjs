@@ -4,6 +4,7 @@
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 import { frameworkFacts } from './frameworks.mjs';
 import { lex } from '../generic/lexer.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
@@ -31,10 +32,8 @@ export function isDjangoConventionPath(path) {
   return DJANGO_NAMES.has(path.slice(path.lastIndexOf('/') + 1)) || DJANGO_DIR_RE.test(path);
 }
 
-const TEST_RE = /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$|(^|\/)tests?\//;
-
 export function isTestPath(path) {
-  return TEST_RE.test(path);
+  return language(LANGUAGE_IDS.PYTHON)?.testPathPatterns?.some((pattern) => pattern.test(path)) ?? false;
 }
 
 /** Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted. */
@@ -42,7 +41,7 @@ function memberFacts(raw, text) {
   if (text.length > 1_500_000) return {};
   try {
     const types = raw.classes.map((c) => ({ name: c.name ?? c.qual.split('.').pop(), startLine: c.start_line, endLine: c.end_line, bases: (c.bases ?? []).map((b) => String(b).replace(/\[.*$/, '').split('.').pop()) }));
-    return memberAttrs(memberRefs(lex(text, 'python'), types, MEMBER_SYNTAX.python));
+    return memberAttrs(memberRefs(lex(text, LANGUAGE_IDS.PYTHON), types, MEMBER_SYNTAX[LANGUAGE_IDS.PYTHON]));
   } catch {
     return {}; // Optional signal: a failure here only costs the unused-member analysis of this file.
   }
@@ -76,7 +75,7 @@ export function buildFacts(path, raw, text, quality) {
   const loc = raw.loc ?? lines.length;
   const sloc = raw.sloc ?? lines.filter((l) => l.trim() && !l.trim().startsWith('#')).length;
   const dataPrefix = dataLinePrefix(text, 'py');
-  const base = { language: 'python', loc, sloc, data_lines: dataPrefix[dataPrefix.length - 1], is_test: isTestPath(path) };
+  const base = { language: LANGUAGE_IDS.PYTHON, loc, sloc, data_lines: dataPrefix[dataPrefix.length - 1], is_test: isTestPath(path) };
 
   if (raw.error) {
     return [nodeFact('module', path, {
@@ -127,7 +126,7 @@ export function buildFacts(path, raw, text, quality) {
     const r = sym.rec;
     const exported = !r.name.startsWith('_') && (!r.parent || symbols.get(r.parent)?.type === 'class');
     const common = {
-      language: 'python', start_line: r.start_line, end_line: r.end_line, lines: r.end_line - r.start_line + 1,
+      language: LANGUAGE_IDS.PYTHON, start_line: r.start_line, end_line: r.end_line, lines: r.end_line - r.start_line + 1,
       data_lines: dataLinesIn(dataPrefix, r.start_line, r.end_line),
       exported, decorators: (r.decorators ?? []).map((d) => d.name), parse_quality: quality,
     };

@@ -5,6 +5,7 @@
 
 import { fileURLToPath } from 'node:url';
 
+import { LANGUAGE_IDS, adapterGlobs, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, buildFacts } from './build.mjs';
 import { lexicalAnalyze } from './lexical.mjs';
 import { link } from './link.mjs';
@@ -17,7 +18,7 @@ const EXEC_TIMEOUT_MS = 60_000;
 const BATCH_FILES = 300;
 const BATCH_BYTES = 1_500_000;
 
-const isPython = (path) => path.endsWith('.py');
+const isPython = (path) => languageForPath(path)?.id === LANGUAGE_IDS.PYTHON;
 
 /** Facts for one file from the lexical reader (plus manifest facts for setup.py and friends). */
 function lexicalFacts(path, text) {
@@ -108,11 +109,13 @@ async function runPart(items, ctx, timeoutMs) {
 }
 
 export default {
-  id: 'python',
+  id: LANGUAGE_IDS.PYTHON,
   version: '0.1.11',
   kind: 'language',
   capabilities: {
-    files: ['**/*.py', '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'],
+    get files() {
+      return [...adapterGlobs(LANGUAGE_IDS.PYTHON), '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/requirements*.txt'];
+    },
     executes: ['python3'],
     network: false,
   },
