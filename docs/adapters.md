@@ -63,7 +63,7 @@ Each successful run writes only `.unknot/state/adapter-cache/scip/<language>.sci
 
 The broker uses a bare allowlisted executable, fixed argv, no shell and network disabled. An indexer that needs packages or a restore must find them locally; otherwise it fails and the map records a lexical fallback reason. The time and memory limits above apply to every run.
 
-Some registry rows execute repository code. In particular, scip-dotnet and scip-java run build logic; a repository's `global.json`, `.npmrc`, Gradle wrapper and similar SDK or tool-selection files can steer that logic. Enabling `run` therefore executes repository build logic for rows marked as doing so, inside the command sandbox. `unknot doctor` lists every marked language, whether its tool is installed, whether run is on and whether it would execute repository code.
+Some registry rows execute repository code. In particular, scip-dotnet and scip-java run build logic; a repository's `global.json`, `.npmrc`, Gradle wrapper and similar SDK or tool-selection files can steer that logic. Enabling `run` therefore executes repository build logic for rows marked as doing so, inside the command sandbox. `unknot doctor` lists every detected language with a registry row, whether its tool is installed, whether run is on and whether it would execute repository code; when its source files have none of that row's project markers, it names the required marker.
 
 What it adds, per file the index covers (matched by repository path; documents for files outside the mapped scope are counted in a notice):
 

@@ -12,6 +12,10 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- `map` and `config show` now name `adapters.scip.run` when an unaccepted configuration forced it off, and say that a person enables it with `unknot config accept` in a terminal (#58).
+- `doctor` now gives every detected language with a SCIP indexer-table row an indexer line, including the required project marker when it is absent (#59).
+- `explain` now renders its ten answers, evidence locations and alternatives as readable terminal text by default; `--json` retains the existing record (#60).
+- The hostile repository hook test now controls its own `PATH`, so an ambient `unknot` executable cannot change what it proves about a repository-provided look-alike (#61).
 - Lexically read source files now carry generic size, complexity, nesting and member-count metrics, including Dart, and `diagnose` names every per-language analysis that did not run instead of treating silence as a clean result (#56).
 - A unique flat sibling Python import such as `from proc import process` now resolves through the shared table-driven import rule with inferred provenance; conflicting sibling module layouts remain unresolved rather than becoming an arbitrary dependency (#57).
 - During an open run, subagents can deliver a final report through `SubagentHandback` and can read an existing regular background-task `.output` file from their session's harness task directory (#52). The exception is limited to that direct file path: other temporary files, traversal outside the directory and symlink targets remain denied.

@@ -196,6 +196,18 @@ test('doctor reports a missing index with how to make one, and a stale one', () 
   assert.match(gone.detail, /configured but not found: out\/none\.scip/);
 });
 
+test('doctor reports detected tabled languages even without their project marker', () => {
+  const p = K.makeProject({ files: { 'src/bare.py': 'answer = 42\n', 'src/Bare.cs': 'class Bare {}\n' } });
+  const doctor = spawnSync(process.execPath, [join(K.REPO_ROOT, 'bin', 'unknot'), 'doctor', '--json', '--cwd', p.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });
+  const checks = JSON.parse(doctor.stdout).checks;
+  const python = checks.find((check) => check.name === 'scip python');
+  const csharp = checks.find((check) => check.name === 'scip csharp');
+  assert.ok(python, JSON.stringify(checks));
+  assert.ok(csharp, JSON.stringify(checks));
+  assert.match(python.detail, /no project marker \(pyproject\.toml or setup\.py or setup\.cfg\)/);
+  assert.match(csharp.detail, /no project marker \(\*\.sln or \*\.csproj\)/);
+});
+
 test('unknot doctor prints the index check', () => {
   const p = K.makeProject({ files: FILES });
   const r = spawnSync(process.execPath, [join(K.REPO_ROOT, 'bin', 'unknot'), 'doctor', '--json', '--cwd', p.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });

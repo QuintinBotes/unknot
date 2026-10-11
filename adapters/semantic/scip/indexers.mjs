@@ -184,13 +184,31 @@ export function pinnedIndexerInvocation(argv) {
   return output ? { entry, output } : null;
 }
 
-/** Rows whose marker files occur in a repository, narrowed by adapters.scip.languages. */
+function requestedLanguages(options) {
+  return Array.isArray(options.languages) && options.languages.length ? new Set(options.languages.map(String)) : null;
+}
+
+function selected(entry, requested) {
+  return !requested || entry.languages.some((language) => requested.has(language)) || requested.has(entry.language);
+}
+
+/** The project-marker row selection used by the runner. */
 export function indexersForPaths(paths, options = {}) {
-  const requested = Array.isArray(options.languages) && options.languages.length ? new Set(options.languages.map(String)) : null;
-  return INDEXERS.filter((entry) => {
-    if (!paths.some((path) => matchAny(path, entry.markers))) return false;
-    return !requested || entry.languages.some((language) => requested.has(language)) || requested.has(entry.language);
-  });
+  const requested = requestedLanguages(options);
+  return INDEXERS.filter((entry) => paths.some((path) => matchAny(path, entry.markers)) && selected(entry, requested));
+}
+
+/** Rows whose source languages occur in repository paths, narrowed by adapters.scip.languages. */
+export function indexersForSourcePaths(paths, options = {}) {
+  const languages = new Set(paths.map((path) => documentLanguage({ relative_path: path })).filter(Boolean));
+  const requested = requestedLanguages(options);
+  return INDEXERS.filter((entry) => entry.languages.some((language) => languages.has(language)) && selected(entry, requested));
+}
+
+/** The first project marker for a registry row that exists in repository paths, or null. */
+export function projectMarker(entry, paths) {
+  if (!INDEXERS.includes(entry)) throw new TypeError('unknown SCIP indexer row');
+  return entry.markers.find((marker) => paths.some((path) => matchAny(path, [marker]))) ?? null;
 }
 
 /** Source-language ids that this row has a chance to cover in the supplied census entries. */

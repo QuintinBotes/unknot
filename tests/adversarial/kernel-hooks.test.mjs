@@ -3,8 +3,9 @@
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import * as K from '../helpers/kernel.mjs';
 
 const H = K.handlers;
@@ -49,16 +50,20 @@ describe('hostile repository content cannot become authority', () => {
       assert.ok(denies(await pre(s, 'Bash', { command })), command);
     }
     assert.equal(await pre(s, 'Bash', { command: `${U} status` }), null);
-    // A bare `unknot` resolves to the plugin CLI when nothing else on PATH shadows it
-    // (hooks do not see plugin bin dirs on their own PATH; the Bash tool does).
-    assert.equal(await pre(s, 'Bash', { command: 'unknot status' }), null);
+    // The hook sees only this empty directory, not whatever `unknot` an ambient PATH has.
+    // With no candidate, a bare command resolves to the plugin CLI as the Bash tool does.
+    const controlledPath = mkdtempSync(join(tmpdir(), 'uk-hook-path-'));
     const saved = process.env.PATH;
     chmodSync(join(s.p.dir, 'bin/unknot'), 0o755);
     try {
-      process.env.PATH = `${join(s.p.dir, 'bin')}:${saved}`;
+      process.env.PATH = controlledPath;
+      assert.equal(await pre(s, 'Bash', { command: 'unknot status' }), null);
+      process.env.PATH = `${join(s.p.dir, 'bin')}${delimiter}${controlledPath}`;
       assert.ok(denies(await pre(s, 'Bash', { command: 'unknot status' })), 'a repo unknot earlier on PATH is refused');
     } finally {
-      process.env.PATH = saved;
+      if (saved === undefined) delete process.env.PATH;
+      else process.env.PATH = saved;
+      rmSync(controlledPath, { recursive: true, force: true });
     }
   });
 

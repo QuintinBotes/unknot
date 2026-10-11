@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkInternalArgv } from '../../../../runtime/broker/broker.mjs';
-import { DEFAULT_MEMORY_MB, DEFAULT_TIMEOUT_MS, INDEXERS, indexerArgv, indexersForPaths, pinnedIndexerInvocation, presentLanguages, runBudgets } from '../../../../adapters/semantic/scip/indexers.mjs';
+import { DEFAULT_MEMORY_MB, DEFAULT_TIMEOUT_MS, INDEXERS, indexerArgv, indexersForPaths, indexersForSourcePaths, pinnedIndexerInvocation, presentLanguages, projectMarker, runBudgets } from '../../../../adapters/semantic/scip/indexers.mjs';
 
 const row = (language) => INDEXERS.find((entry) => entry.language === language);
 
@@ -18,6 +18,8 @@ test('the table maps each maintained indexer marker to its language row', () => 
   }
   assert.deepEqual(indexersForPaths(['package.json'], { languages: ['javascript'] }).map((entry) => entry.language), ['typescript']);
   assert.deepEqual(indexersForPaths(['package.json'], { languages: ['python'] }), []);
+  assert.deepEqual(indexersForSourcePaths(['src/a.py', 'src/B.cs']).map((entry) => entry.language), ['csharp', 'python']);
+  assert.equal(projectMarker(row('python'), ['src/a.py']), null);
   const files = new Map([['src/a.ts', { language: 'typescript' }], ['src/a.js', { language: 'javascript' }]]);
   assert.deepEqual(presentLanguages(row('typescript'), files), ['typescript', 'javascript']);
 });

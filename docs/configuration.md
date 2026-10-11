@@ -12,12 +12,12 @@ A configuration can raise Unknot's authority: a higher mode, registered approver
 |---|---|---|
 | `none` | No `config.yaml` | Built-in defaults. |
 | `accepted` | The file's digest equals the digest a human recorded with `unknot config accept` | The whole file. |
-| `unaccepted` | A `config.yaml` exists but nobody has ever accepted one | The file, with `approvers` emptied and any mode above `plan` forced to `plan`. |
+| `unaccepted` | A `config.yaml` exists but nobody has ever accepted one | The file, with `approvers` emptied, any mode above `plan` forced to `plan`, and `adapters.scip.run: true` forced to `false`. |
 | `changed` | The file differs from the accepted snapshot | The accepted snapshot, plus only the parts of the new file that tighten policy. |
 
 For `changed`, Unknot keeps the accepted text in force. It applies the new file as if it were organization policy (see "Tighten-only merge" below), after removing `approvers`, `commands`, `adapters`, `detectors` and `evidence`. So an edit that lowers the mode, shrinks a limit, adds a protected path or requires a stricter scan takes effect at once. An edit that raises the mode, loosens a limit, adds an approver or changes a command waits. Keys with no tighten rule for a changed repository file (for example `daemon`, `workspace`, `database.engines`, `infrastructure.plans`, `suppression`, `decomposition`) are ignored until accepted. Commands print a notice on stderr when the file is `unaccepted` or `changed`, and `unknot doctor` and `unknot status` show it.
 
-`unknot config accept` requires a human at an interactive terminal (a separate window, not Claude Code's `!` prefix). It shows the proposal (or the current file if there is no proposal), and you must type the mode back. It then records the digest and text of what you accepted and writes a `config.accepted` ledger event. `unknot config diff` shows current versus proposed and is safe for anyone to run.
+`unknot config accept` requires a human at an interactive terminal (a separate window, not Claude Code's `!` prefix). It shows the proposal (or the current file if there is no proposal), and you must type the mode back. It then records the digest and text of what you accepted and writes a `config.accepted` ledger event. `unknot config diff` shows current versus proposed and is safe for anyone to run. When an unaccepted file's `adapters.scip.run: true` is forced off, `map` and `config show` name the setting and the accept step.
 
 The effective configuration digest is part of every approval's binding. Any change to the effective configuration, including a tightening, invalidates existing approvals, and they have to be given again.
 
