@@ -514,7 +514,8 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     lexer: { char: true },
     declarations: { typePatterns: [/(?<![.\w])(struct|enum|union)\s+([A-Za-z_]\w*)/g] },
     braceFunctions: true,
-    headerLanguage: ids.CPP,
+    // A header can be either language; only a header that plainly uses C++ is read as C++.
+    header: { extensions: ['.h'], language: ids.CPP },
     qualityFamily: QUALITY_FAMILIES.C,
     testPathPatterns: [/(?:_tests?|Tests?)\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)test_[^/]*\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)tests?\//],
     ecosystems: ['cmake'],

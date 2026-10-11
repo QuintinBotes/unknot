@@ -18,7 +18,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.9';
+const VERSION = '0.1.10';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -29,7 +29,8 @@ const prov_ = (path, line, confidence = 'medium', source_type = 'ast') =>
 export function languageOf(path, text = '') {
   const row = languageForPath(path);
   if (!row?.generic) return null;
-  if (row.headerLanguage && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return row.headerLanguage;
+  const header = row.header;
+  if (header?.extensions.some((ext) => path.toLowerCase().endsWith(ext)) && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return header.language;
   return row.id;
 }
 

@@ -168,3 +168,11 @@ test('a registered generic language needs no parallel analysis or import changes
     assert.equal(unregisterLanguage(fake.id), true);
   }
 });
+
+test('only a header is read as C++ when it uses C++ constructs; a C source never is', async () => {
+  const { languageOf } = await import('../../../adapters/language/generic/index.mjs');
+  assert.equal(languageOf('a.h', 'class Widget {};'), 'cpp');
+  assert.equal(languageOf('a.h', 'int x;'), 'c');
+  assert.equal(languageOf('a.c', 'printf("%s::%s", a, b);'), 'c');
+  assert.equal(languageOf('a.c', 'struct Widget { int x; };'), 'c');
+});
