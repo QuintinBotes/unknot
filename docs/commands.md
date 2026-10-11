@@ -13,7 +13,7 @@ Every Unknot capability is a subcommand of the `unknot` CLI (`bin/unknot` in the
 | `--json` | Machine-readable output where the command supports it (marked below). Errors are then printed to stdout as `{"error": {...}}`. |
 | `--cwd <dir>` | Open the project containing this directory instead of the current directory. |
 
-Some commands (`explain`, `slice`, `config show`, `graph stats|node`, `pattern show|fit`) always print JSON.
+Some commands (`slice`, `config show`, `graph stats|node`, `pattern show|fit`) always print JSON.
 
 **Where the project is.** Unknot walks up from the working directory to the nearest `.unknot/` (and treats a path inside `.unknot/worktrees/<id>` as belonging to its parent project). `UNKNOT_HOME` overrides where per-user secrets live (default `~/.config/unknot`).
 
@@ -106,7 +106,7 @@ Reaches the CLI from a normal terminal. `status` prints the CLI path, the launch
 
 ### `unknot doctor`
 
-Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
+Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. Each detected language with a SCIP indexer-table row gets an indexer line; one without its project marker says which marker is needed. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools and a missing sandbox are warnings or info, not failures. Flag: `--json`.
 
 ## Understanding the system
 
@@ -142,7 +142,7 @@ Detector problems are listed, not hidden.
 
 ### `unknot explain <F-id>`
 
-Prints a finding as JSON keyed by the ten questions: `1_what`, `2_evidence` (each item with its provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
+By default, prints the ten questions as readable headings, with evidence locations as `path:line`, followed by alternatives and the supporting pattern-fit, priority and measurement details. `--json` keeps the full JSON record keyed by `1_what`, `2_evidence` (each item with provenance), `3_why_accidental`, `4_smallest_simplification`, `5_invariants`, `6_what_could_fail`, `7_verification`, `8_recovery`, `9_approvers`, `10_uncertainty`; plus alternatives, pattern fit, priority factors, measurements, thresholds and earlier decisions.
 
 ### `unknot decompose [scope...]`, `decompose list`, `decompose show <DEC-id>`, `decompose prune`
 

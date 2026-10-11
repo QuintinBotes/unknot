@@ -12,6 +12,10 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- `map` and `config show` now name `adapters.scip.run` when an unaccepted configuration forced it off, and say that a person enables it with `unknot config accept` in a terminal (#58).
+- `doctor` now gives every detected language with a SCIP indexer-table row an indexer line, including the required project marker when it is absent (#59).
+- `explain` now renders its ten answers, evidence locations and alternatives as readable terminal text by default; `--json` retains the existing record (#60).
+- The hostile repository hook test now controls its own `PATH`, so an ambient `unknot` executable cannot change what it proves about a repository-provided look-alike (#61).
 - During an open run, subagents can deliver a final report through `SubagentHandback` and can read an existing regular background-task `.output` file from their session's harness task directory (#52). The exception is limited to that direct file path: other temporary files, traversal outside the directory and symlink targets remain denied.
 
 ## [0.3.3] - 2026-10-06

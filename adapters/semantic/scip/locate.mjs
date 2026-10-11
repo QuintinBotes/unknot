@@ -8,7 +8,7 @@ import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { isSecretPath, resolveInside } from '../../../runtime/core/paths.mjs';
 import { git, isRepo, listFiles } from '../../../runtime/apply/git.mjs';
 import { projectPrefix } from './analyze.mjs';
-import { documentLanguage, executableOnPath, indexersForPaths } from './indexers.mjs';
+import { documentLanguage, executableOnPath, indexersForSourcePaths, projectMarker } from './indexers.mjs';
 import { scipRecords } from './reader.mjs';
 
 export const DEFAULT_INDEX = 'index.scip';
@@ -91,7 +91,7 @@ const day = 86_400_000;
 const ago = (ms) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} minutes` : ms < day ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / day)} days`);
 
 /**
- * The doctor checks for the SCIP index and each present, table-selected indexer:
+ * The doctor checks for the SCIP index and each detected, table-selected indexer:
  * `[{ name, level, detail }]`.
  * stale = the index file is older than the last commit that touched a file it covers.
  */
@@ -132,9 +132,11 @@ export function scipChecks(root, options = {}) {
   } catch {
     // The index status above is still useful outside a git checkout.
   }
-  for (const entry of indexersForPaths(paths, options)) {
+  for (const entry of indexersForSourcePaths(paths, options)) {
     const installed = executableOnPath(entry.executable);
-    const detail = `${entry.executable}: ${installed ? `installed (${installed})` : 'not installed'}; run: ${options.run === true ? 'on' : 'off'}; executes repository code: ${entry.executesRepositoryCode ? 'yes' : 'no'}${entry.needsNetwork ? '; a missing local restore falls back to lexical because network stays disabled' : ''}`;
+    const marker = projectMarker(entry, paths);
+    const markerNote = marker ? '' : `; no project marker (${entry.markers.map((m) => m.replace(/^\*\*\//, '')).join(' or ')})`;
+    const detail = `${entry.executable}: ${installed ? `installed (${installed})` : 'not installed'}; run: ${options.run === true ? 'on' : 'off'}; executes repository code: ${entry.executesRepositoryCode ? 'yes' : 'no'}${markerNote}${entry.needsNetwork ? '; a missing local restore falls back to lexical because network stays disabled' : ''}`;
     checks.push({ name: `scip ${entry.language}`, level: 'info', detail });
   }
   return checks;
