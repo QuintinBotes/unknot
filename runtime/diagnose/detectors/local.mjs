@@ -5,6 +5,7 @@
 // draft so a reviewer can see what the claim rests on, and heuristic ones say so.
 
 import { derivedFor } from '../../graph/derived.mjs';
+import { LANGUAGE_IDS, languageForPath, lexicalLanguageIds, scriptLanguageIds } from '../../graph/languages.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
 const SOURCE_NODE_TYPES = ['function', 'method'];
@@ -441,9 +442,6 @@ function collectStrings(v, out = []) {
   return out;
 }
 
-/** Paths declared as entry points by package manifests (main, bin, exports, ...). */
-const SCRIPT_LANGUAGES = new Set(['shell', 'bash', 'powershell', 'batch']);
-
 function declaredEntries(graph) {
   const entries = new Set();
   for (const p of graph.nodes('package')) {
@@ -512,8 +510,7 @@ function calledNames(graph) {
 
 // Languages read by the generic lexical adapter resolve calls only within a file, so "no
 // callers" there is not evidence.
-const LEXICAL_LANGUAGES = new Set(['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'swift', 'dart', 'scala', 'c', 'cpp']);
-const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || LEXICAL_LANGUAGES.has(m?.attrs?.language);
+const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || lexicalLanguageIds().includes(m?.attrs?.language);
 
 // Names that reach a function by convention rather than by a call the graph records:
 // React components (used as JSX), hooks, event handlers and lifecycle callbacks.
@@ -553,7 +550,7 @@ const deadCode = define({
       // declaration among the occurrences, Python does not.
       if (Number.isInteger(n.attrs.owner_occurrences) && n.attrs.owner_occurrences > 1) continue;
       const occ = n.attrs.name_occurrences;
-      if (Number.isInteger(occ) && occ > (mod.attrs?.language === 'python' ? 0 : 1)) continue;
+      if (Number.isInteger(occ) && occ > (mod.attrs?.language === LANGUAGE_IDS.PYTHON ? 0 : 1)) continue;
       if (!perModule.has(mod.id)) perModule.set(mod.id, { mod, symbols: [] });
       perModule.get(mod.id).symbols.push(n);
     }
@@ -597,7 +594,7 @@ const deadCode = define({
         if (lexicalOnly(m)) continue;
         if (graph.in(m.id, 'IMPORTS').length) continue;
         // Scripts are run, not imported, and an empty module has nothing to remove.
-        if (SCRIPT_LANGUAGES.has(m.attrs?.language) || /\.(sh|bash|zsh|ps1|bat|cmd)$/i.test(m.path ?? '') || (m.attrs?.sloc ?? 1) === 0) continue;
+        if (scriptLanguageIds().includes(m.attrs?.language) || languageForPath(m.path ?? '')?.script || (m.attrs?.sloc ?? 1) === 0) continue;
         const reason = moduleEntryReason(graph, m, entries);
         if (reason) continue;
         const sloc = m.attrs.sloc ?? 0;

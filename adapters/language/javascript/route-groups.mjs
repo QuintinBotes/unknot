@@ -7,6 +7,7 @@
 //   function registerOrders(r) { r.get('/x', h) }   registerOrders(v1)
 
 import { createGroups } from '../http-ops.mjs';
+import { LANGUAGE_IDS } from '../../../runtime/graph/languages.mjs';
 
 const KEYWORD = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'require', 'import', 'super', 'typeof', 'return', 'new', 'await', 'void', 'delete', 'async']);
 const REGISTRATION = /^(?:get|post|put|patch|delete|options|head|all|use|route|listen|then|catch|finally|on|once|emit|log|info|warn|error|debug)$/;
@@ -17,7 +18,7 @@ const REGISTRATION = /^(?:get|post|put|patch|delete|options|head|all|use|route|l
  * @param {object} analysis structure pass (functions, imports, exports)
  */
 export function scanRouteGroups(U, match, analysis) {
-  const gs = createGroups('javascript');
+  const gs = createGroups(LANGUAGE_IDS.JAVASCRIPT);
   const { at, isP, isId, splitArgs, literalOf, n } = U;
   const syn = gs.syn;
 

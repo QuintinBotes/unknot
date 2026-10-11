@@ -4,6 +4,7 @@
 // and inheritance edges are marked confidence 'medium'.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { LANGUAGE_IDS } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR } from './config.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { joinPath } from './frameworks.mjs';
@@ -188,14 +189,14 @@ export function linkFacts(ctx) {
   // A type held only through a member nothing reads (members.mjs): every name a file imports from a
   // module must be such a type, and the import must bind names (not run the module for its effects).
   {
-    const syn = MEMBER_SYNTAX.typescript;
+    const syn = MEMBER_SYNTAX[LANGUAGE_IDS.TYPESCRIPT];
     const aggsOf = new Map();
     for (const agg of importEdges.values()) if (agg.internal) (aggsOf.get(agg.path) ?? aggsOf.set(agg.path, []).get(agg.path)).push(agg);
     const files = [];
     const typeNames = new Set();
     for (const path of paths) {
       const a = mods.get(path);
-      if (a?.language === 'typescript' && a.acc) files.push({ path, attrs: a });
+      if (a?.language === LANGUAGE_IDS.TYPESCRIPT && a.acc) files.push({ path, attrs: a });
       for (const f of byFile.get(path)) if (f.kind === 'node' && (f.type === 'class' || f.type === 'interface')) typeNames.add(f.name.split('.').pop());
     }
     const reach = memberReach(files, typeNames, () => false);
@@ -204,7 +205,7 @@ export function linkFacts(ctx) {
       const aggs = aggsOf.get(path) ?? [];
       const sem = ctx.semantic?.get(path) ?? null;
       const found = new Map(); // module path -> what the file's members say
-      if (a?.language === 'typescript' && a.refs && !sem) {
+      if (a?.language === LANGUAGE_IDS.TYPESCRIPT && a.refs && !sem) {
         const bare = new Set();
         for (const imp of a.imports) {
           const r = resolvedImports.get(path)?.get(imp.specifier);

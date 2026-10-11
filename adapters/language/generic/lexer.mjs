@@ -4,24 +4,7 @@
 // Output keeps the input's length and every newline, so offsets and line numbers from
 // the blanked copies are valid in the original text.
 
-/** Per-language lexical features; anything unlisted is off. */
-const OPTS = {
-  go: { char: true, backtick: true, rawTick: true },
-  java: { char: true, tq: true },
-  kotlin: { char: true, tq: true, nested: true },
-  csharp: { char: true, tq: true, verbatim: true },
-  rust: { char: true, nested: true, rustRaw: true, multi: true },
-  ruby: { ruby: true, sq: true, multi: true, hash: true, backtick: true },
-  php: { php: true, sq: true, multi: true, hash: true, backtick: true },
-  scala: { char: true, tq: true, nested: true },
-  swift: { tq: true, nested: true },
-  dart: { sq: true, tq: true },
-  c: { char: true },
-  cpp: { char: true, cppRaw: true },
-  groovy: { sq: true, tq: true },
-  typescript: { sq: true, backtick: true },
-  python: { sq: true, tq: true, hash: true, noSlash: true },
-};
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 
 const CHAR_RE = /'(?:\\(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2}|[0-7]{1,3}|[^\n])|[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\\'\n])'/y;
 const RUBY_HEREDOC = /^<<([~-]?)(["'`]?)([A-Za-z_]\w*)\2/;
@@ -55,7 +38,7 @@ function str(arr) {
  *   lineOf: (off: number) => number, litAt: (off: number) => object | undefined }}
  */
 export function lex(text, lang) {
-  const o = OPTS[lang] ?? OPTS.c;
+  const o = language(lang)?.lexer ?? language(LANGUAGE_IDS.C)?.lexer ?? {};
   const n = text.length;
   const plain = units(text);
   const code = plain.slice();

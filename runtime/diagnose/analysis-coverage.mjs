@@ -2,7 +2,9 @@
 // the map, not evidence that the code is healthy. The mapper records this per language and
 // diagnose renders any gaps alongside its findings.
 
-export const LOCAL_ANALYSES = Object.freeze(['size', 'complexity', 'nesting', 'member_count']);
+import { LOCAL_ANALYSES, analysesFor } from '../graph/languages.mjs';
+
+export { LOCAL_ANALYSES };
 
 const DISPLAY = Object.freeze({
   size: 'size',
@@ -16,8 +18,8 @@ const moduleFact = (facts) => facts.find((fact) => fact.kind === 'node' && fact.
 const numeric = (value) => typeof value === 'number' && Number.isFinite(value);
 
 /** What the adapter actually attempted for one source file. */
-function fileAnalyses(facts, mod) {
-  const ran = new Set(Array.isArray(mod?.attrs?.analyses) ? mod.attrs.analyses.filter((name) => LOCAL_ANALYSES.includes(name)) : []);
+function fileAnalyses(facts, mod, expected) {
+  const ran = new Set(Array.isArray(mod?.attrs?.analyses) ? mod.attrs.analyses.filter((name) => expected.includes(name)) : []);
   if (!mod) return { ran, candidates: new Set() };
   if (numeric(mod.attrs?.loc) || numeric(mod.attrs?.sloc)) ran.add('size');
   const nodes = facts.filter((fact) => fact.kind === 'node');
@@ -46,29 +48,31 @@ export function analysisCoverage(files, perFile) {
     const language = file.language ?? 'unknown';
     const facts = perFile.get(file.path) ?? [];
     const mod = moduleFact(facts);
-    const entry = { path: file.path, mod, ...fileAnalyses(facts, mod) };
+    const expected = analysesFor(language);
+    const entry = { path: file.path, mod, expected: expected.length ? expected : LOCAL_ANALYSES, ...fileAnalyses(facts, mod, expected.length ? expected : LOCAL_ANALYSES) };
     if (!byLanguage.has(language)) byLanguage.set(language, []);
     byLanguage.get(language).push(entry);
   }
   return [...byLanguage].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([language, entries]) => {
+    const expected = entries[0]?.expected ?? LOCAL_ANALYSES;
     const unread = entries.filter((entry) => !entry.mod);
     const missing = new Set();
     if (unread.length) {
-      LOCAL_ANALYSES.forEach((name) => missing.add(name));
+      expected.forEach((name) => missing.add(name));
     } else {
-      for (const name of LOCAL_ANALYSES) {
+      for (const name of expected) {
         const applicable = name === 'size' ? entries : entries.filter((entry) => entry.candidates.has(name) || entry.ran.has(name));
         if (applicable.length && applicable.some((entry) => !entry.ran.has(name))) missing.add(name);
       }
     }
-    const absent = LOCAL_ANALYSES.filter((name) => missing.has(name));
+    const absent = expected.filter((name) => missing.has(name));
     const reason = !absent.length ? null
       : unread.length ? `${unread.length} of ${entries.length} source file${entries.length === 1 ? '' : 's'} had no module fact from an adapter`
         : 'the adapter did not emit the metric for every applicable source file';
     return {
       language,
       files: entries.length,
-      ran: LOCAL_ANALYSES.filter((name) => !missing.has(name)),
+      ran: expected.filter((name) => !missing.has(name)),
       missing: absent,
       ...(reason && { reason }),
     };

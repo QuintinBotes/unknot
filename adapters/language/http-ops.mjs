@@ -16,6 +16,7 @@
 // resolution (a group handed to a registration function, or mounted from another file) are here.
 
 import { edgeFact, nodeFact } from '../../runtime/graph/facts.mjs';
+import { language } from '../../runtime/graph/languages.mjs';
 
 const VERB = 'Get|Post|Put|Delete|Patch|Head|Options';
 const UPPER = VERB.toUpperCase();
@@ -413,7 +414,7 @@ export function paramNames(text, lang) {
     const t = part.replace(/=[\s\S]*$/, '').replace(/\[[^\]]*\]/g, ' ').trim();
     if (!t) continue;
     const words = t.split(/\s+/);
-    out.push({ name: lang === 'go' ? words[0] : words[words.length - 1], ext: words[0] === 'this' });
+    out.push({ name: language(lang)?.genericSyntax?.parameterNamePosition === 'first' ? words[0] : words[words.length - 1], ext: words[0] === 'this' });
   }
   return out;
 }

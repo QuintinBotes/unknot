@@ -29,6 +29,8 @@
 //
 // The regexes here are the whole language knowledge of the unused-member analysis.
 
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
+
 const MODS_CS = '(?:(?:public|private|protected|internal|static|readonly|virtual|override|required|new|sealed|volatile|abstract|partial|unsafe)\\s+)';
 const BUILTIN_CS = 'string|int|long|short|byte|bool|char|decimal|double|float|object|uint|ulong|ushort|sbyte|nint|nuint';
 const BUILTIN_JAVA = 'int|long|short|byte|boolean|char|double|float';
@@ -50,8 +52,8 @@ const TS_AFTER = '(?:\\s*<[^;(){}=]*>)?(?:\\s*\\|\\s*(?:null|undefined))?';
 const PY_AFTER = '(?:\\s*\\[[^\\]\\n]*\\])?(?:\\s*\\|\\s*None)?\\s*\\]?';
 
 export const MEMBER_SYNTAX = {
-  csharp: {
-    lang: 'csharp',
+  [LANGUAGE_IDS.CSHARP]: {
+    lang: LANGUAGE_IDS.CSHARP,
     blank: /^[ \t]*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?[\w.]+\s*;|\bnamespace\s+[\w.]+/gm,
     nameof: /\bnameof\s*\(\s*[\w.]+\s*\)/g,
     nameofBefore: /\bnameof\s*\(\s*(?:[\w]+\s*\.\s*)*$/,
@@ -90,8 +92,8 @@ export const MEMBER_SYNTAX = {
     chain: /^(?:base|typeof|nameof)$/,
   },
 
-  java: {
-    lang: 'java',
+  [LANGUAGE_IDS.JAVA]: {
+    lang: LANGUAGE_IDS.JAVA,
     blank: /^[ \t]*(?:package|import(?:\s+static)?)\s+[\w.*]+\s*;/gm,
     heads: /(?<![\w.@$])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: [
@@ -128,8 +130,8 @@ export const MEMBER_SYNTAX = {
     loose: [],
   },
 
-  kotlin: {
-    lang: 'kotlin',
+  [LANGUAGE_IDS.KOTLIN]: {
+    lang: LANGUAGE_IDS.KOTLIN,
     blank: /^[ \t]*(?:package|import)\s+[\w.*]+(?:\s+as\s+\w+)?[ \t]*$/gm,
     heads: /(?<![\w.@$])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: (() => {
@@ -166,8 +168,8 @@ export const MEMBER_SYNTAX = {
     quoted: /["']([A-Za-z_]\w*)["']/g,
   },
 
-  typescript: {
-    lang: 'typescript',
+  [LANGUAGE_IDS.TYPESCRIPT]: {
+    lang: LANGUAGE_IDS.TYPESCRIPT,
     blank: /^[ \t]*(?:import|export)\b[^;'"`]*?\bfrom\s*['"][^'"]*['"][ \t]*;?|^[ \t]*import\s*['"][^'"]*['"][ \t]*;?|^[ \t]*import\s+\w+\s*=\s*require\([^)]*\)[ \t]*;?/gm,
     heads: /(?<![\w.@$])([A-Z][\w$]*(?:\s*\.\s*[A-Z][\w$]*)*)/g,
     forms: (() => {
@@ -208,8 +210,8 @@ export const MEMBER_SYNTAX = {
     quoted: /["']([A-Za-z_]\w*)["']/g,
   },
 
-  python: {
-    lang: 'python',
+  [LANGUAGE_IDS.PYTHON]: {
+    lang: LANGUAGE_IDS.PYTHON,
     blank: /^[ \t]*from\s+[\w.]+\s+import\s*(?:\([^)]*\)|[^\n]*)|^[ \t]*import\s+[^\n]*/gm,
     heads: /(?<![\w.@])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: [
@@ -238,8 +240,8 @@ export const MEMBER_SYNTAX = {
     quoted: /["']([A-Za-z_]\w*)["']/g,
   },
 
-  go: {
-    lang: 'go',
+  [LANGUAGE_IDS.GO]: {
+    lang: LANGUAGE_IDS.GO,
     blank: /^[ \t]*package\s+\w+|^[ \t]*import\s*(?:\w+\s+)?"[^"\n]*"|^[ \t]*import\s*\([^)]*\)/gm,
     heads: /(?<![\w.@$])([A-Z]\w*)/g,
     forms: [
@@ -270,14 +272,23 @@ export const MEMBER_SYNTAX = {
     }],
     untyped: [],
     init: { re: /(?<![\w.])&?([A-Z]\w*)\s*\{/g, key: /^\s*([A-Za-z_]\w*)\s*:(?!=)/ },
-    notName: ['return', 'range', 'case', 'go', 'defer'],
+    notName: ['return', 'range', 'case', ...(language(LANGUAGE_IDS.GO)?.genericSyntax?.memberReserved ?? []), 'defer'],
     chain: /^(?:nil)$/,
     loose: [{ re: /[{,]\s*([A-Za-z_]\w*)\s*:(?!:|=)/g, skip: true }],
   },
 };
 
 /** The table for a language, or undefined. JavaScript shares TypeScript's: its classes simply carry no types. */
-export const syntaxFor = (language) => MEMBER_SYNTAX[language] ?? (language === 'javascript' ? MEMBER_SYNTAX.typescript : undefined);
+export const syntaxFor = (languageId) => MEMBER_SYNTAX[languageId] ?? (languageId === LANGUAGE_IDS.JAVASCRIPT ? MEMBER_SYNTAX[LANGUAGE_IDS.TYPESCRIPT] : undefined);
 
 /** Languages whose files share one namespace of types for member reach (Java and Kotlin call each other). */
-export const FAMILY = { java: 'jvm', kotlin: 'jvm', scala: 'jvm', csharp: 'csharp', go: 'go', typescript: 'js', javascript: 'js', python: 'python' };
+export const FAMILY = {
+  [LANGUAGE_IDS.JAVA]: 'jvm',
+  [LANGUAGE_IDS.KOTLIN]: 'jvm',
+  [LANGUAGE_IDS.SCALA]: 'jvm',
+  [LANGUAGE_IDS.CSHARP]: 'namespace',
+  [LANGUAGE_IDS.GO]: 'directory',
+  [LANGUAGE_IDS.TYPESCRIPT]: 'script',
+  [LANGUAGE_IDS.JAVASCRIPT]: 'script',
+  [LANGUAGE_IDS.PYTHON]: 'indent',
+};

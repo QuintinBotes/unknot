@@ -3,6 +3,7 @@
 
 import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { LANGUAGE_IDS, language, languageForPath, pathMentionExtensions } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
 import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
 import { analyze } from './structure.mjs';
@@ -15,12 +16,10 @@ import { lex } from '../generic/lexer.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
 import { memberAttrs, memberRefs } from '../generic/members.mjs';
 
-const CODE_FILE_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
-const TS_RE = /\.(?:ts|mts|cts|tsx)$/;
-const NO_JSX_RE = /\.(?:ts|mts|cts)$/;
 const MAX_FACTS = 5000;
 const MAX_MEMBER_TEXT = 1_500_000;
 const TEST_FILE_RE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/|(?:^|\/)tests?\/)/;
+const PATH_MENTION_RE = new RegExp(`^(?:\\.{1,2}/)?[\\w@.-]+(?:/[\\w@.-]+)*(?:${pathMentionExtensions().map((extension) => extension.replace('.', '\\.')).join('|')})$`);
 
 export const isTestPath = (p) => TEST_FILE_RE.test(p);
 
@@ -28,13 +27,13 @@ export function extractFile(file, text, _ctx) {
   const path = file.path;
   if (isPackageJson(path)) return packageFacts(path, text);
   if (isTsConfig(path)) return tsconfigFacts(path, text);
-  if (/(?:^|\/)\+page\.svelte$/.test(path)) return svelteFacts(path, text);
-  if (VUE_RE.test(path)) return vueFacts(file, text);
-  if (!CODE_FILE_RE.test(path)) return [];
+  const languageId = languageForPath(path)?.id;
+  if (languageId === LANGUAGE_IDS.SVELTE && /(?:^|\/)\+page\./.test(path)) return svelteFacts(path, text);
+  if (languageId === LANGUAGE_IDS.VUE) return vueFacts(file, text);
+  if (![LANGUAGE_IDS.JAVASCRIPT, LANGUAGE_IDS.TYPESCRIPT].includes(languageId)) return [];
   return codeFacts(file, text);
 }
 
-const VUE_RE = /\.vue$/;
 const VUE_SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 
 /**
@@ -78,7 +77,7 @@ function svelteFacts(path, text) {
   const sloc = text.split('\n').filter((l) => l.trim() !== '').length;
   const facts = [nodeFact('module', path, {
     name: path, path,
-    attrs: { language: 'svelte', loc, sloc, is_test: false, exports: [], env_reads: [], sql: [], security_signals: [], parse_quality: 'ok', imports: [] },
+    attrs: { language: LANGUAGE_IDS.SVELTE, loc, sloc, is_test: false, exports: [], env_reads: [], sql: [], security_signals: [], parse_quality: 'ok', imports: [] },
   }, p(1))];
   if (rt) {
     facts.push(nodeFact('route', rt.path, { name: rt.path, path, attrs: { path: rt.path, framework: rt.framework, file: path, line: 1, module: true } }, p(1, 'medium')));
@@ -89,8 +88,9 @@ function svelteFacts(path, text) {
 
 function codeFacts(file, text, as = {}) {
   const path = file.path;
-  const ts = as.ts ?? TS_RE.test(path);
-  const tk = tokenize(text, { jsx: as.jsx ?? !NO_JSX_RE.test(path), ts });
+  const ts = as.ts ?? (languageForPath(path)?.id === LANGUAGE_IDS.TYPESCRIPT);
+  const noJsx = language(LANGUAGE_IDS.TYPESCRIPT)?.noJsxExtensions?.some((extension) => path.toLowerCase().endsWith(extension));
+  const tk = tokenize(text, { jsx: as.jsx ?? !noJsx, ts });
   const { tokens, n } = tk;
   // How often each identifier occurs in the file. A function whose name occurs more than
   // once is used somewhere — called, passed by reference (`map(lineTotal)`), exported in a
@@ -103,7 +103,7 @@ function codeFacts(file, text, as = {}) {
   for (let i = 0; i < n && pathMentions.size < 50; i++) {
     const t = tokens[i];
     // Only a file that exists next to the module (or at the repository root) becomes an edge.
-    if (t.t === 'str' && /^(?:\.{1,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:m?[jt]sx?|cjs|cts|mts|py|sh)$/.test(t.v)) pathMentions.add(t.v);
+    if (t.t === 'str' && PATH_MENTION_RE.test(t.v)) pathMentions.add(t.v);
   }
   const { match, bad } = buildMatch(tokens, n);
   let analysis;
@@ -217,7 +217,7 @@ function codeFacts(file, text, as = {}) {
   for (const c of fw.clients ?? []) {
     facts.push(...clientFacts({
       modId, cid: `${path}#${c.cls.qname}`, name: c.cls.qname, path, line: c.cls.start_line, interfaceId: classByQ.get(c.cls.qname),
-      lang: ts ? 'typescript' : 'javascript', framework: 'decorator', ops: c.ops, pv: (line) => p(line, 'medium', 'inference'),
+      lang: ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT, framework: 'decorator', ops: c.ops, pv: (line) => p(line, 'medium', 'inference'),
     }));
   }
   // A layout route and its index route share a URL, so routes group by path and keep every component.
@@ -260,7 +260,7 @@ function codeFacts(file, text, as = {}) {
   }
 
   const attrs = {
-    language: ts ? 'typescript' : 'javascript',
+    language: ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT,
     loc: tk.loc,
     sloc: tk.sloc,
     data_lines: dataPrefix[dataPrefix.length - 1],
@@ -285,7 +285,7 @@ function codeFacts(file, text, as = {}) {
   if (ts && !failed && text.length < MAX_MEMBER_TEXT) {
     try {
       const types = [...analysis.classes, ...analysis.interfaces].map((c) => ({ name: c.name ?? c.qname, startLine: c.start_line, endLine: c.end_line, bases: [c.extends, ...(c.implements ?? [])].filter(Boolean) }));
-      Object.assign(attrs, memberAttrs(memberRefs(lex(text, 'typescript'), types, MEMBER_SYNTAX.typescript)));
+      Object.assign(attrs, memberAttrs(memberRefs(lex(text, LANGUAGE_IDS.TYPESCRIPT), types, MEMBER_SYNTAX[LANGUAGE_IDS.TYPESCRIPT])));
     } catch {
       // Optional signal: a failure here only costs the unused-member analysis of this file.
     }

@@ -5,6 +5,7 @@
 // dependency nodes and DEPENDS_ON/CONTAINS edges.
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 
 export const dirname = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
@@ -88,7 +89,7 @@ function readGoMod(path, text) {
     }
   }
   const local = [...t.matchAll(/^\s*replace\s+\S+(?:\s+\S+)?\s*=>\s*(\.{1,2}\/\S*)/gm)].map((m) => resolvePath(dirname(path), m[1]));
-  return { ecosystem: 'go', type: 'package', name: mod, deps, local, attrs: { go_module: mod, go_version: /^\s*go\s+(\S+)/m.exec(t)?.[1] ?? null } };
+  return { ecosystem: language(LANGUAGE_IDS.GO)?.ecosystems[0], type: 'package', name: mod, deps, local, attrs: { go_module: mod, go_version: /^\s*go\s+(\S+)/m.exec(t)?.[1] ?? null } };
 }
 
 function readCargo(path, text) {
@@ -154,7 +155,7 @@ function readMaven(path, text) {
 }
 
 function readGradle(path, text) {
-  const t = lex(text, 'groovy').plain;
+  const t = lex(text, LANGUAGE_IDS.GROOVY).plain;
   const deps = [];
   for (const m of t.matchAll(/\b(implementation|api|compileOnly|runtimeOnly|testImplementation|testCompileOnly|testRuntimeOnly|annotationProcessor|kapt|ksp|classpath|compile|testCompile)\s*\(?\s*(?:platform\(\s*)?(['"])([^'"]+)\2/g)) {
     const [g, a] = m[3].split(':');
@@ -169,7 +170,7 @@ function readGradle(path, text) {
 }
 
 function readGradleSettings(path, text) {
-  const t = lex(text, 'groovy').plain.replace(/,\s*\n/g, ', ');
+  const t = lex(text, LANGUAGE_IDS.GROOVY).plain.replace(/,\s*\n/g, ', ');
   const dir = dirname(path);
   const members = [];
   for (const m of t.matchAll(/\binclude\b\s*\(?([^\n]*)/g)) {
@@ -198,7 +199,7 @@ function readSln(path, text) {
 }
 
 function readGemfile(path, text) {
-  const t = lex(text, 'ruby').plain;
+  const t = lex(text, LANGUAGE_IDS.RUBY).plain;
   const dir = dirname(path);
   const deps = [];
   const local = [];
@@ -215,7 +216,7 @@ function readComposer(path, text) {
   let j;
   try { j = JSON.parse(text); } catch { j = null; }
   const obj = j && typeof j === 'object' ? j : {};
-  const reqs = (o) => Object.keys(o && typeof o === 'object' ? o : {}).filter((k) => k !== 'php' && !k.startsWith('ext-'));
+  const reqs = (o) => Object.keys(o && typeof o === 'object' ? o : {}).filter((k) => k !== LANGUAGE_IDS.PHP && !k.startsWith('ext-'));
   const deps = [...reqs(obj.require).map((name) => ({ name })), ...reqs(obj['require-dev']).map((name) => ({ name, dev: true }))];
   const psr4 = [];
   for (const sec of [obj.autoload, obj['autoload-dev']]) {
@@ -239,7 +240,7 @@ function balanced(t, open) {
 }
 
 function readSwiftPm(path, text) {
-  const t = lex(text, 'swift').plain;
+  const t = lex(text, LANGUAGE_IDS.SWIFT).plain;
   const dir = dirname(path);
   const name = /\bPackage\s*\(\s*name:\s*"([^"]+)"/.exec(t)?.[1] ?? dirName(dir);
   const deps = [];

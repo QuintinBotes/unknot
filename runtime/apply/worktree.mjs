@@ -6,6 +6,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, symlink
 import { join, relative } from 'node:path';
 import { sha256 } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
+import { LANGUAGE_IDS } from '../graph/languages.mjs';
 import { dirtyPaths, git, head } from './git.mjs';
 
 // Dependency directories shared read-only from the main checkout so tests can run in a
@@ -189,7 +190,7 @@ export function editablePathsFor(root, worktree) {
   for (const venv of ['.venv', 'venv']) {
     let lib;
     try {
-      lib = readdirSync(join(root, venv, 'lib')).filter((d) => d.startsWith('python'));
+      lib = readdirSync(join(root, venv, 'lib')).filter((d) => d.startsWith(LANGUAGE_IDS.PYTHON));
     } catch {
       continue;
     }

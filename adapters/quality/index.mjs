@@ -6,6 +6,7 @@
 // runs anything; output is deterministic.
 
 import { nodeFact, prov } from '../../runtime/graph/facts.mjs';
+import { QUALITY_FAMILIES, languageForPath, qualityGlobs } from '../../runtime/graph/languages.mjs';
 
 export const EXTRACTOR = 'quality@0.1.0';
 const K = 25; // k-gram length in tokens
@@ -18,8 +19,6 @@ const MIN_SHARED_RATIO = 0.3;
 const MIN_RANGE_LINES = 6;
 const MERGE_GAP = 1;
 
-const C_LIKE = new Set(['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts', 'go', 'java', 'kt', 'kts', 'cs', 'rs', 'php', 'swift', 'scala', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'hh']);
-
 const KEYWORDS = new Set((
   'if else elif for foreach while do switch case default break continue return function def class interface struct enum trait impl '
   + 'import from export const let var val public private protected static final abstract async await try catch finally throw throws '
@@ -28,15 +27,8 @@ const KEYWORDS = new Set((
   + 'delete void goto defer go select chan range fun object when unless until begin end rescue ensure module require elsif then'
 ).split(' '));
 
-const extOf = (path) => (path.includes('.') ? path.slice(path.lastIndexOf('.') + 1).toLowerCase() : '');
-
 /** Which comment/string syntax family a file belongs to. */
-function familyOf(ext) {
-  if (ext === 'py') return 'python';
-  if (ext === 'rb') return 'ruby';
-  if (C_LIKE.has(ext)) return ext === 'rs' ? 'rust' : ext === 'php' ? 'php' : 'c';
-  return null;
-}
+const familyOf = (path) => languageForPath(path)?.qualityFamily ?? null;
 
 const isIdStart = (ch) => /[A-Za-z_$\u0080-￿]/.test(ch);
 const isIdPart = (ch) => /[A-Za-z0-9_$\u0080-￿]/.test(ch);
@@ -50,8 +42,8 @@ export function tokenize(text, family) {
   const n = text.length;
   let i = 0;
   let line = 1;
-  const slashSlash = family !== 'python' && family !== 'ruby';
-  const hashComment = family === 'python' || family === 'ruby' || family === 'php';
+  const slashSlash = family !== QUALITY_FAMILIES.PYTHON && family !== QUALITY_FAMILIES.RUBY;
+  const hashComment = family === QUALITY_FAMILIES.PYTHON || family === QUALITY_FAMILIES.RUBY || family === QUALITY_FAMILIES.PHP;
   const push = (t, ln) => toks.push({ t, line: ln });
   const skipTo = (end) => {
     // Consume up to and including `end`, counting newlines; end of input if not found.
@@ -66,9 +58,9 @@ export function tokenize(text, family) {
     if (ch === ' ' || ch === '\t' || ch === '\r') { i++; continue; }
     if (slashSlash && ch === '/' && text[i + 1] === '/') { while (i < n && text[i] !== '\n') i++; continue; }
     if (slashSlash && ch === '/' && text[i + 1] === '*') { i += 2; skipTo('*/'); continue; }
-    if (hashComment && ch === '#' && !(family === 'php' && text[i + 1] === '[')) { while (i < n && text[i] !== '\n') i++; continue; }
-    if (family === 'ruby' && ch === '=' && text.startsWith('=begin', i) && (i === 0 || text[i - 1] === '\n')) { skipTo('\n=end'); continue; }
-    if (family === 'python' && (text.startsWith('"""', i) || text.startsWith("'''", i))) {
+    if (hashComment && ch === '#' && !(family === QUALITY_FAMILIES.PHP && text[i + 1] === '[')) { while (i < n && text[i] !== '\n') i++; continue; }
+    if (family === QUALITY_FAMILIES.RUBY && ch === '=' && text.startsWith('=begin', i) && (i === 0 || text[i - 1] === '\n')) { skipTo('\n=end'); continue; }
+    if (family === QUALITY_FAMILIES.PYTHON && (text.startsWith('"""', i) || text.startsWith("'''", i))) {
       const q = text.slice(i, i + 3);
       const startLine = line;
       i += 3;
@@ -76,7 +68,7 @@ export function tokenize(text, family) {
       push('L', startLine);
       continue;
     }
-    if (ch === '"' || ch === '`' || (ch === "'" && family !== 'rust')) {
+    if (ch === '"' || ch === '`' || (ch === "'" && family !== QUALITY_FAMILIES.RUST)) {
       const startLine = line;
       const multi = ch === '`';
       i++;
@@ -132,7 +124,7 @@ export function dropBoilerplate(toks, family) {
   };
   while (i < toks.length) {
     const t = toks[i];
-    if (family === 'python' && (t.t === 'import' || (t.t === 'from' && (i === 0 || toks[i - 1].line < t.line)))) {
+    if (family === QUALITY_FAMILIES.PYTHON && (t.t === 'import' || (t.t === 'from' && (i === 0 || toks[i - 1].line < t.line)))) {
       const line = t.line;
       let paren = 0;
       while (i < toks.length && (toks[i].line === line || paren > 0)) {
@@ -142,7 +134,7 @@ export function dropBoilerplate(toks, family) {
       }
       continue;
     }
-    if (family !== 'python' && (t.t === 'import' || (t.t === 'export' && (toks[i + 1]?.t === '{' || toks[i + 1]?.t === '*')))) {
+    if (family !== QUALITY_FAMILIES.PYTHON && (t.t === 'import' || (t.t === 'export' && (toks[i + 1]?.t === '{' || toks[i + 1]?.t === '*')))) {
       // ... to the module specifier (`from 'x'`, or `import 'x'`), and its `;`.
       let k = i + 1;
       while (k < toks.length && toks[k].t !== ';' && !(toks[k].t === 'L' && (toks[k - 1].t === 'from' || toks[k - 1].t === 'import'))) k++;
@@ -239,14 +231,14 @@ export default {
   version: '0.1.2',
   kind: 'language',
   capabilities: {
-    files: ['**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,py,go,java,kt,kts,cs,rs,rb,php,swift,scala,c,h,cc,cpp,cxx,hpp,hh}'],
+    get files() { return qualityGlobs(); },
     executes: [],
     network: false,
   },
 
   extract(file, text) {
     if (file.kind === 'generated' || file.kind === 'vendored' || file.kind === 'binary') return [];
-    const family = familyOf(extOf(file.path));
+    const family = familyOf(file.path);
     if (!family) return [];
     const { fingerprints, lines } = fingerprint(dropBoilerplate(tokenize(text, family), family));
     const truncated = fingerprints.length > MAX_FINGERPRINTS;

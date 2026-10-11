@@ -7,6 +7,7 @@
 // module says `parse_quality: 'lexical'`. Nothing here opens files or runs code.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { analysesFor, genericGlobs, language, languageForPath, languagesForEcosystem } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
@@ -15,50 +16,27 @@ import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
+import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.9';
+const VERSION = '0.1.10';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
-// These metrics are structural, not semantic: the lexical pass runs them for every source
-// language it accepts. Keeping the declaration on the module lets diagnose distinguish an
-// analysis that ran but found no candidate from a language no adapter read at all.
-const LEXICAL_ANALYSES = Object.freeze(['size', 'complexity', 'nesting', 'member_count']);
-
-const EXT_LANG = {
-  go: 'go', java: 'java', kt: 'kotlin', kts: 'kotlin', cs: 'csharp', rs: 'rust', rb: 'ruby', php: 'php', scala: 'scala',
-  swift: 'swift', dart: 'dart', c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
-};
-
-const ECOSYSTEM_LANGS = {
-  go: ['go'], cargo: ['rust'], maven: ['java', 'kotlin', 'scala'], gradle: ['java', 'kotlin', 'scala'], dotnet: ['csharp'],
-  bundler: ['ruby'], composer: ['php'], swiftpm: ['swift'], cmake: ['c', 'cpp'],
-};
-
+const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
 const prov_ = (path, line, confidence = 'medium', source_type = 'ast') =>
   prov({ source_type, source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence });
 
-/** Language from the extension; `.h` is C++ when it plainly uses C++ constructs. */
+/** Language from the registry; a header is C++ when it plainly uses C++ constructs. */
 export function languageOf(path, text = '') {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
-  const lang = EXT_LANG[ext];
-  if (ext === 'h' && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return 'cpp';
-  return lang ?? null;
+  const row = languageForPath(path);
+  if (!row?.generic) return null;
+  const header = row.header;
+  if (header?.extensions.some((ext) => path.toLowerCase().endsWith(ext)) && /\b(?:class|namespace|template\s*<|public:|private:)|::/.test(text.slice(0, 20000))) return header.language;
+  return row.id;
 }
 
 /** Language test conventions (spec: `_test.go`, `*Test.java`, `*Tests.cs`, Rust `tests/`, `_spec.rb`, `*Test.php`...). */
 export function isTestPath(path, lang) {
-  switch (lang) {
-    case 'go': return /_test\.go$/.test(path);
-    case 'java': case 'kotlin': case 'scala':
-      return /(?:^|\/)src\/test\//.test(path) || /(?:Tests?|IT|Spec|Suite)\.(?:java|kt|kts|scala)$/.test(path);
-    case 'csharp': return /Tests?\.cs$/.test(path) || /(?:^|\/)[^/]*\.Tests?\//.test(path) || /(?:^|\/)Tests?\//.test(path);
-    case 'rust': return /(?:^|\/)tests\//.test(path);
-    case 'ruby': return /_(?:spec|test)\.rb$/.test(path) || /(?:^|\/)(?:spec|test)\//.test(path);
-    case 'php': return /Test\.php$/.test(path) || /(?:^|\/)tests?\//.test(path);
-    case 'swift': return /Tests?\.swift$/.test(path) || /(?:^|\/)Tests\//.test(path);
-    case 'c': case 'cpp': return /(?:_tests?|Tests?)\.(?:c|cc|cpp|cxx)$/.test(path) || /(?:^|\/)test_[^/]*\.(?:c|cc|cpp)$/.test(path) || /(?:^|\/)tests?\//.test(path);
-    default: return false;
-  }
+  return language(lang)?.testPathPatterns?.some((pattern) => pattern.test(path)) ?? false;
 }
 
 /** Inheritance edge type from how the base was declared and what it turned out to be. */
@@ -69,15 +47,15 @@ function inheritEdge(srcKind, listKind, tgtKind) {
 }
 
 const CALL_SKIP = new Set(['if', 'for', 'foreach', 'while', 'switch', 'catch', 'return', 'sizeof', 'typeof', 'new', 'using', 'lock',
-  'when', 'match', 'fn', 'func', 'function', 'def', 'fun', 'super', 'this', 'throw', 'await', 'defer', 'go', 'select', 'unless', 'until', 'elsif']);
+  'when', 'match', 'fn', 'func', 'function', 'def', 'fun', 'super', 'this', 'throw', 'await', 'defer', 'select', 'unless', 'until', 'elsif']);
 
 /** Same-file call targets by simple name; ambiguity (several same-named functions) means no edge. */
-function callTargets(f, byName) {
+function callTargets(f, byName, callSkip) {
   const out = new Set();
   const body = f.body;
   for (const m of body.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
     const name = m[1];
-    if (CALL_SKIP.has(name) || !byName.has(name)) continue;
+    if (callSkip.has(name) || !byName.has(name)) continue;
     const before = body.slice(Math.max(0, m.index - 7), m.index);
     const prev = body[m.index - 1];
     if (prev === '.' && !/(?:this|self)\.$/.test(before)) continue;
@@ -92,10 +70,10 @@ function callTargets(f, byName) {
 }
 
 /**
- * 0-based line indexes inside `#[cfg(test)] mod name { ... }` blocks of Rust code (comments
+ * 0-based line indexes inside `#[cfg(test)] mod name { ... }` blocks (comments
  * and string contents are already blanked by the lexer, so braces can be counted plainly).
  */
-function rustTestLines(code) {
+function cfgTestLines(code) {
   const lines = new Set();
   const re = /#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{/g;
   let m;
@@ -123,6 +101,7 @@ function extract(file, text, ctx) {
   const lx = lex(text, lang);
   const an = analyze(lx, lang);
   const fw = frameworkInfo(lx, an, lang, path);
+  const syntax = genericSyntax(lang);
 
   const modId = `module:${path}`;
   const facts = [];
@@ -136,7 +115,7 @@ function extract(file, text, ctx) {
   };
   const lines = lx.lineStarts.length - (text.endsWith('\n') ? 1 : 0);
   const codeLines = lx.code.split('\n');
-  const testRange = lang === 'rust' ? rustTestLines(lx.code) : new Set();
+  const testRange = syntax.testBlocks ? cfgTestLines(lx.code) : new Set();
   const sloc = codeLines.filter((l, i) => /\S/.test(l) && !testRange.has(i)).length;
   const testSloc = codeLines.filter((l, i) => /\S/.test(l) && testRange.has(i)).length;
   const typeNames = [...new Set(an.types.map((t) => t.name))].sort();
@@ -147,7 +126,7 @@ function extract(file, text, ctx) {
     language: lang,
     loc: lines,
     sloc,
-    ...(lang === 'rust' && { test_sloc: testSloc }),
+    ...(syntax.testBlocks && { test_sloc: testSloc }),
     is_test: isTestPath(path, lang) || file.kind === 'test',
     imports: an.imports,
     package: an.pkg,
@@ -155,11 +134,14 @@ function extract(file, text, ctx) {
     namespaces: [...new Set(an.namespaces)],
     types: typeNames,
     parse_quality: 'lexical',
-    analyses: [...LEXICAL_ANALYSES],
+    analyses: [...analysesFor(lang)],
   };
   if (an.impls.length) attrs.impls = an.impls;
   // Link-only inputs for type resolution and unused members; link() removes them so they are never persisted.
-  if (MEMBER_SYNTAX[lang]) Object.assign(attrs, memberAttrs(lang === 'csharp' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang])));
+  if (MEMBER_SYNTAX[lang]) {
+    const refs = syntax.memberLinker === 'namespace' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang]);
+    Object.assign(attrs, memberAttrs(refs));
+  }
   Object.assign(attrs, fw.routeLinks);
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
@@ -209,8 +191,9 @@ function extract(file, text, ctx) {
     byName.get(f.name).push(f);
   }
   const callSeen = new Set();
+  const callSkip = new Set([...CALL_SKIP, ...(syntax.callKeywords ?? [])]);
   for (const { f, id } of funcNodes) {
-    for (const target of callTargets(f, byName)) {
+    for (const target of callTargets(f, byName, callSkip)) {
       const k = `${id}|${ids.get(target)}`;
       if (callSeen.has(k)) continue;
       callSeen.add(k);
@@ -305,11 +288,12 @@ function link(ctx) {
   };
   const sortedMods = [...mods.keys()].sort();
   const has = (p) => mods.has(p);
+  const modulePaths = new Set(sortedMods);
 
   // --- indexes ----------------------------------------------------------------------
   const fq = new Map();
   const pkgIndex = new Map();
-  const dirGo = new Map();
+  const directoryModules = new Map();
   const phpFq = new Map();
   const add = (m, k, v) => {
     if (!m.has(k)) m.set(k, []);
@@ -321,30 +305,30 @@ function link(ctx) {
       add(pkgIndex, a.package, path);
       for (const t of a.types) add(fq, `${a.package}.${t}`, path);
     }
-    const conv = /(?:^|\/)src\/(?:main|test)\/(?:java|kotlin|scala)\/(.+)\.(?:java|kt|scala)$/.exec(path);
+    const conv = genericSyntax(a.language).sourceConvention?.exec(path);
     if (conv) add(fq, conv[1].replace(/\//g, '.'), path);
     for (const ns of a.namespaces ?? []) {
-      if (a.language === 'php') for (const t of a.types) add(phpFq, `${ns}\\${t}`, path);
+      if (genericSyntax(a.language).namespaceIndex) for (const t of a.types) add(phpFq, `${ns}\\${t}`, path);
     }
-    if (a.language === 'go' && !a.is_test) add(dirGo, dirname(path), path);
+    if (genericSyntax(a.language).directoryIndex && !a.is_test) add(directoryModules, dirname(path), path);
   }
-  const gomods = pkgs.filter((p) => p.attrs.ecosystem === 'go' && p.attrs.go_module).sort((a, b) => b.attrs.go_module.length - a.attrs.go_module.length);
+  const modulePackages = pkgs.filter((p) => p.attrs.go_module).sort((a, b) => b.attrs.go_module.length - a.attrs.go_module.length);
   const psr4 = pkgs.flatMap((p) => p.attrs.psr4 ?? []).sort((a, b) => b.prefix.length - a.prefix.length);
   const cargo = pkgs.filter((p) => p.attrs.ecosystem === 'cargo' && p.attrs.crate_root !== null && p.attrs.crate_root !== undefined);
   const cmake = pkgs.filter((p) => p.attrs.ecosystem === 'cmake');
   const crateOf = (path) => cargo.filter((c) => !c.attrs.dir || path.startsWith(`${c.attrs.dir}/`)).sort((a, b) => b.attrs.dir.length - a.attrs.dir.length)[0] ?? null;
   const swiftTargets = [...targets.values()].filter((t) => t.attrs.ecosystem === 'swiftpm');
 
-  const rustFind = (base, segs) => {
+  const crateFind = (base, segs, extension) => {
     for (let k = segs.length; k >= 1; k--) {
       const p = resolvePath(base, segs.slice(0, k).join('/'));
-      if (has(`${p}.rs`)) return `${p}.rs`;
-      if (has(`${p}/mod.rs`)) return `${p}/mod.rs`;
+      if (has(`${p}${extension}`)) return `${p}${extension}`;
+      if (has(`${p}/mod${extension}`)) return `${p}/mod${extension}`;
     }
     return null;
   };
-  const rubyFind = (spec) => {
-    const hits = sortedMods.filter((p) => p === `${spec}.rb` || p.endsWith(`/${spec}.rb`));
+  const loadPathFind = (spec, extension) => {
+    const hits = sortedMods.filter((p) => p === `${spec}${extension}` || p.endsWith(`/${spec}${extension}`));
     const lib = hits.filter((p) => p.includes('lib/'));
     return (lib.length ? lib : hits).slice(0, 1);
   };
@@ -354,17 +338,18 @@ function link(ctx) {
     const lang = a.language;
     const spec = imp.spec;
     const dir = dirname(path);
-    switch (lang) {
-      case 'go': {
-        const gm = gomods.find((g) => spec === g.attrs.go_module || spec.startsWith(`${g.attrs.go_module}/`));
+    const syntax = genericSyntax(lang);
+    switch (syntax.resolver) {
+      case 'module_paths': {
+        const gm = modulePackages.find((g) => spec === g.attrs.go_module || spec.startsWith(`${g.attrs.go_module}/`));
         if (gm) {
           const sub = spec.slice(gm.attrs.go_module.length + 1);
-          return { paths: dirGo.get(resolvePath(gm.attrs.dir, sub)) ?? [], package_level: true };
+          return { paths: directoryModules.get(resolvePath(gm.attrs.dir, sub)) ?? [], package_level: true };
         }
         const segs = spec.split('/');
         return { paths: [], external: segs[0].includes('.') ? segs.slice(0, 3).join('/') : null };
       }
-      case 'java': case 'kotlin': case 'scala': {
+      case 'qualified_type': {
         if (/\.[*_]$/.test(spec)) return { paths: (pkgIndex.get(spec.slice(0, -2)) ?? []).slice(0, 50), package_level: true };
         const parts = spec.split('.');
         for (let k = parts.length; k >= 2; k--) {
@@ -373,55 +358,58 @@ function link(ctx) {
         }
         return { paths: [], external: JVM_SKIP.test(spec) ? null : parts.slice(0, 2).join('.') };
       }
-      case 'rust': {
+      case 'crate': {
+        const extension = language(lang)?.extensions[0] ?? '';
         const crate = crateOf(path);
         const src = crate ? `${crate.attrs.dir ? `${crate.attrs.dir}/` : ''}src` : 'src';
         if (imp.kind === 'mod') {
           const base = rustModuleDir(path);
-          const hit = [`${base}/${spec}.rs`, `${base}/${spec}/mod.rs`].find(has);
+          const hit = [`${base}/${spec}${extension}`, `${base}/${spec}/mod${extension}`].find(has);
           return { paths: hit ? [hit] : [] };
         }
         const segs = spec.split('::').filter((s) => s && s !== '*');
         const head = segs[0];
-        if (head === 'crate') { const h = rustFind(src, segs.slice(1)); return { paths: h ? [h] : [] }; }
-        if (head === 'self') { const h = rustFind(rustModuleDir(path), segs.slice(1)); return { paths: h ? [h] : [] }; }
-        if (head === 'super') { const h = rustFind(dirname(rustModuleDir(path)), segs.slice(1)); return { paths: h ? [h] : [] }; }
+        if (head === 'crate') { const h = crateFind(src, segs.slice(1), extension); return { paths: h ? [h] : [] }; }
+        if (head === 'self') { const h = crateFind(rustModuleDir(path), segs.slice(1), extension); return { paths: h ? [h] : [] }; }
+        if (head === 'super') { const h = crateFind(dirname(rustModuleDir(path)), segs.slice(1), extension); return { paths: h ? [h] : [] }; }
         const other = cargo.find((c) => c.name.replace(/-/g, '_') === head);
         if (other) {
-          const h = rustFind(`${other.attrs.dir ? `${other.attrs.dir}/` : ''}src`, segs.slice(1));
-          return { paths: h ? [h] : [has(`${other.attrs.dir ? `${other.attrs.dir}/` : ''}src/lib.rs`) ? `${other.attrs.dir ? `${other.attrs.dir}/` : ''}src/lib.rs` : null].filter(Boolean) };
+          const h = crateFind(`${other.attrs.dir ? `${other.attrs.dir}/` : ''}src`, segs.slice(1), extension);
+          return { paths: h ? [h] : [has(`${other.attrs.dir ? `${other.attrs.dir}/` : ''}src/lib${extension}`) ? `${other.attrs.dir ? `${other.attrs.dir}/` : ''}src/lib${extension}` : null].filter(Boolean) };
         }
-        const local = rustFind(src, segs);
+        const local = crateFind(src, segs, extension);
         if (local) return { paths: [local] };
         return { paths: [], external: /^(?:std|core|alloc|proc_macro|test)$/.test(head) ? null : head };
       }
-      case 'ruby': {
+      case 'require': {
+        const extension = language(lang)?.extensions[0] ?? '';
         if (imp.kind === 'require_relative') {
           const p = resolvePath(dir, spec);
-          return { paths: [`${p}.rb`, p].filter(has).slice(0, 1) };
+          return { paths: [`${p}${extension}`, p].filter(has).slice(0, 1) };
         }
-        const hit = rubyFind(spec.replace(/\.rb$/, ''));
+        const hit = loadPathFind(spec.replace(new RegExp(`${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), ''), extension);
         return { paths: hit, external: hit.length || imp.kind === 'load' ? null : spec.split('/')[0] };
       }
-      case 'php': {
+      case 'psr4': {
+        const extension = language(lang)?.extensions[0] ?? '';
         if (imp.kind !== 'use') {
           const p = [resolvePath(dir, spec), resolvePath('', spec)].find(has);
           return { paths: p ? [p] : [] };
         }
         const pm = psr4.find((e) => spec === e.prefix || spec.startsWith(`${e.prefix}\\`));
         if (pm) {
-          const p = `${resolvePath(pm.dir, spec.slice(pm.prefix.length + 1).replace(/\\/g, '/'))}.php`;
+          const p = `${resolvePath(pm.dir, spec.slice(pm.prefix.length + 1).replace(/\\/g, '/'))}${extension}`;
           if (has(p)) return { paths: [p] };
         }
         if (phpFq.has(spec)) return { paths: phpFq.get(spec) };
         return { paths: [], external: pm ? null : spec.split('\\')[0] };
       }
-      case 'swift': {
+      case 'targets': {
         const tg = swiftTargets.find((t) => t.name === spec);
-        const hit = tg ? sortedMods.filter((p) => mods.get(p).attrs.language === 'swift' && (p.includes(`/${spec}/`) || p.startsWith(`${spec}/`))).slice(0, 200) : [];
+        const hit = tg ? sortedMods.filter((p) => mods.get(p).attrs.language === lang && (p.includes(`/${spec}/`) || p.startsWith(`${spec}/`))).slice(0, 200) : [];
         return { paths: hit, external: tg ? null : spec, package_level: true };
       }
-      case 'c': case 'cpp': {
+      case 'includes': {
         if (imp.kind === 'include_local') {
           const incs = cmake.filter((c) => !c.attrs.dir || path.startsWith(`${c.attrs.dir}/`)).flatMap((c) => c.attrs.include_dirs ?? []);
           const cands = [resolvePath(dir, spec), ...incs.map((d) => resolvePath(d, spec)), resolvePath('include', spec), resolvePath('src', spec), resolvePath('', spec)];
@@ -430,10 +418,13 @@ function link(ctx) {
           const tail = sortedMods.filter((p) => p.endsWith(`/${spec}`));
           return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec };
         }
-        const std = !spec.includes('/') && (!/\./.test(spec) || /^(?:std\w+|string|math|time|errno|assert|ctype|limits|signal|stdarg|stddef|unistd|fcntl)\.h$/.test(spec));
+        const std = !spec.includes('/') && (!/\./.test(spec) || syntax.systemIncludePattern?.test(spec));
         return { paths: [], external: std ? null : spec.split('/')[0] };
       }
-      default: return { paths: [] };
+      default: {
+        const sibling = resolveFlatSiblingImport(lang, path, spec, modulePaths);
+        return sibling ? { paths: [sibling.path], via: sibling.via, low: true } : { paths: [] };
+      }
     }
   };
 
@@ -445,7 +436,7 @@ function link(ctx) {
     const fam = FAMILY[lang];
     if (!reachers.has(fam)) {
       const files = sortedMods.filter((p) => FAMILY[mods.get(p).attrs.language] === fam && MEMBER_SYNTAX[mods.get(p).attrs.language]).map((p) => ({ path: p, attrs: mods.get(p).attrs }));
-      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, fam === 'go' ? (x, y) => dirname(x) === dirname(y) : undefined));
+      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined));
     }
     return reachers.get(fam);
   };
@@ -453,7 +444,7 @@ function link(ctx) {
     if (c.path === path) return false;
     const cm = mods.get(c.path)?.attrs;
     if (!cm || FAMILY[cm.language] !== FAMILY[a.language] || (cm.is_test && !a.is_test)) return false;
-    if (a.language === 'go') return dirname(c.path) === dirname(path);
+    if (genericSyntax(a.language).sameDirectoryMembers) return dirname(c.path) === dirname(path);
     if (!cm.package) return false;
     if (a.package === cm.package) return true;
     return (a.imports ?? []).some((i) => i.kind !== 'static' && (i.spec === `${cm.package}.${c.name}` || i.spec === `${cm.package}.*`));
@@ -488,7 +479,7 @@ function link(ctx) {
     const a = mod.attrs;
     const resolved = new Set();
     const sem = ctx.semantic?.get(path) ?? null;
-    if (a.language === 'csharp') {
+    if (genericSyntax(a.language).memberLinker === 'namespace') {
       const cs = csLink(path);
       for (const e of withSemantic(sem, cs.edges)) {
         resolved.add(e.to);
@@ -609,7 +600,7 @@ function link(ctx) {
   // --- packages ---------------------------------------------------------------------
   const nameIndex = new Map();
   for (const p of pkgs) if (p.type === 'package') add(nameIndex, p.name, p);
-  const compat = (p, lang) => (ECOSYSTEM_LANGS[p.attrs.ecosystem] ?? []).includes(lang);
+  const compat = (p, lang) => languagesForEcosystem(p.attrs.ecosystem).includes(lang);
   const byDepth = pkgs.filter((p) => p.type === 'package').sort((a, b) => b.attrs.dir.length - a.attrs.dir.length || a.id.localeCompare(b.id));
   for (const path of sortedMods) {
     const lang = mods.get(path).attrs.language;
@@ -663,14 +654,14 @@ export default {
   version: VERSION,
   kind: 'language',
   capabilities: {
-    files: [
-      '**/*.go', '**/*.java', '**/*.kt', '**/*.kts', '**/*.cs', '**/*.rs', '**/*.rb', '**/*.php', '**/*.scala', '**/*.swift',
-      '**/*.dart',
-      '**/*.c', '**/*.h', '**/*.cc', '**/*.cpp', '**/*.cxx', '**/*.hpp', '**/*.hh',
-      '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle',
-      '**/settings.gradle.kts', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift',
-      '**/CMakeLists.txt',
-    ],
+    get files() {
+      return [
+        ...genericGlobs(),
+        '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle',
+        '**/settings.gradle.kts', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift',
+        '**/CMakeLists.txt',
+      ];
+    },
     executes: [],
     network: false,
   },

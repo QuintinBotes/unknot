@@ -5,6 +5,7 @@
 import { accessSync, constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { matchAny } from '../../../runtime/core/glob.mjs';
+import { LANGUAGE_IDS, extensionsFor } from '../../../runtime/graph/languages.mjs';
 
 export const OUTPUT = '{output}';
 export const DEFAULT_TIMEOUT_MS = 300_000;
@@ -14,7 +15,11 @@ export const DEFAULT_MEMORY_MB = 2_048;
 export const MIN_MEMORY_MB = 128;
 export const MAX_MEMORY_MB = 16_384;
 
-const row = (value) => Object.freeze({ ...value, languages: Object.freeze(value.languages ?? [value.language]), extensions: Object.freeze(value.extensions), markers: Object.freeze(value.markers), argv: Object.freeze(value.argv) });
+const row = (value) => {
+  const languages = Object.freeze(value.languages ?? [value.language]);
+  const extensions = Object.freeze(Object.fromEntries(languages.flatMap((language) => extensionsFor([language]).map((extension) => [extension, language]))));
+  return Object.freeze({ ...value, languages, extensions, markers: Object.freeze(value.markers), argv: Object.freeze(value.argv) });
+};
 
 /**
  * A pinned command template uses `{output}` exactly once. The broker accepts only these
@@ -22,10 +27,8 @@ const row = (value) => Object.freeze({ ...value, languages: Object.freeze(value.
  */
 export const INDEXERS = Object.freeze([
   row({
-    language: 'csharp',
+    language: LANGUAGE_IDS.CSHARP,
     // Some indexers leave a document's language empty; its extension then names it.
-    extensions: { '.cs': 'csharp' },
-    languages: ['csharp'],
     markers: ['**/*.sln', '**/*.csproj'],
     executable: 'scip-dotnet',
     argv: ['index', '--output', OUTPUT],
@@ -33,9 +36,8 @@ export const INDEXERS = Object.freeze([
     needsNetwork: true,
   }),
   row({
-    language: 'typescript',
-    extensions: { '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript', '.cts': 'typescript', '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript' },
-    languages: ['typescript', 'javascript'],
+    language: LANGUAGE_IDS.TYPESCRIPT,
+    languages: [LANGUAGE_IDS.TYPESCRIPT, LANGUAGE_IDS.JAVASCRIPT],
     markers: ['**/tsconfig.json', '**/package.json'],
     executable: 'scip-typescript',
     argv: ['index', '--output', OUTPUT],
@@ -43,9 +45,8 @@ export const INDEXERS = Object.freeze([
     needsNetwork: false,
   }),
   row({
-    language: 'java',
-    extensions: { '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin', '.scala': 'scala' },
-    languages: ['java', 'kotlin', 'scala'],
+    language: LANGUAGE_IDS.JAVA,
+    languages: [LANGUAGE_IDS.JAVA, LANGUAGE_IDS.KOTLIN, LANGUAGE_IDS.SCALA],
     markers: ['**/pom.xml', '**/build.gradle*', '**/build.sbt'],
     executable: 'scip-java',
     argv: ['index', '--output', OUTPUT],
@@ -53,8 +54,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: true,
   }),
   row({
-    language: 'python',
-    extensions: { '.py': 'python', '.pyi': 'python' },
+    language: LANGUAGE_IDS.PYTHON,
     markers: ['**/pyproject.toml', '**/setup.py', '**/setup.cfg'],
     executable: 'scip-python',
     argv: ['index', '.', '--output', OUTPUT],
@@ -62,8 +62,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: false,
   }),
   row({
-    language: 'go',
-    extensions: { '.go': 'go' },
+    language: LANGUAGE_IDS.GO,
     markers: ['**/go.mod'],
     executable: 'scip-go',
     argv: ['index', '--output', OUTPUT],
@@ -71,8 +70,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: true,
   }),
   row({
-    language: 'rust',
-    extensions: { '.rs': 'rust' },
+    language: LANGUAGE_IDS.RUST,
     markers: ['**/Cargo.toml'],
     executable: 'rust-analyzer',
     argv: ['scip', '.', '--output', OUTPUT],
@@ -80,8 +78,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: false,
   }),
   row({
-    language: 'ruby',
-    extensions: { '.rb': 'ruby' },
+    language: LANGUAGE_IDS.RUBY,
     markers: ['**/Gemfile'],
     executable: 'scip-ruby',
     argv: ['.', '--index-file', OUTPUT],
@@ -89,9 +86,8 @@ export const INDEXERS = Object.freeze([
     needsNetwork: true,
   }),
   row({
-    language: 'cpp',
-    extensions: { '.c': 'c', '.h': 'c', '.cc': 'cpp', '.cpp': 'cpp', '.cxx': 'cpp', '.hh': 'cpp', '.hpp': 'cpp', '.hxx': 'cpp' },
-    languages: ['c', 'cpp'],
+    language: LANGUAGE_IDS.CPP,
+    languages: [LANGUAGE_IDS.C, LANGUAGE_IDS.CPP],
     markers: ['**/compile_commands.json'],
     executable: 'scip-clang',
     argv: ['--compdb-path', 'compile_commands.json', '--output', OUTPUT],
@@ -99,8 +95,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: false,
   }),
   row({
-    language: 'dart',
-    extensions: { '.dart': 'dart' },
+    language: LANGUAGE_IDS.DART,
     markers: ['**/pubspec.yaml'],
     executable: 'scip_dart',
     argv: ['.', '--output', OUTPUT],
@@ -108,8 +103,7 @@ export const INDEXERS = Object.freeze([
     needsNetwork: true,
   }),
   row({
-    language: 'php',
-    extensions: { '.php': 'php' },
+    language: LANGUAGE_IDS.PHP,
     markers: ['**/composer.json'],
     executable: 'scip-php',
     argv: ['--output', OUTPUT],
