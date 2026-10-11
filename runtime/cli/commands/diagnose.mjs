@@ -1,6 +1,7 @@
 // /unknot:diagnose [scope] [--objective "..."|decompose|simplify|security] [--all] — rank simplification opportunities.
 
 import { diagnose } from '../../diagnose/engine.mjs';
+import { analysisGapLines } from '../../diagnose/analysis-coverage.mjs';
 import { output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
@@ -11,7 +12,7 @@ export async function run({ positional, flags }) {
   );
   const limit = Number(flags.limit ?? 25);
   const named = res.objective ? { objective: res.objective, hidden: res.hidden, hidden_kinds: res.hidden_kinds } : {};
-  if (flags.json) return output({ stats: res.stats, errors: res.errors, ...named, findings: res.findings.slice(0, limit) }, { json: true });
+  if (flags.json) return output({ stats: res.stats, errors: res.errors, analysis: res.analysis, ...named, findings: res.findings.slice(0, limit) }, { json: true });
   const rows = res.findings.slice(0, limit).map((f) => ({ id: f.id, priority: f.priority.score.toFixed(3), risk: f.risk, kind: f.kind, title: f.title }));
   const lines = [
     `${res.stats.open} open finding(s) from ${res.stats.detectors} detector(s)${res.stats.objective ? ` · objective: ${res.stats.objective}` : ''}; ${res.stats.suppressed} suppressed by decisions, ${res.stats.accepted} accepted.`,
@@ -19,6 +20,8 @@ export async function run({ positional, flags }) {
     table(rows, ['id', 'priority', 'risk', 'kind', 'title']),
   ];
   if (res.hidden) lines.push('', `${res.hidden} code-style finding${res.hidden === 1 ? '' : 's'} hidden (--all to show)`);
+  const gaps = analysisGapLines(res.analysis?.unavailable ?? []);
+  if (gaps.length) lines.push('', 'Analysis not run:', ...gaps);
   if (res.errors.length) lines.push('', `Detector problems (reported, not hidden): ${res.errors.map((e) => `${e.detector}: ${e.error}`).join('; ')}`);
   lines.push('', 'Next: unknot explain <F-id> for evidence, uncertainty, alternatives and pattern fit.');
   output(lines.join('\n'));

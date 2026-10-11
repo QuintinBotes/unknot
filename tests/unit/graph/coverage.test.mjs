@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import * as K from '../../helpers/kernel.mjs';
+import { analysisGapLines } from '../../../runtime/diagnose/analysis-coverage.mjs';
+import { diagnose } from '../../../runtime/diagnose/engine.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
 
 after(() => K.cleanup());
@@ -30,6 +32,21 @@ test('a minority lexical language is a notice, not partial', async () => {
   const r = await map(p);
   assert.ok(!r.unavailable.some((x) => x.adapter?.startsWith('language:')));
   assert.ok(r.notices.some((n) => /csharp/.test(n)));
+});
+
+test('diagnose reports every local analysis that did not run for an unhandled language', async () => {
+  const p = K.makeProject({ files: {
+    'src/a.js': 'export const a = 1;\n',
+    'scripts/tool.sh': '#!/bin/sh\necho ok\n',
+  } });
+  await map(p);
+  const res = await diagnose(p.ctx, { config: K.cfg({ mode: 'plan' }), only: ['local'] });
+  const shell = res.analysis.unavailable.find((entry) => entry.language === 'shell');
+  assert.deepEqual(shell?.missing, ['size', 'complexity', 'nesting', 'member_count']);
+  assert.match(shell?.reason ?? '', /no module fact from an adapter/);
+  assert.deepEqual(analysisGapLines(res.analysis.unavailable).filter((line) => line.includes('shell')), [
+    '  shell: size, complexity, nesting, and member-count analyses did not run (1 of 1 source file had no module fact from an adapter).',
+  ]);
 });
 
 test('ownership files outside a narrow scope are still read and link owners to scoped files', async () => {

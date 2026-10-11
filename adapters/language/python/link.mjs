@@ -8,6 +8,7 @@ import { routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { normalizeRoute } from './frameworks.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
+import { resolveFlatSiblingImport } from '../generic/imports.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberReach, withSemantic } from '../generic/members.mjs';
 
@@ -92,6 +93,12 @@ export function link(ctx) {
     for (const c of cands) if (!c.root || importer.startsWith(`${c.root}/`)) if (!best || c.root.length > best.root.length) best = c;
     return (best ?? cands[0]).path;
   };
+  // A dotted module name is the normal, observed resolution. A bare name can additionally
+  // match a sibling when a script runs from that directory; that generic rule is inferred.
+  const resolveAbsolute = (language, dotted, importer) => {
+    const path = resolveDotted(dotted, importer);
+    return path ? { path, inferred: false } : resolveFlatSiblingImport(language, importer, dotted, pyPaths);
+  };
   const tryRel = (dir, parts) => {
     const base = join(dir, parts.join('/'));
     for (const cand of parts.length ? [`${base}.py`, `${base}/__init__.py`] : [join(dir, '__init__.py')]) {
@@ -104,6 +111,7 @@ export function link(ctx) {
   const pvFor = (path, line, confidence = 'high') => (lowQuality(path)
     ? prov({ source_type: 'inference', source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence: 'low' })
     : prov({ source_type: 'ast', source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence }));
+  const inferredPv = (path, line) => prov({ source_type: 'inference', source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence: 'low' });
 
   // --- imports: bindings, IMPORTS edges, external dependencies ---------------------------
   const bindings = new Map(); // path -> Map<name, { path, symbol }>
@@ -113,12 +121,14 @@ export function link(ctx) {
     bindings.set(path, bind);
     const targets = new Map(); // target path -> { names, line }
     const externals = new Map(); // dependency id -> { top, line, stdlib }
+    const a = mod.attrs;
     let cur = {};
-    const internal = (target, line, name) => {
+    const internal = (target, line, name, inferred = false) => {
       if (target === path) return;
-      const t = targets.get(target) ?? { names: [], line, lazy: true, typeOnly: true };
+      const t = targets.get(target) ?? { names: [], line, lazy: true, typeOnly: true, inferred: true };
       t.lazy = t.lazy && Boolean(cur.lazy || cur.type_only);
       t.typeOnly = t.typeOnly && Boolean(cur.type_only);
+      t.inferred = t.inferred && Boolean(inferred);
       if (name) t.names.push(name);
       targets.set(target, t);
     };
@@ -153,41 +163,40 @@ export function link(ctx) {
         let resolvedLen = 0;
         let resolved = null;
         for (let len = parts.length; len > 0; len--) {
-          resolved = resolveDotted(parts.slice(0, len).join('.'), path);
+          resolved = resolveAbsolute(a.language, parts.slice(0, len).join('.'), path);
           if (resolved) { resolvedLen = len; break; }
         }
         if (!resolved) { if (!tops.has(parts[0])) external(parts[0], imp.line); continue; }
-        internal(resolved, imp.line);
-        if (imp.as && resolvedLen === parts.length) bind.set(imp.as, { path: resolved, symbol: null });
+        internal(resolved.path, imp.line, null, resolved.inferred);
+        if (imp.as && resolvedLen === parts.length) bind.set(imp.as, { path: resolved.path, symbol: null });
         else if (!imp.as) {
           for (let len = 1; len <= resolvedLen; len++) {
-            const p = resolveDotted(parts.slice(0, len).join('.'), path);
-            if (p) bind.set(parts.slice(0, len).join('.'), { path: p, symbol: null });
+            const p = resolveAbsolute(a.language, parts.slice(0, len).join('.'), path);
+            if (p) bind.set(parts.slice(0, len).join('.'), { path: p.path, symbol: null });
           }
         }
         continue;
       }
       // from <absolute> import names
-      const target = resolveDotted(imp.module, path);
+      const target = resolveAbsolute(a.language, imp.module, path);
       let any = Boolean(target);
       for (const n of imp.names) {
-        if (n.name === '*') { if (target) internal(target, imp.line, '*'); continue; }
+        if (n.name === '*') { if (target) internal(target.path, imp.line, '*', target.inferred); continue; }
         const local = n.as ?? n.name;
-        const sub = resolveDotted(`${imp.module}.${n.name}`, path);
-        if (sub) { bind.set(local, { path: sub, symbol: null }); internal(sub, imp.line, n.name); any = true; } else if (target) {
-          bind.set(local, { path: target, symbol: n.name });
-          internal(target, imp.line, n.name);
+        const sub = resolveAbsolute(a.language, `${imp.module}.${n.name}`, path);
+        if (sub) { bind.set(local, { path: sub.path, symbol: null }); internal(sub.path, imp.line, n.name, sub.inferred); any = true; } else if (target) {
+          bind.set(local, { path: target.path, symbol: n.name });
+          internal(target.path, imp.line, n.name, target.inferred);
         }
       }
       if (!any && !tops.has(parts[0])) external(parts[0], imp.line);
-      else if (target && !imp.names.length) internal(target, imp.line);
+      else if (target && !imp.names.length) internal(target.path, imp.line, null, target.inferred);
     }
 
     importedModules.set(path, new Set(targets.keys()));
     const moduleId = `module:${path}`;
     // A type held only through a member nothing reads (members.mjs): every name imported from a
     // module must be such a type, and nothing may import it for its effects or by `*`.
-    const a = mod.attrs;
     const sem = ctx.semantic?.get(path) ?? null;
     const found = new Map(); // target path -> what the file's members say
     if (a.refs && !sem) {
@@ -208,13 +217,14 @@ export function link(ctx) {
     const items = sorted.map(([target, t]) => ({
       to: target,
       line: t.line,
-      attrs: { names: [...new Set(t.names)].sort(), line: t.line, ...(t.lazy && { lazy: true }), ...(t.typeOnly && { type_only: true }), ...(found.has(target) && declaredEdge(path, found.get(target), a.public_owners ?? {}, reach, MEMBER_SYNTAX.python).attrs) },
+      attrs: { names: [...new Set(t.names)].sort(), line: t.line, ...(t.lazy && { lazy: true }), ...(t.typeOnly && { type_only: true }), ...(t.inferred && { inferred: true, via: 'flat-sibling' }), ...(found.has(target) && declaredEdge(path, found.get(target), a.public_owners ?? {}, reach, MEMBER_SYNTAX.python).attrs) },
+      inferred: t.inferred,
     }));
     for (const e of withSemantic(sem, items)) {
       const { spec, via, ...rest } = e.attrs;
       emit(edgeFact('IMPORTS', moduleId, `module:${e.to}`, via === 'type' ? { names: [spec].filter(Boolean), line: e.line, ...rest } : e.attrs, e.semantic
         ? prov({ source_type: 'lsp', source_ref: `${path}:${e.line}`, extractor: EXTRACTOR, confidence: 'high' })
-        : pvFor(path, e.line)));
+        : e.inferred ? inferredPv(path, e.line) : pvFor(path, e.line)));
     }
     dropMemberAttrs(a);
     for (const [id, e] of [...externals].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {

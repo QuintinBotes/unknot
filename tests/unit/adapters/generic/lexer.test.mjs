@@ -4,7 +4,7 @@ import { lex } from '../../../../adapters/language/generic/lexer.mjs';
 import adapter from '../../../../adapters/language/generic/index.mjs';
 import { rng } from './helpers.mjs';
 
-const LANGS = ['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'scala', 'swift', 'c', 'cpp', 'groovy'];
+const LANGS = ['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'scala', 'swift', 'dart', 'c', 'cpp', 'groovy'];
 
 const newlines = (s) => {
   const out = [];
@@ -112,7 +112,7 @@ test('unterminated constructs end at a sane place and never throw', () => {
 test('lexer, analysis and extraction survive 500 random inputs per language family', () => {
   const pieces = ['"', "'", '`', '//', '/*', '*/', '#', '<<<', '<<~', '<<-', 'r#"', 'R"x(', ')x"', '@"', '"""', '=begin', '=end', '\n', '\n', '{', '}', '(', ')', '[', ']',
     '\\', 'class ', 'def ', 'end', 'func ', 'fn ', 'fun ', 'function ', 'if ', 'else', 'for ', 'package ', 'import ', 'use ', 'namespace ', 'struct ', 'impl ', '#include <', ';', ' ', 'é', '😀', '\u0000'];
-  const exts = { go: 'a.go', java: 'A.java', kotlin: 'a.kt', csharp: 'A.cs', rust: 'a.rs', ruby: 'a.rb', php: 'a.php', scala: 'a.scala', swift: 'a.swift', c: 'a.c', cpp: 'a.cpp', groovy: 'a.cpp' };
+  const exts = { go: 'a.go', java: 'A.java', kotlin: 'a.kt', csharp: 'A.cs', rust: 'a.rs', ruby: 'a.rb', php: 'a.php', scala: 'a.scala', swift: 'a.swift', dart: 'a.dart', c: 'a.c', cpp: 'a.cpp', groovy: 'a.cpp' };
   for (const lang of LANGS) {
     const next = rng(0xC0FFEE + lang.length * 7919);
     for (let k = 0; k < 500; k++) {

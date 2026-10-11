@@ -51,3 +51,11 @@ Every field answers one of the spec §1.1 questions; leave none of them implicit
 `factors` feed the §12 priority: benefit (1–5) × evidence (0–1) × reversibility (0–1)
 ÷ blast (1–5) × cost (1–5) × uncertainty (1–5). `retain` must always be among the
 alternatives. Who must approve (Q9) is derived by the risk engine, not the detector.
+
+## Analysis coverage
+
+Not producing a finding is not a claim that a language is healthy. During `map`, each
+source language records whether local size, complexity, nesting and member-count analysis
+ran. `diagnose` prints an `Analysis not run` section for every language with a gap and
+includes the same per-language data in JSON. This is mapper status, not a finding: it does
+not affect ranking, suppression or approvals.

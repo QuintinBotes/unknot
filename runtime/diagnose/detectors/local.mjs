@@ -310,7 +310,11 @@ const longParameterList = define({
 // Class and module size
 // ---------------------------------------------------------------------------------------
 
-const methodCount = (graph, c) => c.attrs.methods ?? graph.children(c.id, 'method').length;
+// Adapters may state a lexical member count directly; older facts and semantic adapters can
+// still derive it from containment. Invalid counts never suppress a structural finding.
+const methodCount = (graph, c) => Number.isInteger(c.attrs?.methods) && c.attrs.methods >= 0
+  ? c.attrs.methods
+  : graph.children(c.id, 'method').length;
 
 const largeClass = define({
   name: 'large-class',
@@ -508,7 +512,7 @@ function calledNames(graph) {
 
 // Languages read by the generic lexical adapter resolve calls only within a file, so "no
 // callers" there is not evidence.
-const LEXICAL_LANGUAGES = new Set(['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'swift', 'scala', 'c', 'cpp']);
+const LEXICAL_LANGUAGES = new Set(['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'swift', 'dart', 'scala', 'c', 'cpp']);
 const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || LEXICAL_LANGUAGES.has(m?.attrs?.language);
 
 // Names that reach a function by convention rather than by a call the graph records:

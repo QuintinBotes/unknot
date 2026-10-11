@@ -16,13 +16,17 @@ import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 
-const VERSION = '0.1.8';
+const VERSION = '0.1.9';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
+// These metrics are structural, not semantic: the lexical pass runs them for every source
+// language it accepts. Keeping the declaration on the module lets diagnose distinguish an
+// analysis that ran but found no candidate from a language no adapter read at all.
+const LEXICAL_ANALYSES = Object.freeze(['size', 'complexity', 'nesting', 'member_count']);
 
 const EXT_LANG = {
   go: 'go', java: 'java', kt: 'kotlin', kts: 'kotlin', cs: 'csharp', rs: 'rust', rb: 'ruby', php: 'php', scala: 'scala',
-  swift: 'swift', c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
+  swift: 'swift', dart: 'dart', c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
 };
 
 const ECOSYSTEM_LANGS = {
@@ -136,6 +140,8 @@ function extract(file, text, ctx) {
   const sloc = codeLines.filter((l, i) => /\S/.test(l) && !testRange.has(i)).length;
   const testSloc = codeLines.filter((l, i) => /\S/.test(l) && testRange.has(i)).length;
   const typeNames = [...new Set(an.types.map((t) => t.name))].sort();
+  const methodCounts = new Map();
+  for (const f of an.funcs) if (f.owner) methodCounts.set(f.owner, (methodCounts.get(f.owner) ?? 0) + 1);
 
   const attrs = {
     language: lang,
@@ -149,6 +155,7 @@ function extract(file, text, ctx) {
     namespaces: [...new Set(an.namespaces)],
     types: typeNames,
     parse_quality: 'lexical',
+    analyses: [...LEXICAL_ANALYSES],
   };
   if (an.impls.length) attrs.impls = an.impls;
   // Link-only inputs for type resolution and unused members; link() removes them so they are never persisted.
@@ -170,7 +177,7 @@ function extract(file, text, ctx) {
       path,
       attrs: {
         language: lang, type_kind: t.typeKind, start_line: t.startLine, end_line: t.endLine, lines: t.endLine - t.startLine + 1,
-        exported: t.exported, extends: t.extends, implements: t.implements, bases: t.bases,
+        exported: t.exported, extends: t.extends, implements: t.implements, bases: t.bases, methods: methodCounts.get(t.name) ?? 0,
       },
     }, prov_(path, t.startLine)));
     body.push(edgeFact('CONTAINS', modId, id, {}, prov_(path, t.startLine)));
@@ -658,6 +665,7 @@ export default {
   capabilities: {
     files: [
       '**/*.go', '**/*.java', '**/*.kt', '**/*.kts', '**/*.cs', '**/*.rs', '**/*.rb', '**/*.php', '**/*.scala', '**/*.swift',
+      '**/*.dart',
       '**/*.c', '**/*.h', '**/*.cc', '**/*.cpp', '**/*.cxx', '**/*.hpp', '**/*.hh',
       '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle',
       '**/settings.gradle.kts', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift',

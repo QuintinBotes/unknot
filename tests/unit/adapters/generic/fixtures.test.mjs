@@ -1,24 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import adapter from '../../../../adapters/language/generic/index.mjs';
+import local from '../../../../runtime/diagnose/detectors/local.mjs';
+import { Graph } from '../../../../runtime/graph/graph.mjs';
 import { lineOf, loadFixture } from './helpers.mjs';
 
-const EXTRACTOR = 'generic@0.1.8';
+const EXTRACTOR = 'generic@0.1.9';
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'generic');
-  assert.equal(adapter.version, '0.1.8');
+  assert.equal(adapter.version, '0.1.9');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
-  for (const g of ['**/*.go', '**/*.kt', '**/*.kts', '**/*.hh', '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle.kts', '**/settings.gradle', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift', '**/CMakeLists.txt']) {
+  for (const g of ['**/*.go', '**/*.kt', '**/*.kts', '**/*.dart', '**/*.hh', '**/go.mod', '**/Cargo.toml', '**/pom.xml', '**/build.gradle.kts', '**/settings.gradle', '**/*.csproj', '**/*.sln', '**/Gemfile', '**/composer.json', '**/Package.swift', '**/CMakeLists.txt']) {
     assert.ok(adapter.capabilities.files.includes(g), g);
   }
   assert.equal(adapter.extract({ path: 'README.md' }, '# hi', {}).length, 0);
 });
 
 test('every fact is lexical, ast-sourced and honestly labelled', () => {
-  for (const name of ['go', 'java', 'dotnet', 'rust', 'rails', 'laravel', 'cpp']) {
+  for (const name of ['go', 'java', 'dotnet', 'rust', 'rails', 'laravel', 'cpp', 'dart']) {
     const fx = loadFixture(name);
     for (const f of fx.all) {
       assert.equal(f.provenance.extractor, EXTRACTOR);
@@ -32,6 +34,24 @@ test('every fact is lexical, ast-sourced and honestly labelled', () => {
       else assert.equal(f.provenance.source_type, 'ast');
     }
   }
+});
+
+test('Dart fixture: lexical size, nesting and member-count analysis flags only the oversized class', () => {
+  const fx = loadFixture('dart');
+  const oversized = fx.node('class:lib/oversized.dart#Oversized');
+  const compact = fx.node('class:lib/compact.dart#Compact');
+  assert.equal(fx.node('module:lib/oversized.dart').attrs.language, 'dart');
+  assert.deepEqual(fx.node('module:lib/oversized.dart').attrs.analyses, ['size', 'complexity', 'nesting', 'member_count']);
+  assert.equal(oversized.attrs.methods, 21);
+  assert.equal(compact.attrs.methods, 1);
+  const nested = fx.node('method:lib/oversized.dart#Oversized.nested');
+  assert.ok(nested.attrs.cyclomatic >= 6, `cyclomatic ${nested.attrs.cyclomatic}`);
+  assert.ok(nested.attrs.max_nesting >= 5, `nesting ${nested.attrs.max_nesting}`);
+
+  const detector = local.find((entry) => entry.id === 'local.large-class');
+  const findings = detector.detect({ graph: Graph.fromFacts(fx.all), options: {} });
+  assert.ok(findings.some((finding) => finding.key === oversized.id), 'the oversized fixture triggers a shared large-class finding');
+  assert.ok(!findings.some((finding) => finding.key === compact.id), 'the compact fixture does not trigger it');
 });
 
 test('Go: module, package, gin routes, SQL, shell-out, metrics', () => {

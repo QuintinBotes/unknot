@@ -18,7 +18,7 @@ const LANGUAGES = {
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
   '.ts': 'typescript', '.mts': 'typescript', '.cts': 'typescript', '.tsx': 'typescript',
   '.py': 'python', '.go': 'go', '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin', '.scala': 'scala',
-  '.cs': 'csharp', '.rs': 'rust', '.rb': 'ruby', '.php': 'php', '.swift': 'swift',
+  '.cs': 'csharp', '.rs': 'rust', '.rb': 'ruby', '.php': 'php', '.swift': 'swift', '.dart': 'dart',
   '.c': 'c', '.h': 'c', '.cc': 'cpp', '.cpp': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp', '.hh': 'cpp',
   '.vue': 'vue', '.svelte': 'svelte', '.sql': 'sql', '.tf': 'hcl', '.hcl': 'hcl', '.bicep': 'bicep',
   '.sh': 'shell', '.bash': 'shell', '.zsh': 'shell', '.ps1': 'powershell',
@@ -26,7 +26,7 @@ const LANGUAGES = {
   '.md': 'markdown', '.rst': 'rst', '.proto': 'protobuf', '.graphql': 'graphql', '.gql': 'graphql',
   '.prisma': 'prisma', '.dockerfile': 'dockerfile',
 };
-const CODE = new Set(['javascript', 'typescript', 'python', 'go', 'java', 'kotlin', 'scala', 'csharp', 'rust', 'ruby', 'php', 'swift', 'c', 'cpp', 'vue', 'svelte', 'shell', 'powershell']);
+const CODE = new Set(['javascript', 'typescript', 'python', 'go', 'java', 'kotlin', 'scala', 'csharp', 'rust', 'ruby', 'php', 'swift', 'dart', 'c', 'cpp', 'vue', 'svelte', 'shell', 'powershell']);
 const CONFIG = new Set(['yaml', 'json', 'toml', 'xml', 'ini', 'hcl', 'bicep', 'sql', 'prisma', 'protobuf', 'graphql', 'dockerfile']);
 const BINARY_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz', '.tgz', '.jar', '.war', '.class', '.so', '.dylib', '.dll', '.exe', '.wasm', '.woff', '.woff2', '.ttf', '.otf', '.mp4', '.mp3', '.mov', '.sqlite', '.db', '.bin', '.pyc', '.o', '.a']);
 const VENDORED = ['**/vendor/**', '**/third_party/**', '**/third-party/**', '**/node_modules/**', '**/bower_components/**', '.yarn/**', '**/Pods/**', '**/vendors/**', '**/_vendor/**', '**/wwwroot/lib/**', '**/tinymce/**', '**/tiny_mce/**', '**/ckeditor/**'];

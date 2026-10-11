@@ -16,6 +16,7 @@ import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { DETECTORS } from './detectors/index.mjs';
 import { applyObjective } from './objectives.mjs';
+import { readAnalysisCoverage } from './analysis-coverage.mjs';
 import { globalSignals, scopeSignals } from './signals.mjs';
 
 export const FINDING_SCHEMA_VERSION = '1.0';
@@ -189,6 +190,8 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const t0 = Date.now();
   const g = graph ?? Graph.fromStore(ctx.store);
   if (g.size.nodes === 0) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
+  const languages = readAnalysisCoverage(ctx.store.meta('mapped_analysis_coverage'));
+  const analysis = { languages, unavailable: languages.filter((entry) => entry.missing.length) };
   readDerived(ctx, 'scc', { graph: g }); // the stored facts detectors read through derivedFor
   const { detectors, errors } = await loadDetectors(config, only);
   const global = globalSignals(g, config);
@@ -270,8 +273,8 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   };
   appendEvent(ctx, { type: 'finding.upserted', run_id: run?.id, actor: 'runtime:diagnose', payload: { ...stats, errors: errors.length } });
   const named = applyObjective(ranked, objective, { all });
-  if (!named) return { findings: ranked, stats, errors };
-  return { findings: named.findings, stats, errors, objective: named.objective, hidden: named.hidden, hidden_kinds: named.hidden_kinds };
+  if (!named) return { findings: ranked, stats, errors, analysis };
+  return { findings: named.findings, stats, errors, analysis, objective: named.objective, hidden: named.hidden, hidden_kinds: named.hidden_kinds };
 }
 
 export function getFinding(ctx, id) {

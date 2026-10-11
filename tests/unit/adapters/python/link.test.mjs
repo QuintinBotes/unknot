@@ -5,6 +5,8 @@ import { test } from 'node:test';
 
 import adapter from '../../../../adapters/language/python/index.mjs';
 import { manifestFacts, parseRequirement, parseToml } from '../../../../adapters/language/python/manifests.mjs';
+import local from '../../../../runtime/diagnose/detectors/local.mjs';
+import { Graph } from '../../../../runtime/graph/graph.mjs';
 import {
   all, edges, extractFixture, find, hasPython, linkFacts, nodes, realExec, unsupportedExec,
 } from './helpers.mjs';
@@ -90,6 +92,24 @@ for (const mode of MODES) {
     ]);
     assert.ok(pairs(linked, 'IMPORTS').includes('module:shop/urls.py -> module:shop/views.py'));
     assert.ok(pairs(linked, 'IMPORTS').includes('module:shop/views.py -> module:shop/models.py'));
+  });
+
+  test(`[${mode.name}] a unique flat sibling import is inferred; an ambiguous one is not guessed`, { skip }, async () => {
+    const factsByFile = await extractFixture('flat_sibling', mode.exec);
+    const linked = linkFacts(factsByFile);
+    const edge = edges(linked, 'IMPORTS').find((fact) => fact.from === 'module:flows/helpers.py' && fact.to === 'module:flows/proc.py');
+    assert.ok(edge, 'from proc import process reaches the sibling module');
+    assert.equal(edge.attrs.via, 'flat-sibling');
+    assert.equal(edge.attrs.inferred, true);
+    assert.equal(edge.provenance.source_type, 'inference');
+    const dead = local.find((entry) => entry.id === 'local.dead-code').detect({
+      graph: Graph.fromFacts([...factsByFile.values()].flat().concat(linked)), options: {},
+    });
+    assert.ok(!dead.some((finding) => finding.scope.includes('flows/proc.py') && /imported by nothing/.test(finding.title)), 'the reached module is not reported unused');
+
+    const ambiguous = linkFacts(await extractFixture('flat_sibling_ambiguous', mode.exec));
+    assert.ok(!edges(ambiguous, 'IMPORTS').some((fact) => fact.from === 'module:flows/helpers.py' && fact.to.startsWith('module:flows/proc')), 'two sibling layouts do not become an arbitrary edge');
+    assert.ok(edges(ambiguous, 'IMPORTS').some((fact) => fact.from === 'module:flows/helpers.py' && fact.to === 'dependency:proc'), 'the unresolved import remains external instead of inventing a local target');
   });
 }
 
