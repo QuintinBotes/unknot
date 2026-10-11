@@ -4,8 +4,11 @@
 // Regexes run on `lx.plain` (comments gone, strings intact) and are filtered through
 // `lx.code` so a match whose first character sits inside a string literal is discarded.
 
-import { SYNTAX, clientPath, operations, parseArgs, typeBase } from '../http-ops.mjs';
+import { clientPath, operations, parseArgs, typeBase } from '../http-ops.mjs';
+import { language } from '../../../runtime/graph/languages.mjs';
 import { scanRouteGroups } from './route-groups.mjs';
+
+const genericFramework = (lang) => language(lang)?.genericFramework ?? {};
 
 /** Normalise a route to the repository convention: leading slash, `:id` params, no trailing slash. */
 export function normPath(p) {
@@ -60,9 +63,6 @@ function bindAnnotations(lx, an, anns) {
   }
   return anns;
 }
-
-const JAVA_ANN = /@(Entity|Table)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
-const CS_ATTR = /\[\s*(Table)\b(?:\s*\(((?:@?"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g;
 
 function annotated(lx, an, re) {
   return bindAnnotations(lx, an, codeMatches(lx, re).map((m) => ({ name: m[1], args: m[2], off: m.index, line: lx.lineOf(m.index), target: null })));
@@ -210,27 +210,11 @@ function securitySignals(lx, lang) {
   const out = [];
   const add = (kind, off) => out.push({ kind, line: lx.lineOf(off) });
   const scan = (re, kind) => codeMatches(lx, re).forEach((m) => add(kind, m.index));
-  switch (lang) {
-    case 'go': scan(/\bexec\.Command(?:Context)?\(\s*(?:[\w.]+\s*,\s*)?"(?:sh|bash|zsh|cmd(?:\.exe)?)"\s*,\s*"(?:-c|\/c)"/g, 'command_exec'); break;
-    case 'java':
-      scan(/\bRuntime\.getRuntime\(\)\s*\.exec\(/g, 'command_exec');
-      scan(/\bnew\s+ProcessBuilder\(\s*"(?:sh|bash|cmd)"/g, 'command_exec');
-      break;
-    case 'csharp': scan(/\bProcess\.Start\((?=[^;]*(?:\+|\$"|[Ss]tring\.Format))/g, 'command_exec'); break;
-    case 'ruby':
-      scan(/(?<![\w.:@$])(?:system|exec|spawn|popen3?)\b\s*[("'\w]/g, 'command_exec');
-      scan(/(?<![\w.:@$])(?:eval|instance_eval|class_eval)\b\s*[("'\w]/g, 'code_eval');
-      scan(/%x[({[]/g, 'command_exec');
-      for (const l of lx.literals) if (l.kind === 'backtick') add('command_exec', l.start);
-      break;
-    case 'php':
-      scan(/(?<![\w$>:])eval\s*\(/g, 'code_eval');
-      scan(/(?<![\w$>:])(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(/g, 'command_exec');
-      for (const l of lx.literals) if (l.kind === 'backtick') add('command_exec', l.start);
-      for (const m of lx.plain.matchAll(/\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^;]*\$_(?:GET|POST|REQUEST|COOKIE)/gi)) add('sql_injection_input', m.index);
-      break;
-    case 'rust': scan(/\bCommand::new\(\s*"(?:sh|bash|cmd(?:\.exe)?)"\s*\)/g, 'command_exec'); break;
-    default:
+  const security = genericFramework(lang).security ?? {};
+  for (const rule of security.patterns ?? []) scan(rule.pattern, rule.kind);
+  if (security.backtickCommand) for (const l of lx.literals) if (l.kind === 'backtick') add('command_exec', l.start);
+  if (security.sqlInjectionInput) {
+    for (const m of lx.plain.matchAll(/\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^;]*\$_(?:GET|POST|REQUEST|COOKIE)/gi)) add('sql_injection_input', m.index);
   }
   scan(SQL_CALL, 'sql_string_building');
   const seen = new Set();
@@ -257,8 +241,9 @@ function ormTables(lx, an, lang) {
   const add = (name, line, confidence, orm) => {
     if (name && !out.some((t) => t.name === name)) out.push({ name, line, confidence, orm });
   };
-  if (lang === 'java' || lang === 'kotlin') {
-    const anns = annotated(lx, an, JAVA_ANN);
+  const orm = genericFramework(lang).orm;
+  if (orm?.style === 'entity_annotation') {
+    const anns = annotated(lx, an, orm.pattern);
     for (const a of anns) {
       if (a.name !== 'Entity' || !a.target?.type) continue;
       const tbl = anns.find((b) => b.name === 'Table' && b.target?.type === a.target.type);
@@ -266,8 +251,8 @@ function ormTables(lx, an, lang) {
       if (explicit) add(explicit, a.line, 'medium', 'jpa');
       else add(snake(a.target.type.name), a.line, 'low', 'jpa');
     }
-  } else if (lang === 'csharp') {
-    const anns = annotated(lx, an, CS_ATTR);
+  } else if (orm?.style === 'table_attribute') {
+    const anns = annotated(lx, an, orm.pattern);
     const explicit = new Map();
     for (const a of anns) {
       if (a.name !== 'Table' || !a.target?.type) continue;
@@ -291,7 +276,7 @@ function ormTables(lx, an, lang) {
       if (explicit.has(cls)) continue;
       add(snake(m[2]), lx.lineOf(m.index), 'low', 'efcore');
     }
-  } else if (lang === 'ruby') {
+  } else if (orm?.style === 'active_record') {
     const explicit = [...codeMatches(lx, /\bself\.table_name\s*=\s*(['"])([^'"]+)\1/g)];
     for (const t of an.types) {
       const head = lx.code.slice(t.start, t.start + 200);
@@ -300,7 +285,7 @@ function ormTables(lx, an, lang) {
       if (own) add(own[2], lx.lineOf(own.index), 'medium', 'activerecord');
       else add(pluralize(snake(t.name.split('::').pop())), t.startLine ?? lx.lineOf(t.start), 'low', 'activerecord');
     }
-  } else if (lang === 'php') {
+  } else if (orm?.style === 'model_property') {
     const explicit = [...codeMatches(lx, /\bprotected\s+\$table\s*=\s*(['"])([^'"]+)\1/g)];
     for (const t of an.types) {
       if (!t.extends.includes('Model')) continue;
@@ -314,10 +299,8 @@ function ormTables(lx, an, lang) {
 
 // ---- attribute and annotation operations (one rule, per-language table in ../http-ops.mjs) ----
 
-const MARKER_LANGS = new Set(['csharp', 'java', 'kotlin']);
 const TYPE_DECL = /^\s*(?:[a-z]+\s+)*?(class|interface|struct|record|object)\s+([A-Za-z_]\w*)/;
 const MEMBER_DECL = /^[^;{(]*?([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/d;
-const KOTLIN_FUN = /\bfun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)\s*\(/d;
 
 /** Every attribute or annotation in the file, in order: `[Name(args)]` or `@Name(args)`, args as raw text. */
 function markersOf(lx, an, lang) {
@@ -333,7 +316,7 @@ function markersOf(lx, an, lang) {
     out.push({ name, args: parseArgs(args), off, end, line: lx.lineOf(off) });
     return end;
   };
-  if (lang === 'csharp') {
+  if (genericFramework(lang).markers?.style === 'bracket') {
     for (const m of codeMatches(lx, /\[\s*([A-Za-z_][\w.]*)/g)) {
       let before = m.index - 1;
       while (before >= 0 && /\s/.test(lx.plain[before])) before--;
@@ -377,7 +360,7 @@ function declarationAfter(lx, from, lang) {
   const rest = lx.plain.slice(from, from + 700);
   const t = TYPE_DECL.exec(rest);
   if (t) return { type: t[2] };
-  const m = MEMBER_DECL.exec(rest) ?? (lang === 'kotlin' ? KOTLIN_FUN.exec(rest) : null);
+  const m = MEMBER_DECL.exec(rest) ?? genericFramework(lang).markers?.functionPattern?.exec(rest);
   if (!m) return null;
   const nameOff = from + m.indices[1][0];
   return { name: m[1], nameOff, open: lx.plain.indexOf('(', nameOff), head: rest.slice(0, m.indices[1][0]) };
@@ -390,8 +373,9 @@ function declarationAfter(lx, from, lang) {
  * anywhere else it is an endpoint of the handler that follows.
  */
 function markedOperations(lx, an, lang, endpoints, clients) {
-  if (!MARKER_LANGS.has(lang)) return;
-  const kind = SYNTAX[lang].kind;
+  const markerSyntax = genericFramework(lang).markers;
+  if (!markerSyntax) return;
+  const kind = markerSyntax.kind;
   const all = markersOf(lx, an, lang);
   const skip = nested(lx, all.map((m) => m.off));
   const runs = [];
@@ -443,13 +427,14 @@ function markedOperations(lx, an, lang, endpoints, clients) {
 export function frameworkInfo(lx, an, lang, path) {
   const endpoints = [];
   const clients = [];
+  const framework = genericFramework(lang);
   markedOperations(lx, an, lang, endpoints, clients);
-  const rg = lang === 'csharp' || lang === 'go' ? scanRouteGroups(lx, an, lang) : null;
-  if (lang === 'csharp') minimalApis(lx, endpoints, rg);
-  else if (lang === 'go') goRoutes(lx, an, endpoints, rg);
-  else if (lang === 'rust') rustRoutes(lx, an, endpoints);
-  else if (lang === 'php') laravelRoutes(lx, endpoints);
-  else if (lang === 'ruby') {
+  const rg = framework.routeGroups ? scanRouteGroups(lx, an, lang) : null;
+  if (framework.routes === 'minimal_api') minimalApis(lx, endpoints, rg);
+  else if (framework.routes === 'router') goRoutes(lx, an, endpoints, rg);
+  else if (framework.routes === 'attributes') rustRoutes(lx, an, endpoints);
+  else if (framework.routes === 'laravel') laravelRoutes(lx, endpoints);
+  else if (framework.routes === 'end_routes') {
     if (/(?:^|\/)config\/routes\.rb$/.test(path)) railsRoutes(lx, endpoints);
     else sinatraRoutes(lx, endpoints);
   }

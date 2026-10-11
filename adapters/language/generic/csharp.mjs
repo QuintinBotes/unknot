@@ -9,8 +9,9 @@
 
 import { declaredEdge, memberReach, memberRefs, memberTypes } from './members.mjs';
 import { MEMBER_SYNTAX } from './member-syntax.mjs';
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 
-const SYNTAX = MEMBER_SYNTAX.csharp;
+const SYNTAX = MEMBER_SYNTAX[LANGUAGE_IDS.CSHARP];
 
 /** Names a C# file mentions, minus the types it declares, and the member facts of members.mjs. */
 export function csharpRefs(lx, an) {
@@ -34,7 +35,7 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
   };
   for (const path of sortedMods) {
     const a = mods.get(path).attrs;
-    if (a.language !== 'csharp') continue;
+    if (language(a.language)?.genericSyntax?.memberLinker !== 'namespace') continue;
     for (const ns of a.namespaces ?? []) {
       const parts = ns.split('.');
       for (let k = 1; k <= parts.length; k++) known.add(parts.slice(0, k).join('.'));
@@ -46,7 +47,7 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
     for (const imp of a.imports ?? []) if (imp.global && imp.kind === 'using') globals.add(imp.spec);
   }
 
-  const csFiles = sortedMods.filter((p) => mods.get(p).attrs.language === 'csharp').map((p) => ({ path: p, attrs: mods.get(p).attrs }));
+  const csFiles = sortedMods.filter((p) => language(mods.get(p).attrs.language)?.genericSyntax?.memberLinker === 'namespace').map((p) => ({ path: p, attrs: mods.get(p).attrs }));
   const reach = memberReach(csFiles, new Set(byName.keys()), () => true);
 
   return (path) => {

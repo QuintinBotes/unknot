@@ -10,9 +10,10 @@
 // calls that name the function.
 
 import { createGroups, paramNames } from '../http-ops.mjs';
+import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 
 const CALL = /(?<![\w$])([A-Za-z_]\w*)\s*\(/g;
-const KEYWORD = new Set(['if', 'for', 'foreach', 'while', 'switch', 'catch', 'using', 'lock', 'return', 'func', 'new', 'typeof', 'nameof', 'sizeof', 'default', 'await', 'fixed', 'when', 'select', 'go', 'defer', 'make', 'append', 'len', 'cap']);
+const KEYWORD = new Set(['if', 'for', 'foreach', 'while', 'switch', 'catch', 'using', 'lock', 'return', 'func', 'new', 'typeof', 'nameof', 'sizeof', 'default', 'await', 'fixed', 'when', 'select', 'defer', 'append', 'len', 'cap', ...(language(LANGUAGE_IDS.GO)?.genericSyntax?.routeKeywords ?? [])]);
 // A registration or a middleware call is not a function that is handed a group to register on.
 const REGISTRATION = /^(?:Map(?:Get|Post|Put|Delete|Patch|Methods)|GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Get|Post|Put|Delete|Patch|Head|Options|Any|Handle|HandleFunc|Use|With)$/;
 const STRING = /^@?"((?:[^"\\\n]|\\.)*)"$|^`([^`]*)`$/;
@@ -49,7 +50,7 @@ const literal = (arg) => {
 /**
  * @param {object} lx lexed file
  * @param {object} an structure analysis (funcs, pm)
- * @param {string} lang `csharp` or `go`
+ * @param {string} lang one of the lexical route syntaxes
  */
 export function scanRouteGroups(lx, an, lang) {
   const gs = createGroups(lang);

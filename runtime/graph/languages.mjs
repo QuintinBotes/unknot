@@ -57,6 +57,8 @@ const ids = LANGUAGE_IDS;
 const row = (value) => {
   const extensions = [...new Set((value.extensions ?? []).map((extension) => String(extension).toLowerCase()))];
   const declarations = value.declarations ?? {};
+  const genericSyntax = value.genericSyntax ?? {};
+  const genericFramework = value.genericFramework ?? {};
   return Object.freeze({
     code: false,
     adapter: null,
@@ -87,6 +89,8 @@ const row = (value) => {
       candidates: Object.freeze([...(value.flatSibling.candidates ?? [])]),
     }) : null,
     importPatterns: Object.freeze((value.importPatterns ?? []).map((pattern) => Object.freeze({ ...pattern }))),
+    genericSyntax: Object.freeze({ ...genericSyntax }),
+    genericFramework: Object.freeze({ ...genericFramework }),
     ecosystems: Object.freeze([...(value.ecosystems ?? [])]),
     frontendExtensions: Object.freeze([...(value.frontendExtensions ?? [])]),
     affinityTerms: Object.freeze([...(value.affinityTerms ?? [])]),
@@ -243,6 +247,28 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['go'],
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['go'],
+    genericSyntax: {
+      packagePattern: /^[ \t]*package\s+(\w+)/m,
+      importStyle: 'quoted_block',
+      typeStyle: 'type_blocks',
+      exported: 'capitalized',
+      functionReceiverGroup: 2,
+      resolver: 'module_paths',
+      directoryIndex: true,
+      sameDirectoryMembers: true,
+      callKeywords: ['go'],
+      memberReserved: ['go'],
+      routeKeywords: ['go', 'make'],
+      parameterNamePosition: 'first',
+      metrics: { noTernary: true },
+    },
+    genericFramework: {
+      routes: 'router',
+      routeGroups: true,
+      security: {
+        patterns: [{ pattern: /\bexec\.Command(?:Context)?\(\s*(?:[\w.]+\s*,\s*)?"(?:sh|bash|zsh|cmd(?:\.exe)?)"\s*,\s*"(?:-c|\/c)"/g, kind: 'command_exec' }],
+      },
+    },
   },
   {
     ...generic,
@@ -257,6 +283,23 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['maven', 'gradle'],
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['java'],
+    genericSyntax: {
+      packagePattern: /^[ \t]*package\s+([\w.]+)\s*;/m,
+      importStyle: 'dotted_static',
+      exported: 'public',
+      resolver: 'qualified_type',
+      sourceConvention: /(?:^|\/)src\/(?:main|test)\/java\/(.+)\.java$/,
+    },
+    genericFramework: {
+      markers: { kind: 'annotation', style: 'at' },
+      orm: { style: 'entity_annotation', pattern: /@(Entity|Table)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g },
+      security: {
+        patterns: [
+          { pattern: /\bRuntime\.getRuntime\(\)\s*\.exec\(/g, kind: 'command_exec' },
+          { pattern: /\bnew\s+ProcessBuilder\(\s*"(?:sh|bash|cmd)"/g, kind: 'command_exec' },
+        ],
+      },
+    },
   },
   {
     ...generic,
@@ -272,6 +315,18 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['maven', 'gradle'],
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['kt'],
+    genericSyntax: {
+      packagePattern: /^[ \t]*package\s+([\w.]+)/m,
+      importStyle: 'dotted',
+      exported: 'not_private_internal',
+      resolver: 'qualified_type',
+      sourceConvention: /(?:^|\/)src\/(?:main|test)\/kotlin\/(.+)\.kt$/,
+      functionExpressionBodies: true,
+    },
+    genericFramework: {
+      markers: { kind: 'annotation', style: 'at', functionPattern: /\bfun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)\s*\(/d },
+      orm: { style: 'entity_annotation', pattern: /@(Entity|Table)\b(?:\s*\(((?:"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g },
+    },
   },
   {
     ...generic,
@@ -282,10 +337,19 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       typePatterns: [/(?<![.\w])(class|trait|object)\s+([A-Za-z_]\w*)/g],
       functionPatterns: [/(?<![\w.])def\s+([A-Za-z_]\w*|[+\-*/%<>=!&|^~:]+)/gd],
     },
-    inheritance: 'scala',
+    inheritance: 'with_bases',
     testPathPatterns: [/(?:^|\/)src\/test\//, /(?:Tests?|IT|Spec|Suite)\.scala$/],
     ecosystems: ['maven', 'gradle'],
     qualityFamily: QUALITY_FAMILIES.C,
+    genericSyntax: {
+      packagePattern: /^[ \t]*package\s+([\w.]+)/m,
+      importStyle: 'grouped_dot',
+      exported: 'not_private',
+      resolver: 'qualified_type',
+      sourceConvention: /(?:^|\/)src\/(?:main|test)\/scala\/(.+)\.scala$/,
+      functionSkipBracketGenerics: true,
+      functionExpressionBodies: true,
+    },
   },
   {
     ...generic,
@@ -301,6 +365,23 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['dotnet'],
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['cs'],
+    genericSyntax: {
+      namespacePattern: /\bnamespace\s+([\w.]+)\s*[;{]/g,
+      importStyle: 'using_directives',
+      annotationStyle: 'bracket',
+      exported: 'public',
+      resolver: 'namespace',
+      memberLinker: 'namespace',
+    },
+    genericFramework: {
+      markers: { kind: 'attribute', style: 'bracket' },
+      orm: { style: 'table_attribute', pattern: /\[\s*(Table)\b(?:\s*\(((?:@?"(?:[^"\\\n]|\\.)*"|[^)"])*)\))?/g },
+      routes: 'minimal_api',
+      routeGroups: true,
+      security: {
+        patterns: [{ pattern: /\bProcess\.Start\((?=[^;]*(?:\+|\$"|[Ss]tring\.Format))/g, kind: 'command_exec' }],
+      },
+    },
   },
   {
     ...generic,
@@ -311,11 +392,26 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       typePatterns: [/(?<![.\w])(struct|enum|trait)\s+([A-Za-z_]\w*)/g],
       functionPatterns: [/(?<![\w.])fn\s+([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/gd],
     },
-    inheritance: 'rust',
+    inheritance: 'trait_bounds',
     testPathPatterns: [/(?:^|\/)tests\//],
     ecosystems: ['cargo'],
     qualityFamily: QUALITY_FAMILIES.RUST,
     affinityTerms: ['rs'],
+    genericSyntax: {
+      importStyle: 'module_tree',
+      dropSelfParam: true,
+      implBlocks: true,
+      testBlocks: true,
+      resolver: 'crate',
+      exported: 'pub',
+      metrics: { noTernary: true, matchArrows: true },
+    },
+    genericFramework: {
+      routes: 'attributes',
+      security: {
+        patterns: [{ pattern: /\bCommand::new\(\s*"(?:sh|bash|cmd(?:\.exe)?)"\s*\)/g, kind: 'command_exec' }],
+      },
+    },
   },
   {
     ...generic,
@@ -327,6 +423,24 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['bundler'],
     qualityFamily: QUALITY_FAMILIES.RUBY,
     affinityTerms: ['rb'],
+    genericSyntax: {
+      endDelimited: true,
+      importStyle: 'requires',
+      resolver: 'require',
+      metrics: { reducedDecisions: true, wordLogic: true },
+    },
+    genericFramework: {
+      orm: { style: 'active_record' },
+      routes: 'end_routes',
+      security: {
+        patterns: [
+          { pattern: /(?<![\w.:@$])(?:system|exec|spawn|popen3?)\b\s*[("'\w]/g, kind: 'command_exec' },
+          { pattern: /(?<![\w.:@$])(?:eval|instance_eval|class_eval)\b\s*[("'\w]/g, kind: 'code_eval' },
+          { pattern: /%x[({[]/g, kind: 'command_exec' },
+        ],
+        backtickCommand: true,
+      },
+    },
   },
   {
     ...generic,
@@ -342,6 +456,26 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['composer'],
     qualityFamily: QUALITY_FAMILIES.PHP,
     affinityTerms: ['php'],
+    genericSyntax: {
+      namespacePattern: /^[ \t]*namespace\s+([\w\\]+)\s*[;{]/gm,
+      importStyle: 'php_uses',
+      exported: 'not_private',
+      resolver: 'psr4',
+      namespaceIndex: true,
+      metrics: { wordLogic: true },
+    },
+    genericFramework: {
+      orm: { style: 'model_property' },
+      routes: 'laravel',
+      security: {
+        patterns: [
+          { pattern: /(?<![\w$>:])eval\s*\(/g, kind: 'code_eval' },
+          { pattern: /(?<![\w$>:])(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(/g, kind: 'command_exec' },
+        ],
+        backtickCommand: true,
+        sqlInjectionInput: true,
+      },
+    },
   },
   {
     ...generic,
@@ -356,6 +490,12 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/Tests?\.swift$/, /(?:^|\/)Tests\//],
     ecosystems: ['swiftpm'],
     qualityFamily: QUALITY_FAMILIES.C,
+    genericSyntax: {
+      importStyle: 'plain_dotted',
+      exported: 'public_or_open',
+      extensionBlocks: true,
+      resolver: 'targets',
+    },
   },
   {
     ...generic,
@@ -378,6 +518,14 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     qualityFamily: QUALITY_FAMILIES.C,
     testPathPatterns: [/(?:_tests?|Tests?)\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)test_[^/]*\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)tests?\//],
     ecosystems: ['cmake'],
+    genericSyntax: {
+      importStyle: 'includes',
+      typeStyle: 'strict_brace',
+      typedefTypes: true,
+      exported: 'not_static',
+      resolver: 'includes',
+      systemIncludePattern: /^(?:std\w+|string|math|time|errno|assert|ctype|limits|signal|stdarg|stddef|unistd|fcntl)\.h$/,
+    },
   },
   {
     ...generic,
@@ -390,6 +538,16 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     ecosystems: ['cmake'],
     testPathPatterns: [/(?:_tests?|Tests?)\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)test_[^/]*\.(?:c|cc|cpp|cxx|hxx)$/, /(?:^|\/)tests?\//],
     qualityFamily: QUALITY_FAMILIES.C,
+    genericSyntax: {
+      namespacePattern: /\bnamespace\s+([\w:]+)\s*\{/g,
+      importStyle: 'includes',
+      typeStyle: 'strict_brace',
+      allowTypeSuffix: true,
+      typedefTypes: true,
+      exported: 'not_static',
+      resolver: 'includes',
+      systemIncludePattern: /^(?:std\w+|string|math|time|errno|assert|ctype|limits|signal|stdarg|stddef|unistd|fcntl)\.h$/,
+    },
   },
   { ...code, id: ids.VUE, extensions: ['.vue'], adapter: 'javascript', frontend: true, frontendExtensions: ['.vue'] },
   { ...code, id: ids.SVELTE, extensions: ['.svelte'], globs: ['**/+page.svelte'], adapter: 'javascript', frontend: true, frontendExtensions: ['.svelte'] },
