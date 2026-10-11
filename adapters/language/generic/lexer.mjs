@@ -15,6 +15,7 @@ const OPTS = {
   php: { php: true, sq: true, multi: true, hash: true, backtick: true },
   scala: { char: true, tq: true, nested: true },
   swift: { tq: true, nested: true },
+  dart: { sq: true, tq: true },
   c: { char: true },
   cpp: { char: true, cppRaw: true },
   groovy: { sq: true, tq: true },

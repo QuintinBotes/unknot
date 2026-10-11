@@ -23,6 +23,7 @@ import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
 import { appendEvent } from '../state/ledger.mjs';
+import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
 import { writeDerived } from './derived.mjs';
@@ -313,6 +314,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const ps = parseScope(givenScope);
   if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
+  const analysis = analysisCoverage(cen.files, perFile);
   const totalSource = coverage.reduce((n, c) => n + c.files, 0);
   coverage.forEach((c, i) => {
     if (c.qualities?.semantic && c.qualities.lexical) notes.push(`language coverage: ${c.language} ${c.qualities.semantic} of ${c.files} source files are resolved by the SCIP index (semantic), ${c.qualities.lexical} are read lexically`);
@@ -333,6 +335,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const projection = project(ctx, all, { commit, observedAt });
   lap('projection_ms');
   ctx.store.meta('mapped_scopes', JSON.stringify(scopes.record));
+  ctx.store.meta('mapped_analysis_coverage', JSON.stringify(analysis));
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   // Derived facts are a function of the graph: an unchanged graph keeps the stored ones.
   const derivedDone = ctx.store.get("SELECT 1 AS ok FROM derived WHERE kind = '_done' AND generation = ?", projection.generation);
@@ -349,6 +352,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     adapters: stats.adapters,
     unavailable,
     coverage,
+    analysis,
     ...(checkout && { checkout }),
     ...(stats.scip && { scip: stats.scip }),
     ...(notes.length && { notices: [...new Set(notes)] }),

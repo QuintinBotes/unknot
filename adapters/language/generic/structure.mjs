@@ -167,10 +167,13 @@ function expandGroups(str, sep) {
   return out;
 }
 
+const EXTENDS_IMPLEMENTS_BASES = new Set(['java', 'php', 'dart']);
+const COLON_BASES = new Set(['kotlin', 'csharp', 'swift', 'cpp']);
+
 function parseBases(lang, typeKw, hdr) {
   const out = { extends: [], implements: [], bases: [] };
   const h = hdr.replace(/\bwhere\b[\s\S]*$/, '');
-  if (lang === 'java' || lang === 'php') {
+  if (EXTENDS_IMPLEMENTS_BASES.has(lang)) {
     const flat = stripGroups(h);
     const ext = /\bextends\s+([\s\S]*?)(?=\bimplements\b|\bpermits\b|$)/.exec(flat);
     const imp = /\bimplements\s+([\s\S]*?)(?=\bpermits\b|\bextends\b|$)/.exec(flat);
@@ -188,7 +191,7 @@ function parseBases(lang, typeKw, hdr) {
       const m = /^[^:]*:\s*([\s\S]*)$/.exec(stripAngles(h));
       if (m) out.extends = nameList(m[1], '+');
     }
-  } else if (lang === 'kotlin' || lang === 'csharp' || lang === 'swift' || lang === 'cpp') {
+  } else if (COLON_BASES.has(lang)) {
     if (typeKw === 'enum') return out;
     const flat = stripAngles(stripGroups(h));
     const m = /(?<!:):(?!:)([\s\S]*)$/.exec(flat);
@@ -207,6 +210,7 @@ const TYPE_RES = {
   kotlin: [/(?<![.\w:])(class|interface|object)\s+([A-Za-z_]\w*)/g],
   scala: [/(?<![.\w])(class|trait|object)\s+([A-Za-z_]\w*)/g],
   swift: [/(?<![.\w])(class|struct|enum|protocol|actor)\s+([A-Za-z_]\w*)/g],
+  dart: [/(?<![.\w@])(class|mixin|enum|extension)\s+([A-Za-z_]\w*)/g],
   php: [/(?<![\w:>$\\])(class|interface|trait|enum)\s+([A-Za-z_]\w*)/g],
   rust: [/(?<![.\w])(struct|enum|trait)\s+([A-Za-z_]\w*)/g],
   c: [/(?<![.\w])(struct|enum|union)\s+([A-Za-z_]\w*)/g],
@@ -224,6 +228,10 @@ const KW_FN = {
     /(?<![\w.])func\s+([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*\(/gd,
   ],
 };
+
+// Languages whose declarations use a brace-delimited body can share headerFunc: it works
+// backwards from that body rather than relying on a language-specific return-type grammar.
+const BRACE_FUNCTION_LANGUAGES = new Set(['java', 'csharp', 'dart', 'c', 'cpp']);
 
 const CONTROL = new Set(['if', 'for', 'foreach', 'while', 'switch', 'catch', 'using', 'lock', 'synchronized', 'fixed', 'when',
   'try', 'return', 'sizeof', 'delegate', 'else', 'do', 'unsafe', 'checked', 'unchecked', 'typeof', 'nameof', 'default', 'await',
@@ -712,7 +720,7 @@ export function analyze(lx, lang) {
         body,
       });
     };
-    if (lang === 'java' || lang === 'csharp' || lang === 'c' || lang === 'cpp') {
+    if (BRACE_FUNCTION_LANGUAGES.has(lang)) {
       let skipUntil = -1;
       let b = code.indexOf('{');
       while (b >= 0) {
