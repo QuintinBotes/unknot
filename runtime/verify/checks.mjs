@@ -77,7 +77,7 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
   };
   const b = await extractAll(adapters, beforeFiles, showBase);
   const a = await extractAll(adapters, afterFiles, readWt);
-  const build = (overrides, removed) => {
+  const build = async (overrides, removed) => {
     const byFile = new Map(cached);
     for (const p of removed) byFile.delete(p);
     for (const c of touched) byFile.delete(c.path);
@@ -86,7 +86,8 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
     for (const ad of loaded) {
       if (!ad.link) continue;
       try {
-        pushAll(facts, (ad.link({ files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {} }) ?? []));
+        const linked = await ad.link({ files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {} });
+        pushAll(facts, linked ?? []);
       } catch (err) {
         notes.push(`${ad.id} link failed during verification: ${err.message}`);
       }
@@ -94,8 +95,8 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
     return Graph.fromFacts(facts);
   };
   return {
-    before: build(b.byFile, touched.filter((c) => c.status === 'A').map((c) => c.path)),
-    after: build(a.byFile, touched.filter((c) => c.status === 'D').map((c) => c.path)),
+    before: await build(b.byFile, touched.filter((c) => c.status === 'A').map((c) => c.path)),
+    after: await build(a.byFile, touched.filter((c) => c.status === 'D').map((c) => c.path)),
     parseErrors: a.errors,
     notes,
   };

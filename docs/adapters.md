@@ -23,7 +23,7 @@ The tables below give the usual level. The per-fact `confidence` is authoritativ
 | `javascript` | JavaScript and TypeScript (`.js .mjs .cjs .jsx .ts .mts .cts .tsx`), `package.json`, `tsconfig*.json`, `jsconfig.json`, SvelteKit `+page.svelte` | A tokenizer and structural pass in this repository (not the TypeScript compiler). Imports, exports, functions, classes, per-function size and complexity, import resolution (relative paths, tsconfig and jsconfig settings, package `exports`). | Declarations and imports high; framework facts medium |
 | `python` | Python, `pyproject.toml`, requirements | `python3 -I -S` calling `ast.parse` on text piped in, run through the broker. Without `python3`, a lexical reader in JavaScript. | AST high; lexical fallback low |
 | `generic` | Go, Java, Kotlin, C#, Rust, Ruby, PHP, Scala, Swift, C, C++ and their build manifests (`go.mod`, `Cargo.toml`, Maven, Gradle, .NET, Bundler, Composer, SwiftPM, CMake) | Lexical: strips comments and strings, matches braces. No real parser. | Declarations and imports medium; per-function metrics and ORM guesses low |
-| `scip` | Any language, from a [SCIP](https://github.com/sourcegraph/scip) index you produced with an indexer (`index.scip`): C# through scip-dotnet (Roslyn), TypeScript, Java, Python through their indexers. Unknot reads the file; it never runs the indexer, a build or a package restore. | Observed, source type `lsp`, high: the compiler's own resolution (see [Semantic facts from a SCIP index](#semantic-facts-from-a-scip-index)) |
+| `scip` | Any language, from a [SCIP](https://github.com/sourcegraph/scip) index you supplied (`index.scip`) or, only when opted in, from a brokered local indexer cache. | Observed, source type `lsp`, high: the compiler's own resolution (see [Semantic facts from a SCIP index](#semantic-facts-from-a-scip-index)) |
 | `literals` | Identifier-like string constants in source and config files of any language: metric names, configuration keys (`Section:Key`, nested JSON and YAML keys), routes, roles, queue names | One lexical scan. Nodes `constant:<value>` with `subkind` (`metric`, `config_key`, `route`, `role`, `queue`, `other`) inferred from the line and labelled inferred; `DEFINES` edges from the module holding a constant or key, `REFERENCES` edges from modules that use the string or its constant's name. No spaces, 3 to 120 characters, a separator or route shape; prose, log messages, URLs and format strings are skipped. Capped by `adapters.literals.max_per_file` (200) and `max_per_repo` (20000), with a notice; `map` and `status` report the count | Definitions and literal uses medium; name-based uses and sub-kinds low |
 | `quality` | Duplicated code, in any language | Token fingerprints with identifiers and literals collapsed, winnowed, compared across files | Medium (near-misses are included) |
 
@@ -45,6 +45,25 @@ You produce the index; these are the indexers' own commands, not Unknot's (`unkn
 - C#: `dotnet tool install --global scip-dotnet`, then `scip-dotnet index` in the solution folder. scip-dotnet builds the projects through Roslyn, so it needs the .NET SDK and restored packages.
 - TypeScript and JavaScript: `npm install -g @sourcegraph/scip-typescript`, then `scip-typescript index` in the project folder (`--yarn-workspaces`, `--pnpm-workspaces` or `--infer-tsconfig` as the project needs).
 - Java and Kotlin (scip-java) and Python (scip-python): see each indexer's README.
+
+### Opt-in brokered indexers
+
+Set `adapters.scip.run: true` to let Unknot run a maintained SCIP indexer when its project marker is present and its executable is on `PATH`. It is off by default. The command shape, language marker, output path and safety classification come from one built-in registry; it covers C#, TypeScript/JavaScript, Java/Kotlin/Scala, Python, Go, Rust, Ruby, C/C++, Dart and PHP.
+
+```yaml
+adapters:
+  scip:
+    run: true                 # default: false
+    languages: [typescript]   # optional: restrict the registry rows
+    timeout_ms: 300000        # per indexer; clamped to 1,000–1,800,000 ms
+    memory_mb: 2048           # per indexer; clamped to 128–16,384 MiB
+```
+
+Each successful run writes only `.unknot/state/adapter-cache/scip/<language>.scip`, then imports it through the same reader as a supplied index. A supplied index for that language takes precedence. The cache is local state, not repository evidence: if Git tracks any path below `.unknot/state/adapter-cache/scip`, Unknot refuses that cache and does not run an indexer, leaving the language lexical with the reason in `scip.coverage`.
+
+The broker uses a bare allowlisted executable, fixed argv, no shell and network disabled. An indexer that needs packages or a restore must find them locally; otherwise it fails and the map records a lexical fallback reason. The time and memory limits above apply to every run.
+
+Some registry rows execute repository code. In particular, scip-dotnet and scip-java run build logic; a repository's `global.json`, `.npmrc`, Gradle wrapper and similar SDK or tool-selection files can steer that logic. Enabling `run` therefore executes repository build logic for rows marked as doing so, inside the command sandbox. `unknot doctor` lists every marked language, whether its tool is installed, whether run is on and whether it would execute repository code.
 
 What it adds, per file the index covers (matched by repository path; documents for files outside the mapped scope are counted in a notice):
 

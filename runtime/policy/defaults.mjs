@@ -69,7 +69,11 @@ export const DEFAULT_CONFIG = Object.freeze({
     infra_state: [],
     infra_inventory: [],
   },
-  adapters: {},
+  adapters: {
+    // Running a compiler/indexer is an explicit opt-in. The runner applies its own bounded
+    // defaults too so a partial adapter override cannot accidentally loosen them.
+    scip: { run: false, languages: [], timeout_ms: 300000, memory_mb: 2048 },
+  },
   detectors: {},
   decomposition: {
     weights: { structural: 0.35, data: 0.3, evolutionary: 0.25, semantic: 0.1, runtime: 0.25 },

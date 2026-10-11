@@ -207,7 +207,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   for (const adapter of loaded) {
     if (!adapter.link) continue;
     try {
-      pushAll(global, (adapter.link({ root: ctx.root, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic }) ?? []).map(assertFact));
+      const linked = await adapter.link({ root: ctx.root, paths: ctx.paths, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic, exec: adapterExec(ctx, { run, config }) });
+      pushAll(global, (linked ?? []).map(assertFact));
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }

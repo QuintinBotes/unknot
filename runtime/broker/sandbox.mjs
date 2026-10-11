@@ -5,6 +5,7 @@
 // macOS: sandbox-exec with a generated SBPL profile. Linux: bubblewrap when installed.
 // Elsewhere: no sandbox, which `doctor` reports and `security.require_os_sandbox` refuses.
 
+import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, lstatSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -68,8 +69,20 @@ function executable(path) {
   }
 }
 
+let macSandboxUsable;
+
+// Some managed macOS environments expose sandbox-exec but forbid sandbox_apply. Treating that
+// binary as available makes every brokered command fail instead of reporting that no OS sandbox
+// is usable (and makes security.require_os_sandbox less meaningful).
+function usableMacSandbox() {
+  if (macSandboxUsable !== undefined) return macSandboxUsable;
+  const result = spawnSync('/usr/bin/sandbox-exec', ['-p', '(version 1) (allow default)', '/usr/bin/true'], { stdio: 'ignore', timeout: 2_000 });
+  macSandboxUsable = result.status === 0 && !result.error;
+  return macSandboxUsable;
+}
+
 export function detectSandbox() {
-  if (process.platform === 'darwin' && executable('/usr/bin/sandbox-exec')) return 'macos-sandbox-exec';
+  if (process.platform === 'darwin' && executable('/usr/bin/sandbox-exec') && usableMacSandbox()) return 'macos-sandbox-exec';
   if (process.platform === 'linux') {
     for (const p of ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap']) if (executable(p)) return 'linux-bwrap';
   }
@@ -166,11 +179,13 @@ const isRealDir = (p) => {
  * Wrap an argv for the sandbox.
  * @returns {{file: string, args: string[], sandbox: string}}
  */
-export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, rootFiles = [], cwd = null, loopback = false } = {}) {
+export function wrap(argv, { kind = detectSandbox(), writable = [], network = false, requireSandbox = false, sockets = writable, hideRoot = null, rootFiles = [], cwd = null, loopback = false, strictWritable = false } = {}) {
   const tmp = realpathLenient(tmpdir());
   // System temp locations exist per platform (/private/tmp only on macOS); binding a path
   // that does not exist makes bubblewrap refuse to start (caught by the Linux CI job).
-  const system = [tmp, '/private/tmp', '/tmp'].filter((p) => existsSync(p));
+  // A SCIP indexer is different: its output path is its only writable project surface. Do
+  // not silently re-open a shared temp tree for that stricter profile.
+  const system = strictWritable ? [] : [tmp, '/private/tmp', '/tmp'].filter((p) => existsSync(p));
   const allWritable = [...new Set([...writable, ...system].map((p) => realpathLenient(p)))];
   const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
@@ -178,7 +193,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
   }
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());
-    const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--die-with-parent', '--new-session', '--unshare-ipc', '--unshare-pid', '--unshare-uts'];
+    const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', ...(strictWritable ? [] : ['--tmpfs', '/tmp']), '--die-with-parent', '--new-session', '--unshare-ipc', '--unshare-pid', '--unshare-uts'];
     // A project that lives under /tmp (temporary clones, test fixtures) would vanish under the
     // fresh /tmp: put it back read-only before the narrower mounts below.
     for (const p of [hideRoot, cwd].filter(Boolean).map((x) => realpathLenient(x))) {

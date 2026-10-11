@@ -27,6 +27,7 @@ import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROLE, rangeOf, scipRecords } from './reader.mjs';
 import { classify, descriptors } from './symbols.mjs';
+import { documentLanguage } from './indexers.mjs';
 
 // SymbolInformation.Kind values: Interface 21, Protocol 42, Trait 53.
 const INTERFACE_KINDS = new Set([21, 42, 53]);
@@ -111,7 +112,7 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
     if (fileOf.has(path)) return; // the same file in two indexes: the first wins
     stats.matched++;
     const fi = files.length;
-    const info = { path, language: d.language, definitions: 0, types: 0, memberIds: [] };
+    const info = { path, language: documentLanguage(d), definitions: 0, types: 0, memberIds: [] };
     files.push(info);
     fileOf.set(path, fi);
     const kinds = new Map();
