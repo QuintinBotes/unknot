@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- SCIP indexers can now run only with the explicit `adapters.scip.run: true` opt-in (#54). The table-driven, brokered runner writes a private per-language cache, keeps network disabled, applies per-run time and memory caps, refuses tracked cache paths and repository-supplied executables, and reports semantic or lexical fallback reasons per language. A supplied SCIP index still wins for its language. A document whose indexer leaves its language empty, as scip-typescript does, takes the language from its extension in the same table. `adapters.scip.run` is ignored in a configuration nobody accepted, so a repository cannot enable it for its own first map, and an indexer that runs the repository's build is refused when no OS sandbox is available.
+
 ### Fixed
 
 - During an open run, subagents can deliver a final report through `SubagentHandback` and can read an existing regular background-task `.output` file from their session's harness task directory (#52). The exception is limited to that direct file path: other temporary files, traversal outside the directory and symlink targets remain denied.

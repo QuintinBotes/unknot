@@ -4,7 +4,7 @@
 // output caps; and an evidence record whose digests cover the complete output.
 
 import { forbiddenAtRoot } from '../core/guidance.mjs';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, appendFileSync, constants, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -12,13 +12,14 @@ import { basename, delimiter, join, resolve as resolvePath } from 'node:path';
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
-import { isInside, realpathLenient } from '../core/paths.mjs';
+import { isInside, realpathLenient, resolveInside } from '../core/paths.mjs';
 import { redact } from '../core/redact.mjs';
 import { charge } from '../policy/budget.mjs';
 import { editablePathsFor, trackedRootFiles } from '../apply/worktree.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { detectSandbox, wrap } from './sandbox.mjs';
+import { INDEXER_EXECUTABLES, pinnedIndexerInvocation } from '../../adapters/semantic/scip/indexers.mjs';
 
 const OUTPUT_CAP = 16 * 1024 * 1024;
 const TAIL = 64 * 1024;
@@ -38,6 +39,7 @@ const TOOL_RULES = {
   gitleaks: { allow: new Set(['detect', 'protect', 'dir', 'git', 'version']) },
   trivy: { allow: new Set(['config', 'fs', 'image', 'version']) },
   'osv-scanner': { allow: null },
+  ...Object.fromEntries(INDEXER_EXECUTABLES.map((name) => [name, { scip: true }])),
 };
 
 function subcommand(args) {
@@ -62,6 +64,12 @@ export function checkInternalArgv(argv) {
   const rule = TOOL_RULES[name];
   if (!rule) return `${name} is not an executable the runtime drives`;
   const args = argv.slice(1);
+  if (rule.scip) {
+    const exec = args.find((a) => EXEC_FLAGS.test(a));
+    if (exec) return `${name} ${exec} executes programs and is not allowed`;
+    if (!pinnedIndexerInvocation([name, ...args])) return `${name} only accepts its pinned SCIP indexer arguments`;
+    return null;
+  }
   const sub = subcommand(args);
   if (rule.deny && sub && rule.deny.test(sub)) return `${name} ${sub} is forbidden`;
   if (rule.allow && (!sub || !rule.allow.has(sub))) return `${name} ${sub ?? ''} is not allowed`;
@@ -76,6 +84,106 @@ export function checkInternalArgv(argv) {
   if (name === 'git' && sub === 'push') return 'git push is never run by Unknot';
   if (name === 'helm' && sub === 'dependency' && !['list'].includes(args[args.indexOf('dependency') + 1])) return 'helm dependency is limited to list';
   return null;
+}
+
+/** The total resident set of a process and its descendants, in KiB. */
+function descendantRss(pid, output) {
+  const rows = new Map();
+  for (const line of String(output).split('\n')) {
+    const [child, parent, rss] = line.trim().split(/\s+/).map(Number);
+    if (Number.isInteger(child) && Number.isInteger(parent) && Number.isFinite(rss)) rows.set(child, { parent, rss });
+  }
+  const descendants = new Set([pid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [child, row] of rows) {
+      if (!descendants.has(child) && descendants.has(row.parent)) {
+        descendants.add(child);
+        changed = true;
+      }
+    }
+  }
+  return [...descendants].reduce((total, child) => total + (rows.get(child)?.rss ?? 0), 0);
+}
+
+/**
+ * Poll RSS outside the sandbox and kill the process group if it crosses an explicit limit.
+ * `ps` is available on the supported Unix platforms; if it is unavailable the timeout still
+ * bounds the command, and the record says no RSS sample was collected.
+ */
+function observeMemory(child, memoryMb) {
+  const state = { peakRssKb: 0, exceeded: false, stopped: false, sampling: false };
+  if (!Number.isFinite(memoryMb) || memoryMb <= 0 || !child.pid) return { state, stop() {} };
+  const ps = process.platform === 'darwin' ? '/bin/ps' : '/usr/bin/ps';
+  const limitKb = Math.round(memoryMb * 1024);
+  const kill = () => {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
+  };
+  const sample = () => {
+    if (state.stopped || state.sampling) return;
+    state.sampling = true;
+    try {
+      execFile(ps, ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 1_000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+        state.sampling = false;
+        if (state.stopped || err) return;
+        const rss = descendantRss(child.pid, stdout);
+        state.peakRssKb = Math.max(state.peakRssKb, rss);
+        if (rss > limitKb && !state.exceeded) {
+          state.exceeded = true;
+          kill();
+        }
+      });
+    } catch {
+      // A hardened outer environment can forbid spawning ps. The command still has its
+      // independent time budget; record that RSS sampling was unavailable as zero samples.
+      state.sampling = false;
+    }
+  };
+  sample();
+  const timer = setInterval(sample, 100);
+  return {
+    state,
+    stop() {
+      state.stopped = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+/**
+ * An indexer that runs the repository's build never runs without an OS sandbox, whatever
+ * security.require_os_sandbox says: the sandbox is all that stands between that build and the host.
+ */
+export function unsandboxedBuildProblem(argv, writeAccess, sandbox) {
+  if (!writeAccess.executesRepositoryCode || sandbox !== 'none') return null;
+  return `${basename(argv[0])} runs the repository's build and needs an OS sandbox, which is not available here`;
+}
+
+/** Restrict SCIP indexer writes to its one, table-selected cache file. */
+function indexerWritable(ctx, argv, writable) {
+  if (!Array.isArray(writable) || writable.some((path) => typeof path !== 'string' || !path)) {
+    throw new UnknotError('UK_POLICY_DENIED', 'writable paths must be an array of non-empty strings');
+  }
+  const name = basename(argv[0]);
+  const invocation = pinnedIndexerInvocation([name, ...argv.slice(1)]);
+  if (!invocation) {
+    return { writable, strictWritable: false };
+  }
+  if (writable.length !== 1) {
+    throw new UnknotError('UK_POLICY_DENIED', `${name} may write only its one SCIP cache output`, { details: { argv, writable } });
+  }
+  const output = resolveInside(ctx.root, invocation.output);
+  const asked = resolveInside(ctx.root, writable[0]);
+  const expected = realpathLenient(join(ctx.paths.state, 'adapter-cache', 'scip', `${invocation.entry.language}.scip`));
+  if (output.real !== expected || asked.real !== expected) {
+    throw new UnknotError('UK_POLICY_DENIED', `${name} may write only ${expected}`, { details: { argv, writable } });
+  }
+  return { writable: [asked.real], strictWritable: true, executesRepositoryCode: invocation.entry.executesRepositoryCode === true };
 }
 
 /** Absolute path of an executable, or null. Bare names are searched on PATH. */
@@ -128,6 +236,7 @@ export function minimalEnv({ tmp, extra = {} } = {}) {
  * @param {string[]} [req.writable] extra writable roots (worktree, artifact dir)
  * @param {boolean} [req.network]
  * @param {number} [req.timeoutMs]
+ * @param {number} [req.memoryMb]
  * @param {string|Buffer} [req.input] stdin
  * @param {object} [req.config] effective config (sandbox requirement, redaction)
  * @param {string} [req.obligation] obligation id, for the evidence record
@@ -136,7 +245,7 @@ export function minimalEnv({ tmp, extra = {} } = {}) {
  * @returns {Promise<{record: object, stdout: Buffer, stderr: Buffer, stdoutTail: string, stderrTail: string}>}
  */
 export async function brokerExec(ctx, req) {
-  const { argv, cwd, origin = 'internal', run = null, writable = [], network = false, timeoutMs = 120_000, input, config, obligation = null, sliceId = null, diffHash = null } = req;
+  const { argv, cwd, origin = 'internal', run = null, writable = [], network = false, timeoutMs = 120_000, memoryMb = null, input, config, obligation = null, sliceId = null, diffHash = null } = req;
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string' || a.includes('\0'))) {
     throw new UnknotError('UK_POLICY_DENIED', 'argv must be a non-empty array of strings without NUL bytes');
   }
@@ -159,6 +268,7 @@ export async function brokerExec(ctx, req) {
   }
   const realCwd = realpathLenient(cwd);
   if (!isInside(realpathLenient(ctx.root), realCwd)) throw new UnknotError('UK_SCOPE_VIOLATION', `cwd ${cwd} is outside the project`);
+  const writeAccess = origin === 'internal' ? indexerWritable(ctx, argv, writable) : { writable, strictWritable: false };
   if (network && (config?.limits?.max_network_requests ?? 0) === 0) {
     throw new UnknotError('UK_POLICY_DENIED', 'network is disabled for this project', { details: { policy: 'limits.max_network_requests' } });
   }
@@ -177,7 +287,12 @@ export async function brokerExec(ctx, req) {
   const sandboxKind = detectSandbox();
   const wt = /^(.*\/\.unknot\/worktrees\/[^/]+)(\/|$)/.exec(realCwd);
   const rootFiles = wt ? trackedRootFiles(ctx.root) : [];
-  const wrapped = wrap(argv, { kind: sandboxKind, writable: [...writable, runDir, tmp], sockets: [...writable, runDir, tmp], hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false });
+  // SCIP indexers get precisely their one fresh output file. The command log is appended by
+  // the broker after the child exits, and indexers do not receive a writable temp directory.
+  const childWritable = writeAccess.strictWritable ? writeAccess.writable : [...writeAccess.writable, runDir, tmp];
+  const wrapped = wrap(argv, { kind: sandboxKind, writable: childWritable, sockets: childWritable, hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false, strictWritable: writeAccess.strictWritable });
+  const unsandboxed = unsandboxedBuildProblem(argv, writeAccess, wrapped.sandbox);
+  if (unsandboxed) throw new UnknotError('UK_POLICY_DENIED', unsandboxed, { details: { argv } });
   const env = minimalEnv({ tmp });
   // In a slice worktree, editable Python installs must resolve to the worktree's code.
   if (wt) {
@@ -194,6 +309,7 @@ export async function brokerExec(ctx, req) {
     : await new Promise((resolvePromise) => {
     const started = process.hrtime.bigint();
     const child = spawn(wrapped.file, wrapped.args, { cwd: realCwd, env, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const memory = observeMemory(child, memoryMb);
     const streams = { stdout: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false }, stderr: { chunks: [], size: 0, hash: createHash('sha256'), truncated: false } };
     for (const name of ['stdout', 'stderr']) {
       child[name].on('data', (chunk) => {
@@ -215,11 +331,13 @@ export async function brokerExec(ctx, req) {
     }, timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolvePromise({ error: err, streams, timedOut, durationMs: Number((process.hrtime.bigint() - started) / 1_000_000n) });
+      memory.stop();
+      resolvePromise({ error: err, streams, timedOut, memory: memory.state, durationMs: Number((process.hrtime.bigint() - started) / 1_000_000n) });
     });
     child.on('close', (code, signal) => {
       clearTimeout(timer);
-      resolvePromise({ code, signal, streams, timedOut, durationMs: Number((process.hrtime.bigint() - started) / 1_000_000n) });
+      memory.stop();
+      resolvePromise({ code, signal, streams, timedOut, memory: memory.state, durationMs: Number((process.hrtime.bigint() - started) / 1_000_000n) });
     });
     // A child that exits before reading all of its input (a failing interpreter shim, a
     // crash) makes the write fail with EPIPE; that is the command's failure, reported through
@@ -245,7 +363,7 @@ export async function brokerExec(ctx, req) {
     result.code = null;
   }
   const exitCode = result.error ? null : result.code ?? null;
-  const verdict = result.error || result.timedOut || exitCode === null ? 'inconclusive' : exitCode === 0 ? 'pass' : 'fail';
+  const verdict = result.error || result.timedOut || result.memory?.exceeded || exitCode === null ? 'inconclusive' : exitCode === 0 ? 'pass' : 'fail';
   const record = {
     id: execId,
     obligation,
@@ -262,6 +380,7 @@ export async function brokerExec(ctx, req) {
     artifact_refs: [stdoutRef, stderrRef],
     sandbox: wrapped.sandbox,
     timed_out: result.timedOut,
+    ...(Number.isFinite(memoryMb) && memoryMb > 0 && { memory_limit_mb: memoryMb, peak_rss_kb: result.memory?.peakRssKb ?? 0, memory_exceeded: result.memory?.exceeded === true }),
     truncated: result.streams.stdout.truncated || result.streams.stderr.truncated,
     diff_hash: diffHash,
     verdict,
@@ -276,9 +395,9 @@ export async function brokerExec(ctx, req) {
 
 /** Adapter-facing exec: internal origin, no network, bounded, returns plain output. */
 export function adapterExec(ctx, { run, config, cwd }) {
-  return async (argv, { input, timeoutMs = 120_000 } = {}) => {
+  return async (argv, { input, timeoutMs = 120_000, memoryMb = null, writable = [] } = {}) => {
     try {
-      const r = await brokerExec(ctx, { argv, cwd: cwd ?? ctx.root, origin: 'internal', run, config, input, timeoutMs });
+      const r = await brokerExec(ctx, { argv, cwd: cwd ?? ctx.root, origin: 'internal', run, config, input, timeoutMs, memoryMb, writable });
       if (r.record.error === 'ENOENT') throw new UnknotError('UK_ADAPTER_UNSUPPORTED', `${argv[0]} is not installed`);
       return { exitCode: r.record.exit_code, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), record: r.record };
     } catch (err) {

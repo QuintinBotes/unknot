@@ -28,6 +28,7 @@
     "test:adversarial": "node --test \"tests/adversarial/**/*.test.mjs\"",
     "test:golden": "node --test \"tests/golden/**/*.test.mjs\"",
     "bench": "node scripts/bench.mjs",
+    "bench:scip": "node scripts/scip-bench.mjs",
     "validate": "claude plugin validate --strict ."
   },
   "engines": {

@@ -102,7 +102,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `approvals` | map | see below | Who must approve at each risk level. |
 | `approvers` | map | `{}` | Registered approvers and their public keys. |
 | `evidence` | map | all empty | Files of imported runtime, data and infrastructure evidence. |
-| `adapters` | map of id to options | `{}` | Per-adapter options. `enabled: false` disables an adapter. |
+| `adapters` | map of id to options | `scip.run: false`; otherwise `{}` | Per-adapter options. `enabled: false` disables an adapter. `scip.run: true` takes effect only from a configuration a person accepted (`unknot config accept`), and an indexer that runs the repository's build (scip-dotnet, scip-java) never starts without an OS sandbox. |
 | `detectors` | map of id to options | `{}` | Per-detector options. `enabled: false` disables a detector. |
 | `decomposition` | map | see below | Monolith decomposition tuning and drivers. |
 | `mcp.allowed_servers` | list of strings | `[]` | Other MCP servers the model may call during a run. Unknot's own server is always allowed. |
@@ -255,7 +255,9 @@ Runtime-derived facts carry an expiry; `unknot status` reports expired ones as s
 
 ### `adapters` and `detectors`
 
-Each is a map from an id to an options object. `adapters.<id>.enabled: false` stops that adapter. Adapter ids: `javascript`, `python`, `generic`, `literals`, `quality`, `database`, `iac`, `k8s`, `delivery`, `contracts`, `ownership`, `runtime`, `security`. `detectors.<id>.enabled: false` stops a detector. Other options are the detector's thresholds. The local-code detectors read these:
+Each is a map from an id to an options object. `adapters.<id>.enabled: false` stops that adapter. Adapter ids: `scip`, `javascript`, `python`, `generic`, `literals`, `quality`, `database`, `iac`, `k8s`, `delivery`, `contracts`, `ownership`, `runtime`, `security`. `detectors.<id>.enabled: false` stops a detector. Other options are the detector's thresholds. The local-code detectors read these:
+
+`adapters.scip` can import a supplied `index.scip` (`index`, one relative path or a list; `max_index_bytes`, default 2 GiB), or run a maintained SCIP indexer through the broker. `run` defaults to `false`. `languages` is an optional list that narrows rows selected by their project markers. Each selected run is bounded by `timeout_ms` (default 300000, clamped to 1000–1800000) and `memory_mb` (default 2048, clamped to 128–16384). Network remains disabled, and a failed or missing indexer leaves that language lexical with the reason in the map's `scip.coverage`. See [adapters.md](adapters.md#opt-in-brokered-indexers) for cache and repository-build safety rules.
 
 | Detector | Option (default) |
 |---|---|

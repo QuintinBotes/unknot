@@ -41,6 +41,10 @@ adapters, history length) will move them.
 Results are written as `results.json` and `results.md` in the output directory (default: the system
 temp directory).
 
+### Opt-in SCIP indexer benchmark
+
+`npm run bench:scip` creates a temporary TypeScript repository with 3,000 files and maps it twice, once with `adapters.scip.run` off and once on. Each map is in its own child process, so the JSON report gives wall time and peak RSS for each. It never installs an indexer or enables network. When `scip-typescript` is unavailable on `PATH`, it returns a JSON skip with that exact reason instead of inventing a measurement.
+
 ## Measured run
 
 The first table is the earlier, three-language fixture (45% TypeScript, 30% Python, 25% Go,
@@ -156,3 +160,12 @@ re-run with these changes.
   recorded it as a link failure and continued, so the first 100k run reported exactly 300,000
   edges (containment only). Spreads that grow with the repository now go through
   `runtime/core/arrays.mjs`.
+
+Measured on 2026-10-11 on an Apple-silicon Mac, Node 22.23, scip-typescript 0.4.0, single run:
+
+| Mode | Wall time | Peak RSS | Coverage |
+|---|---|---|---|
+| `run` off | 5.9 s | 256 MB | lexical |
+| `run` on | 4.7 s | 258 MB | semantic, 3,000 of 3,000 files |
+
+On this repository, the indexer's cost is within the noise of one run. A build-based indexer (scip-dotnet, scip-java) runs the project's build and costs much more; measure it on your own repository.

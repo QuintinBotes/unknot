@@ -1,18 +1,19 @@
 // Where the SCIP index is, whether it is behind the code, and how to make one. Used by the
-// adapter (to find the file) and by `unknot doctor`. Unknot never runs an indexer: producing the
-// index is the person's step, with the indexer's own command.
+// adapter (to find the file) and by `unknot doctor`. A person can always supply an index; with
+// adapters.scip.run enabled, Unknot may instead broker a table-selected local indexer.
 
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { isSecretPath, resolveInside } from '../../../runtime/core/paths.mjs';
-import { git, isRepo } from '../../../runtime/apply/git.mjs';
+import { git, isRepo, listFiles } from '../../../runtime/apply/git.mjs';
 import { projectPrefix } from './analyze.mjs';
+import { documentLanguage, executableOnPath, indexersForPaths } from './indexers.mjs';
 import { scipRecords } from './reader.mjs';
 
 export const DEFAULT_INDEX = 'index.scip';
 
-/** The indexers' own commands (see each project's README); Unknot runs none of them. */
+/** The indexers' own commands (see each project's README) for producing a supplied index. */
 export const HOW_TO = Object.freeze([
   'C# (Roslyn): `dotnet tool install --global scip-dotnet`, then `scip-dotnet index` in the solution folder (scip-dotnet'
   + ' builds the projects itself, so it needs the .NET SDK and restored packages)',
@@ -58,6 +59,17 @@ export function coveredPaths(root, entry) {
   return out;
 }
 
+/** Language ids declared by the index documents, normalized for the registry table. */
+export function indexLanguages(entry) {
+  const out = new Set();
+  for (const rec of scipRecords(entry.abs, { pathsOnly: true })) {
+    if (rec.type !== 'document') continue;
+    const language = documentLanguage(rec.value);
+    if (language) out.add(language);
+  }
+  return out;
+}
+
 const CHUNK = 400;
 
 /**
@@ -79,7 +91,8 @@ const day = 86_400_000;
 const ago = (ms) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} minutes` : ms < day ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / day)} days`);
 
 /**
- * The doctor checks for the SCIP index: `[{ name, level, detail }]`.
+ * The doctor checks for the SCIP index and each present, table-selected indexer:
+ * `[{ name, level, detail }]`.
  * stale = the index file is older than the last commit that touched a file it covers.
  */
 export function scipChecks(root, options = {}) {
@@ -93,7 +106,7 @@ export function scipChecks(root, options = {}) {
   }
   if (found.missing.length) checks.push({ name: 'scip index', level: 'warn', detail: `configured but not found: ${found.missing.join(', ')}. Produce it with the indexer's own command:\n${how}` });
   if (!found.entries.length && !found.missing.length) {
-    checks.push({ name: 'scip index', level: 'info', detail: `none configured and no ${DEFAULT_INDEX} at the repository root (optional: without it C# and other languages are read lexically). To add one, run the indexer yourself (Unknot does not run builds); these are the indexers' own commands:\n${how}\nThen set adapters.scip.index in the config if it is not at ${DEFAULT_INDEX}.` });
+    checks.push({ name: 'scip index', level: 'info', detail: `none configured and no ${DEFAULT_INDEX} at the repository root (optional: without it C# and other languages are read lexically). These are the indexers' own commands for a supplied index:\n${how}\nThen set adapters.scip.index if it is not at ${DEFAULT_INDEX}; or opt into a brokered local indexer with adapters.scip.run: true.` });
   }
   for (const e of found.entries) {
     let detail = `${e.rel} (${(e.size / 1048576).toFixed(1)} MB, written ${new Date(e.mtimeMs).toISOString()})`;
@@ -112,6 +125,17 @@ export function scipChecks(root, options = {}) {
       detail += `; unreadable: ${err.message}`;
     }
     checks.push({ name: 'scip index', level, detail });
+  }
+  let paths = [];
+  try {
+    paths = listFiles(root);
+  } catch {
+    // The index status above is still useful outside a git checkout.
+  }
+  for (const entry of indexersForPaths(paths, options)) {
+    const installed = executableOnPath(entry.executable);
+    const detail = `${entry.executable}: ${installed ? `installed (${installed})` : 'not installed'}; run: ${options.run === true ? 'on' : 'off'}; executes repository code: ${entry.executesRepositoryCode ? 'yes' : 'no'}${entry.needsNetwork ? '; a missing local restore falls back to lexical because network stays disabled' : ''}`;
+    checks.push({ name: `scip ${entry.language}`, level: 'info', detail });
   }
   return checks;
 }

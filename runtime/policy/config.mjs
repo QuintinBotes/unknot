@@ -126,6 +126,9 @@ function acceptedView(ctx, file) {
   }
   const capped = { ...file.raw, approvers: {} };
   if (capped.mode && !['observe', 'plan'].includes(capped.mode)) capped.mode = 'plan';
+  // Running SCIP indexers can execute the repository's build, so a file nobody accepted cannot
+  // turn it on: a hostile repository's first map would otherwise run its own code.
+  if (capped.adapters?.scip?.run) capped.adapters = { ...capped.adapters, scip: { ...capped.adapters.scip, run: false } };
   return { raw: capped, acceptance: 'unaccepted', notice: '.unknot/config.yaml has never been accepted; running in plan mode with no approvers until a human runs `unknot config accept`' };
 }
 
