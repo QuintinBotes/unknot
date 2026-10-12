@@ -34,3 +34,42 @@ test('a human-only command that would run is refused, however it is wrapped', ()
     'xargs -I{} unknot approve {} <<< UK-1',
   ]) assert.equal(humanOnly(command), true, command);
 });
+
+// Forge approvals (docs/forge-approvals.md, control 1): no agent approves a pull request.
+const denied = (op) => Boolean(alwaysOn(ctx, op, {})?.policy_ids?.includes('approval.human_only'));
+const shell = (command) => denied({ op: 'exec', command, cwd: process.cwd() });
+const tool = (name, input) => denied({ op: 'mcp', tool: `mcp__forge__${name}`, server: 'forge', name, input });
+
+test('approving a pull request through gh is refused, in any spelling', () => {
+  for (const command of [
+    'gh pr review 12 --approve',
+    'gh pr review --approve -b "looks good"',
+    'gh pr review 12 -a',
+    'bash -c "gh pr review 3 --approve"',
+    'echo "gh pr review 1 --approve" | sh',
+    'gh api repos/o/r/pulls/3/reviews -f event=APPROVE',
+    'gh api -X POST repos/o/r/pulls/3/reviews --input body.json',
+    "gh api graphql -f query='mutation { submitPullRequestReview(input: { pullRequestReviewId: \"x\", event: APPROVE }) { clientMutationId } }'",
+    'gh alias set ok "pr review --approve"',
+  ]) assert.equal(shell(command), true, command);
+});
+
+test('reading reviews, commenting, and text that only mentions an approval are not refused', () => {
+  for (const command of [
+    'gh pr view 12',
+    'gh pr review 12 --comment -b "please add a test"',
+    'gh pr review 12 --request-changes -b "the test is missing"',
+    'gh api repos/o/r/pulls/3/reviews',
+    'echo "run gh pr review --approve when you are happy"',
+    'git commit -m "docs: a person approves with gh pr review --approve"',
+  ]) assert.equal(shell(command), false, command);
+});
+
+test('forge tools that create or submit an approving review, or approve, are refused', () => {
+  assert.equal(tool('create_pull_request_review', { event: 'APPROVE' }), true);
+  assert.equal(tool('submit_pending_pull_request_review', { event: 'APPROVE' }), true);
+  assert.equal(tool('submit_pending_pull_request_review', {}), true, 'an unknown event on submit counts as an approval');
+  assert.equal(tool('approve_merge_request', { id: 4 }), true);
+  assert.equal(tool('create_pull_request_review', { event: 'COMMENT' }), false);
+  assert.equal(tool('get_pull_request_reviews', {}), false);
+});

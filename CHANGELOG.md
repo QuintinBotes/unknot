@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- Agents may not approve a pull or merge request on the forge (roadmap #16, item 4, phase 1 of `docs/forge-approvals.md`): `gh pr review --approve`/`-a`, `gh api` calls that post an approving review (REST or GraphQL, or an unreadable body), `gh` aliases, and MCP tools that create or submit an approving review or approve are refused under `approval.human_only`. Reading reviews, commenting and requesting changes still work, and text that only mentions an approval is data.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added
