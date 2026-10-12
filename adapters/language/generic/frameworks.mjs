@@ -6,6 +6,7 @@
 
 import { clientPath, operations, parseArgs, typeBase } from '../http-ops.mjs';
 import { language } from '../../../runtime/graph/languages.mjs';
+import { ASSIGN_SYNTAX, MARKER_SYNTAX, PARENT_SYNTAX, accessCandidates, mapEntities, ormAttrs, ormLanguages, pluralize, snake } from '../orm-maps.mjs';
 import { scanRouteGroups } from './route-groups.mjs';
 
 const genericFramework = (lang) => language(lang)?.genericFramework ?? {};
@@ -22,15 +23,7 @@ function joinPath(...parts) {
   return normPath(parts.filter((p) => p != null && p !== '').map((p) => String(p).trim()).join('/'));
 }
 
-export function snake(s) {
-  return s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toLowerCase();
-}
-
-export function pluralize(s) {
-  if (/[^aeiou]y$/.test(s)) return `${s.slice(0, -1)}ies`;
-  if (/(?:s|x|z|ch|sh)$/.test(s)) return `${s}es`;
-  return `${s}s`;
-}
+export { pluralize, snake };
 
 function real(lx, off) {
   let k = off;
@@ -62,10 +55,6 @@ function bindAnnotations(lx, an, anns) {
     a.target = d && !lx.code.slice(a.off, d.nameOff).includes(';') ? d : null;
   }
   return anns;
-}
-
-function annotated(lx, an, re) {
-  return bindAnnotations(lx, an, codeMatches(lx, re).map((m) => ({ name: m[1], args: m[2], off: m.index, line: lx.lineOf(m.index), target: null })));
 }
 
 /** A route below the prefix of the group it is registered on (`g` is that group's resolution, null for the app itself). */
@@ -235,66 +224,65 @@ function typeAt(an, off) {
   return best;
 }
 
-/** ORM table hints. `confidence` is 'low' wherever the table name is a naming-convention guess. */
-function ormTables(lx, an, lang) {
-  const out = [];
-  const add = (name, line, confidence, orm) => {
-    if (name && !out.some((t) => t.name === name)) out.push({ name, line, confidence, orm });
-  };
-  const orm = genericFramework(lang).orm;
-  if (orm?.style === 'entity_annotation') {
-    const anns = annotated(lx, an, orm.pattern);
+/**
+ * What the generic structure says about each type, in the shape the one ORM rule reads
+ * (adapters/language/orm-maps.mjs): its markers, its class-level assignments and its parents.
+ */
+function ormView(lx, an, lang, path) {
+  const style = MARKER_SYNTAX[lang] ?? genericFramework(lang).markers?.style;
+  const types = an.types.map((t) => ({
+    name: t.name, ref: t, kind: null, line: t.startLine ?? lx.lineOf(t.start),
+    bases: [...t.extends, ...t.implements, ...t.bases], markers: [], assigns: {}, embeds: [],
+  }));
+  const owner = new Map(types.map((v) => [v.ref, v]));
+  if (style) {
+    const all = markersOf(lx, an, lang, style);
+    const skip = nested(lx, all.map((m) => m.off));
+    const anns = bindAnnotations(lx, an, all.filter((m) => !skip.has(m.off)).map((m) => ({ ...m, target: null })));
     for (const a of anns) {
-      if (a.name !== 'Entity' || !a.target?.type) continue;
-      const tbl = anns.find((b) => b.name === 'Table' && b.target?.type === a.target.type);
-      const explicit = tbl ? /\bname\s*=\s*"([^"]*)"/.exec(tbl.args ?? '')?.[1] : null;
-      if (explicit) add(explicit, a.line, 'medium', 'jpa');
-      else add(snake(a.target.type.name), a.line, 'low', 'jpa');
-    }
-  } else if (orm?.style === 'table_attribute') {
-    const anns = annotated(lx, an, orm.pattern);
-    const explicit = new Map();
-    for (const a of anns) {
-      if (a.name !== 'Table' || !a.target?.type) continue;
-      const name = /^\s*@?"([^"]*)"/.exec(a.args ?? '')?.[1];
-      if (name) { explicit.set(a.target.type.name, name); add(name, a.line, 'medium', 'efcore'); }
-    }
-    // Fluent mappings: `Entity<T>().ToTable("x")` and `builder.ToTable("x")` inside
-    // `IEntityTypeConfiguration<T>.Configure`. The table belongs to T, which link() locates.
-    const addFluent = (entity, table, off) => {
-      const cls = entity.split('.').pop();
-      explicit.set(cls, table);
-      if (!out.some((t) => t.name === table)) out.push({ name: table, line: lx.lineOf(off), confidence: 'medium', orm: 'efcore', entity: cls });
-    };
-    for (const m of codeMatches(lx, /\.Entity<\s*([\w.]+)\s*>\s*\(\s*(?:\)|\w+\s*=>\s*\w+)\s*\.ToTable\(\s*@?"([^"]*)"/g)) addFluent(m[1], m[2], m.index);
-    for (const m of codeMatches(lx, /\bConfigure\s*\(\s*EntityTypeBuilder<\s*([\w.]+)\s*>\s+(\w+)\s*\)/g)) {
-      const tm = new RegExp(`\\b${m[2]}\\s*\\.ToTable\\(\\s*@?"([^"]*)"`).exec(lx.plain.slice(m.index, m.index + 4000));
-      if (tm) addFluent(m[1], tm[1], m.index + tm.index);
-    }
-    for (const m of codeMatches(lx, /\bDbSet<\s*([\w.]+)\s*>\s+(\w+)/g)) {
-      const cls = m[1].split('.').pop();
-      if (explicit.has(cls)) continue;
-      add(snake(m[2]), lx.lineOf(m.index), 'low', 'efcore');
-    }
-  } else if (orm?.style === 'active_record') {
-    const explicit = [...codeMatches(lx, /\bself\.table_name\s*=\s*(['"])([^'"]+)\1/g)];
-    for (const t of an.types) {
-      const head = lx.code.slice(t.start, t.start + 200);
-      if (!/^class\s+[\w:]+\s*<\s*(?:ApplicationRecord|ActiveRecord::Base)\b/.test(head)) continue;
-      const own = explicit.find((m) => typeAt(an, m.index) === t);
-      if (own) add(own[2], lx.lineOf(own.index), 'medium', 'activerecord');
-      else add(pluralize(snake(t.name.split('::').pop())), t.startLine ?? lx.lineOf(t.start), 'low', 'activerecord');
-    }
-  } else if (orm?.style === 'model_property') {
-    const explicit = [...codeMatches(lx, /\bprotected\s+\$table\s*=\s*(['"])([^'"]+)\1/g)];
-    for (const t of an.types) {
-      if (!t.extends.includes('Model')) continue;
-      const own = explicit.find((m) => typeAt(an, m.index) === t);
-      if (own) add(own[2], lx.lineOf(own.index), 'medium', 'eloquent');
-      else add(pluralize(snake(t.name)), lx.lineOf(t.start), 'low', 'eloquent');
+      const v = a.target?.type ? owner.get(a.target.type) : null;
+      if (v) v.markers.push({ name: a.name.split(/[\\.]/).pop(), args: a.args, line: a.line });
     }
   }
-  return out;
+  const parent = PARENT_SYNTAX[lang];
+  if (parent) {
+    for (const v of types) {
+      const p = parent.exec(lx.code.slice(v.ref.start, v.ref.start + 200));
+      if (p) v.bases = [p[1]];
+    }
+  }
+  const assign = ASSIGN_SYNTAX[lang];
+  if (assign) {
+    for (const m of codeMatches(lx, assign.re)) {
+      const v = owner.get(typeAt(an, m.index));
+      if (v && !v.assigns[assign.key(m)]) v.assigns[assign.key(m)] = { value: m[3], line: lx.lineOf(m.index) };
+    }
+  }
+  return {
+    lang, path, imports: [], text: lx.plain, lineOf: (off) => lx.lineOf(off), matches: (re) => codeMatches(lx, re), types,
+  };
+}
+
+/**
+ * ORM mappings in one file: the entity-to-table facts from the shared rule, and the link-only
+ * attributes that let link() resolve access through the mapped types from other files.
+ * `tables` keeps one entry per table name, as the facts do.
+ */
+function ormTables(lx, an, lang, path) {
+  if (!ormLanguages(lang)) return { tables: [], links: {} };
+  const view = ormView(lx, an, lang, path);
+  const { mappings, members } = mapEntities(view);
+  const tables = [];
+  for (const m of mappings) {
+    if (tables.some((t) => t.name === m.table)) continue;
+    tables.push({
+      name: m.table, line: m.line, confidence: m.basis === 'declared' ? 'medium' : 'low', orm: m.orm, basis: m.basis,
+      ...(m.deferred && { entity: m.entity }),
+    });
+  }
+  const entities = mappings.map((m) => ({ n: m.entity.split(/::|\./).pop(), t: `public.${m.table}`, o: m.orm }));
+  const exposed = members.map((m) => ({ n: m.member, e: m.entity }));
+  return { tables, links: ormAttrs(entities, exposed, accessCandidates(lx.plain, lang, (off) => lx.lineOf(off))) };
 }
 
 // ---- attribute and annotation operations (one rule, per-language table in ../http-ops.mjs) ----
@@ -303,7 +291,7 @@ const TYPE_DECL = /^\s*(?:[a-z]+\s+)*?(class|interface|struct|record|object)\s+(
 const MEMBER_DECL = /^[^;{(]*?([A-Za-z_]\w*)\s*(?:<[^(){};]*>)?\s*\(/d;
 
 /** Every attribute or annotation in the file, in order: `[Name(args)]` or `@Name(args)`, args as raw text. */
-function markersOf(lx, an, lang) {
+function markersOf(lx, an, lang, style = genericFramework(lang).markers?.style) {
   const out = [];
   const take = (name, nameEnd, off) => {
     let end = nameEnd;
@@ -316,15 +304,16 @@ function markersOf(lx, an, lang) {
     out.push({ name, args: parseArgs(args), off, end, line: lx.lineOf(off) });
     return end;
   };
-  if (genericFramework(lang).markers?.style === 'bracket') {
-    for (const m of codeMatches(lx, /\[\s*([A-Za-z_][\w.]*)/g)) {
+  if (style === 'bracket' || style === 'hash') {
+    const hash = style === 'hash';
+    for (const m of codeMatches(lx, hash ? /#\[\s*([A-Za-z_\\][\w.\\]*)/g : /\[\s*([A-Za-z_][\w.]*)/g)) {
       let before = m.index - 1;
       while (before >= 0 && /\s/.test(lx.plain[before])) before--;
-      if (before >= 0 && /[\w)]/.test(lx.plain[before])) continue; // an indexer, not an attribute list
+      if (!hash && before >= 0 && /[\w)]/.test(lx.plain[before])) continue; // an indexer, not an attribute list
       const first = out.length;
       let end = take(m[1], m.index + m[0].length, m.index);
       for (;;) { // `[A, B(x)]`
-        const more = /^\s*,\s*([A-Za-z_][\w.]*)/.exec(lx.plain.slice(end, end + 200));
+        const more = /^\s*,\s*([A-Za-z_\\][\w.\\]*)/.exec(lx.plain.slice(end, end + 200));
         if (!more) break;
         end = take(more[1], end + more[0].length, end + more[0].indexOf(more[1]));
       }
@@ -438,5 +427,6 @@ export function frameworkInfo(lx, an, lang, path) {
     if (/(?:^|\/)config\/routes\.rb$/.test(path)) railsRoutes(lx, endpoints);
     else sinatraRoutes(lx, endpoints);
   }
-  return { endpoints, clients, tables: ormTables(lx, an, lang), sql: sqlLiterals(lx), signals: securitySignals(lx, lang), routeLinks: rg?.moduleAttrs() ?? {} };
+  const orm = ormTables(lx, an, lang, path);
+  return { endpoints, clients, tables: orm.tables, ormLinks: orm.links, sql: sqlLiterals(lx), signals: securitySignals(lx, lang), routeLinks: rg?.moduleAttrs() ?? {} };
 }

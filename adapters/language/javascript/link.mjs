@@ -7,6 +7,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR } from './config.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { ormAccess } from '../orm-maps.mjs';
 import { joinPath } from './frameworks.mjs';
 import { createResolver, normalize as normalizePath } from './resolver.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
@@ -407,6 +408,7 @@ export function linkFacts(ctx) {
     }
   }
   routeGroups(ctx.factsByFile, 'javascript@', joinPath);
+  for (const f of ormAccess(ctx.factsByFile, 'javascript@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) out.push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'javascript@', (p, line) => P(p, line, 'medium'))) out.push(f);
   return out;
 }
