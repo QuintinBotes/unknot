@@ -11,7 +11,7 @@ A campaign can be approved and verified entirely through pull request reviews an
 - evidence that a proof obligation passed is checked, not taken on trust;
 - the ledger records the same bindings it records today.
 
-Local Ed25519 keys stay for single developers and air-gapped use. A repository chooses per risk level which kind of approval counts (`approvals.via: local | forge | both`).
+Local Ed25519 keys stay, and stay the default: forge approval is opt-in per repository (`approvals.via: local | forge | both`, default `local`), so nothing changes for existing users.
 
 ## Threat model
 
@@ -25,7 +25,7 @@ Local Ed25519 keys stay for single developers and air-gapped use. A repository c
 ## Controls
 
 1. **Agents cannot approve on the forge.** The human-only rule covers every way an agent session could submit an approving review: `gh pr review --approve`, `gh api` calls to the reviews endpoints (REST `POST /repos/{o}/{r}/pulls/{n}/reviews` with `event: APPROVE`, GraphQL `addPullRequestReview`/`submitPullRequestReview` with `APPROVE`), and forge MCP tools that create or submit reviews. Judged on the command that would run, like the rest of the rule.
-2. **The approving account is not the agent's account.** When a forge approval is checked, Unknot reads the account the agent session can act as (`gh api user`, recorded once per run as `forge_actor`) and ignores approvals from that account and from the pull request's author. A team that runs agents under a separate bot account gets this for free; a person using their own account must have someone else approve, which is what code-owner review means anyway.
+2. **A review from the agent's own account is never enough on its own.** When a forge approval is checked, Unknot reads the account the agent session can act as (`gh api user`, recorded once per run as `forge_actor`). A review from any other account with the role counts by itself. A review from the agent's account (typically the person's own, when agents use their credentials) counts only together with a local signed approval for the same binding, given by that person at their terminal: the review says the person looked at the change on the forge, the signature proves it was the person and not an agent holding their token. Reviews by the pull request's author never count. Running agents under a separate bot account is supported and documented as an option; it is not required.
 3. **The review binds the exact change.** Unknot opens a draft pull request per slice and posts a binding comment: the canonical binding (commit, slice id, version and digest, diff hash, plan and policy digests, stage, expiry), signed with the project audit key. A review counts only when:
    - its state is `APPROVED` and it was submitted on the pull request's current head commit (`commit_id`);
    - the head's diff against the slice baseline hashes to the bound `diff_hash`;
@@ -56,8 +56,10 @@ Campaign state and the ledger move to a git ref in the repository (`refs/unknot/
 
 Each phase gets an adversarial review before release.
 
-## Questions for the maintainer
+## Decisions
 
-1. When a person uses their own account for both the agent and their reviews, should Unknot accept a local signature from them as the second factor, or require a different reviewer?
-2. Should `approvals.via` default to `local` (today's behaviour) with `forge` opt-in, or switch to `both` when a GitHub remote is detected?
-3. Is a bot account for agents something to recommend in the docs as the standard setup?
+Answered by the maintainer on 2026-10-12:
+
+1. A review from the account the agent acts as counts only together with a local signature from that person; a review from a different reviewer with the role counts alone.
+2. `approvals.via` defaults to `local`; forge approval is opt-in per repository.
+3. A separate bot account for agents is documented as an option, not required.
