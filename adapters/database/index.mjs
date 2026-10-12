@@ -6,6 +6,9 @@ import { nodeFact, edgeFact, prov } from '../../runtime/graph/facts.mjs';
 import { parseSql } from './sql/parser.mjs';
 import { analyzeMigration, detectFramework, alembicOrder, readSchemaRb, padVersion } from './migrations.mjs';
 import { normalizeEngine } from './forecast.mjs';
+import { readStats } from './stats/format.mjs';
+import { statementFacts, freshness, TX_EDGE } from './stats/facts.mjs';
+import { DEFAULT_TTL_DAYS } from '../runtime/util.mjs';
 
 const ID = 'database';
 const VERSION = '0.1.0';
@@ -639,28 +642,27 @@ function catalogFacts(doc, path, F) {
   }
 }
 
-function statementsFacts(rows, path, F, engine) {
+function statementsFacts(stats, path, F, engine) {
   const p = () => prov({ source_type: 'catalog', source_ref: path, extractor: EXTRACTOR, confidence: 'high' });
-  rows.forEach((r, i) => {
-    const text = String(r.query ?? r.Query ?? '');
-    if (!text) return;
-    const id = String(r.queryid ?? r.query_id ?? `${path}#${i}`);
-    const calls = num(r.calls);
-    const mean = num(r.mean_exec_time ?? r.mean_time);
-    const total = num(r.total_exec_time ?? r.total_time);
-    F.add(nodeFact('query', id, { name: text.replace(/\s+/g, ' ').slice(0, 80), path, attrs: { text: text.replace(/\s+/g, ' ').slice(0, 500), calls, mean_exec_time_ms: mean, total_exec_time_ms: total, rows: num(r.rows) } }, p()));
-    for (const st of parseSql(text, { dialect: engine })) {
-      for (const rd of st.reads ?? []) {
-        const key = tableKey(rd, engine);
-        if (key) { F.add(nodeFact('table', key, { name: rd.name, path, attrs: {} }, p())); F.add(edgeFact('QUERIES', `query:${id}`, `table:${key}`, { kind: 'select', calls }, p())); }
-      }
-      if (['insert', 'update', 'delete', 'merge'].includes(st.kind) && st.table) {
-        const key = tableKey(st.table, engine);
-        F.add(nodeFact('table', key, { name: st.table.name, path, attrs: {} }, p()));
-        F.add(edgeFact('MUTATES', `query:${id}`, `table:${key}`, { kind: st.kind, has_where: st.has_where, calls }, p()));
-      }
-    }
+  const refOf = (name) => {
+    const i = name.lastIndexOf('.');
+    return i < 0 ? { schema: null, name } : { schema: name.slice(0, i), name: name.slice(i + 1) };
+  };
+  const out = statementFacts(stats.rows, {
+    path,
+    transactions: stats.transactions,
+    resolve: (name) => { const key = tableKey(refOf(name), engine); return key ? `table:${key}` : null; },
+    tableNode: (id, name) => [nodeFact('table', id.slice(6), { name: refOf(name).name, path, attrs: {} }, p())],
+    idOf: (r) => r.statement_id,
+    prov: p,
+    nodeAttrs: (r) => ({ text: r.text ?? '', calls: r.calls, mean_exec_time_ms: r.mean_ms, total_exec_time_ms: r.total_ms, rows: r.rows, ...freshness(r.window, DEFAULT_TTL_DAYS) }),
+    edgeAttrs: (r, kind) => (kind === 'read' ? { kind: 'select', calls: r.calls } : { kind: r.kind ?? 'write', has_where: r.has_where, calls: r.calls }),
   });
+  for (const f of out.facts) F.add(f);
+  for (const t of out.pairs.values()) {
+    const window = t.start && t.end ? { start: t.start, end: t.end } : null;
+    F.add(edgeFact(TX_EDGE, t.from, t.to, { transactions: t.transactions, calls: t.calls, ...freshness(window, DEFAULT_TTL_DAYS) }, p()));
+  }
 }
 
 function planFacts(plans, path, F, engine) {
@@ -703,16 +705,14 @@ async function discover(ctx) {
     if (head === '{' || head === '[') {
       try { doc = JSON.parse(text); } catch { doc = null; }
     }
-    if (doc) {
-      if (!Array.isArray(doc) && Array.isArray(doc.tables)) { catalogFacts(doc, path, F); continue; }
-      const arr = Array.isArray(doc) ? doc : (doc.pg_stat_statements ?? doc.rows ?? null);
-      if (Array.isArray(arr) && arr.length && arr.every((x) => x && typeof x === 'object' && 'query' in x)) { statementsFacts(arr, path, F, engine); continue; }
-      const plans = Array.isArray(doc) ? doc : [doc];
-      if (plans.some((x) => x && typeof x === 'object' && 'Plan' in x)) { planFacts(plans.filter((x) => x && 'Plan' in x), path, F, engine); continue; }
-      continue;
-    }
-    const rows = parseCsv(text);
-    if (rows.length && 'query' in rows[0] && 'calls' in rows[0]) statementsFacts(rows, path, F, engine);
+    if (doc && !Array.isArray(doc) && Array.isArray(doc.tables)) { catalogFacts(doc, path, F); continue; }
+    const plans = doc && (Array.isArray(doc) ? doc : [doc]);
+    if (plans?.some((x) => x && typeof x === 'object' && 'Plan' in x)) { planFacts(plans.filter((x) => x && 'Plan' in x), path, F, engine); continue; }
+    // Query statistics in any documented reader format (docs/runtime-evidence.md). A file that fits none is skipped.
+    try {
+      const stats = readStats(text, { strict: false, format: 'auto', idFallback: (i) => `${path}#${i}` });
+      if (stats.rows.length) statementsFacts(stats, path, F, engine);
+    } catch { /* not statistics */ }
   }
   return F.list();
 }
