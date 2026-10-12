@@ -79,8 +79,28 @@ node scripts/accuracy.mjs --quick --work "$RUNNER_TEMP/uk-corpus" --out accuracy
 `--out` receives `accuracy.md`, `accuracy.json` and `samples/<name>@<sha>.json`, which lists the
 sampled findings with titles, scope, evidence and fingerprints for labelling. Other flags:
 `--sample N`, `--seed S`, `--no-recall`, `--labels DIR`, `--corpus FILE`. `--work` and `--out`
-must be outside this repository. A scheduled CI job runs the `--quick` line and uploads
-`accuracy-report`; none is configured yet.
+must be outside this repository. The exit status is 1 when any repository fails to fetch or
+analyse.
+
+### Scheduled run
+
+`.github/workflows/quality.yml` runs weekly (Monday 04:23 UTC) and on demand (Actions, Quality,
+Run workflow). It runs the `--quick` line above on the corpus clones (cached on
+`scripts/corpus.json`), then `node scripts/consistency.mjs --work <the same directory>`, which
+runs the cross-command consistency check over every repository the accuracy run mapped. The job
+has `contents: read` and `actions: read` only and a 60 minute limit. It fails when a repository
+cannot be analysed or when the commands disagree; it does **not** fail on precision or recall
+numbers, because there is no gate yet.
+
+Results appear in two places. The run's step summary shows overall precision and factual
+accuracy, seeded recall, the change since the previous run and the consistency output. The
+`quality-results` artifact (kept 90 days) holds `accuracy.md`, `accuracy.json`, `samples/`,
+`comparison.md` and `consistency.txt`. The comparison comes from
+`node scripts/accuracy-compare.mjs <previous accuracy.json> <current accuracy.json>`, which prints
+the change in precision, factual accuracy and seeded recall, overall and per detector; the workflow
+downloads the artifact of the last successful run for it, and says so instead of failing when
+there is none. Unlabelled samples are not counted, so a change in a small labelled sample is noise
+until the labels grow.
 
 ## Adding a repository
 
