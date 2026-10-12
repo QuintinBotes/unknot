@@ -4,6 +4,13 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Added
+
+- Messaging contract evidence is one table-driven rule for publisher calls and consumer calls/handlers across source languages. Channel contracts retain literal names, resolved string constants and unresolved names, supply `contracts.present` and consuming-module counts, and link consumers to publishers across repositories.
+- Generated RPC clients and named GraphQL operations now match protobuf services/methods and schema root operations, including provider declarations found through workspace mapping. The contracts adapter is bumped to 0.1.1; its version-pinning test and adapter documentation cover the new output.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

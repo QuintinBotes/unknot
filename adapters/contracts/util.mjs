@@ -3,7 +3,7 @@
 import { prov } from '../../runtime/graph/facts.mjs';
 
 export const ID = 'contracts';
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 export const EXTRACTOR = `${ID}@${VERSION}`;
 export const MAX_FACTS = 5000;
 

@@ -9,7 +9,7 @@
 //     client operation (or module) of the member to an endpoint another repository serves.
 // `clients` per route is the number of distinct client interfaces declaring it.
 
-import { routeKey, routeKeyOfId } from '../graph/routes.mjs';
+import { operationKey } from '../graph/routes.mjs';
 
 const isOp = (n) => n?.type === 'contract' && n.attrs?.kind === 'client_operation';
 
@@ -28,7 +28,7 @@ export function contractEvidence(graph, ids, workspace = null) {
   const ops = new Map();
   for (const n of graph.nodes('contract')) {
     if (!isOp(n)) continue;
-    const key = routeKey(n.attrs.method, n.attrs.path);
+    const key = operationKey(n);
     if (!key) continue;
     const e = ops.get(key) ?? { ids: [], interfaces: new Set() };
     e.ids.push(n.id);
@@ -48,7 +48,7 @@ export function contractEvidence(graph, ids, workspace = null) {
       r.workspace_mapped_at = workspace.mapped_at;
       if (remote.client) {
         r.client_repositories = [...new Set([...(r.client_repositories ?? []), remote.client])].sort();
-        r.interfaces = [...new Set([...r.interfaces, remote.client])].sort();
+        r.interfaces = [...new Set([...r.interfaces, (remote.consumer ?? remote.client)])].sort();
         r.clients = r.interfaces.length;
       } else r.served_by = [...new Set([...(r.served_by ?? []), remote.server])].sort();
     }
@@ -62,21 +62,37 @@ export function contractEvidence(graph, ids, workspace = null) {
     for (const m of viaModules) {
       for (const e of graph.out(m, 'CONSUMES')) {
         if (!isOp(graph.node(e.to))) continue;
-        const key = routeKeyOfId(e.to);
+        const key = operationKey(graph.node(e.to));
         if (key) add(key, 'client', e.id);
       }
     }
   }
   // The member serves a route a typed client declares, or one a contract file describes.
   for (const id of scope) {
-    for (const e of graph.out(id, 'EXPOSES')) {
+    for (const e of graph.out(id, ['EXPOSES', 'PUBLISHES'])) {
       const ep = graph.node(e.to);
       if (ep?.type !== 'endpoint') continue;
-      const key = routeKeyOfId(ep.id) ?? routeKey(ep.attrs?.method, ep.attrs?.path);
+      const key = operationKey(ep);
       if (!key) continue;
       if (ops.has(key)) add(key, 'client', e.id);
       else if (ep.attrs?.contract) add(key, 'openapi', e.id);
+      else if (ep.attrs?.from_contract) add(key, 'schema', e.id);
       else if (ep.attrs?.contract_tested) add(key, 'pact', e.id);
+    }
+  }
+
+  // A channel is a declared seam for either side. Distinct consuming modules, never
+  // publishers or repeated calls, supply its clients/consumers count.
+  for (const id of scope) {
+    for (const e of graph.out(id, ['PUBLISHES', 'CONSUMES'])) {
+      const channel = graph.node(e.to);
+      if (channel?.attrs?.kind !== 'messaging_channel') continue;
+      const consumers = [...new Set(graph.in(e.to, 'CONSUMES').map((c) => c.from))].sort();
+      const key = e.to.slice('contract:'.length);
+      routes.set(key, { route: key, source: 'messaging', clients: consumers.length, interfaces: consumers,
+        consumers: consumers.length, consumer_modules: consumers,
+        ...(channel.attrs.channel_unresolved ? { channel_unresolved: true } : {}) });
+      evidence.add(e.id);
     }
   }
 
@@ -90,20 +106,21 @@ export function contractEvidence(graph, ids, workspace = null) {
     }
     for (const id of scope) {
       for (const m of [id, ...graph.out(id, 'IMPORTS').map((e) => e.to)]) {
-        for (const l of [...(calls.get(m) ?? []), ...graph.out(m, 'CONSUMES').flatMap((e) => calls.get(e.to) ?? [])]) {
-          const key = routeKey(...l.route.split(' ')) ?? l.route;
-          add(key, 'client', `workspace:${l.from_repo}->${l.to_repo}:${l.to}`, { server: l.to_repo });
+        for (const l of [...(calls.get(m) ?? []), ...graph.children(m).flatMap((c) => calls.get(c.id) ?? []), ...graph.out(m, 'CONSUMES').flatMap((e) => calls.get(e.to) ?? [])]) {
+          const key = l.route;
+          add(key, l.kind === 'messaging' ? 'messaging' : 'client', `workspace:${l.from_repo}->${l.to_repo}:${l.to}`, { server: l.to_repo });
         }
       }
-      for (const e of graph.out(id, 'EXPOSES')) {
+      for (const e of graph.out(id, ['EXPOSES', 'PUBLISHES'])) {
         for (const l of served.get(e.to) ?? []) {
-          const key = routeKey(...l.route.split(' ')) ?? l.route;
-          add(key, 'client', `workspace:${l.from_repo}->${l.to_repo}:${l.to}`, { client: l.from_repo });
+          const key = l.route;
+          add(key, l.kind === 'messaging' ? 'messaging' : 'client', `workspace:${l.from_repo}->${l.to_repo}:${l.to}`, { client: l.from_repo, ...(l.kind === 'messaging' ? { consumer: `${l.from_repo}:${l.from}` } : {}) });
         }
       }
     }
   }
 
+  for (const r of routes.values()) if (r.source === 'messaging') { r.consumers = r.clients; r.consumer_modules = [...r.interfaces]; }
   const list = [...routes.values()].sort((a, b) => (a.route < b.route ? -1 : 1));
   const interfaces = new Set(list.flatMap((r) => r.interfaces));
   return { present: list.length > 0, routes: list, clients: interfaces.size, evidence: [...evidence].sort() };
