@@ -9,9 +9,11 @@ import { normalizeEngine } from './forecast.mjs';
 import { readStats } from './stats/format.mjs';
 import { statementFacts, freshness, TX_EDGE } from './stats/facts.mjs';
 import { DEFAULT_TTL_DAYS } from '../runtime/util.mjs';
+import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
+import { mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
@@ -271,9 +273,18 @@ function extractPrisma(text, path, F, optsEngine) {
   while ((m = re.exec(text))) {
     const line = text.slice(0, m.index).split('\n').length + 1;
     const body = m[2];
-    const map = /@@map\("([^"]+)"\)/.exec(body)?.[1];
     const schema = /@@schema\("([^"]+)"\)/.exec(body)?.[1];
-    models.push({ name: m[1], table: map ?? m[1], schema, body, line });
+    const map = /@@map\(("[^"]+")\)/.exec(body)?.[1];
+    models.push({ name: m[1], schema, body, line, markers: map ? [{ name: 'map', args: { positional: [map], named: {} }, line }] : [] });
+  }
+  // Which table a model is stored in is the shared ORM mapping rule (adapters/language/orm-maps.mjs).
+  const mapped = new Map(mapEntities({
+    lang: LANGUAGE_IDS.PRISMA, path,
+    types: models.map((x) => ({ name: x.name, ref: x, kind: 'model', line: x.line, bases: [], markers: x.markers, assigns: {}, embeds: [] })),
+  }).mappings.map((x) => [x.ref, x]));
+  for (const mod of models) {
+    mod.mapping = mapped.get(mod);
+    mod.table = mod.mapping.table;
   }
   const byModel = new Map(models.map((x) => [x.name, x]));
   const p = (line, confidence = 'high') => prov({ source_type: 'config', source_ref: `${path}:${line ?? 1}`, extractor: EXTRACTOR, confidence });
@@ -281,7 +292,7 @@ function extractPrisma(text, path, F, optsEngine) {
 
   for (const mod of models) {
     const key = keyOf(mod);
-    F.add(nodeFact('table', key, { name: mod.table, path, attrs: { engine, orm: 'prisma', model: mod.name } }, p(mod.line)));
+    for (const f of tableFacts(mod.mapping, { key, spec: { name: mod.table, path, attrs: { engine, orm: 'prisma', model: mod.name } }, pv: p(mod.line) })) F.add(f);
     const fieldRe = /^\s*(\w+)\s+(\w+)(\[\])?(\?)?([^\n]*)$/gm;
     let f;
     while ((f = fieldRe.exec(mod.body))) {

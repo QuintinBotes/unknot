@@ -86,8 +86,8 @@ Recognition is by pattern on names and shapes (imports, decorators, call shapes)
 | Node HTTP | Express, Fastify, Hono, Koa, NestJS decorators, plain `http` |
 | Node frontend routing | Next.js app and pages routers (incl. `route.ts` handlers), SvelteKit file routes, React Router, Vue Router and Angular route tables |
 | Frontend state | Redux-style stores, by call name |
-| Python | Flask (incl. blueprints), FastAPI (incl. routers), Django URL configs and model classes, SQLAlchemy `__tablename__` |
-| Other languages | HTTP routes, raw SQL strings and ORM table hints by annotation and naming convention (all `inference`, medium or low) |
+| Python | Flask (incl. blueprints), FastAPI (incl. routers), Django URL configs, ORM models (see [ORM mappings](#orm-mappings-entities-and-tables)) |
+| Other languages | HTTP routes, raw SQL strings and ORM mappings by annotation and naming convention (all `inference`, medium or low) |
 | Messaging | Topics and queues from client calls where a literal name is visible (inferred) |
 | Build topology | Nx, Lerna, pnpm workspaces, Turborepo, Rush, Bazel, Make |
 
@@ -104,7 +104,7 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 
 #### HTTP operations: clients and endpoints
 
-One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route, except where the language's routing treats a leading `/` as absolute (attribute routing in C#, where `/x` or `~/x` on a method replaces the type's route); Java and Kotlin annotations, decorators and router calls always append. The `generic` (0.1.9), `javascript` (0.1.14) and `python` (0.1.11) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
+One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route, except where the language's routing treats a leading `/` as absolute (attribute routing in C#, where `/x` or `~/x` on a method replaces the type's route); Java and Kotlin annotations, decorators and router calls always append. The `generic` (0.1.11), `javascript` (0.1.15) and `python` (0.1.12) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
 
 | Language | Verb and route markers (examples) | Base path | Client when |
 |---|---|---|---|
@@ -130,6 +130,28 @@ Calls are matched to the function by name, so a name defined in several files on
 Each client interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
 
 `unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
+
+#### ORM mappings: entities and tables
+
+One rule covers every language: a code type (class, struct, model) that is mapped to a database table is an entity, and a module that reaches the table through that type is a reader or writer of it. The table is named by the code where the code names it (`table_name_basis` is then absent) and otherwise by the ORM's documented naming convention, marked `table_name_basis: 'convention'`. Detection is by shape, never by library: the spellings are rows of `ORM_SYNTAX` in `adapters/language/orm-maps.mjs`, and the library names below are examples of what writes them. The `generic`, `javascript`, `python` and `database` adapters read their own structures into one view and call the same pass, so every row states the same facts: a `table` node (with `orm`) and, from the module that maps it, an `OWNS_DATA` edge. A schema file (Prisma) declares the table without a module that owns it, so it has no edge.
+
+| Library (example) | Entity is | Explicit table name | Convention when not named |
+|---|---|---|---|
+| JPA / Hibernate (Java, Kotlin) | `@Entity` | `@Table(name = "x")` | snake_case of the class |
+| EF Core (C#) | `[Table("x")]`, `DbSet<T> Name`, `IEntityTypeConfiguration<T>` | `[Table("x")]`, `ToTable("x")` | snake_case of the `DbSet` member |
+| SQLAlchemy (Python) | `__tablename__`, a `db.Model` base, `Table("x", metadata, ...)` | `__tablename__`, the `Table` name | snake_case of the class |
+| Django (Python) | `models.Model` (not abstract) | `Meta.db_table` | `<app>_<lowercase class>` |
+| TypeORM (TypeScript) | `@Entity` | `@Entity('x')`, `@Entity({ name })` | snake_case of the class |
+| Sequelize (JavaScript) | `sequelize.define('X', ...)`, `Model.init(..., { sequelize })` | `tableName` option | pluralised model name |
+| Prisma (schema file) | `model X { ... }` | `@@map("x")` | the model name |
+| ActiveRecord (Ruby) | `< ApplicationRecord` | `self.table_name = "x"` | pluralised snake_case of the class |
+| GORM (Go) | `gorm.Model` embedded, or a `TableName()` method | `TableName()` returns `"x"` | pluralised snake_case of the struct |
+| Doctrine (PHP) | `#[ORM\Entity]` | `#[ORM\Table(name: 'x')]` | snake_case of the class |
+| Eloquent (PHP) | `extends Model` | `protected $table = 'x'` | pluralised snake_case of the class |
+
+Access through the mapped type is the other half of the rule. A call such as `Order.objects.create(...)`, `Order::create(...)`, `session.add(Order(...))`, `em.persist(new Order())` or `ctx.Orders.Add(...)` (a `DbSet` member) makes the calling module `MUTATES` (or `QUERIES`) the table, with `via: orm`; the verbs are per-ORM rows in the same table (`access`). The entity may be declared in another file: the extractors record candidate calls as link-only module attributes (`orm_entities`, `orm_members`, `orm_access`) and `ormAccess` resolves them after all files are read, then removes them. A name that maps to several tables resolves only inside the file that declares it. Two entity types in different modules mapped to the same table, each written through, therefore give the `multiple-writers` detector two writers.
+
+Not covered: a repository or query helper reached through a variable whose type is not visible (`orderRepository.save(order)`), the Prisma client (`prisma.order.create`), Doctrine annotations in docblocks (attributes are read), and any mapping built at run time.
 
 ### Databases
 

@@ -5,6 +5,7 @@
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, extensionsFor } from '../../../runtime/graph/languages.mjs';
+import { accessCandidates, mapEntities, ormAttrs, tableFacts } from '../orm-maps.mjs';
 import { SYNTAX, clientFacts, clientPath, createGroups, operations, readMarker, routeGroupAttrs, typeBase, urlPath } from '../http-ops.mjs';
 
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
@@ -38,10 +39,6 @@ function regexRoute(rx) {
     .replace(/\([^)]*\)/g, ':arg')
     .replace(/\\(.)/g, '$1')
     .replace(/[?*+]/g, '');
-}
-
-function snake(name) {
-  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toLowerCase();
 }
 
 function typeText(v) {
@@ -90,7 +87,7 @@ function classBase(rec) {
  * @param {(line:number)=>object} a.pvModel provenance for ORM mapping facts
  * @param {object} a.moduleAttrs attributes of the module fact; the route group inputs for link() are added to them
  */
-export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, moduleAttrs }) {
+export function frameworkFacts({ path, raw, text = '', moduleId, symbols, pv, pvModel, moduleAttrs }) {
   const facts = [];
   const detail = raw.calls_detail ?? [];
   const importedModules = new Set(raw.imports.map((i) => i.module.split('.')[0]));
@@ -247,19 +244,41 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
   }
 
   // --- ORM models -> tables ----------------------------------------------------------
-  const importsDjangoModels = raw.imports.some((i) => i.module === 'django.db' && i.names.some((n) => n.name === 'models'))
-    || raw.imports.some((i) => i.module === 'django.db.models');
-  for (const cls of raw.classes) {
-    if (cls.parent) continue;
-    const isDjango = cls.bases.some((b) => b === 'models.Model' || (b === 'Model' && importsDjangoModels));
-    const tablename = lit(cls.assigns.__tablename__);
-    const isSqla = !isDjango && (tablename !== null || cls.bases.includes('db.Model'));
-    if (!isDjango && !isSqla) continue;
-    const owned = detail.filter((c) => c.owner_class === cls.qual && !c.scope);
+  // The one mapping rule (../orm-maps.mjs) names each entity and its table; the columns are read
+  // here from the class body, which is the part that is specific to the Python ORMs.
+  const ormTypes = raw.classes.filter((c) => !c.parent).map((c) => {
+    const assigns = {};
+    const take = (key, v, line) => { if (typeof v === 'string' || v === true) assigns[key] = { value: v, line }; };
+    for (const [k, v] of Object.entries(c.assigns ?? {})) take(k, v, c.start_line);
+    for (const nested of raw.classes) {
+      if (nested.parent !== c.qual) continue;
+      for (const [k, v] of Object.entries(nested.assigns ?? {})) take(`${nested.name}.${k}`, v, c.start_line);
+    }
+    return { name: c.name, ref: c, cls: c, kind: null, line: c.start_line, bases: c.bases, markers: [], assigns, embeds: [] };
+  });
+  const ormImports = raw.imports.flatMap((i) => [i.module, ...i.names.map((n) => `${i.module}.${n.name}`)]);
+  const ormText = text;
+  const ormStarts = [0];
+  for (let i = ormText.indexOf('\n'); i >= 0; i = ormText.indexOf('\n', i + 1)) ormStarts.push(i + 1);
+  const ormLine = (off) => {
+    let lo = 0;
+    let hi = ormStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (ormStarts[mid] <= off) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  const ormView = {
+    lang: LANGUAGE_IDS.PYTHON, path, imports: ormImports, text: ormText, lineOf: ormLine, matches: (re) => [...ormText.matchAll(re)], types: ormTypes,
+  };
+  const { mappings } = mapEntities(ormView);
+  const entities = [];
+  for (const m of mappings) {
+    const cls = m.ref ?? { qual: m.entity, name: m.entity, start_line: m.line };
+    const owned = m.ref ? detail.filter((c) => c.owner_class === cls.qual && !c.scope) : [];
     const columns = [];
-    let table;
-    if (isSqla) {
-      table = tablename ?? snake(cls.name);
+    if (m.orm === 'sqlalchemy' || !m.ref) {
       for (const c of owned) {
         const l = lastSeg(c.name);
         if (l !== 'Column' && l !== 'mapped_column') continue;
@@ -281,13 +300,6 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
         });
       }
     } else {
-      const meta = raw.classes.find((k) => k.qual === `${cls.qual}.Meta`);
-      if (meta?.assigns.abstract === true) continue;
-      const parts = path.split('/');
-      parts.pop();
-      if (parts[parts.length - 1] === 'models') parts.pop();
-      const app = parts[parts.length - 1] ?? '';
-      table = lit(meta?.assigns.db_table) ?? `${app ? `${app}_` : ''}${cls.name.toLowerCase()}`;
       for (const c of owned) {
         const l = lastSeg(c.name);
         if (!c.assign || l === 'ManyToManyField' || !(l.endsWith('Field') || l === 'ForeignKey')) continue;
@@ -301,12 +313,14 @@ export function frameworkFacts({ path, raw, moduleId, symbols, pv, pvModel, modu
           foreign_key: isFk ? lit(target) ?? target?.ref ?? null : null,
         });
       }
-      if (!columns.some((c) => c.primary_key)) columns.unshift({ name: 'id', type: 'AutoField', nullable: false, primary_key: true, foreign_key: null });
+      if (m.ref && !columns.some((c) => c.primary_key)) columns.unshift({ name: 'id', type: 'AutoField', nullable: false, primary_key: true, foreign_key: null });
     }
-    const orm = isDjango ? 'django' : 'sqlalchemy';
-    facts.push(nodeFact('table', table, { name: table, path, attrs: { columns, orm, model: cls.qual } }, pvModel(cls.start_line)));
-    facts.push(edgeFact('OWNS_DATA', moduleId, `table:${table}`, { orm, model: cls.qual }, pvModel(cls.start_line)));
+    facts.push(...tableFacts(m, {
+      key: m.table, spec: { name: m.table, path, attrs: { columns, orm: m.orm, model: cls.qual } }, from: moduleId, edgeAttrs: { orm: m.orm, model: cls.qual }, pv: pvModel(cls.start_line),
+    }));
+    entities.push({ n: cls.name, t: m.table, o: m.orm });
   }
+  Object.assign(moduleAttrs, ormAttrs(entities, [], accessCandidates(ormText, LANGUAGE_IDS.PYTHON, ormLine)));
 
   // --- Celery ------------------------------------------------------------------------
   for (const [qual, sym] of symbols) {
