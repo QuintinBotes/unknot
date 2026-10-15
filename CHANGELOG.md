@@ -10,6 +10,14 @@ All notable changes are documented here. The format follows
 
 - Agents may not approve a pull or merge request on the forge (roadmap #16, item 4, phase 1 of `docs/forge-approvals.md`): `gh pr review --approve`/`-a`, `gh api` calls that post an approving review (REST or GraphQL, or an unreadable body), `gh` aliases, and MCP tools that create or submit an approving review or approve are refused under `approval.human_only`. Reading reviews, commenting and requesting changes still work, and text that only mentions an approval is data.
 
+### Fixed
+
+- Index and constraint ids in DDL files under a dialect-named path (for example `db/mysql/`, `docker/postgres/`) now carry the dialect, so findings about them get new fingerprints once after this upgrade.
+- Foreign keys declared in migration DSLs are recorded as the same facts DDL `REFERENCES` produces, so `missing-constraint-candidates` no longer reports columns that are constrained: Rails `t.references ... foreign_key:`, `add_reference` and `add_foreign_key`, Laravel `foreignId()->constrained()` and `foreign()->references()->on()`, Django `ForeignKey`, Alembic `sa.ForeignKey`, `ForeignKeyConstraint` and `op.create_foreign_key`, EF Core `table.ForeignKey` and `AddForeignKey`, Knex `.references().inTable()`, TypeORM `TableForeignKey` and Sequelize `references`. Laravel and EF Core migrations are now read at all (database adapter 0.1.2).
+- Destructive-migration findings no longer count drops in a migration's rollback section (Rails `down`, Laravel `down()`, Alembic `downgrade()`, Django reverse code and `reverse_sql`, Flyway `U__` undo files, Liquibase `<rollback>`, EF Core `Down()`); only forward sections count.
+- Migration DSL options are no longer read as columns: `t.timestamps null: false` adds `created_at` and `updated_at` instead of a column named `null`, as Laravel `$table->timestamps()` and Knex `timestamps()` do.
+- Schema files for different database dialects (`db/h2/schema.sql`, `db/mysql/schema.sql`, `db/postgres/schema.sql`) are alternative variants of one table: indexes and constraints are kept per variant, the table records its `variants`, and `duplicate-index` never compares across variants.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

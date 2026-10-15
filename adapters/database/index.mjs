@@ -13,7 +13,7 @@ import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
 import { mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
@@ -21,6 +21,28 @@ const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
 const posix = (p) => String(p).replace(/\\/g, '/');
 const baseName = (p) => posix(p).split('/').pop();
 const dirName = (p) => posix(p).split('/').slice(0, -1).join('/');
+
+// ---------------------------------------------------------------- dialect variants
+
+/**
+ * Path words that name a database dialect, mapped to one canonical dialect. The same table
+ * defined in several files whose paths name different dialects (db/h2/schema.sql,
+ * db/mysql/schema.sql) is one table with alternative variants, not one table with every
+ * variant's indexes merged.
+ */
+const DIALECT_WORDS = {
+  h2: 'h2', hsqldb: 'hsqldb', hsql: 'hsqldb', mysql: 'mysql', mariadb: 'mariadb', postgres: 'postgresql', postgresql: 'postgresql', pgsql: 'postgresql',
+  sqlite: 'sqlite', sqlite3: 'sqlite', oracle: 'oracle', mssql: 'mssql', sqlserver: 'mssql', sqlsrv: 'mssql',
+};
+
+/** The dialect a file path names (the file name first, then the nearest directory), or null. */
+export function dialectVariant(path) {
+  const segs = posix(path).toLowerCase().split('/').reverse();
+  for (const seg of segs) {
+    for (const word of seg.replace(/\.[a-z0-9]+$/, '').split(/[^a-z0-9]+/)) if (DIALECT_WORDS[word]) return DIALECT_WORDS[word];
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------- naming
 
@@ -88,6 +110,9 @@ class Facts {
 function emitDdl(F, parsed, { engine, p, migrationId, path }) {
   const tk = (ref) => tableKey(ref, engine);
   const touched = new Set();
+  // Indexes and constraints of a dialect-named file are that variant's own; their ids carry it.
+  const variant = dialectVariant(path);
+  const vsuffix = variant ? `@${variant}` : '';
 
   const tableNode = (ref, attrs = {}, line) => {
     const key = tk(ref);
@@ -110,11 +135,11 @@ function emitDdl(F, parsed, { engine, p, migrationId, path }) {
 
   const constraintNode = (key, tableName, k, line) => {
     const name = constraintName(k, tableName);
-    F.add(nodeFact('constraint', `${key}.${name}`, {
+    F.add(nodeFact('constraint', `${key}.${name}${vsuffix}`, {
       name, path,
-      attrs: { kind: k.kind, columns: k.columns, expr: k.expr, not_valid: k.not_valid, deferrable: k.deferrable, references: k.ref_table ? tk(k.ref_table) : null, using_index: k.using_index },
+      attrs: { ...(variant ? { variant } : {}), kind: k.kind, columns: k.columns, expr: k.expr, not_valid: k.not_valid, deferrable: k.deferrable, references: k.ref_table ? tk(k.ref_table) : null, using_index: k.using_index },
     }, p(line)));
-    F.add(edgeFact('CONTAINS', `table:${key}`, `constraint:${key}.${name}`, {}, p(line)));
+    F.add(edgeFact('CONTAINS', `table:${key}`, `constraint:${key}.${name}${vsuffix}`, {}, p(line)));
     if (k.kind === 'foreign_key' && k.ref_table) {
       const to = tableNode(k.ref_table, {}, line);
       F.add(edgeFact('REFERENCES', `table:${key}`, `table:${to}`, { columns: k.columns, ref_columns: k.ref_columns, on_delete: k.on_delete ?? 'NO ACTION', on_update: k.on_update ?? 'NO ACTION', constraint: name, not_valid: k.not_valid }, p(line)));
@@ -127,8 +152,8 @@ function emitDdl(F, parsed, { engine, p, migrationId, path }) {
     const schema = tableRef.schema ?? defaultSchema(engine);
     const cols = (st.columns ?? []).map((c) => (typeof c === 'string' ? c : c.name ?? c.expr));
     const name = st.name ?? `${tableRef.name}_${cols.join('_')}_idx`;
-    const id = `${schema ? `${schema}.` : ''}${name}`;
-    F.add(nodeFact('index', id, { name, path, attrs: { table: key, unique: Boolean(st.unique), method: st.method ?? null, columns: cols, where: st.where ?? null, concurrently: Boolean(st.concurrently), fulltext: Boolean(st.fulltext) } }, p(line)));
+    const id = `${schema ? `${schema}.` : ''}${name}${vsuffix}`;
+    F.add(nodeFact('index', id, { name, path, attrs: { ...(variant ? { variant } : {}), table: key, unique: Boolean(st.unique), method: st.method ?? null, columns: cols, where: st.where ?? null, concurrently: Boolean(st.concurrently), fulltext: Boolean(st.fulltext) } }, p(line)));
     F.add(edgeFact('INDEXED_BY', `table:${key}`, `index:${id}`, { unique: Boolean(st.unique) }, p(line)));
   };
 
@@ -484,6 +509,22 @@ function link(ctx) {
     }
   }
 
+  // A table defined in files that name different dialects is one table with alternative variants.
+  const variantsByTable = new Map();
+  for (const [file, facts] of files) {
+    const v = dialectVariant(file);
+    if (!v) continue;
+    for (const f of facts) {
+      if (f.kind !== 'edge' || f.type !== 'CONTAINS' || f.provenance?.extractor !== EXTRACTOR || !f.to.startsWith('column:')) continue;
+      if (!variantsByTable.has(f.from)) variantsByTable.set(f.from, new Set());
+      variantsByTable.get(f.from).add(v);
+    }
+  }
+  for (const [id, set] of variantsByTable) {
+    if (set.size < 2) continue;
+    add(nodeFact('table', id.slice(6), { name: id.split('.').pop(), attrs: { variants: [...set].sort() } }, prov({ source_type: 'inference', source_ref: 'database:variants', extractor: EXTRACTOR, confidence: 'medium' })));
+  }
+
   // Cross-file migration facts: undo files, down pairs, Alembic chain order, Atlas dirs.
   const infos = paths.map((pth) => ({ path: pth, info: detectFramework(pth) })).filter((x) => x.info);
   const hasUndo = new Set();
@@ -733,7 +774,7 @@ export default {
   version: VERSION,
   kind: 'database',
   capabilities: {
-    files: ['**/*.sql', '**/migrations/**', '**/migrate/**', '**/schema.prisma', '**/changelog*.{xml,yaml,yml,json}', '**/db/schema.rb', '**/alembic/versions/*.py'],
+    files: ['**/*.sql', '**/migrations/**', '**/migrate/**', '**/schema.prisma', '**/changelog*.{xml,yaml,yml,json}', '**/db/schema.rb', '**/alembic/versions/*.py', '**/Migrations/**'],
     executes: [],
     network: false,
   },
