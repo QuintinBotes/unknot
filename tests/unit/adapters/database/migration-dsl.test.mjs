@@ -39,6 +39,10 @@ const FK_ROWS = [
   ['django ForeignKey', 'shop/migrations/0001_initial.py',
     "from django.db import migrations, models\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.CreateModel(name='Invoice', fields=[('id', models.AutoField(primary_key=True)), ('order', models.ForeignKey(on_delete=models.CASCADE, to='shop.order'))]),\n    ]\n",
     ['table:public.shop_invoice>table:public.shop_order(order_id)']],
+  // A swappable user model names no table in the migration, so no foreign key (and no guessed table).
+  ['django settings.AUTH_USER_MODEL', 'shop/migrations/0002_ledger.py',
+    "from django.conf import settings\nfrom django.db import migrations, models\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.CreateModel(name='Ledger', fields=[('id', models.AutoField(primary_key=True)), ('owner', models.OneToOneField(on_delete=models.CASCADE, to=settings.AUTH_USER_MODEL))]),\n        migrations.AddField(model_name='ledger', name='editor', field=models.ForeignKey(on_delete=models.CASCADE, to=settings.AUTH_USER_MODEL)),\n    ]\n",
+    []],
   ['alembic sa.ForeignKey', 'alembic/versions/a1_init.py',
     "revision = 'a1'\ndown_revision = None\ndef upgrade():\n    op.create_table('invoices', sa.Column('id', sa.Integer, primary_key=True), sa.Column('order_id', sa.Integer, sa.ForeignKey('orders.id')))\ndef downgrade():\n    op.drop_table('invoices')\n",
     ['table:public.invoices>table:public.orders(order_id)']],

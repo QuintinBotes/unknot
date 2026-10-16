@@ -108,6 +108,23 @@ test('arrays, comments, strings, dynamic expressions and unrelated method names'
   assert.equal(g.out('module:orders.js', 'CONSUMES').length, 2);
 });
 
+test('callbacks, declarations and look-alike receivers are no channels', () => {
+  for (const [path, code] of [
+    ['view.ts', 'this.instance.subscribe((x) => this.render(x));'],
+    ['store.js', 'const stop = subscribe((value) => { count = value; });'],
+    ['ledger.ts', 'balanceService.publish(update);'],
+    ['bus.js', 'class Bus { publish(event) { this.items.push(event); } }'],
+    ['bus.ts', 'class Bus { publish(event: string): void { this.items.push(event); } }'],
+    ['bus.js', 'function publish(topic, data) { return [topic, data]; }'],
+    ['bus.py', 'def publish(subject):\n    return subject\n'],
+    ['bus.go', 'func (b *Bus) Publish(subject string, data []byte) error {\n\treturn nil\n}\n'],
+    ['Listener.java', 'consumer.subscribe(msg -> handle(msg));'],
+  ]) {
+    const facts = adapter.extract({ path, kind: 'source' }, code);
+    assert.deepEqual(facts.filter((f) => f.attrs?.kind === 'messaging_channel'), [], code);
+  }
+});
+
 test('messaging contracts reach decompose with distinct consumers per channel', () => {
   const g = project({ 'orders.js': 'producer.send({ topic: "orders.created" })',
     'ledger.js': 'consumer.subscribe({ topic: "orders.created" }); consumer.subscribe({ topic: "orders.created" });',

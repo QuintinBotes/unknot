@@ -12,6 +12,8 @@ export const RPC_CLIENT_SYNTAX = [
 ];
 
 export function rpcCandidates(text, lang) {
+  // Most files construct no client and hold no query document: a text test spares them the lexer.
+  if (!/(?:Client|Stub)\s*\(|\bgql\s*`/.test(text)) return [];
   const lx = view(text, lang);
   const calls = callsIn(lx);
   const out = [];

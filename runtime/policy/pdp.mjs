@@ -120,7 +120,7 @@ function forgeApprovalCommand(cmd) {
     }
     const args = c.argv.slice(1).map((w) => w.value);
     if (args[0] === 'alias') return true;
-    if (args[0] === 'pr' && args[1] === 'review' && args.some((a) => a === '--approve' || a === '-a')) return true;
+    if (args[0] === 'pr' && args[1] === 'review' && args.some((a) => a === '--approve' || a.startsWith('--approve=') || a === '-a')) return true;
     if (args[0] === 'api' && args.some((a) => REVIEW_ENDPOINT.test(a))) {
       // A body read from a file or stdin cannot be seen, so it counts as an approval.
       if (args.some((a) => /APPROVE/i.test(a) || a === '--input' || a.startsWith('--input='))) return true;
@@ -132,9 +132,12 @@ function forgeApprovalCommand(cmd) {
 /** An MCP tool call that would approve a pull or merge request on a forge. */
 function forgeApprovalTool(op) {
   if (/approve/i.test(op.name)) return true;
-  if (!/review/i.test(op.name) || !/(^|_)(create|submit|add)(_|$)/i.test(op.name)) return false;
+  if (!/review/i.test(op.name)) return false;
+  // One tool may create or submit by a method argument (GitHub's `pull_request_review_write`).
+  const verb = `${op.name} ${op.input?.method ?? ''}`;
+  if (!/(^|[_\s])(create|submit|add|write)([_\s]|$)/i.test(verb)) return false;
   const event = String(op.input?.event ?? op.input?.state ?? '').toUpperCase();
-  return event === 'APPROVE' || (event === '' && /submit/i.test(op.name));
+  return event === 'APPROVE' || (event === '' && /submit/i.test(verb));
 }
 
 /**

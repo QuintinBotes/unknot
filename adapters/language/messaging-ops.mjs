@@ -21,16 +21,27 @@ export const MESSAGING_SYNTAX = [
   { family: 'cloud', names: ['CreateSender'], direction: 'PUBLISHES', channel: 'queue', argument: 0 },
   { family: 'cloud', names: ['CreateReceiver', 'CreateProcessor'], direction: 'CONSUMES', channel: 'queue', argument: 0 },
   { family: 'cloud', names: ['topic'], direction: 'PUBLISHES', channel: 'topic', argument: 0, followedBy: /^\s*\.\s*publish(?:Message)?\s*\(/ },
-  { family: 'nats', names: ['publish', 'Publish'], receiver: /nats|nc|connection|publisher|^$/i, direction: 'PUBLISHES', channel: 'subject', argument: 0 },
-  { family: 'nats', names: ['subscribe', 'Subscribe'], receiver: /nats|nc|connection|subscriber|^$/i, direction: 'CONSUMES', channel: 'subject', argument: 0 },
+  { family: 'nats', names: ['publish', 'Publish'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|publisher|^$/i, direction: 'PUBLISHES', channel: 'subject', argument: 0 },
+  { family: 'nats', names: ['subscribe', 'Subscribe'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|subscriber|^$/i, direction: 'CONSUMES', channel: 'subject', argument: 0 },
   { family: 'handler', names: ['MessagePattern', 'EventPattern'], direction: 'CONSUMES', channel: 'topic', argument: 0, marker: true },
   { family: 'handler', names: ['QueueTrigger', 'ServiceBusTrigger'], direction: 'CONSUMES', channel: 'queue', argument: 0, marker: true },
 ];
 
+const DECLARES = /\b(?:function|def|func|fun|sub)\s+$/;
+// A callback, lambda, object literal or typed parameter (`subject string`, `String topic`) names no
+// channel: `this.items.subscribe((x) => ...)` is no subscription.
+const NOT_A_CHANNEL = /=>|^\(?[\w\s,]*\)?\s*->|^(?:function|func|lambda|async|fn)\b|^\{|^[A-Za-z_][\w.]*\s+[*&]?[A-Za-z_][\w.[\]]*$/;
+
+// Most files call none of the names: a text test spares them the lexer.
+const TRIGGER = new RegExp(`\\b(?:${[...new Set(MESSAGING_SYNTAX.flatMap((r) => r.names))].join('|')})\\s*\\(`);
+
 export function messagingCandidates(path, text, lang) {
+  if (!TRIGGER.test(text)) return [];
   const lx = view(text, lang);
   const out = [];
   for (const call of callsIn(lx)) {
+    // `function publish(topic)`, `def publish(subject):` or a method `publish(event) {` declares the name; it is no call.
+    if (!call.receiver && (DECLARES.test(call.before) || /^\s*(?::[^;{}()=]*)?\{/.test(lx.code.slice(call.end + 1, call.end + 200)))) continue;
     for (const row of MESSAGING_SYNTAX) {
       if (!row.names.includes(call.name) || (row.receiver && !row.receiver.test(call.receiver))
         || (row.receiver && !call.receiver && /[.>]\s*$/.test(call.before))
@@ -52,6 +63,7 @@ export function messagingCandidates(path, text, lang) {
       const values = list ? argumentsOf(list[1]).positional : [raw];
       for (const value of values) {
         if (out.length >= MAX_OPERATIONS) break;
+        if (NOT_A_CHANNEL.test(value.trim())) continue;
         out.push({ channel, expression: value.trim(), direction: row.direction, line: call.line, index: call.index, slot: out.length,
           ...(row.routingKey !== undefined || row.fallback ? { routing_key: call.args.named.routing_key ?? call.args.positional[row.routingKey] } : {}) });
       }

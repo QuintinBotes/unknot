@@ -423,11 +423,13 @@ function readDjango(path, text, dialect) {
   const out = [];
   const app = (/(?:^|\/)([^/]+)\/migrations\//.exec(posix(path)) ?? [])[1] ?? 'app';
   const tbl = (model) => `${app}_${String(unq(model)).toLowerCase()}`;
-  // 'app.Model' names that app's table, a bare 'Model' this app's, settings.AUTH_USER_MODEL the user table.
+  // 'app.Model' names that app's table, a bare 'Model' this app's. settings.AUTH_USER_MODEL names
+  // no table here (projects often swap in their own user model), so it gives no foreign key.
+  // shortcut: the swapped model is in settings, which this reader never sees; resolve it in link if needed.
   const target = (ref, self) => {
     const r = String(ref);
     if (r === 'self') return self;
-    if (/AUTH_USER_MODEL/.test(r)) return 'auth_user';
+    if (/AUTH_USER_MODEL/.test(r)) return null;
     const [a, mdl] = r.includes('.') ? r.split('.') : [app, r];
     return `${a}_${mdl.toLowerCase()}`;
   };
@@ -452,7 +454,8 @@ function readDjango(path, text, dialect) {
           if (parts.length < 2) continue;
           const f = djangoField(parts.slice(1).join(','));
           cols.push(`${unq(parts[0])}${f.name_suffix} ${f.type}${f.nullable ? '' : ' NOT NULL'}${f.kind === 'AutoField' || f.kind === 'BigAutoField' ? ' PRIMARY KEY' : ''}`);
-          if (f.fk) cols.push(fkClause(`${unq(parts[0])}${f.name_suffix}`, target(f.fk, self), [f.to_field], f.on_delete));
+          const to = f.fk && target(f.fk, self);
+          if (to) cols.push(fkClause(`${unq(parts[0])}${f.name_suffix}`, to, [f.to_field], f.on_delete));
         }
         synth(`CREATE TABLE ${tbl(get('name', 0))} (${cols.join(', ')});`, line, dialect, op, out);
         break;
@@ -463,7 +466,8 @@ function readDjango(path, text, dialect) {
         const f = djangoField(get('field', 2));
         const col = `${unq(get('name', 1))}${f.name_suffix}`;
         synth(`ALTER TABLE ${tbl(get('model_name', 0))} ADD COLUMN ${col} ${f.type}${f.default}${f.nullable ? '' : ' NOT NULL'};`, line, dialect, op, out);
-        if (f.fk) synth(fkAlter(tbl(get('model_name', 0)), col, target(f.fk, tbl(get('model_name', 0))), [f.to_field], f.on_delete), line, dialect, op, out);
+        const to = f.fk && target(f.fk, tbl(get('model_name', 0)));
+        if (to) synth(fkAlter(tbl(get('model_name', 0)), col, to, [f.to_field], f.on_delete), line, dialect, op, out);
         break;
       }
       case 'RemoveField': synth(`ALTER TABLE ${tbl(get('model_name', 0))} DROP COLUMN ${unq(get('name', 1))};`, line, dialect, op, out); break;

@@ -512,9 +512,11 @@ export function ormAttrs(entities, members, access, classes = []) {
  * A name that maps to several tables resolves only inside the file that declares it.
  * A concrete type that inherits, through a chain of bases found anywhere in the repository, from an
  * entity or a mapped superclass of an ORM is an entity of that ORM too: it gets its table (and
- * the owning edge) here, since its bases may be declared in other files. `opts.tableKey(table)`
+ * the owning edge) here, since its bases may be declared in other files. Those facts are added to
+ * the declaring file's facts in `factsByFile`, like a table mapped in that file, so the adapters
+ * linked later (the database adapter's schema-qualified ids) see them too. `opts.tableKey(table)`
  * is the id the adapter gives a table, `opts.attrs(orm, model, table)` the attributes of its node.
- * @returns {object[]} MUTATES and QUERIES edges from the module to the table, and the inherited tables
+ * @returns {object[]} MUTATES and QUERIES edges from the module to the table
  */
 export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   const own = (f) => String(f.provenance?.extractor ?? '').startsWith(extractorPrefix);
@@ -522,7 +524,6 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   const members = new Map(); // member name -> [entity name]
   const users = [];
   const classes = new Map(); // type name -> [{ path, lang, ...class record }]
-  const inheritedFacts = [];
   for (const [path, facts] of factsByFile) {
     for (const f of facts) {
       if (f.kind !== 'node' || f.type !== 'module' || !own(f)) continue;
@@ -570,7 +571,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
     const id = opts.tableKey ? opts.tableKey(table) : table;
     const m = { orm: row.orm, entity: name, table, basis: declared ? 'declared' : 'convention' };
     const spec = { name: table, path: r.path, attrs: opts.attrs ? opts.attrs(row.orm, name, table) : { orm: row.orm, model: name } };
-    inheritedFacts.push(...tableFacts(m, { key: id, spec, from: `module:${r.path}`, edgeAttrs: { orm: row.orm, model: name }, pv: pv(r.path, r.l ?? 1) }));
+    factsByFile.get(r.path).push(...tableFacts(m, { key: id, spec, from: `module:${r.path}`, edgeAttrs: { orm: row.orm, model: name }, pv: pv(r.path, r.l ?? 1) }));
     if (!entities.has(name)) entities.set(name, []);
     entities.get(name).push({ path: r.path, id, orm: row.orm });
   }
@@ -580,7 +581,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
     const ids = new Set((here.length ? here : all).map((e) => e.id));
     return ids.size === 1 ? (here.length ? here : all)[0] : null;
   };
-  const out = [...inheritedFacts];
+  const out = [];
   const done = new Set();
   for (const { path, access } of users) {
     for (const c of access) {

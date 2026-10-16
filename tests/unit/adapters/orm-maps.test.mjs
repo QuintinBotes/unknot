@@ -34,7 +34,9 @@ async function factsFor(lang, sources) {
     for (const it of items) files.set(it.file.path, it.file);
     const records = await pythonAdapter.extractBatch(items, { exec: hasPython ? realExec : unsupportedExec, options: {} });
     for (const [path, facts] of records) factsByFile.set(path, facts);
-    return [...factsByFile.values()].flat().concat(pythonAdapter.link({ files, factsByFile, options: {} }));
+    // Link first: it adds the tables of inherited entities to the per-file facts.
+    const linked = pythonAdapter.link({ files, factsByFile, options: {} });
+    return [...factsByFile.values()].flat().concat(linked);
   }
   const adapter = lang === LANGUAGE_IDS.PRISMA ? databaseAdapter : [LANGUAGE_IDS.TYPESCRIPT, LANGUAGE_IDS.JAVASCRIPT].includes(lang) ? javascriptAdapter : genericAdapter;
   for (const [path, text] of Object.entries(sources)) {
@@ -170,6 +172,20 @@ for (const c of INHERITED) {
     }
   });
 }
+
+test('the database link schema-qualifies an inherited entity table like a directly mapped one', async () => {
+  const sources = { ...INHERITED[0].sources, 'billing/ledger.py': 'from django.db import models\n\nclass Ledger(models.Model):\n    pass\n' };
+  const items = Object.entries(sources).map(([path, text]) => ({ file: entryOf(path, text), text }));
+  const files = new Map(items.map((it) => [it.file.path, it.file]));
+  const factsByFile = new Map(await pythonAdapter.extractBatch(items, { exec: hasPython ? realExec : unsupportedExec, options: {} }));
+  pythonAdapter.link({ files, factsByFile, options: {} });
+  const linked = databaseAdapter.link({ files, factsByFile, options: {} });
+  for (const name of ['billing_article', 'billing_review', 'billing_ledger']) {
+    const id = `table:public.${name}`;
+    assert.equal(linked.find((f) => f.kind === 'node' && f.id === id)?.attrs.orm, 'django', `${id} is the ORM's table`);
+    assert.ok(linked.some((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && f.to === id), `${id} has an owner`);
+  }
+});
 
 test('a class whose bases never reach an ORM entity is not mapped', async () => {
   const facts = await factsFor(L.PYTHON, {

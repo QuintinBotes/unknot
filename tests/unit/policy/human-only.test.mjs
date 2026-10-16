@@ -45,6 +45,7 @@ test('approving a pull request through gh is refused, in any spelling', () => {
     'gh pr review 12 --approve',
     'gh pr review --approve -b "looks good"',
     'gh pr review 12 -a',
+    'gh pr review 12 --approve=true',
     'bash -c "gh pr review 3 --approve"',
     'echo "gh pr review 1 --approve" | sh',
     'gh api repos/o/r/pulls/3/reviews -f event=APPROVE',
@@ -72,4 +73,10 @@ test('forge tools that create or submit an approving review, or approve, are ref
   assert.equal(tool('approve_merge_request', { id: 4 }), true);
   assert.equal(tool('create_pull_request_review', { event: 'COMMENT' }), false);
   assert.equal(tool('get_pull_request_reviews', {}), false);
+  // One tool that creates and submits by a method argument.
+  assert.equal(tool('pull_request_review_write', { method: 'create', event: 'APPROVE' }), true);
+  assert.equal(tool('pull_request_review_write', { method: 'submit_pending', event: 'APPROVE' }), true);
+  assert.equal(tool('pull_request_review_write', { method: 'submit_pending' }), true, 'an unknown event on submit counts as an approval');
+  assert.equal(tool('pull_request_review_write', { method: 'create', event: 'COMMENT' }), false);
+  assert.equal(tool('pull_request_review_write', { method: 'delete_pending' }), false);
 });
