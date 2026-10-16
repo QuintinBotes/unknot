@@ -367,7 +367,7 @@ export function link(ctx) {
     }
   }
   routeGroups(ctx.factsByFile, 'python@', normalizeRoute);
-  for (const f of ormAccess(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) emit(f);
+  for (const f of ormAccess(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }), { attrs: (orm, model) => ({ columns: [], orm, model }) })) emit(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) emit(f);
   return out;
 }

@@ -10,6 +10,12 @@ All notable changes are documented here. The format follows
 
 - Agents may not approve a pull or merge request on the forge (roadmap #16, item 4, phase 1 of `docs/forge-approvals.md`): `gh pr review --approve`/`-a`, `gh api` calls that post an approving review (REST or GraphQL, or an unreadable body), `gh` aliases, and MCP tools that create or submit an approving review or approve are refused under `approval.human_only`. Reading reviews, commenting and requesting changes still work, and text that only mentions an approval is data.
 
+### Fixed
+
+- ORM entities that inherit from an abstract base are mapped (Django `abstract = True`, SQLAlchemy `__abstract__ = True`, ActiveRecord `self.abstract_class = true`, JPA and Doctrine `MappedSuperclass`): a concrete class whose inheritance chain, resolved by name across the repository, reaches an entity or a mapped superclass of an ORM is an entity of it, with the table its own name or that ORM's convention gives; the abstract bases are no longer mapped as tables. The rule is the `abstract` and `inherits` fields of the `ORM_SYNTAX` rows. `generic` 0.1.12, `python` 0.1.13.
+- An entity name in an ORM query string (JPQL, HQL, DQL) resolves to the entity's mapped table instead of becoming an inferred table, and a name in a string written that way (`SELECT ptype FROM PetType ptype`, `JOIN FETCH o.items`) that matches no mapped entity creates no table. `database` 0.1.2.
+- The dead-code detector judges only modules of programming languages by the language registry: configuration, resource, locale, template and data files are never reported as modules nothing imports.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

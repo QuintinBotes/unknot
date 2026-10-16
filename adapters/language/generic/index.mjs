@@ -19,7 +19,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.11';
+const VERSION = '0.1.12';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -234,7 +234,7 @@ function extract(file, text, ctx) {
     const pv = prov_(path, t.line, t.confidence, 'inference');
     // A fluent mapping names an entity whose file may differ from this one: link() adds that owner.
     if (t.entity) (attrs.ef_tables ??= []).push({ entity: t.entity, table: t.name, line: t.line });
-    body.push(...tableFacts(t, { key: tid, spec: { name: t.name, attrs: { schema: 'public', orm: t.orm } }, from: t.entity ? null : modId, edgeAttrs: { orm: t.orm }, pv }));
+    body.push(...tableFacts(t, { key: tid, spec: { name: t.name, attrs: { schema: 'public', orm: t.orm, ...(t.model && { model: t.model }) } }, from: t.entity ? null : modId, edgeAttrs: { orm: t.orm }, pv }));
   }
 
   if (body.length + 1 > MAX_FACTS) {
@@ -596,7 +596,9 @@ function link(ctx) {
   }
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
-  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
+  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'), {
+    tableKey: (table) => `public.${table}`, attrs: (orm, model) => ({ schema: 'public', orm, model }),
+  })) push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------

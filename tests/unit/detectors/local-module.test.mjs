@@ -184,6 +184,26 @@ test('dead-code: unreferenced private symbols and modules, with the documented e
   assert.ok(mDraft.patterns.includes('code.remove-dead-code'));
 });
 
+test('dead-code: configuration, resource, locale, template and data files are never dead code; an unused source module still is', () => {
+  const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
+  const others = [mod('src/index.js'), mod('src/a.js'), mod('src/b.js'), imp('src/index.js', 'src/a.js'), imp('src/a.js', 'src/b.js')];
+  // [path, registered language id or null when the registry does not know the file kind]
+  const resources = [
+    ['src/main/resources/application.properties', null],
+    ['src/main/resources/messages_de.properties', null],
+    ['config/app.yml', 'yaml'],
+    ['config/settings.json', 'json'],
+    ['locales/en.json', 'json'],
+    ['templates/page.html', null],
+    ['data/sample.csv', null],
+    ['docs/guide.md', 'markdown'],
+  ];
+  for (const [path, language] of resources) {
+    assert.deepEqual(flagged([...others, mod(path, { language })]), [], `${path} is not dead code`);
+  }
+  assert.deepEqual(flagged([...others, mod('src/unused.js')]), ['src/unused.js']);
+});
+
 test('dead-code: without any IMPORTS edges modules are not judged', () => {
   assert.deepEqual(run('local.dead-code', [mod('a.js'), mod('b.js')]), []);
 });

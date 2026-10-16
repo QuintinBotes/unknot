@@ -607,7 +607,7 @@ export function ormMappings({ path, analysis, text, ts }) {
     return lo + 1;
   };
   const view = { lang, path, imports: [], text, lineOf, matches: (re) => [...text.matchAll(re)], types };
-  const { mappings } = mapEntities(view);
+  const { mappings, classes } = mapEntities(view);
   const entities = mappings.map((m) => ({ n: m.entity, t: m.table, o: m.orm }));
-  return { mappings, links: ormAttrs(entities, [], accessCandidates(text, lang, lineOf)) };
+  return { mappings, links: ormAttrs(entities, [], accessCandidates(text, lang, lineOf), classes) };
 }
