@@ -188,6 +188,23 @@ Access through the mapped type is the other half of the rule. A call such as `Or
 
 Not covered: a repository or query helper reached through a variable whose type is not visible (`orderRepository.save(order)`), the Prisma client (`prisma.order.create`), Doctrine annotations in docblocks (attributes are read), and any mapping built at run time.
 
+#### Dependency-injection containers: services and implementations
+
+One rule covers every language: a container registration names a service type, the implementation type the container gives for it, and a lifetime. The spellings are rows of `DI_SYNTAX` in `adapters/language/di-ops.mjs` (one row per spelling: the call or annotation names, which type argument or argument is the service and which the implementation, and how the lifetime is spelled), read by one engine from the shared comment/string-aware lexical view, so a registration written in a comment or a string never counts. The `di` adapter (0.1.0, a framework pack separate from any language adapter) records the registrations of a file as a link-only module attribute and, at link time, resolves each name to the class and interface nodes the language adapters already emitted. Lifetimes are normalised to `singleton`, `scoped`, `transient` or `unknown`. Recognition is labelled `inference`: medium confidence for an explicit registration, low for a binding implied by component scanning. Library names below are examples of what writes each spelling.
+
+| Languages | Registration spellings (examples) | Lifetime spelled by |
+|---|---|---|
+| C# | `AddSingleton`/`AddScoped`/`AddTransient<IService, Impl>()` and the `TryAdd...` forms, the self form `AddScoped<Impl>()`, `AddScoped(typeof(IService), typeof(Impl))` (Microsoft.Extensions.DependencyInjection); `RegisterType<Impl>().As<IService>()`, `.AsSelf()` (Autofac) | the method name; Autofac `.SingleInstance()` is a singleton, `.InstancePerLifetimeScope()`/`.InstancePerRequest()` scoped, `.InstancePerDependency()` or nothing transient |
+| Java, Kotlin | `bind(IService.class).to(Impl.class)`, `bind(IService::class.java).to(Impl::class.java)` (Guice); a `@Bean` method whose declared return type is the service and whose body returns a new implementation, and classes marked `@Component`, `@Service`, `@Repository`, `@Controller` or `@RestController` bound to each interface their declaration names (Spring, the second by component scanning); `@Binds` methods (Dagger) | `.in(Singleton.class)`, `.in(Scopes.SINGLETON)` or `.asEagerSingleton()`, else transient (Guice); `@Scope("prototype")` transient, `"request"`/`"session"` scoped, default singleton (Spring); `@Singleton`, else unknown (Dagger) |
+| TypeScript, JavaScript | provider objects `{ provide: IService, useClass: Impl }` (NestJS, Angular); `bind<IService>(token).to(Impl)` on a container (InversifyJS) | `scope: Scope.REQUEST` scoped, `Scope.TRANSIENT` transient, default singleton; `.inSingletonScope()`, `.inRequestScope()`, `.inTransientScope()` or nothing transient |
+| PHP | `$this->app->bind(IService::class, Impl::class)`, `app()->bind(...)`, `App::bind(...)`, and the `singleton(...)`/`scoped(...)` forms (Laravel) | the method name: `bind` transient, `singleton` a singleton, `scoped` scoped |
+| Python | `binder.bind(IService, to=Impl, scope=singleton)` (injector) | `scope=singleton` is a singleton, else transient |
+| Go | `wire.Bind(new(IService), new(*Impl))` (wire) | unknown (wire generates code; no lifetime is written) |
+
+Every resolved registration states the same facts: the service type `RESOLVES_TO` the implementation type (`via: container`, with the container spelling, the lifetime, the registering file and its line), and the registering module `DEPENDS_ON` the module holding the implementation (`via: container`, with both type names and the lifetime). The dependency edge is runtime wiring, so an implementation module that only a registration references is not reported as dead code. A self-binding states only the dependency edge.
+
+Resolution is by simple name (namespaces, generic arguments, `::class`, `.class`, `::class.java`, `*` and `new(...)` are stripped): a type declared in the registering file wins, otherwise the name must match exactly one class or interface in the repository. A service named by a string or symbol token, a name nothing declares, and a name declared in several places stay unresolved: that side gets no edge, the other side still does, and `map` reports how many registrations could not be resolved. Not covered: registrations built at run time, assembly or package scanning beyond the component markers above, factories and instances handed to a container, framework configuration files, and which modules are injected with a service.
+
 ### Databases
 
 The `database` adapter parses SQL and migrations and reads catalog exports you supply. It never connects, never runs SQL.
@@ -225,7 +242,7 @@ Unknot reasons over the layers of the state hierarchy it has: declared code, sav
 
 External scanners are off during mapping unless you opt in per adapter in the config: `adapters.security.gitleaks: true`, and `adapters.security.semgrep_config: <local rules path>` (Unknot will not use `--config auto`, which calls the network). A tool that is missing or forbidden is recorded as a gap, not an error.
 
-To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python scip generic quality database iac k8s delivery wiring contracts ownership runtime security`.
+To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python scip generic quality database iac k8s delivery wiring contracts di ownership runtime security`.
 
 ## Writing an adapter
 
