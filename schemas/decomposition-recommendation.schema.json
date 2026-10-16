@@ -551,6 +551,19 @@
       ],
       "additionalProperties": false
     },
+    "transaction_evidence": {
+      "type": "object",
+      "description": "Transactions that write tables owned on both sides of the boundary, from imported database statistics, labelled observed, with the window they cover.",
+      "properties": {
+        "label": {"const": "observed"},
+        "window": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"], "additionalProperties": false},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "transactions": {"type": "integer"},
+        "edges": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["label", "window", "sources", "transactions", "edges"],
+      "additionalProperties": false
+    },
     "confidence_cap": {
       "type": "string",
       "description": "Present when static evidence alone lowered the confidence to medium: why."

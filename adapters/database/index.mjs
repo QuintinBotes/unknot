@@ -6,9 +6,14 @@ import { nodeFact, edgeFact, prov } from '../../runtime/graph/facts.mjs';
 import { parseSql } from './sql/parser.mjs';
 import { analyzeMigration, detectFramework, alembicOrder, readSchemaRb, padVersion } from './migrations.mjs';
 import { normalizeEngine } from './forecast.mjs';
+import { readStats } from './stats/format.mjs';
+import { statementFacts, freshness, TX_EDGE } from './stats/facts.mjs';
+import { DEFAULT_TTL_DAYS } from '../runtime/util.mjs';
+import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
+import { entityQuery, mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.0';
+const VERSION = '0.1.2';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
@@ -16,6 +21,28 @@ const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
 const posix = (p) => String(p).replace(/\\/g, '/');
 const baseName = (p) => posix(p).split('/').pop();
 const dirName = (p) => posix(p).split('/').slice(0, -1).join('/');
+
+// ---------------------------------------------------------------- dialect variants
+
+/**
+ * Path words that name a database dialect, mapped to one canonical dialect. The same table
+ * defined in several files whose paths name different dialects (db/h2/schema.sql,
+ * db/mysql/schema.sql) is one table with alternative variants, not one table with every
+ * variant's indexes merged.
+ */
+const DIALECT_WORDS = {
+  h2: 'h2', hsqldb: 'hsqldb', hsql: 'hsqldb', mysql: 'mysql', mariadb: 'mariadb', postgres: 'postgresql', postgresql: 'postgresql', pgsql: 'postgresql',
+  sqlite: 'sqlite', sqlite3: 'sqlite', oracle: 'oracle', mssql: 'mssql', sqlserver: 'mssql', sqlsrv: 'mssql',
+};
+
+/** The dialect a file path names (the file name first, then the nearest directory), or null. */
+export function dialectVariant(path) {
+  const segs = posix(path).toLowerCase().split('/').reverse();
+  for (const seg of segs) {
+    for (const word of seg.replace(/\.[a-z0-9]+$/, '').split(/[^a-z0-9]+/)) if (DIALECT_WORDS[word]) return DIALECT_WORDS[word];
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------- naming
 
@@ -83,6 +110,9 @@ class Facts {
 function emitDdl(F, parsed, { engine, p, migrationId, path }) {
   const tk = (ref) => tableKey(ref, engine);
   const touched = new Set();
+  // Indexes and constraints of a dialect-named file are that variant's own; their ids carry it.
+  const variant = dialectVariant(path);
+  const vsuffix = variant ? `@${variant}` : '';
 
   const tableNode = (ref, attrs = {}, line) => {
     const key = tk(ref);
@@ -105,11 +135,11 @@ function emitDdl(F, parsed, { engine, p, migrationId, path }) {
 
   const constraintNode = (key, tableName, k, line) => {
     const name = constraintName(k, tableName);
-    F.add(nodeFact('constraint', `${key}.${name}`, {
+    F.add(nodeFact('constraint', `${key}.${name}${vsuffix}`, {
       name, path,
-      attrs: { kind: k.kind, columns: k.columns, expr: k.expr, not_valid: k.not_valid, deferrable: k.deferrable, references: k.ref_table ? tk(k.ref_table) : null, using_index: k.using_index },
+      attrs: { ...(variant ? { variant } : {}), kind: k.kind, columns: k.columns, expr: k.expr, not_valid: k.not_valid, deferrable: k.deferrable, references: k.ref_table ? tk(k.ref_table) : null, using_index: k.using_index },
     }, p(line)));
-    F.add(edgeFact('CONTAINS', `table:${key}`, `constraint:${key}.${name}`, {}, p(line)));
+    F.add(edgeFact('CONTAINS', `table:${key}`, `constraint:${key}.${name}${vsuffix}`, {}, p(line)));
     if (k.kind === 'foreign_key' && k.ref_table) {
       const to = tableNode(k.ref_table, {}, line);
       F.add(edgeFact('REFERENCES', `table:${key}`, `table:${to}`, { columns: k.columns, ref_columns: k.ref_columns, on_delete: k.on_delete ?? 'NO ACTION', on_update: k.on_update ?? 'NO ACTION', constraint: name, not_valid: k.not_valid }, p(line)));
@@ -122,8 +152,8 @@ function emitDdl(F, parsed, { engine, p, migrationId, path }) {
     const schema = tableRef.schema ?? defaultSchema(engine);
     const cols = (st.columns ?? []).map((c) => (typeof c === 'string' ? c : c.name ?? c.expr));
     const name = st.name ?? `${tableRef.name}_${cols.join('_')}_idx`;
-    const id = `${schema ? `${schema}.` : ''}${name}`;
-    F.add(nodeFact('index', id, { name, path, attrs: { table: key, unique: Boolean(st.unique), method: st.method ?? null, columns: cols, where: st.where ?? null, concurrently: Boolean(st.concurrently), fulltext: Boolean(st.fulltext) } }, p(line)));
+    const id = `${schema ? `${schema}.` : ''}${name}${vsuffix}`;
+    F.add(nodeFact('index', id, { name, path, attrs: { ...(variant ? { variant } : {}), table: key, unique: Boolean(st.unique), method: st.method ?? null, columns: cols, where: st.where ?? null, concurrently: Boolean(st.concurrently), fulltext: Boolean(st.fulltext) } }, p(line)));
     F.add(edgeFact('INDEXED_BY', `table:${key}`, `index:${id}`, { unique: Boolean(st.unique) }, p(line)));
   };
 
@@ -268,9 +298,18 @@ function extractPrisma(text, path, F, optsEngine) {
   while ((m = re.exec(text))) {
     const line = text.slice(0, m.index).split('\n').length + 1;
     const body = m[2];
-    const map = /@@map\("([^"]+)"\)/.exec(body)?.[1];
     const schema = /@@schema\("([^"]+)"\)/.exec(body)?.[1];
-    models.push({ name: m[1], table: map ?? m[1], schema, body, line });
+    const map = /@@map\(("[^"]+")\)/.exec(body)?.[1];
+    models.push({ name: m[1], schema, body, line, markers: map ? [{ name: 'map', args: { positional: [map], named: {} }, line }] : [] });
+  }
+  // Which table a model is stored in is the shared ORM mapping rule (adapters/language/orm-maps.mjs).
+  const mapped = new Map(mapEntities({
+    lang: LANGUAGE_IDS.PRISMA, path,
+    types: models.map((x) => ({ name: x.name, ref: x, kind: 'model', line: x.line, bases: [], markers: x.markers, assigns: {}, embeds: [] })),
+  }).mappings.map((x) => [x.ref, x]));
+  for (const mod of models) {
+    mod.mapping = mapped.get(mod);
+    mod.table = mod.mapping.table;
   }
   const byModel = new Map(models.map((x) => [x.name, x]));
   const p = (line, confidence = 'high') => prov({ source_type: 'config', source_ref: `${path}:${line ?? 1}`, extractor: EXTRACTOR, confidence });
@@ -278,7 +317,7 @@ function extractPrisma(text, path, F, optsEngine) {
 
   for (const mod of models) {
     const key = keyOf(mod);
-    F.add(nodeFact('table', key, { name: mod.table, path, attrs: { engine, orm: 'prisma', model: mod.name } }, p(mod.line)));
+    for (const f of tableFacts(mod.mapping, { key, spec: { name: mod.table, path, attrs: { engine, orm: 'prisma', model: mod.name } }, pv: p(mod.line) })) F.add(f);
     const fieldRe = /^\s*(\w+)\s+(\w+)(\[\])?(\?)?([^\n]*)$/gm;
     let f;
     while ((f = fieldRe.exec(mod.body))) {
@@ -420,6 +459,18 @@ function link(ctx) {
   const migNodes = [];
 
   const files = [...(ctx.factsByFile ?? new Map()).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  // Entity name -> the tables it is mapped to, from the mapped tables the adapters recorded.
+  const entityTables = new Map();
+  for (const [, facts] of files) {
+    for (const f of facts) {
+      if (f.kind !== 'node' || f.type !== 'table' || typeof f.attrs?.model !== 'string') continue;
+      const key = f.id.startsWith('table:') ? f.id.slice(6) : f.id;
+      const canon = key.includes('.') ? key : normalizeTableId(f.id, engine).slice(6);
+      const model = f.attrs.model.split(/::|\.|\\/).pop();
+      if (!entityTables.has(model)) entityTables.set(model, new Set());
+      entityTables.get(model).add(canon);
+    }
+  }
   for (const [file, facts] of files) {
     const p = (line, confidence = 'medium') => prov({ source_type: 'inference', source_ref: `${file}:${line ?? 1}`, extractor: EXTRACTOR, confidence });
     for (const f of facts) {
@@ -430,8 +481,20 @@ function link(ctx) {
           const text = typeof entry === 'string' ? entry : entry?.text;
           const line = typeof entry === 'object' ? entry.line ?? null : null;
           if (!text) continue;
+          const q = entityQuery(text);
           for (const st of parseSql(text, { dialect: engine })) {
-            const ref = (t) => tableKey(t, engine);
+            // An entity query (JPQL, HQL, DQL) names classes: a mapped entity resolves to its
+            // table and anything else written that way is not a table at all.
+            const ref = (t) => {
+              if (!t?.name) return null;
+              if (!t.schema) {
+                const written = [...q.names].find((n) => n.toLowerCase() === t.name && /^[A-Z]/.test(n));
+                const hit = written ? entityTables.get(written) : null;
+                if (hit) return hit.size === 1 ? [...hit][0] : null;
+                if (written && q.shaped) return null;
+              } else if (q.shaped && q.aliases.has(t.schema)) return null; // `o.items` is a path, not schema.table
+              return tableKey(t, engine);
+            };
             const stub = (key) => add(nodeFact('table', key, { name: key.split('.').pop(), attrs: { inferred_from_code: true } }, p(line, 'low')));
             for (const r of st.reads ?? []) {
               const key = ref(r);
@@ -468,6 +531,22 @@ function link(ctx) {
         if (canon !== f.to) add(edgeFact(f.type, f.from, canon, { ...f.attrs, aliases: [f.to] }, p(null)));
       }
     }
+  }
+
+  // A table defined in files that name different dialects is one table with alternative variants.
+  const variantsByTable = new Map();
+  for (const [file, facts] of files) {
+    const v = dialectVariant(file);
+    if (!v) continue;
+    for (const f of facts) {
+      if (f.kind !== 'edge' || f.type !== 'CONTAINS' || f.provenance?.extractor !== EXTRACTOR || !f.to.startsWith('column:')) continue;
+      if (!variantsByTable.has(f.from)) variantsByTable.set(f.from, new Set());
+      variantsByTable.get(f.from).add(v);
+    }
+  }
+  for (const [id, set] of variantsByTable) {
+    if (set.size < 2) continue;
+    add(nodeFact('table', id.slice(6), { name: id.split('.').pop(), attrs: { variants: [...set].sort() } }, prov({ source_type: 'inference', source_ref: 'database:variants', extractor: EXTRACTOR, confidence: 'medium' })));
   }
 
   // Cross-file migration facts: undo files, down pairs, Alembic chain order, Atlas dirs.
@@ -639,28 +718,27 @@ function catalogFacts(doc, path, F) {
   }
 }
 
-function statementsFacts(rows, path, F, engine) {
+function statementsFacts(stats, path, F, engine) {
   const p = () => prov({ source_type: 'catalog', source_ref: path, extractor: EXTRACTOR, confidence: 'high' });
-  rows.forEach((r, i) => {
-    const text = String(r.query ?? r.Query ?? '');
-    if (!text) return;
-    const id = String(r.queryid ?? r.query_id ?? `${path}#${i}`);
-    const calls = num(r.calls);
-    const mean = num(r.mean_exec_time ?? r.mean_time);
-    const total = num(r.total_exec_time ?? r.total_time);
-    F.add(nodeFact('query', id, { name: text.replace(/\s+/g, ' ').slice(0, 80), path, attrs: { text: text.replace(/\s+/g, ' ').slice(0, 500), calls, mean_exec_time_ms: mean, total_exec_time_ms: total, rows: num(r.rows) } }, p()));
-    for (const st of parseSql(text, { dialect: engine })) {
-      for (const rd of st.reads ?? []) {
-        const key = tableKey(rd, engine);
-        if (key) { F.add(nodeFact('table', key, { name: rd.name, path, attrs: {} }, p())); F.add(edgeFact('QUERIES', `query:${id}`, `table:${key}`, { kind: 'select', calls }, p())); }
-      }
-      if (['insert', 'update', 'delete', 'merge'].includes(st.kind) && st.table) {
-        const key = tableKey(st.table, engine);
-        F.add(nodeFact('table', key, { name: st.table.name, path, attrs: {} }, p()));
-        F.add(edgeFact('MUTATES', `query:${id}`, `table:${key}`, { kind: st.kind, has_where: st.has_where, calls }, p()));
-      }
-    }
+  const refOf = (name) => {
+    const i = name.lastIndexOf('.');
+    return i < 0 ? { schema: null, name } : { schema: name.slice(0, i), name: name.slice(i + 1) };
+  };
+  const out = statementFacts(stats.rows, {
+    path,
+    transactions: stats.transactions,
+    resolve: (name) => { const key = tableKey(refOf(name), engine); return key ? `table:${key}` : null; },
+    tableNode: (id, name) => [nodeFact('table', id.slice(6), { name: refOf(name).name, path, attrs: {} }, p())],
+    idOf: (r) => r.statement_id,
+    prov: p,
+    nodeAttrs: (r) => ({ text: r.text ?? '', calls: r.calls, mean_exec_time_ms: r.mean_ms, total_exec_time_ms: r.total_ms, rows: r.rows, ...freshness(r.window, DEFAULT_TTL_DAYS) }),
+    edgeAttrs: (r, kind) => (kind === 'read' ? { kind: 'select', calls: r.calls } : { kind: r.kind ?? 'write', has_where: r.has_where, calls: r.calls }),
   });
+  for (const f of out.facts) F.add(f);
+  for (const t of out.pairs.values()) {
+    const window = t.start && t.end ? { start: t.start, end: t.end } : null;
+    F.add(edgeFact(TX_EDGE, t.from, t.to, { transactions: t.transactions, calls: t.calls, ...freshness(window, DEFAULT_TTL_DAYS) }, p()));
+  }
 }
 
 function planFacts(plans, path, F, engine) {
@@ -703,16 +781,14 @@ async function discover(ctx) {
     if (head === '{' || head === '[') {
       try { doc = JSON.parse(text); } catch { doc = null; }
     }
-    if (doc) {
-      if (!Array.isArray(doc) && Array.isArray(doc.tables)) { catalogFacts(doc, path, F); continue; }
-      const arr = Array.isArray(doc) ? doc : (doc.pg_stat_statements ?? doc.rows ?? null);
-      if (Array.isArray(arr) && arr.length && arr.every((x) => x && typeof x === 'object' && 'query' in x)) { statementsFacts(arr, path, F, engine); continue; }
-      const plans = Array.isArray(doc) ? doc : [doc];
-      if (plans.some((x) => x && typeof x === 'object' && 'Plan' in x)) { planFacts(plans.filter((x) => x && 'Plan' in x), path, F, engine); continue; }
-      continue;
-    }
-    const rows = parseCsv(text);
-    if (rows.length && 'query' in rows[0] && 'calls' in rows[0]) statementsFacts(rows, path, F, engine);
+    if (doc && !Array.isArray(doc) && Array.isArray(doc.tables)) { catalogFacts(doc, path, F); continue; }
+    const plans = doc && (Array.isArray(doc) ? doc : [doc]);
+    if (plans?.some((x) => x && typeof x === 'object' && 'Plan' in x)) { planFacts(plans.filter((x) => x && 'Plan' in x), path, F, engine); continue; }
+    // Query statistics in any documented reader format (docs/runtime-evidence.md). A file that fits none is skipped.
+    try {
+      const stats = readStats(text, { strict: false, format: 'auto', idFallback: (i) => `${path}#${i}` });
+      if (stats.rows.length) statementsFacts(stats, path, F, engine);
+    } catch { /* not statistics */ }
   }
   return F.list();
 }
@@ -722,7 +798,7 @@ export default {
   version: VERSION,
   kind: 'database',
   capabilities: {
-    files: ['**/*.sql', '**/migrations/**', '**/migrate/**', '**/schema.prisma', '**/changelog*.{xml,yaml,yml,json}', '**/db/schema.rb', '**/alembic/versions/*.py'],
+    files: ['**/*.sql', '**/migrations/**', '**/migrate/**', '**/schema.prisma', '**/changelog*.{xml,yaml,yml,json}', '**/db/schema.rb', '**/alembic/versions/*.py', '**/Migrations/**'],
     executes: [],
     network: false,
   },

@@ -1,25 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { assertFact } from '../../../../runtime/graph/facts.mjs';
-import { tokenize } from '../../../../adapters/language/javascript/tokenizer.mjs';
 import { extractOne, loadFixture, moduleAttrs, runAdapter } from './helpers.mjs';
 
-// Time limits are set for a reference machine; a slower or busier one (a shared CI runner) gets
-// proportionally more, measured as the best of five tokenizer runs over a fixed input. A real
-// blow-up (quadratic work, a hang) still fails: it grows with the input, not by a constant.
-const REFERENCE_MS = 12;
-const SLOWER = (() => {
-  const text = 'export const f = (a, b) => { if (a > b) { return `x ${a}`; } return [a, b].map((n) => n * 2); };\n'.repeat(4000);
-  tokenize(text, { ts: true });
-  let best = Infinity;
-  for (let i = 0; i < 5; i++) {
-    const t0 = performance.now();
-    tokenize(text, { ts: true });
-    best = Math.min(best, performance.now() - t0);
-  }
-  return Math.max(1, best / REFERENCE_MS);
-})();
-const limit = (ms) => Math.round(ms * SLOWER);
+import { limit } from '../../../helpers/speed.mjs';
 
 // A small deterministic PRNG so failures are reproducible.
 function rng(seed) {

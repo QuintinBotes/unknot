@@ -71,7 +71,7 @@ describe('toOperation', () => {
     assert.equal(toOperation('WebSearch', { query: 'q' }, cwd).domain, 'web-search');
     assert.deepEqual(toOperation('Task', { subagent_type: 'Explore' }, cwd), { op: 'agent.spawn', tool: 'Task', agent_type: 'Explore' });
     assert.equal(toOperation('Agent', {}, cwd).agent_type, null);
-    assert.deepEqual(toOperation('mcp__github__create_issue', {}, cwd), { op: 'mcp', tool: 'mcp__github__create_issue', server: 'github', name: 'create_issue' });
+    assert.deepEqual(toOperation('mcp__github__create_issue', {}, cwd), { op: 'mcp', tool: 'mcp__github__create_issue', server: 'github', name: 'create_issue', input: {} });
     assert.equal(toOperation('mcp__plugin_unknot_unknot__status', {}, cwd).server, 'plugin_unknot_unknot');
     assert.equal(toOperation('TodoWrite', {}, cwd).op, 'inert');
     assert.equal(toOperation('Teleport', {}, cwd).op, 'unknown');

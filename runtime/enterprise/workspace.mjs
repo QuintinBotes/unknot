@@ -17,7 +17,7 @@ import { isInside, realpathLenient } from '../core/paths.mjs';
 import { UNKNOT_DIR, isInitialized } from '../core/project.mjs';
 import { openProject } from '../context.mjs';
 import { Graph } from '../graph/graph.mjs';
-import { routeKey, routeKeyOfId } from '../graph/routes.mjs';
+import { clientMatches, operationKey, routeKeyOfId } from '../graph/routes.mjs';
 import { mapRepository } from '../graph/builder.mjs';
 import { createCampaign } from '../plan/campaign.mjs';
 import { loadConfig } from '../policy/config.mjs';
@@ -167,8 +167,11 @@ export function buildWorkspaceGraph(graphs) {
   // trailing slash and the case of the method make no difference; an endpoint served for ANY
   // method answers every client method. Anything else (a catalog `endpoint:api:x`) matches by id.
   const exposed = new Map();
-  const matchKey = (id) => routeKeyOfId(id) ?? id;
+  const matchKey = (id) => routeKeyOfId(id) ?? id.replace(/^endpoint:(?=RPC |GRAPHQL )/, '');
   for (const repo of names) {
+    for (const n of graphs.get(repo).nodes('endpoint')) {
+      if (n.attrs?.from_contract && /^endpoint:(?:RPC|GRAPHQL) /.test(n.id)) bump(exposed, operationKey(n), () => new Map()).set(repo, n.id);
+    }
     for (const e of graphs.get(repo).edges('EXPOSES')) {
       if (e.to.startsWith('endpoint:')) bump(exposed, matchKey(e.to), () => new Map()).set(repo, e.to);
     }
@@ -179,7 +182,7 @@ export function buildWorkspaceGraph(graphs) {
   };
   for (const repo of names) {
     for (const e of [...graphs.get(repo).edges('CONSUMES'), ...graphs.get(repo).edges('CALLS')]) {
-      if (!e.to.startsWith('endpoint:')) continue;
+      if (!e.to.startsWith('endpoint:') || graphs.get(repo).node(e.from)?.attrs?.kind === 'client_operation') continue;
       for (const [provider, endpoint] of providers(matchKey(e.to))) if (provider !== repo) link('CONSUMES', repo, e.from, provider, endpoint, 'contract', { detail: endpoint.slice('endpoint:'.length) });
     }
   }
@@ -189,7 +192,7 @@ export function buildWorkspaceGraph(graphs) {
     const g = graphs.get(repo);
     for (const op of g.nodes('contract')) {
       if (op.attrs?.kind !== 'client_operation') continue;
-      const key = routeKey(op.attrs.method, op.attrs.path);
+      const key = operationKey(op);
       if (!key) continue;
       clientOps.total++;
       const found = providers(key);
@@ -211,6 +214,34 @@ export function buildWorkspaceGraph(graphs) {
       }
     }
   }
+  // Clients need not carry their provider's schema in their own repository. Resolve
+  // remaining generated constructors/query documents against workspace declarations.
+  const declarations = names.flatMap((repo) => graphs.get(repo).nodes('endpoint').map((node) => ({ repo, node })));
+  for (const repo of names) {
+    const g = graphs.get(repo);
+    for (const client of g.nodes('contract')) {
+      if (!['rpc_client', 'graphql_client'].includes(client.attrs?.kind)) continue;
+      const existing = new Set(g.out(client.id, 'DEFINES').map((e) => operationKey(g.node(e.to))));
+      const candidates = declarations.filter(({ node }) => clientMatches(client, node));
+      if (client.attrs.kind === 'rpc_client' && new Set(declarations.filter(({ node }) => clientMatches({ ...client.attrs, methods: [] }, node)).map(({ node }) => node.attrs.package ?? '')).size > 1) continue;
+      const pending = new Map();
+      for (const declaration of candidates) {
+        const key = operationKey(declaration.node);
+        if (!existing.has(key)) bump(pending, key, () => []).push(declaration);
+      }
+      for (const [key, matches] of pending) {
+        clientOps.total++;
+        const remote = matches.filter((m) => m.repo !== repo);
+        for (const m of remote) link('CONSUMES', repo, client.id, m.repo, m.node.id, 'contract', { detail: key, route: key });
+        if (remote.length) clientOps.linked++;
+        else clientOps.internal++;
+      }
+      if (!client.attrs.matched && !pending.size) {
+        clientOps.total++;
+        clientOps.unmatched.push({ repo, route: client.attrs.kind === 'rpc_client' ? `RPC ${client.attrs.service}/*` : `GRAPHQL ${client.attrs.operation_name}`, operation: client.id, interfaces: [client.name], paths: [client.path].filter(Boolean) });
+      }
+    }
+  }
   clientOps.unmatched.sort((a, b) => `${a.repo} ${a.route}`.localeCompare(`${b.repo} ${b.route}`));
 
   // Messaging: PUBLISHES in one repository, SUBSCRIBES in another, same topic or queue id.
@@ -221,6 +252,28 @@ export function buildWorkspaceGraph(graphs) {
   for (const repo of names) {
     for (const e of graphs.get(repo).edges('SUBSCRIBES')) {
       for (const publisher of published.get(e.to) ?? []) if (publisher !== repo) link('SUBSCRIBES', repo, e.from, publisher, e.to, 'topic', { detail: e.to });
+    }
+  }
+
+  // Named messaging contracts: a consumer depends on the channel's publisher.
+  // Unknown names are deliberately local; equal variable spellings prove no linkage.
+  const channelPublishers = new Map();
+  for (const repo of names) {
+    const g = graphs.get(repo);
+    for (const e of g.edges('PUBLISHES')) {
+      const channel = g.node(e.to);
+      if (channel?.attrs?.kind !== 'messaging_channel' || channel.attrs.channel_unresolved) continue;
+      bump(channelPublishers, e.to, () => new Set()).add(repo);
+    }
+  }
+  for (const repo of names) {
+    const g = graphs.get(repo);
+    for (const e of g.edges('CONSUMES')) {
+      const channel = g.node(e.to);
+      if (channel?.attrs?.kind !== 'messaging_channel' || channel.attrs.channel_unresolved) continue;
+      for (const publisher of channelPublishers.get(e.to) ?? []) {
+        if (publisher !== repo) link('CONSUMES', repo, e.from, publisher, e.to, 'messaging', { detail: e.to.slice('contract:'.length), route: e.to.slice('contract:'.length) });
+      }
     }
   }
 
@@ -344,10 +397,10 @@ export function workspaceLinks(ctx) {
     const doc = loadWorkspaceGraph(rootCtx);
     if (!doc) return null;
     const local = new Map();
-    const cross = doc.edges.filter((e) => e.attrs?.cross_repo && e.attrs.via === 'contract' && (e.attrs.from_repo === member.repository || e.attrs.to_repo === member.repository));
+    const cross = doc.edges.filter((e) => e.attrs?.cross_repo && ['contract', 'messaging'].includes(e.attrs.via) && (e.attrs.from_repo === member.repository || e.attrs.to_repo === member.repository));
     const need = new Set(cross.flatMap((e) => [e.from, e.to]));
     for (const n of doc.nodes) if (need.has(n.id)) local.set(n.id, n.attrs?.local_id);
-    const links = cross.map((e) => ({ route: e.attrs.route ?? e.attrs.detail, from_repo: e.attrs.from_repo, from: local.get(e.from), to_repo: e.attrs.to_repo, to: local.get(e.to) })).filter((l) => l.from && l.to);
+    const links = cross.map((e) => ({ ...(e.attrs.via === 'messaging' ? { kind: 'messaging' } : {}), route: e.attrs.route ?? e.attrs.detail, from_repo: e.attrs.from_repo, from: local.get(e.from), to_repo: e.attrs.to_repo, to: local.get(e.to) })).filter((l) => l.from && l.to);
     const mappedAt = ctx.store.meta('mapped_at');
     return { repository: member.repository, mapped_at: doc.generated_at, stale: !!mappedAt && mappedAt > doc.generated_at, links };
   } catch {

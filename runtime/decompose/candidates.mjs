@@ -266,9 +266,29 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     m['boundary.cross_joins'] = cbj;
   } else gaps.push('no table access facts: shared_table_writers and cross_joins unknown');
   // CBT: transactions spanning tables owned by different candidates (needs transaction facts).
-  const tx = graph.edges('SHARES_TRANSACTION_WITH');
-  if (tx.length) m['boundary.cross_transactions'] = tx.filter((e) => ownedHere.has(e.from) !== ownedHere.has(e.to)).length;
-  else gaps.push('no transaction-boundary facts: cross_transactions unknown');
+  // Imported transaction facts carry a window and an expiry: expired ones are ignored and named.
+  const now = new Date().toISOString();
+  const txAll = graph.edges('SHARES_TRANSACTION_WITH');
+  const tx = txAll.filter((e) => !(e.attrs?.expires_at && e.attrs.expires_at < now));
+  if (txAll.length - tx.length) gaps.push(`${txAll.length - tx.length} transaction fact(s) are past their expiry and were not used; re-export database statistics and import again`);
+  if (tx.length) {
+    const crossing = tx.filter((e) => ownedHere.has(e.from) !== ownedHere.has(e.to));
+    m['boundary.cross_transactions'] = crossing.length;
+    details.evidence['boundary.cross_transactions'] = crossing.map((e) => e.id).sort();
+    const measured = crossing.filter((e) => e.attrs?.observed_window);
+    if (measured.length) {
+      const starts = measured.map((e) => e.attrs.observed_window.start).sort();
+      const ends = measured.map((e) => e.attrs.observed_window.end).sort();
+      details.transactions = {
+        label: 'observed',
+        window: { start: starts[0], end: ends[ends.length - 1] },
+        sources: [...new Set(measured.flatMap((e) => (e.attrs.sources ?? []).map((x) => `import:${x}`)))].sort(),
+        transactions: measured.reduce((n, e) => n + (e.attrs.transactions ?? 0), 0),
+        edges: measured.map((e) => e.id).sort().slice(0, 50),
+      };
+    }
+  } else if (!txAll.length) gaps.push('no transaction-boundary facts: cross_transactions unknown');
+  else gaps.push('every transaction fact is past its expiry: cross_transactions unknown');
   // CCL: share of co-change weight that crosses the boundary.
   let inside = 0;
   let crossing = 0;
@@ -374,6 +394,11 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     details.contracts = contract.routes;
     details.evidence['contracts.present'] = contract.evidence;
     m['clients.count'] = contract.clients;
+    const channels = contract.routes.filter((r) => r.source === 'messaging');
+    if (channels.length) {
+      m['contracts.consumers_per_channel'] = Math.max(...channels.map((r) => r.consumers));
+      details.evidence['contracts.consumers_per_channel'] = channels.flatMap((r) => r.consumer_modules ?? []);
+    }
     details.evidence['clients.count'] = contract.routes.flatMap((r) => r.interfaces).filter((x, i, a) => a.indexOf(x) === i).sort();
   }
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];

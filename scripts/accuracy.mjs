@@ -263,6 +263,7 @@ report.recall = { by_detector: recallBy, by_language: recallByLang };
 writeFileSync(join(out, 'accuracy.json'), `${JSON.stringify(report, null, 2)}\n`);
 writeFileSync(join(out, 'accuracy.md'), markdown(report));
 process.stdout.write(`\nReports in ${out}\n`);
+if (report.repositories.some((e) => e.error)) process.exitCode = 1; // a repository that failed to fetch or analyse is an error, not a gap in the numbers
 
 function pct(x) {
   return x === null ? 'n/a' : `${Math.round(x * 100)}%`;

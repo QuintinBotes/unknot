@@ -85,7 +85,7 @@ export function toOperation(toolName, input = {}, cwd) {
   }
   if (AGENT_TOOLS.has(toolName)) return { op: 'agent.spawn', tool: toolName, agent_type: input.subagent_type ?? null };
   const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
-  if (mcp) return { op: 'mcp', tool: toolName, server: mcp[1], name: mcp[2] };
+  if (mcp) return { op: 'mcp', tool: toolName, server: mcp[1], name: mcp[2], input };
   if (INERT_TOOLS.has(toolName)) return { op: 'inert', tool: toolName };
   return { op: 'unknown', tool: toolName };
 }
@@ -98,6 +98,47 @@ const HUMAN_ONLY_TEXT = /\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\
 // Commands whose arguments and input are data: words in them name nothing that runs. Anything
 // else (a shell, eval, xargs, an interpreter, a package runner) may run text as code.
 const DATA_ONLY = new Set(['cat', 'echo', 'printf', 'tee', 'gh', 'git', 'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut', 'tr', 'ls', 'mkdir', 'touch', 'cp', 'mv', 'diff', 'jq', 'true', 'cd', 'pwd', 'test', '[']);
+
+// Approving a pull request is a person's decision: with forge approvals a review can stand for an
+// Unknot approval, so no agent submits one, however it is spelled (docs/forge-approvals.md,
+// control 1). Judged like the rule above: on the commands that would run, with text that only
+// mentions an approval treated as data.
+const FORGE_REVIEW_TEXT = /approve|\/reviews\b|PullRequestReview|\bpr\s+review\b/i;
+const REVIEW_ENDPOINT = /\/pulls\/[^/\s]+\/reviews\b|PullRequestReview/;
+
+function forgeApprovalCommand(cmd) {
+  if (!/\bgh\b/.test(cmd) || !FORGE_REVIEW_TEXT.test(cmd)) return false;
+  const parsed = parseShell(cmd);
+  if (!parsed.ok) return true;
+  for (const c of effectiveCommands(parsed)) {
+    const word = c.argv[0];
+    if (!word || word.dynamic) return true;
+    const name = basenameOf(word);
+    if (name !== 'gh') {
+      if (!DATA_ONLY.has(name)) return true;
+      continue;
+    }
+    const args = c.argv.slice(1).map((w) => w.value);
+    if (args[0] === 'alias') return true;
+    if (args[0] === 'pr' && args[1] === 'review' && args.some((a) => a === '--approve' || a.startsWith('--approve=') || a === '-a')) return true;
+    if (args[0] === 'api' && args.some((a) => REVIEW_ENDPOINT.test(a))) {
+      // A body read from a file or stdin cannot be seen, so it counts as an approval.
+      if (args.some((a) => /APPROVE/i.test(a) || a === '--input' || a.startsWith('--input='))) return true;
+    }
+  }
+  return false;
+}
+
+/** An MCP tool call that would approve a pull or merge request on a forge. */
+function forgeApprovalTool(op) {
+  if (/approve/i.test(op.name)) return true;
+  if (!/review/i.test(op.name)) return false;
+  // One tool may create or submit by a method argument (GitHub's `pull_request_review_write`).
+  const verb = `${op.name} ${op.input?.method ?? ''}`;
+  if (!/(^|[_\s])(create|submit|add|write)([_\s]|$)/i.test(verb)) return false;
+  const event = String(op.input?.event ?? op.input?.state ?? '').toUpperCase();
+  return event === 'APPROVE' || (event === '' && /submit/i.test(verb));
+}
 
 /**
  * Does this command run a human-only unknot subcommand? Judged on the commands that would run
@@ -140,8 +181,14 @@ export function alwaysOn(ctx, op, { pluginRoot } = {}) {
       }
     }
   }
+  if (op.op === 'mcp' && forgeApprovalTool(op)) {
+    return deny('approval.human_only', 'approving a pull request is a person\'s decision (with forge approvals a review can count as an Unknot approval); leave the review to the user');
+  }
   if (op.op === 'exec') {
     const cmd = op.command;
+    if (forgeApprovalCommand(cmd)) {
+      return deny('approval.human_only', 'approving a pull request is a person\'s decision (with forge approvals a review can count as an Unknot approval); leave the review to the user');
+    }
     if (humanOnlyCommand(cmd)) {
       return deny('approval.human_only', "approvals, lanes, keys, config acceptance and ending runs are done by a person in a separate terminal window (Claude Code's ! prefix is not interactive); give the user the block headed 'For you, in your own terminal:' from unknot status");
     }

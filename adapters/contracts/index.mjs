@@ -8,12 +8,16 @@
 import { parseYAML } from '../../runtime/core/yaml.mjs';
 import { nodeFact } from '../../runtime/graph/facts.mjs';
 import {
-  ID, VERSION, EXTRACTOR, P, isObj, basename, uniqSorted,
+  ID, VERSION, EXTRACTOR, P, isObj, basename, uniqSorted, capFacts,
 } from './util.mjs';
 import {
   parseOpenApi, parseAsyncApi, parsePact, parseAvro, parseJsonSchema,
 } from './structured.mjs';
 import { parseGraphql, parseProto } from './idl.mjs';
+import { languageForPath, globsFor, codeLanguageIds } from '../../runtime/graph/languages.mjs';
+import { messagingCandidates, channelFacts, constantResolver } from '../language/messaging-ops.mjs';
+import { MAX_TEXT } from '../language/contract-scan.mjs';
+import { graphqlCandidates, rpcCandidates, queryClientFacts } from '../language/rpc-ops.mjs';
 
 /** Endpoints only compare within a family: HTTP verbs, GRAPHQL, RPC. */
 function family(id) {
@@ -33,18 +37,30 @@ export default {
   version: VERSION,
   kind: 'contracts',
   capabilities: {
-    files: [
+    get files() { return [
       '**/openapi*.{yaml,yml,json}', '**/swagger*.{yaml,yml,json}', '**/*.openapi.{yaml,yml,json}', '**/asyncapi*.{yaml,yml,json}',
-      '**/*.graphql', '**/*.gql', '**/schema.graphqls', '**/*.proto', '**/*.avsc', '**/*.schema.json', '**/pact*/**/*.json', '**/pacts/*.json',
-    ],
+      ...globsFor(codeLanguageIds()), '**/*.graphql', '**/*.gql', '**/schema.graphqls', '**/*.proto', '**/*.avsc', '**/*.schema.json', '**/pact*/**/*.json', '**/pacts/*.json',
+    ]; },
     executes: [],
     network: false,
   },
 
   extract(file, text) {
     const { path } = file;
-    if (/\.(graphql|gql|graphqls)$/.test(path)) return parseGraphql(path, text);
+    if (/\.(graphql|gql|graphqls)$/.test(path)) {
+      const candidates = graphqlCandidates(text);
+      return capFacts([...parseGraphql(path, text), ...(candidates.length ? [nodeFact('module', path, { path, attrs: { query_clients: candidates } }, P(path, 1, 'medium', 'inference'))] : [])]);
+    }
     if (path.endsWith('.proto')) return parseProto(path, text);
+    const lang = languageForPath(path)?.id;
+    if (lang && codeLanguageIds().includes(lang)) {
+      const messaging = messagingCandidates(path, text, lang);
+      const clients = rpcCandidates(text, lang);
+      if (!messaging.length && !clients.length) return [];
+      const pv = (line) => P(path, line, 'medium', 'inference');
+      return capFacts([nodeFact('module', path, { path, attrs: { messaging_candidates: messaging, query_clients: clients, ...(text.length > MAX_TEXT ? { truncated: true } : {}) } }, pv(1)),
+        ...messaging.flatMap((c) => channelFacts(path, c, pv))]);
+    }
     if (path.endsWith('.avsc')) return parseAvro(path, JSON.parse(text));
     const doc = path.endsWith('.json') ? JSON.parse(text) : parseYAML(text, { filename: path });
     if (!isObj(doc)) return [];
@@ -75,6 +91,29 @@ export default {
     const contractFamilies = new Set([...contract.keys()].map(family));
     const codeFamilies = new Set([...code.keys()].map(family));
     const out = [];
+    for (const path of [...ctx.factsByFile.keys()].sort()) {
+      const facts = ctx.factsByFile.get(path);
+      const module = facts.find((f) => f.kind === 'node' && f.type === 'module' && f.provenance.extractor === EXTRACTOR);
+      if (!module) continue;
+      const pv = (line) => P(path, line, 'medium', 'inference');
+      const messaging = module.attrs.messaging_candidates ?? [];
+      if (messaging.length) {
+        // Rebuild only this adapter's channel facts; literals/constant definitions are now available.
+        const kept = facts.filter((f) => !(f.provenance.extractor === EXTRACTOR && (f.attrs?.kind === 'messaging_channel'
+          || (f.kind === 'edge' && ['PUBLISHES', 'CONSUMES'].includes(f.type) && f.attrs?.channel_type))));
+        const resolve = constantResolver(ctx.factsByFile, path);
+        kept.push(...messaging.flatMap((c) => channelFacts(path, c, pv, resolve)));
+        ctx.factsByFile.set(path, kept);
+      }
+      const clientFacts = [];
+      for (const c of module.attrs.query_clients ?? []) {
+        if (clientFacts.length + 2 > 5000) { clientFacts[0].attrs.truncated = true; break; }
+        clientFacts.push(...queryClientFacts(path, c, nodes, pv, 5000 - clientFacts.length));
+      }
+      out.push(...clientFacts);
+      delete module.attrs.messaging_candidates;
+      delete module.attrs.query_clients;
+    }
     const key = (id) => id.slice('endpoint:'.length);
 
     for (const [id, n] of [...code].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {

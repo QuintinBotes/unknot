@@ -256,6 +256,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
       confidence: cand.robust ? cap.confidence : 'low',
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
+      ...(cand.details?.transactions ? { transaction_evidence: cand.details.transactions } : {}),
       ...(cap.capped ? { confidence_cap: cap.reason } : {}),
       ...(sel.treatment === 'T0' ? { retain_reason: sel.retain_reason } : { selection_reason: sel.selection_reason }),
       first_slice: firstSlice(sel.treatment, cand, sel),

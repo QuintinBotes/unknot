@@ -18,7 +18,8 @@ import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
 import { importFacts } from '../../adapters/runtime/imports.mjs';
-import { loadImports } from './runtime-imports.mjs';
+import { statsImportFacts } from '../../adapters/database/stats/imports.mjs';
+import { loadImports, loadStatsImports } from './runtime-imports.mjs';
 import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
@@ -277,6 +278,16 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       pushAll(global, importFacts(imports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
     } catch (err) {
       failures.push({ path: '<runtime-import>', adapter: 'runtime', error: String(err?.message ?? err) });
+    }
+  }
+  // Imported database statistics (`unknot import database-stats`) attach to the table nodes mapped now.
+  const statsImports = loadStatsImports(ctx.store);
+  if (statsImports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, statsImportFacts(statsImports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<database-stats-import>', adapter: 'database', error: String(err?.message ?? err) });
     }
   }
   lap('discovery_ms');

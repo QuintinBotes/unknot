@@ -5,6 +5,7 @@ import { assertFact } from '../../../../runtime/graph/facts.mjs';
 import { parseTraces } from '../../../../adapters/runtime/traces.mjs';
 import { redactStatement, stripQuery } from '../../../../adapters/runtime/util.mjs';
 import { edge, find, normalised, NOW, run, runFixtures } from './helpers.mjs';
+import { limit } from '../../../helpers/speed.mjs';
 
 const OTLP = ['traces.otlp.json'];
 
@@ -194,6 +195,6 @@ test('performance: 200k spans in well under 10 seconds', async () => {
   const t0 = performance.now();
   const facts = await run({ traces: ['big.json'] }, { 'big.json': text });
   const elapsed = performance.now() - t0;
-  assert.ok(elapsed < 10_000, `took ${elapsed}ms`);
+  assert.ok(elapsed < limit(10_000), `took ${elapsed}ms (limit ${limit(10_000)}ms)`);
   assert.equal(facts.filter((f) => f.type === 'service').reduce((a, f) => a + f.attrs.span_count, 0), 200_000);
 });
