@@ -17,6 +17,9 @@ All notable changes are documented here. The format follows
 - Destructive-migration findings no longer count drops in a migration's rollback section (Rails `down`, Laravel `down()`, Alembic `downgrade()`, Django reverse code and `reverse_sql`, Flyway `U__` undo files, Liquibase `<rollback>`, EF Core `Down()`); only forward sections count.
 - Migration DSL options are no longer read as columns: `t.timestamps null: false` adds `created_at` and `updated_at` instead of a column named `null`, as Laravel `$table->timestamps()` and Knex `timestamps()` do.
 - Schema files for different database dialects (`db/h2/schema.sql`, `db/mysql/schema.sql`, `db/postgres/schema.sql`) are alternative variants of one table: indexes and constraints are kept per variant, the table records its `variants`, and `duplicate-index` never compares across variants.
+- ORM entities that inherit from an abstract base are mapped (Django `abstract = True`, SQLAlchemy `__abstract__ = True`, ActiveRecord `self.abstract_class = true`, JPA and Doctrine `MappedSuperclass`): a concrete class whose inheritance chain, resolved by name across the repository, reaches an entity or a mapped superclass of an ORM is an entity of it, with the table its own name or that ORM's convention gives; the abstract bases are no longer mapped as tables. The rule is the `abstract` and `inherits` fields of the `ORM_SYNTAX` rows. `generic` 0.1.12, `python` 0.1.13.
+- An entity name in an ORM query string (JPQL, HQL, DQL) resolves to the entity's mapped table instead of becoming an inferred table, and a name in a string written that way (`SELECT ptype FROM PetType ptype`, `JOIN FETCH o.items`) that matches no mapped entity creates no table. `database` 0.1.2.
+- The dead-code detector judges only modules of programming languages by the language registry: configuration, resource, locale, template and data files are never reported as modules nothing imports.
 
 ## [0.4.0] - 2026-10-12
 

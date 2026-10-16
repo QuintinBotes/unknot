@@ -272,7 +272,7 @@ export function frameworkFacts({ path, raw, text = '', moduleId, symbols, pv, pv
   const ormView = {
     lang: LANGUAGE_IDS.PYTHON, path, imports: ormImports, text: ormText, lineOf: ormLine, matches: (re) => [...ormText.matchAll(re)], types: ormTypes,
   };
-  const { mappings } = mapEntities(ormView);
+  const { mappings, classes: ormClasses } = mapEntities(ormView);
   const entities = [];
   for (const m of mappings) {
     const cls = m.ref ?? { qual: m.entity, name: m.entity, start_line: m.line };
@@ -320,7 +320,7 @@ export function frameworkFacts({ path, raw, text = '', moduleId, symbols, pv, pv
     }));
     entities.push({ n: cls.name, t: m.table, o: m.orm });
   }
-  Object.assign(moduleAttrs, ormAttrs(entities, [], accessCandidates(ormText, LANGUAGE_IDS.PYTHON, ormLine)));
+  Object.assign(moduleAttrs, ormAttrs(entities, [], accessCandidates(ormText, LANGUAGE_IDS.PYTHON, ormLine), ormClasses));
 
   // --- Celery ------------------------------------------------------------------------
   for (const [qual, sym] of symbols) {

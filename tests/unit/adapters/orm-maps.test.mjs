@@ -109,6 +109,129 @@ for (const c of CASES) {
   });
 }
 
+// ---- an entity inherits from an abstract base declared in another file
+
+// Each case: the files, the tables that must exist (by entity) and the types that must not map.
+const INHERITED = [
+  {
+    orm: 'django', lang: L.PYTHON,
+    sources: {
+      'core/models.py': 'from django.db import models\n\nclass TimestampedModel(models.Model):\n    created = models.DateTimeField()\n\n    class Meta:\n        abstract = True\n',
+      'billing/models.py': 'from core.models import TimestampedModel\n\nclass Article(TimestampedModel):\n    title = models.CharField()\n\nclass Review(Article):\n    pass\n',
+    },
+    tables: ['billing_article', 'billing_review'], absent: ['core_timestampedmodel'],
+  },
+  {
+    orm: 'sqlalchemy', lang: L.PYTHON,
+    sources: {
+      'ledger/base.py': 'class Audited(Base):\n    __abstract__ = True\n    created = Column(DateTime)\n',
+      'ledger/models.py': 'from ledger.base import Audited\n\nclass InvoiceLine(Audited):\n    id = Column(Integer, primary_key=True)\n',
+    },
+    tables: ['invoice_line'], absent: ['audited'],
+  },
+  {
+    orm: 'jpa', lang: L.JAVA,
+    sources: {
+      'src/BaseEntity.java': '@MappedSuperclass\npublic abstract class BaseEntity {\n    Long id;\n}\n',
+      'src/LedgerEntry.java': '@Entity\n@Table(name = "ledger_entries")\npublic class LedgerEntry extends BaseEntity {\n}\n',
+    },
+    tables: ['ledger_entries'], absent: ['base_entity'],
+  },
+  {
+    orm: 'activerecord', lang: L.RUBY,
+    sources: {
+      'app/models/application_record.rb': 'class ApplicationRecord < ActiveRecord::Base\n  self.abstract_class = true\nend\n',
+      'app/models/party_record.rb': 'class PartyRecord < ApplicationRecord\n  self.abstract_class = true\nend\n',
+      'app/models/customer.rb': 'class Customer < PartyRecord\nend\n',
+      'app/models/invoice.rb': 'class Invoice < ApplicationRecord\nend\n',
+    },
+    tables: ['customers', 'invoices'], absent: ['application_records', 'party_records'],
+  },
+  {
+    orm: 'doctrine', lang: L.PHP,
+    sources: {
+      'src/Base.php': "<?php\n#[ORM\\MappedSuperclass]\nclass Base\n{\n}\n",
+      'src/Entry.php': "<?php\n#[ORM\\Entity]\nclass Entry extends Base\n{\n}\n",
+    },
+    tables: ['entry'], absent: ['base'],
+  },
+];
+
+for (const c of INHERITED) {
+  test(`${c.orm}: concrete entities of an abstract base are mapped, the base is not`, async () => {
+    const facts = await factsFor(c.lang, c.sources);
+    facts.forEach(assertFact);
+    const tables = facts.filter((f) => f.kind === 'node' && f.type === 'table').map((f) => f.name).sort();
+    assert.deepEqual(tables, [...c.tables].sort());
+    for (const a of c.absent) assert.ok(!tables.includes(a), `${a} is not an entity`);
+    for (const t of facts.filter((f) => f.kind === 'node' && f.type === 'table')) {
+      assert.equal(t.attrs.orm, c.orm);
+      assert.ok(facts.some((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && f.to === t.id), `${t.name} has an owner`);
+    }
+  });
+}
+
+test('a class whose bases never reach an ORM entity is not mapped', async () => {
+  const facts = await factsFor(L.PYTHON, {
+    'a/models.py': 'class Mixin:\n    pass\n\nclass Plain(Mixin):\n    pass\n',
+  });
+  assert.deepEqual(facts.filter((f) => f.kind === 'node' && f.type === 'table'), []);
+});
+
+// ---- an entity name in an ORM query string is the entity's table, never a new one
+
+const QUERIES = [
+  {
+    name: 'JPQL select of the alias',
+    sources: {
+      'src/PetType.java': '@Entity\n@Table(name = "types")\npublic class PetType {\n}\n',
+      'src/Repo.java': 'public interface Repo {\n  @Query("SELECT ptype FROM PetType ptype ORDER BY ptype.name")\n  List<PetType> findPetTypes();\n}\n',
+    },
+    tables: ['types'], reads: ['types'],
+  },
+  {
+    name: 'a known entity joined in a query that is not recognisable as an entity query',
+    sources: {
+      'src/Invoice.java': '@Entity\n@Table(name = "invoices")\npublic class Invoice {\n}\n',
+      'src/Repo.java': 'public class Repo {\n  void f(EntityManager em) { em.createQuery("SELECT i.id, i.total FROM Invoice i WHERE i.total > 0"); }\n}\n',
+    },
+    tables: ['invoices'], reads: ['invoices'],
+  },
+  {
+    name: 'an unknown entity in a query shaped like JPQL makes no table',
+    sources: {
+      'src/Repo.java': 'public interface Repo {\n  @Query("SELECT i FROM Invoice i JOIN FETCH i.lines l WHERE i.id = :id")\n  Object find();\n}\n',
+    },
+    tables: [], reads: [],
+  },
+  {
+    name: 'plain SQL with the same shape of name still infers its table',
+    sources: {
+      'src/Repo.java': 'public class Repo {\n  void f(Statement st) { st.executeQuery("SELECT * FROM ledger_entries e WHERE e.id = 1"); }\n}\n',
+    },
+    tables: ['ledger_entries'], reads: ['ledger_entries'],
+  },
+];
+
+for (const q of QUERIES) {
+  test(`entity query strings: ${q.name}`, async () => {
+    const files = new Map();
+    const factsByFile = new Map();
+    for (const [path, text] of Object.entries(q.sources)) {
+      const entry = entryOf(path, text);
+      files.set(path, entry);
+      factsByFile.set(path, genericAdapter.extract(entry, text, { commit: 'test', options: {} }));
+    }
+    const linked = genericAdapter.link({ files, factsByFile, options: {}, resolve: null });
+    const dbLinked = databaseAdapter.link({ files, factsByFile, options: {} });
+    const all = [...factsByFile.values()].flat().concat(linked, [...(dbLinked.values?.() ?? dbLinked)]);
+    const tables = [...new Set(all.filter((f) => f.kind === 'node' && f.type === 'table').map((f) => f.name))].sort();
+    assert.deepEqual(tables, [...q.tables].sort());
+    const read = [...new Set(all.filter((f) => f.kind === 'edge' && f.type === 'QUERIES' && f.attrs?.via === 'raw_sql').map((f) => f.to.split('.').pop()))].sort();
+    assert.deepEqual(q.name.startsWith('plain') ? read : read.filter((r) => q.tables.includes(r)), q.reads.sort());
+  });
+}
+
 // ---- a table written through two entity types in different modules
 
 const DB_DETECTOR = DB.find((d) => d.id === 'database.multiple-writers');

@@ -255,7 +255,7 @@ function ormView(lx, an, lang, path) {
   if (assign) {
     for (const m of codeMatches(lx, assign.re)) {
       const v = owner.get(typeAt(an, m.index));
-      if (v && !v.assigns[assign.key(m)]) v.assigns[assign.key(m)] = { value: m[3], line: lx.lineOf(m.index) };
+      if (v && !v.assigns[assign.key(m)]) v.assigns[assign.key(m)] = { value: m[3] ?? (m[4] === 'true' ? true : undefined), line: lx.lineOf(m.index) };
     }
   }
   return {
@@ -271,18 +271,18 @@ function ormView(lx, an, lang, path) {
 function ormTables(lx, an, lang, path) {
   if (!ormLanguages(lang)) return { tables: [], links: {} };
   const view = ormView(lx, an, lang, path);
-  const { mappings, members } = mapEntities(view);
+  const { mappings, members, classes } = mapEntities(view);
   const tables = [];
   for (const m of mappings) {
     if (tables.some((t) => t.name === m.table)) continue;
     tables.push({
       name: m.table, line: m.line, confidence: m.basis === 'declared' ? 'medium' : 'low', orm: m.orm, basis: m.basis,
-      ...(m.deferred && { entity: m.entity }),
+      model: m.entity, ...(m.deferred && { entity: m.entity }),
     });
   }
   const entities = mappings.map((m) => ({ n: m.entity.split(/::|\./).pop(), t: `public.${m.table}`, o: m.orm }));
   const exposed = members.map((m) => ({ n: m.member, e: m.entity }));
-  return { tables, links: ormAttrs(entities, exposed, accessCandidates(lx.plain, lang, (off) => lx.lineOf(off))) };
+  return { tables, links: ormAttrs(entities, exposed, accessCandidates(lx.plain, lang, (off) => lx.lineOf(off)), classes) };
 }
 
 // ---- attribute and annotation operations (one rule, per-language table in ../http-ops.mjs) ----

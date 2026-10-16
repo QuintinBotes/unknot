@@ -5,11 +5,11 @@ import local from '../../../../runtime/diagnose/detectors/local.mjs';
 import { Graph } from '../../../../runtime/graph/graph.mjs';
 import { lineOf, loadFixture } from './helpers.mjs';
 
-const EXTRACTOR = 'generic@0.1.11';
+const EXTRACTOR = 'generic@0.1.12';
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'generic');
-  assert.equal(adapter.version, '0.1.11');
+  assert.equal(adapter.version, '0.1.12');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);

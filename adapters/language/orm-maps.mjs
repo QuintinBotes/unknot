@@ -9,7 +9,11 @@
 //   entity     what makes a type an entity: `markers` (annotations, attributes, decorators),
 //              `bases` (a supertype, optionally only when an import is present), `assigns`
 //              (a class-level assignment), `embeds` (an embedded struct), `kinds` (a declared
-//              block kind); `skipWhen` lists assignments that say it is abstract
+//              block kind); `abstract` says a type is a mapped superclass, not an entity itself
+//              (`assigns` that are true, `markers`); a type that is abstract passes the ORM on to
+//              the types that inherit from it. `inherits: true` makes a concrete type an entity
+//              when its inheritance chain, resolved by name across the repository, reaches an
+//              entity of the ORM or an abstract type of it
 //   name       where an explicit table name is written: `markers` ({ names, args }, an argument
 //              being a position or a keyword), `assigns`
 //   convention the key into CONVENTIONS that names the table when the code does not
@@ -72,7 +76,7 @@ const READ = 'reads';
 export const ORM_SYNTAX = [
   {
     orm: 'django', languages: [L.PYTHON],
-    entity: { bases: ['models.Model', { name: 'Model', imports: ['django.db.models'] }], skipWhen: ['Meta.abstract'] },
+    entity: { bases: ['models.Model', { name: 'Model', imports: ['django.db.models'] }], abstract: { assigns: ['Meta.abstract'] }, inherits: true },
     name: { assigns: ['Meta.db_table'] },
     convention: 'django',
     access: {
@@ -85,7 +89,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'sqlalchemy', languages: [L.PYTHON],
-    entity: { assigns: ['__tablename__'], bases: ['db.Model'] },
+    entity: { assigns: ['__tablename__'], bases: ['db.Model'], abstract: { assigns: ['__abstract__'] }, inherits: true },
     name: { assigns: ['__tablename__'] },
     convention: 'snake',
     texts: [{
@@ -107,7 +111,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'jpa', languages: [L.JAVA, L.KOTLIN],
-    entity: { markers: ['Entity'] },
+    entity: { markers: ['Entity'], abstract: { markers: ['MappedSuperclass'] } },
     name: { markers: [{ names: ['Table'], args: ['name'] }] },
     convention: 'snake',
     access: {
@@ -183,7 +187,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'activerecord', languages: [L.RUBY],
-    entity: { bases: ['ApplicationRecord', 'ActiveRecord.Base'] },
+    entity: { bases: ['ApplicationRecord', 'ActiveRecord.Base'], abstract: { assigns: ['self.abstract_class'] }, inherits: true },
     name: { assigns: ['self.table_name'] },
     convention: 'snake_plural',
     access: {
@@ -213,7 +217,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'doctrine', languages: [L.PHP],
-    entity: { markers: ['Entity'] },
+    entity: { markers: ['Entity'], abstract: { markers: ['MappedSuperclass'] } },
     name: { markers: [{ names: ['Table'], args: ['name', 0] }] },
     convention: 'snake',
     access: {
@@ -225,7 +229,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'eloquent', languages: [L.PHP],
-    entity: { bases: ['Model'] },
+    entity: { bases: ['Model'], inherits: true },
     name: { assigns: ['$table'] },
     convention: 'snake_plural',
     access: {
@@ -244,7 +248,7 @@ export const ORM_SYNTAX = [
  */
 export const ASSIGN_SYNTAX = {
   [L.PHP]: { re: /\b(?:public|protected|private)\s+(?:static\s+)?(\$\w+)\s*=\s*(['"])([^'"\n]*)\2/g, key: (m) => m[1] },
-  [L.RUBY]: { re: /\bself\.(\w+)\s*=\s*(['"])([^'"\n]+)\2/g, key: (m) => `self.${m[1]}` },
+  [L.RUBY]: { re: /\bself\.(\w+)\s*=\s*(?:(['"])([^'"\n]+)\2|(true)\b)/g, key: (m) => `self.${m[1]}` },
 };
 
 /** The marker syntax a language writes ORM mappings in where HTTP routing reads none (PHP 8 `#[...]` attributes). */
@@ -306,10 +310,17 @@ function baseMatches(spec, base, imports) {
   return typeof spec === 'string' || !spec.imports || spec.imports.some((i) => imports.includes(i));
 }
 
+/** Whether `t` is a mapped superclass of `row`: it is inherited from, never an entity itself. */
+function isAbstract(row, t) {
+  const a = row.entity?.abstract;
+  if (!a) return false;
+  return Boolean(a.assigns?.some((k) => t.assigns?.[k]?.value === true) || a.markers?.some((n) => t.markers?.some((m) => m.name === n)));
+}
+
 /** The trigger that makes `t` an entity of `row`: a marker, or a plain label, or null. */
 function triggerOf(row, t, view) {
   const e = row.entity ?? {};
-  if (e.skipWhen?.some((k) => t.assigns?.[k]?.value === true)) return null;
+  if (isAbstract(row, t)) return null;
   const marker = e.markers ? t.markers?.find((m) => e.markers.includes(m.name)) : null;
   if (marker) return { marker };
   if (e.bases?.some((spec) => (t.bases ?? []).some((b) => baseMatches(spec, b, view.imports ?? [])))) return {};
@@ -339,8 +350,11 @@ function explicitName(row, t) {
  *   fool it), text (the same code, for argument lists),
  *   types: [{ name, ref, line, kind, bases, markers: [{ name, args: { positional, named }, line }],
  *             assigns: { key: { value, line } }, embeds }]
- * @returns {{ mappings: object[], members: object[] }} each mapping is { orm, entity, ref, table,
- *   basis, line, deferred? } and each member { orm, entity, member } (a collection that exposes an entity)
+ * @returns {{ mappings: object[], members: object[], classes: object[] }} each mapping is { orm, entity,
+ *   ref, table, basis, line, deferred? } and each member { orm, entity, member } (a collection that exposes an
+ *   entity); `classes` are the types that are not mapped here but may be, through a base declared in another
+ *   file ({ n, b: base names, l, ab: ORMs it is a mapped superclass of, nm: { orm: declared table } }), which
+ *   `ormAccess` resolves across the repository
  */
 export function mapEntities(view) {
   const mappings = [];
@@ -406,7 +420,21 @@ export function mapEntities(view) {
       }
     }
   }
-  return { mappings, members };
+  const classes = [];
+  const rows = ORM_SYNTAX.filter((r) => r.languages.includes(view.lang) && r.entity?.inherits);
+  for (const t of rows.length ? view.types ?? [] : []) {
+    if (claimed.has(t)) continue;
+    const b = [...new Set((t.bases ?? []).map((x) => lastName(norm(x))).filter(Boolean))].slice(0, 8);
+    const ab = rows.filter((r) => isAbstract(r, t)).map((r) => r.orm);
+    if (!b.length && !ab.length) continue;
+    const nm = {};
+    for (const r of rows) {
+      const named = isAbstract(r, t) ? null : explicitName(r, t);
+      if (named) nm[r.orm] = named.value;
+    }
+    classes.push({ n: t.name, b, l: t.line, ab, ...(Object.keys(nm).length && { nm }) });
+  }
+  return { mappings, members, classes: classes.slice(0, 500) };
 }
 
 /**
@@ -469,8 +497,9 @@ export function accessCandidates(text, lang, lineOf) {
 }
 
 /** The link-only module attributes this rule uses; link removes them so they are never persisted. */
-export function ormAttrs(entities, members, access) {
+export function ormAttrs(entities, members, access, classes = []) {
   const out = {};
+  if (classes.length) out.orm_classes = classes;
   if (entities.length) out.orm_entities = entities;
   if (members.length) out.orm_members = members;
   if (access.length) out.orm_access = access;
@@ -481,13 +510,19 @@ export function ormAttrs(entities, members, access) {
  * Edges for modules that reach a table through a mapped type. `factsByFile` is the adapters'
  * per-file facts (module attrs `orm_entities`, `orm_members`, `orm_access` are read and removed).
  * A name that maps to several tables resolves only inside the file that declares it.
- * @returns {object[]} MUTATES and QUERIES edges from the module to the table
+ * A concrete type that inherits, through a chain of bases found anywhere in the repository, from an
+ * entity or a mapped superclass of an ORM is an entity of that ORM too: it gets its table (and
+ * the owning edge) here, since its bases may be declared in other files. `opts.tableKey(table)`
+ * is the id the adapter gives a table, `opts.attrs(orm, model, table)` the attributes of its node.
+ * @returns {object[]} MUTATES and QUERIES edges from the module to the table, and the inherited tables
  */
-export function ormAccess(factsByFile, extractorPrefix, pv) {
+export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   const own = (f) => String(f.provenance?.extractor ?? '').startsWith(extractorPrefix);
   const entities = new Map(); // entity name -> [{ path, id, orm }]
   const members = new Map(); // member name -> [entity name]
   const users = [];
+  const classes = new Map(); // type name -> [{ path, lang, ...class record }]
+  const inheritedFacts = [];
   for (const [path, facts] of factsByFile) {
     for (const f of facts) {
       if (f.kind !== 'node' || f.type !== 'module' || !own(f)) continue;
@@ -501,10 +536,43 @@ export function ormAccess(factsByFile, extractorPrefix, pv) {
         members.get(m.n).push(m.e);
       }
       if (a.orm_access?.length) users.push({ path, access: a.orm_access });
+      for (const c of a.orm_classes ?? []) {
+        if (!classes.has(c.n)) classes.set(c.n, []);
+        classes.get(c.n).push({ ...c, path, lang: a.language });
+      }
+      delete a.orm_classes;
       delete a.orm_entities;
       delete a.orm_members;
       delete a.orm_access;
     }
+  }
+  // Inheritance: which ORM a class reaches through its bases (an entity of it, or a mapped superclass of it).
+  const reaches = (orm, bases, seen) => bases.some((b) => {
+    if ((entities.get(b) ?? []).some((e) => e.orm === orm)) return true;
+    if (seen.has(b)) return false;
+    seen.add(b);
+    const recs = classes.get(b) ?? [];
+    return recs.some((r) => r.ab.includes(orm)) || recs.some((r) => !r.ab.length && reaches(orm, r.b, seen));
+  });
+  const inherited = [];
+  for (const [name, recs] of classes) {
+    for (const r of recs) {
+      for (const row of ormRowsFor(r.lang)) {
+        if (!row.entity?.inherits || r.ab.includes(row.orm) || !r.b.length) continue;
+        if ((entities.get(name) ?? []).some((e) => e.path === r.path && e.orm === row.orm)) continue;
+        if (reaches(row.orm, r.b, new Set([name]))) inherited.push({ name, r, row });
+      }
+    }
+  }
+  for (const { name, r, row } of inherited.sort((x, y) => (x.r.path < y.r.path ? -1 : x.r.path > y.r.path ? 1 : x.name < y.name ? -1 : 1))) {
+    const declared = r.nm?.[row.orm];
+    const table = declared ?? CONVENTIONS[row.convention](name, { path: r.path });
+    const id = opts.tableKey ? opts.tableKey(table) : table;
+    const m = { orm: row.orm, entity: name, table, basis: declared ? 'declared' : 'convention' };
+    const spec = { name: table, path: r.path, attrs: opts.attrs ? opts.attrs(row.orm, name, table) : { orm: row.orm, model: name } };
+    inheritedFacts.push(...tableFacts(m, { key: id, spec, from: `module:${r.path}`, edgeAttrs: { orm: row.orm, model: name }, pv: pv(r.path, r.l ?? 1) }));
+    if (!entities.has(name)) entities.set(name, []);
+    entities.get(name).push({ path: r.path, id, orm: row.orm });
   }
   const pick = (name, path) => {
     const all = entities.get(name) ?? [];
@@ -512,7 +580,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv) {
     const ids = new Set((here.length ? here : all).map((e) => e.id));
     return ids.size === 1 ? (here.length ? here : all)[0] : null;
   };
-  const out = [];
+  const out = [...inheritedFacts];
   const done = new Set();
   for (const { path, access } of users) {
     for (const c of access) {
@@ -538,4 +606,41 @@ export function ormAccess(factsByFile, extractorPrefix, pv) {
     }
   }
   return out;
+}
+
+// --------------------------------------------------------------------------- query languages
+
+const QUERY_STOP = new Set(['where', 'join', 'left', 'right', 'inner', 'outer', 'cross', 'full', 'on', 'order', 'group', 'having', 'set', 'select', 'from', 'union', 'limit', 'values', 'using', 'fetch', 'natural']);
+
+/**
+ * What an ORM query string (JPQL, HQL, Doctrine DQL and the like) names. Those languages query
+ * entity classes, not tables, so a name after FROM/JOIN/UPDATE is a type to resolve through the
+ * mappings, never a table to invent.
+ * `names` are the names as written after FROM, JOIN, UPDATE and INTO; `aliases` maps each alias
+ * to its name; `shaped` is true when the string is written the way those languages are: the
+ * select list is only aliases (`SELECT ptype FROM PetType ptype`, `SELECT COUNT(o) ...`) or a
+ * constructor expression, or a join walks from an alias (`JOIN o.items i`), things plain SQL does not do.
+ */
+export function entityQuery(text) {
+  const names = new Set();
+  const aliases = new Map();
+  const re = /\b(?:from|join|update|into)\s+(?:fetch\s+)?([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi;
+  for (const m of String(text).matchAll(re)) {
+    names.add(m[1]);
+    if (m[2] && !QUERY_STOP.has(m[2].toLowerCase())) aliases.set(m[2], m[1]);
+  }
+  let shaped = false;
+  const select = /^\s*select\s+(?:distinct\s+)?([\s\S]*?)\s+from\b/i.exec(text);
+  if (select) {
+    const list = select[1];
+    if (/^new\s+[\w.]+\s*\(/i.test(list)) shaped = true;
+    else {
+      const items = list.split(',').map((x) => x.trim().replace(/^(?:count|min|max|sum|avg)\s*\(\s*(?:distinct\s+)?([\w.]*)\s*\)$/i, '$1').replace(/^(?:distinct|object)\s*\(?\s*|\s*\)$/gi, ''));
+      shaped = items.length > 0 && items.every((x) => aliases.has(x));
+    }
+  }
+  if (!shaped) {
+    for (const m of String(text).matchAll(/\bjoin\s+(?:fetch\s+)?([A-Za-z_]\w*)\.\w+/gi)) if (aliases.has(m[1])) shaped = true;
+  }
+  return { names, aliases, shaped };
 }

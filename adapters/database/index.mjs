@@ -10,7 +10,7 @@ import { readStats } from './stats/format.mjs';
 import { statementFacts, freshness, TX_EDGE } from './stats/facts.mjs';
 import { DEFAULT_TTL_DAYS } from '../runtime/util.mjs';
 import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
-import { mapEntities, tableFacts } from '../language/orm-maps.mjs';
+import { entityQuery, mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
 const VERSION = '0.1.2';
@@ -459,6 +459,18 @@ function link(ctx) {
   const migNodes = [];
 
   const files = [...(ctx.factsByFile ?? new Map()).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  // Entity name -> the tables it is mapped to, from the mapped tables the adapters recorded.
+  const entityTables = new Map();
+  for (const [, facts] of files) {
+    for (const f of facts) {
+      if (f.kind !== 'node' || f.type !== 'table' || typeof f.attrs?.model !== 'string') continue;
+      const key = f.id.startsWith('table:') ? f.id.slice(6) : f.id;
+      const canon = key.includes('.') ? key : normalizeTableId(f.id, engine).slice(6);
+      const model = f.attrs.model.split(/::|\.|\\/).pop();
+      if (!entityTables.has(model)) entityTables.set(model, new Set());
+      entityTables.get(model).add(canon);
+    }
+  }
   for (const [file, facts] of files) {
     const p = (line, confidence = 'medium') => prov({ source_type: 'inference', source_ref: `${file}:${line ?? 1}`, extractor: EXTRACTOR, confidence });
     for (const f of facts) {
@@ -469,8 +481,20 @@ function link(ctx) {
           const text = typeof entry === 'string' ? entry : entry?.text;
           const line = typeof entry === 'object' ? entry.line ?? null : null;
           if (!text) continue;
+          const q = entityQuery(text);
           for (const st of parseSql(text, { dialect: engine })) {
-            const ref = (t) => tableKey(t, engine);
+            // An entity query (JPQL, HQL, DQL) names classes: a mapped entity resolves to its
+            // table and anything else written that way is not a table at all.
+            const ref = (t) => {
+              if (!t?.name) return null;
+              if (!t.schema) {
+                const written = [...q.names].find((n) => n.toLowerCase() === t.name && /^[A-Z]/.test(n));
+                const hit = written ? entityTables.get(written) : null;
+                if (hit) return hit.size === 1 ? [...hit][0] : null;
+                if (written && q.shaped) return null;
+              } else if (q.shaped && q.aliases.has(t.schema)) return null; // `o.items` is a path, not schema.table
+              return tableKey(t, engine);
+            };
             const stub = (key) => add(nodeFact('table', key, { name: key.split('.').pop(), attrs: { inferred_from_code: true } }, p(line, 'low')));
             for (const r of st.reads ?? []) {
               const key = ref(r);
