@@ -21,8 +21,8 @@ export const MESSAGING_SYNTAX = [
   { family: 'cloud', names: ['CreateSender'], direction: 'PUBLISHES', channel: 'queue', argument: 0 },
   { family: 'cloud', names: ['CreateReceiver', 'CreateProcessor'], direction: 'CONSUMES', channel: 'queue', argument: 0 },
   { family: 'cloud', names: ['topic'], direction: 'PUBLISHES', channel: 'topic', argument: 0, followedBy: /^\s*\.\s*publish(?:Message)?\s*\(/ },
-  { family: 'nats', names: ['publish', 'Publish'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|publisher|^$/i, direction: 'PUBLISHES', channel: 'subject', argument: 0 },
-  { family: 'nats', names: ['subscribe', 'Subscribe'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|subscriber|^$/i, direction: 'CONSUMES', channel: 'subject', argument: 0 },
+  { family: 'nats', names: ['publish', 'Publish'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|publisher|^$/i, direction: 'PUBLISHES', channel: 'subject', argument: 0, bareNeedsName: true },
+  { family: 'nats', names: ['subscribe', 'Subscribe'], receiver: /(?:^|\.)(?:nc|conn|js)$|nats|connection|subscriber|^$/i, direction: 'CONSUMES', channel: 'subject', argument: 0, bareNeedsName: true },
   { family: 'handler', names: ['MessagePattern', 'EventPattern'], direction: 'CONSUMES', channel: 'topic', argument: 0, marker: true },
   { family: 'handler', names: ['QueueTrigger', 'ServiceBusTrigger'], direction: 'CONSUMES', channel: 'queue', argument: 0, marker: true },
 ];
@@ -65,6 +65,7 @@ export function messagingCandidates(path, text, lang) {
         if (out.length >= MAX_OPERATIONS) break;
         if (NOT_A_CHANNEL.test(value.trim())) continue;
         out.push({ channel, expression: value.trim(), direction: row.direction, line: call.line, index: call.index, slot: out.length,
+          ...(row.bareNeedsName && !call.receiver ? { bare: true } : {}),
           ...(row.routingKey !== undefined || row.fallback ? { routing_key: call.args.named.routing_key ?? call.args.positional[row.routingKey] } : {}) });
       }
     }
@@ -76,6 +77,8 @@ export function messagingCandidates(path, text, lang) {
 export function channelFacts(path, candidate, pv, resolve = () => null) {
   const value = stringValue(candidate.expression) ?? resolve(candidate.expression);
   const unresolved = value === null;
+  // A bare `publish(x)` is often a local helper whose argument is the message: it names a channel only through a string.
+  if (unresolved && candidate.bare) return [];
   const name = unresolved ? `${path}#${candidate.index}:${candidate.slot}` : value;
   const key = `${candidate.channel} ${name}`;
   const attrs = { kind: 'messaging_channel', channel_type: candidate.channel, channel: unresolved ? null : value,

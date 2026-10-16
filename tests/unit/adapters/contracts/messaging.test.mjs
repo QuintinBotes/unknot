@@ -51,10 +51,10 @@ const rows = [
   ['cloud', 'orders.cs', 'queue', 'CONSUMES', (c) => `bus.CreateProcessor(${c})`],
   ['cloud', 'orders.js', 'topic', 'PUBLISHES', (c) => `bus.topic(${c}).publish(data)`],
   ['cloud', 'orders.js', 'topic', 'PUBLISHES', (c) => `bus.topic(${c}).publishMessage(data)`],
-  ['nats', 'orders.js', 'subject', 'PUBLISHES', (c) => `publish(${c}, data)`],
+  ['nats', 'orders.js', 'subject', 'PUBLISHES', (c) => `publish(${c}, data)`, 'bare'],
   ['nats', 'orders.js', 'subject', 'PUBLISHES', (c) => `nc.publish(${c}, data)`],
   ['nats', 'orders.go', 'subject', 'PUBLISHES', (c) => `nc.Publish(${c}, data)`],
-  ['nats', 'orders.js', 'subject', 'CONSUMES', (c) => `subscribe(${c})`],
+  ['nats', 'orders.js', 'subject', 'CONSUMES', (c) => `subscribe(${c})`, 'bare'],
   ['nats', 'orders.js', 'subject', 'CONSUMES', (c) => `nc.subscribe(${c})`],
   ['nats', 'orders.go', 'subject', 'CONSUMES', (c) => `nc.Subscribe(${c}, handler)`],
   ['handler', 'orders.ts', 'topic', 'CONSUMES', (c) => `@MessagePattern(${c})`],
@@ -65,11 +65,13 @@ const rows = [
 
 for (const family of [...new Set(MESSAGING_SYNTAX.map((r) => r.family))]) {
   test(`messaging ${family}: each spelling retains literal and unresolved channel evidence`, () => {
-    for (const [group, path, kind, direction, code] of rows.filter((r) => r[0] === family)) {
+    for (const [group, path, kind, direction, code, bare] of rows.filter((r) => r[0] === family)) {
       for (const [arg, unresolved] of [['"orders.created"', false], ['channelName', true]]) {
         const facts = adapter.extract({ path, kind: 'source' }, code(arg));
         facts.forEach(assertFact);
         const channels = facts.filter((f) => f.attrs?.kind === 'messaging_channel');
+        // A bare call names a channel only through a string (or a constant resolved at link).
+        if (bare && unresolved) { assert.deepEqual(channels, [], code(arg)); continue; }
         assert.equal(channels.length, 1, `${path}: ${code(arg)}`);
         assert.equal(channels[0].attrs.channel_type, kind, code(arg));
         assert.equal(!!channels[0].attrs.channel_unresolved, unresolved, code(arg));
@@ -106,6 +108,11 @@ test('arrays, comments, strings, dynamic expressions and unrelated method names'
   assert.equal(g.nodes('contract').length, 3);
   assert.equal(g.nodes('contract').filter((n) => n.attrs.channel_unresolved).length, 1);
   assert.equal(g.out('module:orders.js', 'CONSUMES').length, 2);
+});
+
+test('a bare publish or subscribe names a channel through a string or a constant, never through another name', () => {
+  const g = project({ 'orders.js': 'const OrdersSubject = "orders.created"; publish(OrdersSubject, data); subscribe("ledger.updated"); publish(callback); publish(placed);' });
+  assert.deepEqual(g.nodes('contract').map((n) => n.id).sort(), ['contract:subject ledger.updated', 'contract:subject orders.created']);
 });
 
 test('callbacks, declarations and look-alike receivers are no channels', () => {
