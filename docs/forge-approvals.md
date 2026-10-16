@@ -1,6 +1,6 @@
 # Forge approvals and CI verification (design)
 
-Status: proposed design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); nothing here is implemented yet. GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
+Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phase 1 (control 1) is implemented. GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
 
 ## Goal
 
