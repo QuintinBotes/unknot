@@ -88,7 +88,7 @@ Recognition is by pattern on names and shapes (imports, decorators, call shapes)
 | Frontend state | Redux-style stores, by call name |
 | Python | Flask (incl. blueprints), FastAPI (incl. routers), Django URL configs, ORM models (see [ORM mappings](#orm-mappings-entities-and-tables)) |
 | Other languages | HTTP routes, raw SQL strings and ORM mappings by annotation and naming convention (all `inference`, medium or low) |
-| Messaging | Topics and queues from client calls where a literal name is visible (inferred) |
+| Messaging | Channel contracts from publisher calls and consumer calls/handlers; literals and resolved constants, with unresolved names retained (inferred) |
 | Build topology | Nx, Lerna, pnpm workspaces, Turborepo, Rush, Bazel, Make |
 
 Micro-frontend configuration is recognised by text patterns at medium confidence and stored as the module attribute `mfe`: Module Federation (`ModuleFederationPlugin`, `@module-federation` packages, `withModuleFederation`, `federation({...})`, with `name`, `remotes`, `exposes` and `shared` keys), single-spa `registerApplication` names, and Next.js multi-zone rewrites to external hosts. Not recognised in this version: Remix and Nuxt as named frameworks. Routes in Rails, Spring and similar come only from the generic adapter's lexical guesses.
@@ -130,6 +130,41 @@ Calls are matched to the function by name, so a name defined in several files on
 Each client interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
 
 `unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
+
+#### Messaging channels: publishers and consumers
+
+One rule covers source languages: a call or handler marker names a channel and a direction. The spellings are rows of `MESSAGING_SYNTAX` in `adapters/language/messaging-ops.mjs`; library names below are examples only. The `contracts` adapter (0.1.1) reads registered source-file globs, using the shared comment/string-aware lexical view. Existing language-adapter facts remain available. Recognition is medium-confidence inference and does not require an import from a particular library.
+
+| Spelling family (library examples only) | Publisher evidence | Consumer evidence |
+|---|---|---|
+| Producer/consumer (Kafka clients) | `kafkaTemplate.send("orders.created", data)`, `KafkaProducer().send("orders.created")`, `producer.send({ topic: 'orders.created' })`, `Produce("orders.created", data)` / `ProduceAsync(...)` | `KafkaConsumer("orders.created")`, `consumer.subscribe({ topic: 'orders.created' })` / `{ topics: [...] }`, `Subscribe("orders.created")`, `@KafkaListener(topics = "orders.created")` |
+| Exchange/queue (AMQP clients) | `basic_publish(exchange="orders", routing_key="orders.created")`, `channel.publish('orders', 'orders.created', data)`, `sendToQueue('orders', data)` | `basic_consume(queue="orders")`, `channel.consume('orders', handler)`, `@RabbitListener(queues = "orders")` |
+| Queue client (cloud queue libraries) | `sendMessage({ QueueUrl: ordersQueue })`, `SendMessage(QueueUrl: ordersQueue)`, `CreateSender("orders")` | `receiveMessage({ QueueUrl: ordersQueue })`, `ReceiveMessage(QueueUrl: ordersQueue)`, `CreateReceiver("orders")`, `CreateProcessor("orders")` |
+| Topic client (cloud messaging libraries) | `topic("orders.created").publish(data)` / `.publishMessage(data)` | topic consumer calls or topic handler markers from the other rows |
+| Subject client (NATS clients) | `nc.publish("orders.created", data)` / `Publish(...)` | `nc.subscribe("orders.created")` / `Subscribe(...)` |
+| Handler markers (decorator and attribute libraries) | publisher calls from the corresponding channel rows | `@MessagePattern("orders.created")`, `@EventPattern(...)`, `[QueueTrigger("orders")]`, `[ServiceBusTrigger("orders")]` |
+
+A channel becomes a `contract` node (`kind: messaging_channel`), such as `contract:topic orders.created`, with module-to-channel `PUBLISHES` and `CONSUMES` edges. Channel types (topic, queue, exchange, subject) remain distinct; channel names compare exactly, including complete queue URLs. Literal subscription/listener arrays name one contract per entry. An empty AMQP exchange uses its routing key as a queue name; a named exchange retains its routing-key evidence without guessing which bound queues receive it.
+
+String constants resolve from the literals adapter's `DEFINES` facts when present: a same-file definition wins, otherwise a unique name across the repository resolves. Conflicting definitions and computed names remain source-scoped contracts with `channel_unresolved: true`; equal variable spellings never link across repositories. Generic member verbs such as `publish`, `subscribe`, `send` and `consume` require a receiver shape stated in the table (bare `publish` and `subscribe` calls are subject spellings), preventing unrelated calls such as `ledger.consume('retries')` from becoming channel evidence. Recognition does not establish broker identity, delivery guarantees or payload compatibility.
+
+Both sides count as `contracts.present`. Each channel row lists distinct consuming modules (`consumers`, `consumer_modules`); `clients.count` counts those consumers and `contracts.consumers_per_channel` is the largest consumer count across the candidate's channels. Publishers do not increase these counts. Workspace mapping links a consumer module to the publisher repository's channel (`CONSUMES`, `via: messaging`), carries the evidence back into each repository's decomposition, and orders release hints with the publisher first. Queue bindings, environment-dependent names, receiver aliases and dynamically constructed clients are not followed.
+
+#### RPC and query clients: service/schema matching
+
+Generated constructors and named query documents are the same client-contract mechanism, with constructor spellings in `RPC_CLIENT_SYNTAX` and protocol matching in `runtime/graph/routes.mjs`. The `contracts` adapter retains client declarations even when their service/schema is absent locally; workspace mapping can match them against another repository's declarations.
+
+| Client spelling | Declaration read by the contracts adapter | Match |
+|---|---|---|
+| `new OrdersServiceClient(channel)` | protobuf `service OrdersService { rpc ListOrders (...) returns (...); }` | service name and calls such as `client.ListOrders(...)` / `client.listOrders(...)` |
+| `OrdersServiceStub(channel)` | the same protobuf service | service and invoked method |
+| `NewOrdersServiceClient(conn)` | the same protobuf service | service and invoked method |
+| `gql` tagged named query, mutation or subscription | GraphQL schema root fields | named document retained; selected root fields match schema operations |
+| `.graphql` / `.gql` named operations | the same schema | `query Orders { latest: orders { id } }` matches `Query.orders`; aliases and nested result fields do not change the match |
+
+A constructor without visible method calls is service-wide evidence for all declared methods; method names compare without underscores and ignoring case. An unqualified service name that belongs to several protobuf packages stays unmatched. Each matching RPC or query operation becomes a `contract` node (`kind: client_operation`, protocol key such as `RPC ledger.OrdersService/ListOrders` or `GRAPHQL Query.orders`), defined by the client and consumed by its module. Service/schema endpoints remain separate nodes. These operations feed `contracts.present`, `clients.count` and workspace contract links alongside HTTP clients; HTTP path normalization is unchanged.
+
+Matching is lexical evidence against a declaration, not proof of a deployed server. Anonymous GraphQL operations, interpolated documents, fragment-only root selections and generated-client aliases are not resolved. Named documents retain unmatched declarations rather than inventing schema fields. Scans are capped at 1.5 million source characters, 400 messaging operations and 400 client declarations per file; the adapter's existing 5,000-fact cap also applies.
 
 #### ORM mappings: entities and tables
 

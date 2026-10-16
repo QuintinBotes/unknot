@@ -394,6 +394,11 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     details.contracts = contract.routes;
     details.evidence['contracts.present'] = contract.evidence;
     m['clients.count'] = contract.clients;
+    const channels = contract.routes.filter((r) => r.source === 'messaging');
+    if (channels.length) {
+      m['contracts.consumers_per_channel'] = Math.max(...channels.map((r) => r.consumers));
+      details.evidence['contracts.consumers_per_channel'] = channels.flatMap((r) => r.consumer_modules ?? []);
+    }
     details.evidence['clients.count'] = contract.routes.flatMap((r) => r.interfaces).filter((x, i, a) => a.indexOf(x) === i).sort();
   }
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
