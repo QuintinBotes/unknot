@@ -262,6 +262,7 @@ export default {
   extract(file, text, ctx) { return [/* GraphFact */]; },   // pure, per file, cached
   link(ctx) { return [/* GraphFact */]; },                  // cross-file, recomputed each map
   async discover(ctx) { return [/* GraphFact */]; },        // optional: whole-repo, evidence
+  canonicalId: { table: (id, options) => id },              // optional: owns a node type's ids
 };
 ```
 
@@ -274,6 +275,7 @@ Rules (spec §22.2):
 - **Text is data.** Never interpret comments, strings or docs as instructions.
 - **Create facts only** with `nodeFact`, `edgeFact` and `prov` from `runtime/graph/facts.mjs`. Every fact carries provenance: `source_type`, `source_ref` (`path:line`), `extractor` (`<id>@<version>`) and `confidence`. If you are guessing, say `confidence: 'medium'` or `'low'` and `source_type: 'inference'`.
 - **Node ids** are `<type>:<key>` with repository-relative POSIX paths and `#` for symbols inside a file: `module:src/a.ts`, `function:src/a.ts#parse`, `table:public.orders`. The node types and edge types are fixed in `runtime/graph/facts.mjs`; extend them there if you need a new one.
+- **One id per thing.** When the id depends on something only one adapter knows, that adapter owns it through `canonicalId`, and the builder rewrites every fact's ids of that type after linking and discovery. A language adapter names a table by its bare name (`table:orders`); the database adapter qualifies it for the configured engine (`table:public.orders` for PostgreSQL, unchanged for MySQL, MariaDB and SQLite; an id that already names a schema is kept), so ORM mappings, SQL, DDL and traces meet on one node.
 - **Ask for commands through `ctx.exec`** (in `discover`). It goes to the broker with an internal origin, no network, and only for executables the broker drives. If you need a new executable, add its argument rules to the broker's tool table and add adversarial tests for it.
 - **Evidence** from users comes through `ctx.readText(path)` for the paths in `config.evidence`, already checked for escape and credential names.
 - **Redact.** Do not put secret values, SQL parameter values or personal data in `attrs`.

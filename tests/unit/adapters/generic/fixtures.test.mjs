@@ -5,11 +5,11 @@ import local from '../../../../runtime/diagnose/detectors/local.mjs';
 import { Graph } from '../../../../runtime/graph/graph.mjs';
 import { lineOf, loadFixture } from './helpers.mjs';
 
-const EXTRACTOR = 'generic@0.1.12';
+const EXTRACTOR = 'generic@0.1.13';
 
 test('adapter contract', () => {
   assert.equal(adapter.id, 'generic');
-  assert.equal(adapter.version, '0.1.12');
+  assert.equal(adapter.version, '0.1.13');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -132,8 +132,8 @@ test('Java: Spring controller, JPA entity, pom.xml, resolution by package', () =
   assert.ok(fx.hasEdge('EXPOSES', `method:${ctl}#OrderController.create`, 'endpoint:POST /api/orders'));
 
   const order = 'src/main/java/com/acme/shop/Order.java';
-  assert.ok(fx.hasEdge('OWNS_DATA', `module:${order}`, 'table:public.orders'));
-  assert.equal(fx.node('table:public.orders').provenance.confidence, 'medium', 'explicit @Table(name=...)');
+  assert.ok(fx.hasEdge('OWNS_DATA', `module:${order}`, 'table:orders'));
+  assert.equal(fx.node('table:orders').provenance.confidence, 'medium', 'explicit @Table(name=...)');
 
   const svc = 'src/main/java/com/acme/shop/service/OrderService.java';
   assert.ok(fx.hasEdge('IMPORTS', `module:${ctl}`, `module:${svc}`));
@@ -171,8 +171,8 @@ test('C#: ASP.NET controller, EF DbSet, csproj, type-level imports', () => {
   assert.ok(fx.hasEdge('EXPOSES', get.id, 'endpoint:GET /api/orders/:id'), '[controller] token expanded');
   assert.ok(fx.hasEdge('EXPOSES', `method:${ctl}#OrdersController.Create`, 'endpoint:POST /api/orders'));
 
-  assert.ok(fx.hasEdge('OWNS_DATA', 'module:Data/ShopContext.cs', 'table:public.orders'));
-  assert.equal(fx.node('table:public.orders').provenance.confidence, 'low');
+  assert.ok(fx.hasEdge('OWNS_DATA', 'module:Data/ShopContext.cs', 'table:orders'));
+  assert.equal(fx.node('table:orders').provenance.confidence, 'low');
   const imp = fx.edges('IMPORTS', `module:${ctl}`, 'module:Models/Order.cs')[0];
   assert.equal(imp.attrs.via, 'type');
   assert.equal(imp.attrs.spec, 'Shop.Models.Order');
@@ -234,8 +234,8 @@ test('Ruby/Rails: resources expands to 7 endpoints, ActiveRecord table is a low-
 
   const model = 'app/models/order.rb';
   const text = fx.text(model);
-  assert.ok(fx.hasEdge('OWNS_DATA', `module:${model}`, 'table:public.orders'));
-  assert.equal(fx.node('table:public.orders').provenance.confidence, 'low');
+  assert.ok(fx.hasEdge('OWNS_DATA', `module:${model}`, 'table:orders'));
+  assert.equal(fx.node('table:orders').provenance.confidence, 'low');
   assert.deepEqual(fx.node(`class:${model}#Order`).attrs.extends, ['ApplicationRecord']);
 
   // Hand-computed: if, &&, elsif, `unless` modifier => 1 + 4 = 5; `if` is the only block opener
@@ -263,8 +263,8 @@ test('PHP/Laravel: routes, Eloquent $table, PSR-4 resolution, injection signals'
   const fx = loadFixture('laravel');
   assert.ok(fx.node('endpoint:GET /orders'));
   assert.ok(fx.node('endpoint:POST /orders'));
-  assert.ok(fx.hasEdge('OWNS_DATA', 'module:app/Models/Order.php', 'table:public.shop_orders'));
-  assert.equal(fx.node('table:public.shop_orders').provenance.confidence, 'medium');
+  assert.ok(fx.hasEdge('OWNS_DATA', 'module:app/Models/Order.php', 'table:shop_orders'));
+  assert.equal(fx.node('table:shop_orders').provenance.confidence, 'medium');
 
   // Hand-computed: foreach, if, `and` => 1 + 3 = 4; nesting foreach > if = 2; params 2.
   const total = fx.node('method:app/Models/Order.php#Order.total');

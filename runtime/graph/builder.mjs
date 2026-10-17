@@ -270,6 +270,29 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  // One id per thing, whichever adapter named it: an adapter that owns a node type's identity
+  // (`canonicalId: { <type>: (id, options) => id }`) rewrites every id of that type.
+  const owners = loaded.filter((a) => a.canonicalId).map((a) => [a.canonicalId, config.adapters?.[a.id] ?? {}]);
+  if (owners.length) {
+    const canon = (id) => {
+      for (const [by, options] of owners) {
+        const f = by[id.slice(0, id.indexOf(':'))];
+        if (f) id = f(id, options);
+      }
+      return id;
+    };
+    const rewrite = (f) => {
+      if (f.kind === 'node') {
+        const id = canon(f.id);
+        return id === f.id ? f : { ...f, id };
+      }
+      const from = canon(f.from);
+      const to = canon(f.to);
+      return from === f.from && to === f.to ? f : { ...f, from, to };
+    };
+    fileFacts = fileFacts.map(rewrite);
+    for (let i = 0; i < global.length; i++) global[i] = rewrite(global[i]);
+  }
   // Imported runtime tables (`unknot import runtime`) are matched against the graph as mapped now.
   const imports = loadImports(ctx.store);
   if (imports.length) {

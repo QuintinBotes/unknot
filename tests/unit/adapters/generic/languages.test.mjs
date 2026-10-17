@@ -266,10 +266,10 @@ end
   });
   assert.ok(p.node('endpoint:GET /hello'));
   assert.ok(p.node('endpoint:POST /items/:id'));
-  assert.ok(p.hasEdge('OWNS_DATA', 'module:app/models/category.rb', 'table:public.categories'));
-  assert.ok(p.hasEdge('OWNS_DATA', 'module:app/models/category.rb', 'table:public.crates'));
-  assert.equal(p.node('table:public.crates').provenance.confidence, 'medium');
-  assert.equal(p.node('table:public.categories').provenance.confidence, 'low');
+  assert.ok(p.hasEdge('OWNS_DATA', 'module:app/models/category.rb', 'table:categories'));
+  assert.ok(p.hasEdge('OWNS_DATA', 'module:app/models/category.rb', 'table:crates'));
+  assert.equal(p.node('table:crates').provenance.confidence, 'medium');
+  assert.equal(p.node('table:categories').provenance.confidence, 'low');
   assert.deepEqual(p.node('module:app.rb').attrs.security_signals, [{ kind: 'command_exec', line: 7 }], 'backtick command');
 });
 

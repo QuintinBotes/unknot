@@ -19,7 +19,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.12';
+const VERSION = '0.1.13';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -230,11 +230,10 @@ function extract(file, text, ctx) {
     }));
   }
   for (const t of fw.tables) {
-    const tid = `public.${t.name}`;
     const pv = prov_(path, t.line, t.confidence, 'inference');
     // A fluent mapping names an entity whose file may differ from this one: link() adds that owner.
     if (t.entity) (attrs.ef_tables ??= []).push({ entity: t.entity, table: t.name, line: t.line });
-    body.push(...tableFacts(t, { key: tid, spec: { name: t.name, attrs: { schema: 'public', orm: t.orm, ...(t.model && { model: t.model }) } }, from: t.entity ? null : modId, edgeAttrs: { orm: t.orm }, pv }));
+    body.push(...tableFacts(t, { key: t.name, spec: { name: t.name, attrs: { orm: t.orm, ...(t.model && { model: t.model }) } }, from: t.entity ? null : modId, edgeAttrs: { orm: t.orm }, pv }));
   }
 
   if (body.length + 1 > MAX_FACTS) {
@@ -514,12 +513,11 @@ function link(ctx) {
       }
       const syn = MEMBER_SYNTAX[a.language];
       if (syn && !sem && (a.refs ?? []).length) {
+        // A type of the same package or directory needs no import, yet using it is a dependency.
         for (const [to, h] of typeHits(path, a, syn)) {
-          if (!Object.keys(h.attrs).length) continue;
           const ex = items.find((i) => i.to === to);
-          if (ex) {
-            if (!(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
-          } else if (h.declared) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...h.attrs } });
+          if (!ex) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...h.attrs } });
+          else if (Object.keys(h.attrs).length && !(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
         }
       }
       // Emitted in the order the imports gave them; an edge only the index or the member analysis found comes last.
@@ -567,7 +565,7 @@ function link(ctx) {
       const own = (types.get(t.entity) ?? []).filter((c) => c.path === path);
       const decl = own.length ? own : (types.get(t.entity) ?? []);
       const owner = decl.length === 1 ? mods.get(decl[0].path).id : m.id;
-      push(edgeFact('OWNS_DATA', owner, `table:public.${t.table}`, { orm: 'efcore' }, prov_(path, t.line, 'medium', 'inference')));
+      push(edgeFact('OWNS_DATA', owner, `table:${t.table}`, { orm: 'efcore' }, prov_(path, t.line, 'medium', 'inference')));
     }
   }
 
@@ -596,9 +594,7 @@ function link(ctx) {
   }
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
-  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'), {
-    tableKey: (table) => `public.${table}`, attrs: (orm, model) => ({ schema: 'public', orm, model }),
-  })) push(f);
+  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------

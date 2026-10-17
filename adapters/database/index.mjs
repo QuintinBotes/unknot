@@ -13,7 +13,7 @@ import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
 import { entityQuery, mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
@@ -520,16 +520,6 @@ function link(ctx) {
           }
         }
       }
-
-      // Language-adapter ORM tables use `table:<name>`; ours are schema-qualified.
-      if (f.kind === 'node' && f.type === 'table' && f.provenance?.extractor !== EXTRACTOR && !f.id.slice(6).includes('.')) {
-        const canon = normalizeTableId(f.id, engine);
-        if (canon !== f.id) add(nodeFact('table', canon.slice(6), { name: f.name, path: f.path, attrs: { ...f.attrs, aliases: [f.id] } }, p(f.provenance?.source_ref?.split(':')[1], 'medium')));
-      }
-      if (f.kind === 'edge' && f.provenance?.extractor !== EXTRACTOR && /^table:[^.]+$/.test(f.to) && ['OWNS_DATA', 'READS', 'WRITES', 'QUERIES', 'MUTATES'].includes(f.type)) {
-        const canon = normalizeTableId(f.to, engine);
-        if (canon !== f.to) add(edgeFact(f.type, f.from, canon, { ...f.attrs, aliases: [f.to] }, p(null)));
-      }
     }
   }
 
@@ -805,4 +795,6 @@ export default {
   extract,
   link,
   discover,
+  // Language adapters name ORM tables without a schema; the engine decides the one id every table gets.
+  canonicalId: { table: (id, options) => normalizeTableId(id, options.engine ?? 'postgresql') },
 };

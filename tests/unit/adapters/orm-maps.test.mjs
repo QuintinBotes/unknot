@@ -173,17 +173,18 @@ for (const c of INHERITED) {
   });
 }
 
-test('the database link schema-qualifies an inherited entity table like a directly mapped one', async () => {
+test("an inherited entity table gets the database adapter's canonical id like a directly mapped one", async () => {
   const sources = { ...INHERITED[0].sources, 'billing/ledger.py': 'from django.db import models\n\nclass Ledger(models.Model):\n    pass\n' };
   const items = Object.entries(sources).map(([path, text]) => ({ file: entryOf(path, text), text }));
   const files = new Map(items.map((it) => [it.file.path, it.file]));
   const factsByFile = new Map(await pythonAdapter.extractBatch(items, { exec: hasPython ? realExec : unsupportedExec, options: {} }));
   pythonAdapter.link({ files, factsByFile, options: {} });
-  const linked = databaseAdapter.link({ files, factsByFile, options: {} });
+  const canon = (id) => (id.startsWith('table:') ? databaseAdapter.canonicalId.table(id, {}) : id);
+  const facts = [...factsByFile.values()].flat();
   for (const name of ['billing_article', 'billing_review', 'billing_ledger']) {
     const id = `table:public.${name}`;
-    assert.equal(linked.find((f) => f.kind === 'node' && f.id === id)?.attrs.orm, 'django', `${id} is the ORM's table`);
-    assert.ok(linked.some((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && f.to === id), `${id} has an owner`);
+    assert.equal(facts.find((f) => f.kind === 'node' && canon(f.id) === id)?.attrs.orm, 'django', `${id} is the ORM's table`);
+    assert.ok(facts.some((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && canon(f.to) === id), `${id} has an owner`);
   }
 });
 

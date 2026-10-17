@@ -280,7 +280,7 @@ function ormTables(lx, an, lang, path) {
       model: m.entity, ...(m.deferred && { entity: m.entity }),
     });
   }
-  const entities = mappings.map((m) => ({ n: m.entity.split(/::|\./).pop(), t: `public.${m.table}`, o: m.orm }));
+  const entities = mappings.map((m) => ({ n: m.entity.split(/::|\./).pop(), t: m.table, o: m.orm }));
   const exposed = members.map((m) => ({ n: m.member, e: m.entity }));
   return { tables, links: ormAttrs(entities, exposed, accessCandidates(lx.plain, lang, (off) => lx.lineOf(off)), classes) };
 }

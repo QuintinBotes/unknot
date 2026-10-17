@@ -514,8 +514,8 @@ export function ormAttrs(entities, members, access, classes = []) {
  * entity or a mapped superclass of an ORM is an entity of that ORM too: it gets its table (and
  * the owning edge) here, since its bases may be declared in other files. Those facts are added to
  * the declaring file's facts in `factsByFile`, like a table mapped in that file, so the adapters
- * linked later (the database adapter's schema-qualified ids) see them too. `opts.tableKey(table)`
- * is the id the adapter gives a table, `opts.attrs(orm, model, table)` the attributes of its node.
+ * linked later see them too. `opts.attrs(orm, model, table)` gives the attributes of its node; the
+ * table id is the bare name, which the database adapter's `canonicalId` qualifies.
  * @returns {object[]} MUTATES and QUERIES edges from the module to the table
  */
 export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
@@ -568,12 +568,11 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   for (const { name, r, row } of inherited.sort((x, y) => (x.r.path < y.r.path ? -1 : x.r.path > y.r.path ? 1 : x.name < y.name ? -1 : 1))) {
     const declared = r.nm?.[row.orm];
     const table = declared ?? CONVENTIONS[row.convention](name, { path: r.path });
-    const id = opts.tableKey ? opts.tableKey(table) : table;
     const m = { orm: row.orm, entity: name, table, basis: declared ? 'declared' : 'convention' };
     const spec = { name: table, path: r.path, attrs: opts.attrs ? opts.attrs(row.orm, name, table) : { orm: row.orm, model: name } };
-    factsByFile.get(r.path).push(...tableFacts(m, { key: id, spec, from: `module:${r.path}`, edgeAttrs: { orm: row.orm, model: name }, pv: pv(r.path, r.l ?? 1) }));
+    factsByFile.get(r.path).push(...tableFacts(m, { key: table, spec, from: `module:${r.path}`, edgeAttrs: { orm: row.orm, model: name }, pv: pv(r.path, r.l ?? 1) }));
     if (!entities.has(name)) entities.set(name, []);
-    entities.get(name).push({ path: r.path, id, orm: row.orm });
+    entities.get(name).push({ path: r.path, id: table, orm: row.orm });
   }
   const pick = (name, path) => {
     const all = entities.get(name) ?? [];

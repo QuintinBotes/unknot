@@ -31,7 +31,9 @@ Python by CPython's `ast`. Every other language (C#, Java, Kotlin, Scala, Go, Ru
 Swift, C, C++) is read lexically. Type references are matched by name (for C# at type level
 since 0.1.11), and a map whose dominant language is read lexically reports `partial`.
 Dependency injection, ORM mappings and routes are recognised by framework-specific patterns
-where someone wrote them.
+where someone wrote them. One architecture written in C#, Java, Python, TypeScript and Go
+(`tests/golden/equivalent-architecture.test.mjs`) maps to the same unit dependencies, route,
+table and container binding in each; what a tier cannot see is named in the test.
 
 **Production grade.**
 

@@ -11,7 +11,7 @@ const OTLP = ['traces.otlp.json'];
 
 test('adapter descriptor', () => {
   assert.equal(adapter.id, 'runtime');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.kind, 'runtime');
   assert.deepEqual(adapter.capabilities, { files: [], executes: [], network: false });
 });
@@ -39,9 +39,9 @@ test('OTLP: services, calls, endpoints, tables, topics', async () => {
 
   assert.ok(edge(facts, 'EXPOSES', 'service:checkout', 'endpoint:GET /orders/{id}'));
   assert.ok(edge(facts, 'EXPOSES', 'service:inventory', 'endpoint:GET /stock/{sku}'));
-  assert.ok(edge(facts, 'QUERIES', 'service:inventory', 'table:public.stock'));
-  assert.ok(edge(facts, 'MUTATES', 'service:inventory', 'table:public.stock')); // via db.sql.table
-  assert.ok(edge(facts, 'MUTATES', 'service:inventory', 'table:public.audit_log')); // via statement parse
+  assert.ok(edge(facts, 'QUERIES', 'service:inventory', 'table:stock'));
+  assert.ok(edge(facts, 'MUTATES', 'service:inventory', 'table:stock')); // via db.sql.table
+  assert.ok(edge(facts, 'MUTATES', 'service:inventory', 'table:audit_log')); // via statement parse
   assert.ok(edge(facts, 'PUBLISHES', 'service:checkout', 'topic:orders.created'));
   assert.ok(edge(facts, 'SUBSCRIBES', 'service:inventory', 'topic:orders.created'));
   // Messaging is asynchronous: not a RUNTIME_CALLS edge.
@@ -60,7 +60,7 @@ test('every fact carries provenance, observed_window and expires_at (default ttl
   const facts = await runFixtures({ traces: OTLP });
   for (const f of facts) {
     assert.equal(f.provenance.source_type, 'trace');
-    assert.equal(f.provenance.extractor, 'runtime@0.1.0');
+    assert.equal(f.provenance.extractor, 'runtime@0.1.1');
     assert.match(f.provenance.source_ref, /^traces\.otlp\.json#.+/);
     assert.ok(f.attrs.observed_window.start <= f.attrs.observed_window.end);
     assert.equal(Date.parse(f.attrs.expires_at) - Date.parse(f.attrs.observed_window.end), 14 * 86_400_000);
@@ -94,7 +94,7 @@ test('privacy: no literal, secret, query string or dropped attribute in any fact
     }
   }
   const facts = await runFixtures({ traces: OTLP });
-  assert.equal(edge(facts, 'QUERIES', 'service:inventory', 'table:public.stock').attrs.statement_shape, 'SELECT sku, qty FROM stock WHERE sku = ? AND qty > ?');
+  assert.equal(edge(facts, 'QUERIES', 'service:inventory', 'table:stock').attrs.statement_shape, 'SELECT sku, qty FROM stock WHERE sku = ? AND qty > ?');
 });
 
 test('redactStatement: literals, comments, truncation, unterminated quotes', () => {
