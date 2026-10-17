@@ -1,5 +1,6 @@
 // unknot import runtime <file> [--source <label>]
 // unknot import database-stats <file> [--format pg|sqlserver|mysql|normalised] [--source <label>] [--window <w>]
+// unknot import deliveries <file> [--source <label>] [--environment <name>]
 // Reads a table of call volumes, latency and errors (docs/runtime-evidence.md, "Import
 // table"), matches each caller and callee to graph nodes, stores the rows with their
 // window, source and import time, and re-projects the graph so decompose sees them.
@@ -14,20 +15,25 @@ import { nowISO } from '../../core/clock.mjs';
 import { isSecretPath, resolveInside, toPosix } from '../../core/paths.mjs';
 import { mapRepository } from '../../graph/builder.mjs';
 import { Graph } from '../../graph/graph.mjs';
-import { loadImports, loadStatsImports, saveImport, saveStatsImport } from '../../graph/runtime-imports.mjs';
+import { loadDeliveryImports, loadImports, loadStatsImports, saveDeliveryImport, saveImport, saveStatsImport } from '../../graph/runtime-imports.mjs';
 import { STATS_COLUMNS, STATS_FORMATS, readStats } from '../../../adapters/database/stats/format.mjs';
 import { matchReport } from '../../../adapters/database/stats/imports.mjs';
+import { DELIVERY_COLUMNS, readDeliveries } from '../../../adapters/delivery/history/format.mjs';
+import { matchReport as deliveryMatchReport } from '../../../adapters/delivery/history/imports.mjs';
 import { IMPORT_COLUMNS, SOURCE_LABEL, matchRows, parseImport } from '../../../adapters/runtime/imports.mjs';
 import { output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export const USAGE = `usage: unknot import runtime <file> [--source <label>] [--json]
        unknot import database-stats <file> [--format ${STATS_FORMATS.join('|')}] [--source <label>] [--window <w>] [--json]
+       unknot import deliveries <file> [--source <label>] [--environment <name>] [--json]
   file    CSV or JSON rows with the columns ${IMPORT_COLUMNS.join(', ')} (see docs/runtime-evidence.md)
   --source  names the data's origin; importing again with the same source replaces the earlier import (default: the file name)
   database-stats reads query statistics exported from a database (columns ${STATS_COLUMNS.join(', ')}; see docs/runtime-evidence.md)
   --format  which reader to use (default: detected from the columns)
-  --window  the window of rows that carry none: an ISO interval a/b or a duration such as P7D`;
+  --window  the window of rows that carry none: an ISO interval a/b or a duration such as P7D
+  deliveries reads deployment rows per deployable unit (columns ${DELIVERY_COLUMNS.join(', ')}; see docs/runtime-evidence.md)
+  --environment  only rows of this environment count (default: production)`;
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const LISTED = 20;
@@ -45,6 +51,7 @@ function inputPath(ctx, file) {
 export async function run({ positional, flags }) {
   const [what, file, ...extra] = positional;
   if (what === 'database-stats' && file && !extra.length) return runStats({ file, flags });
+  if (what === 'deliveries' && file && !extra.length) return runDeliveries({ file, flags });
   if (what !== 'runtime' || !file || extra.length) throw new UnknotError('UK_CONFIG_INVALID', USAGE);
   const source = flags.source === undefined || flags.source === true ? null : String(flags.source);
   if (source !== null && !SOURCE_LABEL.test(source)) throw new UnknotError('UK_CONFIG_INVALID', '--source must be 1-64 characters from A-Z a-z 0-9 . _ @ -');
@@ -163,6 +170,71 @@ async function runStats({ file, flags }) {
   ];
   if (report.tables_unmatched.length) {
     lines.push('', `Unmatched tables${report.tables_unmatched.length > LISTED ? ` (first ${LISTED} of ${report.tables_unmatched.length})` : ''}:`, table(summary.tables_unmatched, ['table', 'statements']));
+  }
+  output(lines.join('\n'));
+}
+
+/** unknot import deliveries: validate, store, re-project, and report what matched. */
+async function runDeliveries({ file, flags }) {
+  const source = flags.source === undefined || flags.source === true ? null : String(flags.source);
+  if (source !== null && !SOURCE_LABEL.test(source)) throw new UnknotError('UK_CONFIG_INVALID', '--source must be 1-64 characters from A-Z a-z 0-9 . _ @ -');
+  if (flags.environment === true) throw new UnknotError('UK_CONFIG_INVALID', '--environment needs a name');
+  const environment = flags.environment === undefined ? 'production' : String(flags.environment).trim();
+  if (!environment) throw new UnknotError('UK_CONFIG_INVALID', '--environment needs a name');
+  const { ctx, cfg, config, actor } = open(flags);
+  const { abs, rel } = inputPath(ctx, file);
+  const size = statSync(abs).size;
+  if (size > MAX_BYTES) throw new UnknotError('UK_BUDGET_EXCEEDED', `${rel} is ${size} bytes, over ${MAX_BYTES}`);
+  const text = readFileSync(abs, 'utf8');
+  const label = source ?? basename(rel).replace(/[^A-Za-z0-9._@-]/g, '_').slice(0, 64);
+  const now = nowISO();
+  let parsed;
+  try {
+    parsed = readDeliveries(text, { environment });
+  } catch (err) {
+    throw new UnknotError('UK_SCHEMA_INVALID', `${rel}: ${err.message}`);
+  }
+  if (parsed.invalid.length) {
+    const shown = parsed.invalid.slice(0, LISTED).map((r) => `row ${r.row}: ${r.error}`).join('\n  ');
+    throw new UnknotError('UK_SCHEMA_INVALID', `${rel}: ${parsed.invalid.length} of ${parsed.total} rows are invalid; nothing was imported.\n  ${shown}${parsed.invalid.length > LISTED ? `\n  (+${parsed.invalid.length - LISTED} more)` : ''}`, { details: { invalid: parsed.invalid.slice(0, LISTED), invalid_count: parsed.invalid.length } });
+  }
+  if (!parsed.rows.length) throw new UnknotError('UK_SCHEMA_INVALID', `${rel} has no counted deployments for environment "${environment}" (${parsed.skipped_status} row(s) are not deployments, ${parsed.skipped_environment} are other environments)`);
+  if (!ctx.store.meta('generation')) throw new UnknotError('UK_NOT_INITIALIZED', 'there is no graph to match against; run unknot map first');
+
+  const digest = createHash('sha256').update(text).update(`\0${environment}`).digest('hex');
+  const earlier = loadDeliveryImports(ctx.store).find((e) => e.source === label);
+  const unchanged = earlier?.digest === digest;
+  const entry = unchanged ? earlier : {
+    source: label, file: rel, digest, imported_at: now, environment,
+    rows: parsed.rows, window: parsed.window,
+    skipped_status: parsed.skipped_status, skipped_environment: parsed.skipped_environment,
+  };
+  if (!unchanged) {
+    saveDeliveryImport(ctx.store, entry);
+    await withRun(ctx, cfg, 'map', { actor, scope: [] }, (r) => mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope: [], history: true }));
+  }
+  const report = deliveryMatchReport(entry, Graph.fromStore(ctx.store));
+  const summary = {
+    source: label,
+    file: rel,
+    environment: entry.environment,
+    status: unchanged ? 'unchanged' : earlier ? 'replaced' : 'imported',
+    imported_at: entry.imported_at,
+    window: entry.window,
+    deployments: entry.rows.length,
+    units: report.units.length,
+    units_matched: report.units_matched,
+    units_unmatched: report.units_unmatched.slice(0, LISTED),
+    units_unmatched_count: report.units_unmatched.length,
+    skipped_status: entry.skipped_status ?? 0,
+    skipped_environment: entry.skipped_environment ?? 0,
+  };
+  if (flags.json) return output(summary, { json: true });
+  const lines = [
+    `${unchanged ? 'Already imported (unchanged)' : earlier ? 'Replaced the earlier import of' : 'Imported'} ${rel} as source "${label}" (${summary.environment}, ${entry.window.start} to ${entry.window.end}): ${summary.deployments} deployments of ${summary.units} unit(s), ${summary.units_matched.length} placed under code, ${summary.units_unmatched_count} not placed, ${summary.skipped_status} row(s) not deployments, ${summary.skipped_environment} row(s) of other environments.`,
+  ];
+  if (report.units_unmatched.length) {
+    lines.push('', `Units not placed under code${report.units_unmatched.length > LISTED ? ` (first ${LISTED} of ${report.units_unmatched.length})` : ''} (a code_root column places them):`, table(summary.units_unmatched.map((unit) => ({ unit })), ['unit']));
   }
   output(lines.join('\n'));
 }

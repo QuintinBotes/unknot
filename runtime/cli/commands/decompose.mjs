@@ -47,6 +47,12 @@ function showText(rec) {
   const outbound = c.outbound_dependency_targets ?? c.reverse_dependency_targets;
   if (outbound?.length) lines.push(`The candidate depends on (outbound): ${outbound.map((t) => `${t.module.replace(/^module:/, '')} x${t.edges}`).join(', ')}`);
   lines.push('', contractsText(c, m));
+  if (rec.delivery_evidence) {
+    const d = rec.delivery_evidence;
+    lines.push('', `Delivery (observed, ${d.window.start} to ${d.window.end}; sources: ${d.sources.join(', ') || '-'}):`);
+    for (const u of d.units) lines.push(`  ${u.unit}: ${u.deployments} deployments, ${u.deploys_per_week}/week, change failure rate ${u.change_failure_rate}, median lead time ${u.lead_time_median_hours === null ? 'unknown' : `${u.lead_time_median_hours}h`}, ${u.members_under} member module(s) under its code root${u.released_with?.length ? `; released with ${u.released_with.map((r) => `${r.unit} (${r.share})`).join(', ')}` : ''}`);
+    if (m['service.deploy_coupling'] !== undefined) lines.push(`  service.deploy_coupling ${m['service.deploy_coupling']} (largest share of releases shared with a unit outside this candidate)`);
+  }
   if (rec.drivers_not_served?.length) {
     lines.push('', 'Drivers not served:');
     for (const d of rec.drivers_not_served) lines.push(`  ${d.driver}: ${d.reason}`);

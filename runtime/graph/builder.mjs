@@ -19,7 +19,8 @@ import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
 import { importFacts } from '../../adapters/runtime/imports.mjs';
 import { statsImportFacts } from '../../adapters/database/stats/imports.mjs';
-import { loadImports, loadStatsImports } from './runtime-imports.mjs';
+import { deliveryImportFacts } from '../../adapters/delivery/history/imports.mjs';
+import { loadDeliveryImports, loadImports, loadStatsImports } from './runtime-imports.mjs';
 import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
@@ -311,6 +312,16 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       pushAll(global, statsImportFacts(statsImports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
     } catch (err) {
       failures.push({ path: '<database-stats-import>', adapter: 'database', error: String(err?.message ?? err) });
+    }
+  }
+  // Imported delivery history (`unknot import deliveries`) attaches to the deployable units mapped now.
+  const deliveryImports = loadDeliveryImports(ctx.store);
+  if (deliveryImports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, deliveryImportFacts(deliveryImports, mapped, { options: config.adapters?.delivery ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<delivery-import>', adapter: 'delivery', error: String(err?.message ?? err) });
     }
   }
   lap('discovery_ms');

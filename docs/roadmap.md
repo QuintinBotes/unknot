@@ -113,6 +113,7 @@ calls operation Y". The same fixture must pass in at least two language pairs.
 - OTLP, Jaeger and Zipkin traces;
 - Prometheus text and HTTP API responses;
 - catalogs, database metadata and slow-query logs;
+- delivery history: deployment rows per deployable unit (`unknot import deliveries`);
 - infrastructure plans and state.
 
 Facts carry an expiry, and expired ones are reported as stale. Recipes for exporting from

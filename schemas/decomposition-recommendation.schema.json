@@ -564,6 +564,42 @@
       "required": ["label", "window", "sources", "transactions", "edges"],
       "additionalProperties": false
     },
+    "delivery_evidence": {
+      "type": "object",
+      "description": "Measured delivery history of the deployable units this candidate's modules belong to, from imported delivery rows, labelled observed, with the window they cover.",
+      "properties": {
+        "label": {"const": "observed"},
+        "window": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"], "additionalProperties": false},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "unit": {"type": "string"},
+              "deployments": {"type": "integer"},
+              "deploys_per_week": {"type": "number"},
+              "change_failure_rate": {"type": "number"},
+              "lead_time_median_hours": {"type": ["number", "null"]},
+              "members_under": {"type": "integer"},
+              "released_with": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {"unit": {"type": "string"}, "share": {"type": "number"}},
+                  "required": ["unit", "share"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["unit", "deployments", "deploys_per_week", "change_failure_rate", "lead_time_median_hours", "members_under", "released_with"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["label", "window", "sources", "units"],
+      "additionalProperties": false
+    },
     "confidence_cap": {
       "type": "string",
       "description": "Present when static evidence alone lowered the confidence to medium: why."
