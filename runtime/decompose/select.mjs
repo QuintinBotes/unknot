@@ -62,6 +62,7 @@ const EVIDENCE_FOR = {
   'contracts.present': 'contract files, HTTP/RPC/query clients, messaging channels or a catalog naming the endpoints',
   'clients.count': 'client interfaces, consuming modules per messaging channel, or traces naming the callers',
   'requests.interceptable': 'traces or a catalog naming the endpoints (evidence.traces, evidence.catalogs)',
+  'service.deploy_coupling': 'delivery history with release ids (unknot import deliveries)',
   'tests.present': 'tests that cover the scope',
 };
 

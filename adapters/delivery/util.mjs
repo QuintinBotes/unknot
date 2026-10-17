@@ -4,7 +4,7 @@
 import { prov } from '../../runtime/graph/facts.mjs';
 
 export const ID = 'delivery';
-export const VERSION = '0.1.2';
+export const VERSION = '0.1.3';
 export const EXTRACTOR = `${ID}@${VERSION}`;
 /** Per-file fact cap from adapters/README.md. */
 export const MAX_FACTS = 5000;
