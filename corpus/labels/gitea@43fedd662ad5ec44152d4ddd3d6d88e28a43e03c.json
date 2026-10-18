@@ -114,5 +114,9 @@
   "sha256:5b856b3ffc640bfc3e54b94dd4456ba744a274f93d6aee28c8b4a62d03c5f403": {
     "label": "false",
     "note": "changeTab, reposFilterKeyControl and the others are called from the component template (@click and similar bindings)."
+  },
+  "sha256:396f211ac88fe4da1ad3218109031c82dbb7e76935f81b44e241839fd7bcc3a0": {
+    "label": "true",
+    "note": "services/user/user.go:142-295, 154 lines with purge loops over organisations and repositories nested six deep; worth splitting."
   }
 }

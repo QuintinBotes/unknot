@@ -126,18 +126,19 @@ are ignored. Raise `--sample` to bring more of the stratified order into the lab
 
 ## Results after 0.4.0 (2026-10-18)
 
-Same corpus and seed, Twenty excluded, 20 findings sampled per repository. 132 samples new
-since 0.2.0 were labelled by reading the cited source: 23 on the quick corpus, and 109 on the
-rest, which four read-only labelling agents proposed and a reviewer checked (every `false`
-label against the source; one was changed to not-worth). Both rows below are scored with the
-same labels; the first is the sample before the fixes those labels led to, the second after.
+Same corpus and seed, Twenty excluded, 20 findings sampled per repository. 150 samples new
+since 0.2.0 were labelled by reading the cited source: 23 on the quick corpus, 109 on the rest,
+which four read-only labelling agents proposed and a reviewer checked (every `false` label
+against the source; one was changed to not-worth), and 18 that later runs sampled as fixes
+changed the findings. Both rows below are scored with the same labels; the first is the sample
+before the fixes those labels led to, the second after.
 One Saleor cycle keeps its fingerprint across the fixes but is now shown through real imports
 instead of a false `collections` edge, so it is labelled true.
 
 | | Labelled | True | Wrong | Not worth | Precision | Factual |
 |---|---:|---:|---:|---:|---:|---:|
 | before the label fixes (3cfe221) | 217 | 37 | 23 | 157 | 17% | 89% |
-| after (577f4ea) | 206 | 37 | 13 | 156 | 18% | 94% |
+| after (ca2dde3) | 216 | 43 | 10 | 163 | 20% | 95% |
 
 The fixes removed sampled findings labelled wrong for these causes: a Python standard-library
 import resolved to a same-named sibling file (a false seven-module cycle on Saleor), a
@@ -145,9 +146,13 @@ TypeScript import of interfaces only closing a cycle, constructors, accessors an
 lifecycle callbacks reported as dead, credential words before `==` or `::` and in translation
 files read as secrets, `DELETE FROM {table}` recording a table named `from`, and CI jobs
 treated as deploys because of words in comments, echoed text or a cluster the job creates
-itself. Earlier in the same round, Go files of one package stopped forming import cycles and
-hubs, and imports through Vite and webpack aliases resolve (18 false dead-code findings on
-PocketBase). Ten new samples are unlabelled.
+itself, a Go field read through a type that embeds its owner or through a receiver of unknown
+type, a JavaScript import of a `.vue` file without its extension, a method called only from a
+module's top-level code or from a Vue template, a script that exports nothing reported as a
+module nothing imports, and a dummy key file read as a secret. Earlier in the same round, Go
+files of one package stopped forming import cycles and hubs, and imports through Vite and
+webpack aliases resolve (18 false dead-code findings on PocketBase). Every sampled finding is
+labelled.
 
 | Seeded defect | Found | Seeded |
 |---|---:|---:|
@@ -157,9 +162,12 @@ PocketBase). Ten new samples are unlabelled.
 | unused injected member | 3 | 3 |
 
 Dead functions are still reported only where the code is parsed into a syntax tree, so the
-lexical languages miss the seeded ones by design. The remaining wrong findings include a Go
-member read through a receiver type the lexical tier cannot resolve and standalone scripts
-reported as modules nothing imports.
+lexical languages miss the seeded ones by design. The ten remaining wrong findings are a form
+field and a PEM placeholder read as secrets, a fake credential in a test string, `innerHTML` set
+from templates of generated markup, two package entry points read as implementation leakage, a
+private method called through a parameter of its class, TypeScript overloads counted as
+parameters, a C# string constant named like a type closing a cycle, and a decomposition
+measurement that misses same-package Java users.
 
 ## Results for Unknot 0.2.0
 
