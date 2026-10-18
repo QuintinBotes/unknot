@@ -411,3 +411,26 @@ test('Go: an interface that very many types satisfy gets no structural edges', (
   delete files['res/r25.go'];
   assert.equal(project(files).all.filter((f) => f.type === 'IMPLEMENTS').length, 25);
 });
+
+test('Go: a compile-time assertion states an implementation the methods cannot show', () => {
+  const p = project({
+    'go.mod': 'module example.com/shop\n',
+    'store/store.go': 'package store\ntype Reader interface {\n\tGet(id string) error\n}\ntype Writer interface {\n\tPut(id string) error\n}\n',
+    'ext/ext.go': [
+      'package ext',
+      'import "example.com/shop/store"',
+      'type Ext struct {\n\tvendor.Client\n}',
+      'type Buf struct{}',
+      'var _ store.Reader = (*Ext)(nil)',
+      'var (\n\t_ store.Writer = &Buf{}\n\t_ store.Reader = Buf{}\n)',
+      'func run() { for _, x := range xs { _ = x } }',
+      'type Reader interface { Get(id string) error }',
+      'var _ store.Writer = (*vendor.Reader)(nil)',
+      'var _ io.Reader = (*Buf)(nil)',
+    ].join('\n'),
+  });
+  const edges = p.all.filter((f) => f.kind === 'edge' && f.type === 'IMPLEMENTS').map((f) => `${f.from.split('#')[1]}->${f.to.split('#')[1]}:${f.attrs.by}`).sort();
+  assert.deepEqual(edges, ['Buf->Reader:impl', 'Buf->Writer:impl', 'Ext->Reader:impl'],
+    'a type from a package not imported is not the same-named local interface or type');
+  assert.ok(!p.all.some((f) => f.type === 'IMPLEMENTS' && f.to === 'interface:ext/ext.go#Reader'), 'io.Reader is not the local Reader');
+});

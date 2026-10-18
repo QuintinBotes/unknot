@@ -252,6 +252,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       importStyle: 'quoted_block',
       typeStyle: 'type_blocks',
       structuralInterfaces: true,
+      implementsAssertion: /(?<![\w.])_\s+([A-Za-z_][\w.]*)\s*=\s*(?:\(\s*\*\s*([A-Za-z_][\w.]*)\s*\)\s*\(\s*nil\s*\)|&?\s*([A-Za-z_][\w.]*)\s*\{)/g,
       exported: 'capitalized',
       functionReceiverGroup: 2,
       resolver: 'module_paths',

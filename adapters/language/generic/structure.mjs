@@ -710,6 +710,12 @@ export function analyze(lx, lang) {
         if (traitName) impls.push({ type: typeName, trait: traitName, line: lx.lineOf(m.index) });
       }
     }
+    // A declaration that only checks a type implements an interface (`var _ I = (*T)(nil)`): group 1 the interface, 2 or 3 the type.
+    for (const m of syntax.implementsAssertion ? code.matchAll(syntax.implementsAssertion) : []) {
+      const type = simpleName(m[2] ?? m[3]);
+      const trait = simpleName(m[1]);
+      if (type && trait) impls.push({ type, trait, line: lx.lineOf(m.index), ...((m[2] ?? m[3]).includes('.') && { type_qualified: true }), ...(m[1].includes('.') && { trait_qualified: true }) });
+    }
     if (syntax.extensionBlocks) {
       for (const m of code.matchAll(/(?<![\w.])extension\s+([A-Za-z_][\w.]*)/g)) {
         const sh = scanHeader(code, pm, m.index + m[0].length);

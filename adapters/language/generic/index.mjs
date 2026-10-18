@@ -660,10 +660,13 @@ function link(ctx) {
   }
   for (const path of sortedMods) {
     const m = mods.get(path);
+    // A qualified name (an assertion's `pkg.T`) is a type of a package this file imports.
+    const imported = (c) => importsOf.get(path)?.has(c.path);
     for (const im of m.attrs.impls ?? []) {
-      const own = (types.get(im.type) ?? []).filter((c) => c.path === path);
-      const srcs = own.length ? own : (types.get(im.type) ?? []);
-      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface');
+      const concrete = (types.get(im.type) ?? []).filter((c) => c.type !== 'interface' && (!im.type_qualified || imported(c)));
+      const own = concrete.filter((c) => c.path === path);
+      const srcs = own.length ? own : concrete;
+      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface' && (!im.trait_qualified || imported(c)));
       const near = trs.filter((c) => c.path === path);
       const tr = near.length ? near : trs;
       if (srcs.length === 1 && tr.length === 1) push(edgeFact('IMPLEMENTS', srcs[0].id, tr[0].id, { by: 'impl' }, prov_(path, im.line, 'low')));
