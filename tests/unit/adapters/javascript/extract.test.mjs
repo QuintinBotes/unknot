@@ -12,7 +12,7 @@ const edges = (facts, type) => facts.filter((f) => f.kind === 'edge' && f.type =
 
 test('adapter contract: identity and capabilities', () => {
   assert.equal(adapter.id, 'javascript');
-  assert.equal(adapter.version, '0.1.15');
+  assert.equal(adapter.version, '0.1.16');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -152,6 +152,20 @@ test('security signals', () => {
     'exec-nonliteral@5', 'spawn-shell@7', 'eval@8', 'new-function@9', 'vm-run@10', 'inner-html@11', 'document-write@12',
     'sql-interpolation@13', 'dangerously-set-inner-html@15',
   ].sort((a, b) => Number(a.split('@')[1]) - Number(b.split('@')[1])));
+});
+
+test('innerHTML set to a literal with nothing joined to it is no signal', () => {
+  const src = [
+    'el.innerHTML = "";',
+    'el.innerHTML = `<b>static</b>`;',
+    'el.outerHTML = \'<i></i>\';',
+    'el.innerHTML = `<b>${name}</b>`;',
+    'el.innerHTML = "<b>" + name;',
+    'el.innerHTML = html;',
+    'el.innerHTML += "".concat(x);',
+  ].join('\n');
+  const m = moduleAttrs(extractOne('dom.js', src), 'dom.js');
+  assert.deepEqual(m.security_signals.map((s) => `${s.kind}@${s.line}`), ['inner-html@4', 'inner-html@5', 'inner-html@6', 'inner-html@7']);
 });
 
 test('exec is only flagged when child_process is imported and the command is not a literal', () => {
