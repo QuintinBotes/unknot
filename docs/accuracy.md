@@ -124,6 +124,43 @@ A bare string value (`"false"`) is accepted too. Labels are keyed by fingerprint
 carry over while a finding keeps its kind and scope; labels for findings that no longer exist
 are ignored. Raise `--sample` to bring more of the stratified order into the labelled set.
 
+## Results after 0.4.0 (2026-10-18)
+
+Same corpus and seed, Twenty excluded, 20 findings sampled per repository. 132 samples new
+since 0.2.0 were labelled by reading the cited source: 23 on the quick corpus, and 109 on the
+rest, which four read-only labelling agents proposed and a reviewer checked (every `false`
+label against the source; one was changed to not-worth). Both rows below are scored with the
+same labels; the first is the sample before the fixes those labels led to, the second after.
+One Saleor cycle keeps its fingerprint across the fixes but is now shown through real imports
+instead of a false `collections` edge, so it is labelled true.
+
+| | Labelled | True | Wrong | Not worth | Precision | Factual |
+|---|---:|---:|---:|---:|---:|---:|
+| before the label fixes (3cfe221) | 217 | 37 | 23 | 157 | 17% | 89% |
+| after (577f4ea) | 206 | 37 | 13 | 156 | 18% | 94% |
+
+The fixes removed sampled findings labelled wrong for these causes: a Python standard-library
+import resolved to a same-named sibling file (a false seven-module cycle on Saleor), a
+TypeScript import of interfaces only closing a cycle, constructors, accessors and framework
+lifecycle callbacks reported as dead, credential words before `==` or `::` and in translation
+files read as secrets, `DELETE FROM {table}` recording a table named `from`, and CI jobs
+treated as deploys because of words in comments, echoed text or a cluster the job creates
+itself. Earlier in the same round, Go files of one package stopped forming import cycles and
+hubs, and imports through Vite and webpack aliases resolve (18 false dead-code findings on
+PocketBase). Ten new samples are unlabelled.
+
+| Seeded defect | Found | Seeded |
+|---|---:|---:|
+| dependency cycle | 11 | 11 |
+| long function | 11 | 11 |
+| dead function | 2 | 11 |
+| unused injected member | 3 | 3 |
+
+Dead functions are still reported only where the code is parsed into a syntax tree, so the
+lexical languages miss the seeded ones by design. The remaining wrong findings include a Go
+member read through a receiver type the lexical tier cannot resolve and standalone scripts
+reported as modules nothing imports.
+
 ## Results for Unknot 0.2.0
 
 Same corpus and seed, Twenty excluded (it is `large`), 20 findings sampled per repository; the

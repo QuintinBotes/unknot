@@ -40,8 +40,8 @@
     "note": "Matched names like _update_authorize_status and authorize_payment are payment-authorization, not access checks."
   },
   "sha256:060459abe38510d8f7ee9427ed276e5f0e4180ca46a2ff21f973377ae278197c": {
-    "label": "false",
-    "note": "The edge products.py -> collections.py is `from collections import defaultdict` (stdlib), not the sibling module; no real products->collections import exists (only a string reference)."
+    "label": "true",
+    "note": "A real top-level import cycle: filters/product.py:52 imports product_helpers, which imports types (:28), whose __init__ imports categories (:1), which imports filters.product (:38). Before the standard-library fix the same component was shown through a false collections edge."
   },
   "sha256:ea19358465a563b8595eebee33d471c045590ce60f66aee55baec165e920df2f": {
     "label": "not-worth",

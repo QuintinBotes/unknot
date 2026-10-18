@@ -68,8 +68,8 @@
     "note": "The redundant index sits only in initial_test_db.sql, a generated mysqldump used as test fixture."
   },
   "sha256:99df2093953ba54dbbb0589e343234cf88b999bac41c4107c33332a900b20a65": {
-    "label": "false",
-    "note": "test-suite/module is a fixture module for module-loading tests; its outward imports to openmrs-api are inherent, there is no cohesion defect."
+    "label": "not-worth",
+    "note": "True measurement, but the package is a fixture module for module-loading tests, whose imports of openmrs-api are inherent."
   },
   "sha256:fe27ad13aa8add961d30cab0420f957f867c8b2f724e2bc3b08659ff1f38b026": {
     "label": "false",
