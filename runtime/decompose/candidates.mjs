@@ -4,7 +4,7 @@
 
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
 import { cycleBreakdown } from '../graph/algorithms.mjs';
-import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
+import { MAX_CYCLES, cycleView, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { underRoot } from '../core/paths.mjs';
@@ -418,7 +418,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   m['boundary.internal_cycle_size'] = wholly.length ? wholly[0].length : 0;
   if (wholly.length) {
     // The stored breakdown of that component, the one `graph cycles` and diagnose read.
-    const b = sccsOf(graph).find((c) => c.members.join() === wholly[0].join()) ?? cycleBreakdown(graph, wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: MAX_CYCLES });
+    const b = sccsOf(graph).find((c) => c.members.join() === wholly[0].join()) ?? cycleBreakdown(cycleView(graph), wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: MAX_CYCLES });
     details.cycle_detail = { scope: 'internal', size: wholly[0].length, members: b.members, cycles: b.cycles.map((c) => c.nodes), cycles_truncated: b.truncated, cut: b.cut, declared_only: b.cut.filter((e) => e.declared_only).length };
   }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
