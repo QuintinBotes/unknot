@@ -9,7 +9,7 @@ const file = (path, extra = {}) => ({ path, size: 10, kind: 'config', blob: 'x',
 
 test('adapter shape', () => {
   assert.equal(adapter.id, 'security');
-  assert.equal(adapter.version, '0.1.2');
+  assert.equal(adapter.version, '0.1.3');
   assert.equal(adapter.kind, 'security');
   assert.equal(adapter.capabilities.network, false);
   assert.deepEqual(adapter.capabilities.executes, ['gitleaks', 'semgrep', 'trivy', 'osv-scanner']);
@@ -22,7 +22,7 @@ test('extract records kind and line, never the value', () => {
   facts.forEach(assertFact);
   assert.equal(facts[0].id, 'file:conf/app.env');
   assert.deepEqual(facts[0].attrs.secrets, [{ kind: 'aws-access-key-id', line: 3 }]);
-  assert.equal(facts[0].provenance.extractor, 'security@0.1.2');
+  assert.equal(facts[0].provenance.extractor, 'security@0.1.3');
   assert.equal(facts[0].provenance.confidence, 'medium');
   assert.equal(facts[0].provenance.source_type, 'ast');
   assert.ok(!JSON.stringify(facts).includes(AWS));
@@ -106,4 +106,14 @@ test('extract records authorization check shapes, never bare names', () => {
   assert.deepEqual(f.attrs.authz_checks.map((c) => c.shape), ["hasrole('admin')", '@rolesallowed("ADMIN")']);
   assert.equal(f.attrs.secrets, undefined);
   assert.deepEqual(adapter.extract(file('src/b.ts', { kind: 'source' }), 'function authorizePayment() { authorize(payment); }'), []);
+});
+
+test('a translation file names the word for a password, not one; token-shaped secrets there still count', () => {
+  const prose = 'User.password=Slaptažodis\ninstall.simple.passwd=Slaptažodis\n';
+  assert.deepEqual(adapter.extract(file('api/src/main/resources/messages_lt.properties'), prose), []);
+  assert.deepEqual(adapter.extract(file('options/locale/locale_el-GR.json'), '{ "install.password": "Συνθηματικό1" }'), []);
+  const fake = ['Kx9v', 'Q2mL', 'p7Zr'].join(''); // built here so secret scanners do not flag the fixture
+  assert.equal(adapter.extract(file('src/config/app.properties'), `db.password=${fake}\n`).length, 1, 'outside translations the same line is a finding');
+  const [f] = adapter.extract(file('locales/en.json'), `{ "aws": "${AWS}" }`);
+  assert.equal(f.attrs.secrets[0].kind, 'aws-access-key-id');
 });
