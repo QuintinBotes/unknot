@@ -86,5 +86,9 @@
   "sha256:7b634bc34d0387601aeac064f036ed084e20e0999c5e058b98389a5496d6295f": {
     "label": "true",
     "note": "gcr.io/distroless/static is used without a tag or digest."
+  },
+  "sha256:9e28325d0f2dff8aba58db204372150912c4a682a56ef3ff469930d81cf64594": {
+    "label": "not-worth",
+    "note": "Official Google actions referenced by major tag in a demo repository."
   }
 }

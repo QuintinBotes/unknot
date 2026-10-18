@@ -82,5 +82,9 @@
   "sha256:5042bb5fea9749b30e01aa3ed29750b190a4644b861500c0e15242240d7ae456": {
     "label": "false",
     "note": "Imported by resources/assets/js/mixins/global.js:18 as ./../components/AkauntingDate, an extensionless import of the .vue file."
+  },
+  "sha256:da338fe23b77b7b0df8456f4db2e99e8b280686da1b4144e7dbec05ea241730d": {
+    "label": "true",
+    "note": "AkauntingSelect.vue imports AkauntingModalAddNew, which imports AkauntingSelect back: a runtime import cycle among components (AkauntingSelect.vue:158 also imports itself)."
   }
 }

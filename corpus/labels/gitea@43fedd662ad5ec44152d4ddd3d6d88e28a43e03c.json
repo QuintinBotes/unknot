@@ -106,5 +106,13 @@
   "sha256:92ece00603644bb034cb466c711e560f893f22b1501a9bedbc13dd4698580e00": {
     "label": "not-worth",
     "note": "Builds, signs and uploads versioned release binaries; a rollback step does not apply to a versioned upload."
+  },
+  "sha256:5fec617329a4542a50fdef7ab11b7998a169e766d501a0585901a6f123e1bd1d": {
+    "label": "not-worth",
+    "note": "innerHTML is set from bundled SVG icon markup (SvgIcon.vue:30), which carries no user input."
+  },
+  "sha256:5b856b3ffc640bfc3e54b94dd4456ba744a274f93d6aee28c8b4a62d03c5f403": {
+    "label": "false",
+    "note": "changeTab, reposFilterKeyControl and the others are called from the component template (@click and similar bindings)."
   }
 }
