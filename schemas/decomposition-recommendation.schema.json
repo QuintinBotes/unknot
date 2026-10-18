@@ -312,7 +312,10 @@
               "interfaces": { "type": "array", "items": { "type": "string" } },
               "client_repositories": { "type": "array", "items": { "type": "string" }, "description": "Other repositories whose clients call this route" },
               "served_by": { "type": "array", "items": { "type": "string" }, "description": "Other repositories that serve a route this candidate calls" },
-              "workspace_mapped_at": { "type": "string", "description": "When the workspace map that linked the repositories ran" }
+              "workspace_mapped_at": { "type": "string", "description": "When the workspace map that linked the repositories ran" },
+              "consumers": { "type": "integer", "description": "Distinct modules that consume a messaging channel" },
+              "consumer_modules": { "type": "array", "items": { "type": "string" }, "description": "The modules that consume a messaging channel" },
+              "channel_unresolved": { "type": "boolean", "description": "The channel name is not a literal or a resolved constant" }
             },
             "required": ["route", "source", "clients", "interfaces"],
             "additionalProperties": false
