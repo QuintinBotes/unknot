@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- `DELETE FROM` followed by a table the code fills in (`{schema}.{table}`, `${table}`, `?`) no longer records a table named `from`; the T-SQL form without `FROM` (`DELETE orders WHERE ...`) still names its table. On nopCommerce this removes a `multiple-writers` finding about a table `from` (`database` 0.1.4).
 - JavaScript and TypeScript imports through a bundler alias (`resolve.alias` in a Vite, Vitest or webpack configuration, object or `find`/`replacement` form) resolve to the aliased directory, nearest configuration first; before, `import x from "@/logs/page"` stayed unresolved and the module it named looked dead. On pocketbase this removes 18 false dead-code findings, every page its router imports through `@/`.
 - An `innerHTML` or `outerHTML` assignment of a literal with nothing joined to it (`el.innerHTML = ""`, a template without `${}`) is no longer an injection signal; one with interpolation, concatenation or a variable still is (`javascript` 0.1.16).
 - Go files of one package that use each other's types no longer form import cycles or count as hub fan-in and fan-out. Since the language makes the package the unit (`packageUnit` in the table), those references are marked `intra_package`, and the cycle view every command reads (`graph cycles`, diagnose, decompose) leaves them out; dead code and decompose affinity still count them. On pocketbase this removes two in-package cycle findings and five hub findings that the same-package edges had added.

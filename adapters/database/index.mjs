@@ -13,7 +13,7 @@ import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
 import { entityQuery, mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
