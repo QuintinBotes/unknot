@@ -231,6 +231,22 @@ test('one-implementation-interface: exactly one implementer, no more, no less', 
   assert.ok(out[0].alternatives.some((a) => a.id === 'retain'));
 });
 
+test('one-implementation-interface: a test double as the only implementer is no finding; a structural language says what it cannot see', () => {
+  const facts = [
+    mod('client/client.go', { language: 'go' }),
+    mod('client/fake_test.go', { language: 'go', is_test: true }),
+    sym('interface', 'client/client.go', 'Doer', { kind: 'interface', language: 'go' }),
+    sym('class', 'client/fake_test.go', 'fakeDoer', { kind: 'class', language: 'go' }),
+    edge('IMPLEMENTS', 'class:client/fake_test.go#fakeDoer', 'interface:client/client.go#Doer'),
+    sym('interface', 'client/client.go', 'Store', { kind: 'interface', language: 'go' }),
+    sym('class', 'client/client.go', 'Sql', { kind: 'class', language: 'go' }),
+    edge('IMPLEMENTS', 'class:client/client.go#Sql', 'interface:client/client.go#Store'),
+  ];
+  const out = run('local.one-implementation-interface', facts);
+  assert.deepEqual(keys(out), ['interface:client/client.go#Store']);
+  assert.ok(out[0].uncertainties.some((u) => /without naming it/.test(u)));
+});
+
 test('duplicated-code: one finding per clone group; small, dissimilar, test and barrel clones are ignored', () => {
   const clone = (other, lines, similarity) => ({ other, similarity, lines, ranges: [[5, 5 + lines - 1, 7, 7 + lines - 1]] });
   const facts = [

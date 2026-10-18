@@ -251,6 +251,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       packagePattern: /^[ \t]*package\s+(\w+)/m,
       importStyle: 'quoted_block',
       typeStyle: 'type_blocks',
+      structuralInterfaces: true,
       exported: 'capitalized',
       functionReceiverGroup: 2,
       resolver: 'module_paths',

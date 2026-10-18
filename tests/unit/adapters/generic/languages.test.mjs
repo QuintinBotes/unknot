@@ -29,6 +29,7 @@ test('countParams counts top-level commas only', () => {
   assert.equal(countParams('int a', 'java'), 1);
   assert.equal(countParams('Map<String, List<Integer>> m, int b', 'java'), 2);
   assert.equal(countParams('f func(a, b int) error, x int', 'go'), 2);
+  assert.equal(countParams('args []string, in <-chan int, out chan<- int', 'go'), 3);
   assert.equal(countParams('a: Int = foo(1, 2), b: Int,', 'kotlin'), 2);
   assert.equal(countParams('&self, a: i32, cb: impl Fn(i32) -> i32', 'rust'), 2);
   assert.equal(countParams('a, b = {x: 1, y: 2}, *rest', 'ruby'), 3);
@@ -353,4 +354,60 @@ test('truncation and unknown files', () => {
   const facts = adapter.extract({ path: 'src/big.rs', kind: 'source' }, big, {});
   assert.equal(facts.length, 5000);
   assert.deepEqual(facts[0].attrs.truncated, { facts: 6001, kept: 5000 });
+});
+
+test('Go: a type implements an interface by having its methods, and only then', () => {
+  const p = project({
+    'store/store.go': [
+      'package store',
+      'import "io"',
+      'type Reader interface {\n\tGet(id string) (Item, error)\n}',
+      'type Store interface {\n\tReader\n\tPut(id string, v Item) error\n}',
+      'type Closer interface { io.Closer }',
+      'type sealed interface { seal() }',
+      'type Number interface { ~int | ~float64 }',
+      'type Empty interface{}',
+    ].join('\n'),
+    'store/local.go': 'package store\ntype local struct{}\nfunc (l local) seal() {}\n',
+    'mem/mem.go': [
+      'package mem',
+      'type Mem struct{}',
+      'func (m *Mem) Get(id string) (store.Item, error) { return nil, nil }',
+      'func (m *Mem) Put(id string, v store.Item) error { return nil }',
+      'func (m *Mem) seal() {}',
+      'type ReadOnly struct{}',
+      'func (r ReadOnly) Get(id string) (store.Item, error) { return nil, nil }',
+      'type Wrong struct{}',
+      'func (w Wrong) Get(id, rev string) (store.Item, error) { return nil, nil }',
+    ].join('\n'),
+    'go.mod': 'module example.com/shop\n',
+    'mem/doc.go': [
+      'package mem',
+      'import st "example.com/shop/store"',
+      'type Base struct{ id string }',
+      'func (b *Base) Get(id string) (store.Item, error) { return nil, nil }',
+      'type Doc struct {\n\t*Base `json:"base"`\n\tmeta struct {\n\t\tsync.Mutex\n\t}\n}',
+      'func (d *Doc) Put(id string, v store.Item) error { return nil }',
+      'type Proxy struct {\n\tst.Store\n}',
+      'type Locked struct {\n\tsync.Mutex\n}',
+    ].join('\n'),
+  });
+  const I = (n) => `interface:store/store.go#${n}`;
+  const edges = p.all.filter((f) => f.kind === 'edge' && f.type === 'IMPLEMENTS').map((f) => `${f.from.split('#')[1]}->${f.to.split('#')[1]}`).sort();
+  assert.deepEqual(edges, ['Base->Reader', 'Doc->Reader', 'Doc->Store', 'Mem->Reader', 'Mem->Store', 'Proxy->Reader', 'Proxy->Store', 'ReadOnly->Reader', 'local->sealed'],
+    'embedded methods count; a parameter count differs; an unexported method is only met in its own directory; an unresolved embed, a type set and an empty interface imply nothing');
+  assert.deepEqual(p.node(I('Store')).attrs.embeds, ['Reader']);
+  assert.deepEqual(p.node('class:mem/doc.go#Doc').attrs.embeds, ['Base'], 'a pointer embed with a tag counts; a nested struct body does not');
+  assert.deepEqual(p.node('class:mem/doc.go#Locked').attrs.embeds, ['sync.Mutex'], 'a type from elsewhere is recorded, and adds no methods');
+  assert.deepEqual(p.node('class:mem/doc.go#Proxy').attrs.embeds, ['st.Store'], 'an embed under an import alias resolves through the import');
+  assert.equal(p.node(I('Number')).attrs.method_set, undefined);
+  assert.ok(p.all.filter((f) => f.type === 'IMPLEMENTS').every((f) => f.attrs.by === 'structural' && f.provenance.confidence === 'low' && f.provenance.source_type === 'inference'));
+});
+
+test('Go: an interface that very many types satisfy gets no structural edges', () => {
+  const files = { 'io/closer.go': 'package io\ntype Closer interface { Close() error }\n' };
+  for (let i = 0; i < 26; i++) files[`res/r${i}.go`] = `package res\ntype R${i} struct{}\nfunc (r R${i}) Close() error { return nil }\n`;
+  assert.equal(project(files).all.filter((f) => f.type === 'IMPLEMENTS').length, 0);
+  delete files['res/r25.go'];
+  assert.equal(project(files).all.filter((f) => f.type === 'IMPLEMENTS').length, 25);
 });

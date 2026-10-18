@@ -749,8 +749,11 @@ const oneImplementationInterface = define({
       if (!isInterfaceLike(n)) continue;
       const impls = [...new Set(graph.in(n.id, ['EXTENDS', 'IMPLEMENTS']).map((e) => e.from))].sort();
       if (impls.length !== 1) continue;
+      // A test double as the only implementation: the real one is a dependency's, generated or a framework proxy.
+      if (moduleOf(graph, graph.node(impls[0]))?.attrs?.is_test) continue;
       const mod = moduleOf(graph, n);
       const consumers = mod ? importersOf(graph, mod.id).size : 0;
+      const structural = Boolean(language(n.attrs?.language)?.genericSyntax?.structuralInterfaces);
       const d = base(graph, n, {
         kind: 'code.one-implementation-interface',
         title: `${nameOf(n)} has exactly one implementation (${nameOf(graph.node(impls[0]))})`,
@@ -760,7 +763,7 @@ const oneImplementationInterface = define({
         benefit: 1.5 + Math.min(1.5, graph.in(n.id).length / 10),
         cost: 2,
         evidence: 0.9 * (mod?.attrs?.parse_quality === 'lexical' ? 0.66 : 1),
-        uncertain: 2,
+        uncertain: structural ? 3 : 2,
       });
       out.push({
         ...d,
@@ -773,7 +776,8 @@ const oneImplementationInterface = define({
           { id: 'collapse-hierarchy', summary: 'Merge the interface into its single implementer.' },
         ],
         patterns: ['code.collapse-hierarchy', 'anti-pattern.speculative-generality', 'domain.dependency-inversion'],
-        uncertainties: [...d.uncertainties, 'Consumers outside the analysed repository are not visible.'],
+        uncertainties: [...d.uncertainties, 'Consumers outside the analysed repository are not visible.',
+          ...(structural ? ['Types outside the analysed repository (the standard library, dependencies) can implement this interface without naming it.'] : [])],
       });
     }
     return out;
