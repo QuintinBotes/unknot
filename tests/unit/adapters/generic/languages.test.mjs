@@ -404,12 +404,16 @@ test('Go: a type implements an interface by having its methods, and only then', 
   assert.ok(p.all.filter((f) => f.type === 'IMPLEMENTS').every((f) => f.attrs.by === 'structural' && f.provenance.confidence === 'low' && f.provenance.source_type === 'inference'));
 });
 
-test('Go: an interface that very many types satisfy gets no structural edges', () => {
+test('Go: an interface that very many types satisfy gets 25 structural edges, each with the full count', () => {
   const files = { 'io/closer.go': 'package io\ntype Closer interface { Close() error }\n' };
   for (let i = 0; i < 26; i++) files[`res/r${i}.go`] = `package res\ntype R${i} struct{}\nfunc (r R${i}) Close() error { return nil }\n`;
-  assert.equal(project(files).all.filter((f) => f.type === 'IMPLEMENTS').length, 0);
+  const many = project(files).all.filter((f) => f.type === 'IMPLEMENTS');
+  assert.equal(many.length, 25);
+  assert.ok(many.every((f) => f.attrs.satisfied_by === 26));
   delete files['res/r25.go'];
-  assert.equal(project(files).all.filter((f) => f.type === 'IMPLEMENTS').length, 25);
+  const all = project(files).all.filter((f) => f.type === 'IMPLEMENTS');
+  assert.equal(all.length, 25);
+  assert.ok(all.every((f) => f.attrs.satisfied_by === undefined));
 });
 
 test('Go: a compile-time assertion states an implementation the methods cannot show', () => {

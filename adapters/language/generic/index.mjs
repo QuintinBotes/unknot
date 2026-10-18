@@ -256,7 +256,7 @@ function rustModuleDir(path) {
   return b === 'mod.rs' || b === 'lib.rs' || b === 'main.rs' ? dirname(path) : `${dirname(path)}/${b.replace(/\.rs$/, '')}`.replace(/^\//, '');
 }
 
-// shortcut: an interface more types satisfy than this gets no edges (`Close()`, `String()`); count them instead if a detector needs it.
+// shortcut: an interface more types satisfy (`Close()`, `String()`) gets edges from this many, in id order, each with the full count; raise it if a consumer needs them all.
 const MAX_STRUCTURAL = 25;
 
 /**
@@ -319,8 +319,8 @@ function structuralImplements(types, receivers, mods, importsOf) {
     const rarest = set.map((m) => byMethod.get(m.name) ?? []).sort((a, b) => a.length - b.length)[0];
     // An unexported method is the declaring package's own: it matches only one declared there.
     const hits = rarest.filter(({ ms }) => set.every((m) => ms.get(m.name)?.params === m.params && (/^[A-Z]/.test(m.name) || ms.get(m.name).dir === m.dir)));
-    if (hits.length > MAX_STRUCTURAL) continue;
-    for (const { t } of hits) out.push(edgeFact('IMPLEMENTS', t.id, iface.id, { by: 'structural' }, prov_(t.path, t.attrs.start_line ?? 1, 'low', 'inference')));
+    const attrs = { by: 'structural', ...(hits.length > MAX_STRUCTURAL && { satisfied_by: hits.length }) };
+    for (const { t } of hits.slice(0, MAX_STRUCTURAL)) out.push(edgeFact('IMPLEMENTS', t.id, iface.id, attrs, prov_(t.path, t.attrs.start_line ?? 1, 'low', 'inference')));
   }
   return out;
 }
