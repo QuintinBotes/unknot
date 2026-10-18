@@ -86,5 +86,9 @@
   "sha256:ef51a7789a06a8f8354e7ebb535f76b2a140b2e620077687042cd5f2aa039fc2": {
     "label": "not-worth",
     "note": "Same single-implementation PaymentInterface as the other finding (PluginsManager plus a test Mock spec); deliberate boundary."
+  },
+  "sha256:4061b1a1e38ce83569fc4c7e5aef1974079fa9553cda1db440af2499be16136e": {
+    "label": "not-worth",
+    "note": "Creates a tag and a draft GitHub release; not an environment deploy, so a rollback step does not apply."
   }
 }

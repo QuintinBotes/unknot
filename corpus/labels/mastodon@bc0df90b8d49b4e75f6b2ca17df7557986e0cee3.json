@@ -94,5 +94,9 @@
   "sha256:9d0dd36f356c2189af66fb0d2b0817c537ea253124d8c1cff0ffcdfd9a4dbbf1": {
     "label": "not-worth",
     "note": "Compose importing ui shell pieces (async-components, navigation_bar messages, breakpoint hook, modal type) is the expected app-shell coupling."
+  },
+  "sha256:17332d47328365b0180a4dd2fc81999ee278e83b1105e401743036aea4e4e6a0": {
+    "label": "true",
+    "note": "Both workflows run the same steps and differ only in trigger and branch; one reusable workflow would do."
   }
 }

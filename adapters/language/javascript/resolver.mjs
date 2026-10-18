@@ -7,6 +7,9 @@ const js = language(LANGUAGE_IDS.JAVASCRIPT);
 const ts = language(LANGUAGE_IDS.TYPESCRIPT);
 const vue = language(LANGUAGE_IDS.VUE);
 const CODE_EXTS = [...(ts?.resolverExtensions ?? []), ...(js?.resolverExtensions ?? [])];
+// Single-file components, tried after the code extensions: webpack setups for Vue resolve
+// `import X from './X'` to X.vue.
+const COMPONENT_EXTS = (vue?.extensions ?? []).filter((extension) => !CODE_EXTS.includes(extension));
 export const CODE_RE = new RegExp(`(?:${[...CODE_EXTS, ...(vue?.extensions ?? [])].map((extension) => extension.replace('.', '\\.')).join('|')})$`);
 const TS_SWAP = ts?.swapFrom?.[LANGUAGE_IDS.JAVASCRIPT] ?? {};
 const CONDITIONS = ['types', 'import', 'module', 'default', 'require', 'node', 'browser'];
@@ -94,6 +97,7 @@ export function createResolver({ has, tsconfigs, packages, aliases = [] }) {
     } else cands.push(base);
     for (const e of CODE_EXTS) cands.push(base + e);
     for (const e of CODE_EXTS) cands.push(`${base}/index${e}`);
+    for (const e of COMPONENT_EXTS) cands.push(base + e);
     for (const c of cands) if (has(c)) return c;
     return null;
   }

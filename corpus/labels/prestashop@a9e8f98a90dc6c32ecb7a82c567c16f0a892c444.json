@@ -82,5 +82,13 @@
   "sha256:d0a567383c12e5e68498515101c586cbfbb21acb023fe912e9955f6aaa04c481": {
     "label": "not-worth",
     "note": "integration.yml and api-module.yml share setup steps for different test suites."
+  },
+  "sha256:e190178913682987c0c9b19630ebb047f679638a0d8d94cbf28cdf39f9638292": {
+    "label": "not-worth",
+    "note": "Unused selector functions in the exported product selector map (nothing in the theme names them); true but trivial, and exported rather than private."
+  },
+  "sha256:88af57039e6a51fdcf6f2030d533721ae84b8009dcb94daf7183dcd227131cf6": {
+    "label": "not-worth",
+    "note": "A Symfony form type constructor taking its injected services."
   }
 }

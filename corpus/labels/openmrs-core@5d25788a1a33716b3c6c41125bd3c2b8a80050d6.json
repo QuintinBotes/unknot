@@ -94,5 +94,9 @@
   "sha256:c1fed6689231ff00b5ea4e78653d9d70b526a5e672f7dedb73a8666a04929160": {
     "label": "not-worth",
     "note": "The job deploys Maven SNAPSHOT artifacts, which are overwritten by the next build; a rollback step does not apply."
+  },
+  "sha256:fb376fcfe07e521de16ba060866a291615c6202a3bf4925652086544f73a7ec5": {
+    "label": "not-worth",
+    "note": "A one-off database migration changeset; its length follows the migration."
   }
 }

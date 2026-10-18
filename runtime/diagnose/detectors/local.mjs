@@ -515,7 +515,8 @@ function moduleEntryReason(graph, m, entries) {
 /** Names referenced by calls in a module, last dotted segment included (self.helper -> helper). */
 function calledNames(graph) {
   const byModule = new Map();
-  for (const type of SOURCE_NODE_TYPES) {
+  // A module's own calls are its top-level code (`server.listen()` in an entry file).
+  for (const type of [...SOURCE_NODE_TYPES, 'module']) {
     for (const n of graph.nodes(type)) {
       const calls = Array.isArray(n.attrs?.calls) ? n.attrs.calls : [];
       if (!calls.length) continue;

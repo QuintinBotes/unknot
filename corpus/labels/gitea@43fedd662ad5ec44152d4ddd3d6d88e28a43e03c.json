@@ -90,5 +90,21 @@
   "sha256:28efb5376b784859ca468dc1957d13e735fb97beeef108c74f24e1551b5a6c60": {
     "label": "not-worth",
     "note": "Overlap is only the shape of mounting a Vue app from data-locale attributes on two unrelated pages."
+  },
+  "sha256:566888163d66aae7c4283f0b5550d5220ebfd9f1dca2fffac18e3f96f9eadf25": {
+    "label": "true",
+    "note": "Defined at user-events.sharedworker.ts:63 and named nowhere else in web_src."
+  },
+  "sha256:38bbdf84d850bd1ec568133e6aef83295e109ea47a471299e38632b1ea164a65": {
+    "label": "false",
+    "note": "A dummy GPG key used as a test fixture, named so by its file."
+  },
+  "sha256:cccc97236f1e488f790dd32bd84701a1121314243ede17a51326584f9f073d75": {
+    "label": "false",
+    "note": "Read in repo_object.go:40-55 as repo.objectFormatCache through Repository, which embeds RepositoryBase."
+  },
+  "sha256:92ece00603644bb034cb466c711e560f893f22b1501a9bedbc13dd4698580e00": {
+    "label": "not-worth",
+    "note": "Builds, signs and uploads versioned release binaries; a rollback step does not apply to a versioned upload."
   }
 }

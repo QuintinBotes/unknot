@@ -215,6 +215,16 @@ test('dead-code: configuration, resource, locale, template and data files are ne
   assert.deepEqual(flagged([...others, mod('src/unused.js')]), ['src/unused.js']);
 });
 
+test('dead-code: a method called only from a module\'s top-level code is used', () => {
+  const facts = [
+    mod('src/index.js', { calls: [{ name: 'server.listen', line: 75 }] }), mod('src/server.js'), imp('src/index.js', 'src/server.js'),
+    sym('method', 'src/server.js', 'Server.listen', { exported: false, kind: 'method' }),
+    sym('method', 'src/server.js', 'Server.stale', { exported: false, kind: 'method' }),
+  ];
+  const [d] = run('local.dead-code', facts);
+  assert.deepEqual(d.evidence.filter((e) => e.ref.startsWith('method:')).map((e) => e.ref), ['method:src/server.js#Server.stale']);
+});
+
 test('dead-code: a module that defines nothing to import but runs code is a script, not dead', () => {
   const call = [{ name: 'client.convert', line: 3 }];
   const facts = [

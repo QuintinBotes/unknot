@@ -78,5 +78,13 @@
   "sha256:6e345111be1a1752e55afc08af333d20fad842eee3e20ca4ae051e423df4d027": {
     "label": "true",
     "note": "helm-chart-ci.yaml has no permissions block at workflow or job level, so default token scope applies; trivial to restrict."
+  },
+  "sha256:ab71cb467f1d1781bcc86773a9540c4719e9517a2f717d9f3a178fd725564d6f": {
+    "label": "false",
+    "note": "Called at src/paymentservice/index.js:75 (server.listen()) on new HipsterShopServer."
+  },
+  "sha256:7b634bc34d0387601aeac064f036ed084e20e0999c5e058b98389a5496d6295f": {
+    "label": "true",
+    "note": "gcr.io/distroless/static is used without a tag or digest."
   }
 }
