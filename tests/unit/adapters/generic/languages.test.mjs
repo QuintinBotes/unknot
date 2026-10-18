@@ -354,3 +354,16 @@ test('truncation and unknown files', () => {
   assert.equal(facts.length, 5000);
   assert.deepEqual(facts[0].attrs.truncated, { facts: 6001, kept: 5000 });
 });
+
+test('Go marks a reference to a type of its own package as inside the package; Java does not', () => {
+  const go = project({ 'shop/a.go': 'package shop\nfunc Make(id uint) Order {\n\treturn Order{ID: id}\n}\n', 'shop/b.go': 'package shop\ntype Order struct{ ID uint }\n' });
+  const ge = go.all.find((f) => f.type === 'IMPORTS' && f.from === 'module:shop/a.go' && f.to === 'module:shop/b.go');
+  assert.equal(ge?.attrs.intra_package, true);
+  const java = project({
+    'src/main/java/shop/A.java': 'package shop;\npublic class A { public Order make() { return new Order(); } }\n',
+    'src/main/java/shop/Order.java': 'package shop;\npublic class Order { }\n',
+  });
+  const je = java.all.find((f) => f.type === 'IMPORTS' && f.from === 'module:src/main/java/shop/A.java' && f.to === 'module:src/main/java/shop/Order.java');
+  assert.ok(je, 'Java same-package use is still a dependency');
+  assert.equal(je.attrs.intra_package, undefined);
+});

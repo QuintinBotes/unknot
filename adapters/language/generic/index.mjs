@@ -516,7 +516,7 @@ function link(ctx) {
         // A type of the same package or directory needs no import, yet using it is a dependency.
         for (const [to, h] of typeHits(path, a, syn)) {
           const ex = items.find((i) => i.to === to);
-          if (!ex) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...h.attrs } });
+          if (!ex) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...(genericSyntax(a.language).packageUnit && dirname(to) === dirname(path) && { intra_package: true }), ...h.attrs } });
           else if (Object.keys(h.attrs).length && !(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
         }
       }

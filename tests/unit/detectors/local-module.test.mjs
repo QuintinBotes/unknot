@@ -414,6 +414,22 @@ test('hub-module: package-level imports are not fan-in of one file', () => {
   assert.deepEqual(run('module.hub-module', build({ package_level: true })), []);
 });
 
+test('references inside one package, where the package is the unit, are no import cycle and no hub fan', async () => {
+  const { sccsOf } = await import('../../../runtime/graph/derived.mjs');
+  const pkg = { intra_package: true, via: 'type' };
+  const cycle = [mod('core/a.go'), mod('core/b.go'), mod('api/c.go'), imp('core/a.go', 'core/b.go', pkg), imp('core/b.go', 'core/a.go', pkg), imp('api/c.go', 'core/a.go')];
+  assert.deepEqual(run('module.dependency-cycle', cycle), []);
+  assert.deepEqual(sccsOf(Graph.fromFacts(cycle)), [], 'no component, so graph cycles and decompose agree');
+  assert.equal(run('module.dependency-cycle', [...cycle, imp('core/b.go', 'api/c.go')]).length, 1, 'a cycle through another package still counts');
+  const hub = (attrs) => [
+    mod('core/hub.go'),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`core/in${i}.go`), imp(`core/in${i}.go`, 'core/hub.go', attrs)]).flat(),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`core/out${i}.go`), imp('core/hub.go', `core/out${i}.go`, attrs)]).flat(),
+  ];
+  assert.equal(run('module.hub-module', hub({})).length, 1);
+  assert.deepEqual(run('module.hub-module', hub(pkg)), []);
+});
+
 test('shotgun-surgery: strong co-change partners across four or more packages', () => {
   const partners = (pkgs, degree) => pkgs.map((p, i) => [mod(`src/${p}/f${i}.js`), edge('CO_CHANGES', 'module:src/core/m.js', `module:src/${p}/f${i}.js`, { shared: 12, degree })]).flat();
   const base = [mod('src/core/m.js'), mod('src/core/other.js')];
