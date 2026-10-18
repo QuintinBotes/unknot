@@ -249,3 +249,15 @@ test('imports through a bundler alias resolve to the aliased directory', () => {
   assert.deepEqual(to('ui/src/router.js'), ['dependency:vue', 'module:ui/src/lib/fmt.js', 'module:ui/src/logs/pageLogs.js']);
   assert.deepEqual(to('web/app/main.js'), ['module:web/app/util.js'], "an alias applies only under its configuration's directory");
 });
+
+test('a named import of interfaces and type aliases only is erased like `import type`', () => {
+  const { graph } = runAdapter(new Map([
+    ['src/Dropzone.vue', '<script lang="ts">\nimport DropzoneWindow from "./DropzoneWindow.vue";\nexport interface PSFile { id: string }\nexport type Alias = string;\nexport enum Mode { A }\nexport interface Merged { a: 1 }\nexport const Merged = 1;\nexport default { components: { DropzoneWindow } };\n</script>\n'],
+    ['src/DropzoneWindow.vue', '<script lang="ts">\nimport {PSFile, Alias} from "./Dropzone.vue";\nexport default {};\n</script>\n'],
+    ['src/Mode.ts', 'import {Mode} from "./Dropzone.vue";\nimport {Merged} from "./Dropzone.vue";\nexport const m = [Mode, Merged];\n'],
+  ]));
+  const attr = (from, to) => graph.out(`module:${from}`, 'IMPORTS').find((e) => e.to === `module:${to}`)?.attrs;
+  assert.equal(attr('src/DropzoneWindow.vue', 'src/Dropzone.vue').type_only, true);
+  assert.equal(attr('src/Dropzone.vue', 'src/DropzoneWindow.vue').type_only, undefined);
+  assert.equal(attr('src/Mode.ts', 'src/Dropzone.vue').type_only, undefined, 'an enum and a name that is also a value are runtime imports');
+});

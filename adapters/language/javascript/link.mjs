@@ -101,6 +101,12 @@ export function linkFacts(ctx) {
     if (kinds.length > 1) attrs.kinds = kinds;
     // `import type` and `export type ... from` are erased at compile time: no runtime edge.
     if (kinds.length === 1 && kinds[0] === 'type') attrs.type_only = true;
+    // So is a named import of interfaces and type aliases only, written without `type`.
+    const exported = agg.internal ? mods.get(agg.to.slice('module:'.length))?.exports : null;
+    if (!attrs.type_only && exported && kinds.length === 1 && kinds[0] === 'static' && agg.names.size) {
+      const erased = (n) => exported.some((e) => e.name === n && (e.kind === 'interface' || e.kind === 'type')) && !exported.some((e) => e.name === n && e.kind !== 'interface' && e.kind !== 'type');
+      if ([...agg.names].every(erased)) attrs.type_only = true;
+    }
     agg.attrs = attrs;
   }
   for (const [path, list] of [...unresolved.entries()].sort((a, b) => cmp(a[0], b[0]))) {

@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- A TypeScript named import of interfaces and type aliases only is erased like `import type` (`type_only`), even without the keyword, so it closes no runtime cycle; an enum, a value, or a name that is both stays a runtime import. On prestashop this removes a false `Dropzone.vue` ↔ `DropzoneWindow.vue` cycle.
 - Secret findings: a credential word followed by `==`, `=>` or `::` (`$response == Password::RESET_LINK_SENT`) is no assignment, and in translation files (`locale/`, `i18n/`, `lang/`, `translations/`, `messages_xx.properties`, `.po`, `.xliff`) a `password` key holds the word for one, so only token-shaped secrets count there. On akaunting, openmrs-core and gitea these made three false findings (`security` 0.1.3).
 - Dead code no longer lists methods that run without a call: constructors (run by `new`), getters and setters (run by property access), and the lifecycle callbacks of React class components (`componentDidCatch`, `componentWillUnmount`, `getDerivedStateFromError` and the like) and custom elements (`connectedCallback`, `attributeChangedCallback` and the like). On excalidraw, prestashop, mastodon and gitea these made three false findings.
 - A Python import of a standard-library name (`from collections import defaultdict`) is never resolved to a same-named sibling file (`collections.py`) by the flat-sibling rule. On saleor that edge closed a false seven-module import cycle (`python` 0.1.14).
