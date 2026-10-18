@@ -38,5 +38,57 @@
   "sha256:6e05182c9a56aa8956fd9b0a6ed2d4aacdabd3fd481c5bd31ded62534842f80d": {
     "label": "not-worth",
     "note": "Package registry handlers share a similar skeleton per package format; parallel design."
+  },
+  "sha256:2884f8e8a257bc6e27fbf75c08e19df7d5894e616d243d73251b49360e8f9a19": {
+    "label": "not-worth",
+    "note": "Interface has one in-repo implementation but is the deliberate config abstraction used across the codebase (913 consumers, test use)."
+  },
+  "sha256:22af7fec6c8c8c6d83f73fee3632d27dd83076b14a1a977468fa65381c8bf842": {
+    "label": "false",
+    "note": "These are custom-element lifecycle callbacks and accessors invoked by the browser; the class is registered by customElements.define at relative-time.ts:508."
+  },
+  "sha256:89210a0a5bbb5ebf62cd16225c3614cb13d00566c3149f477181630c60798cd1": {
+    "label": "false",
+    "note": "The match is a fake \"user:tok@\" URL in a sanitizer test case, not a real secret."
+  },
+  "sha256:59c2dc51f1e9eeafe46eb453cfd4d098d238342f2d11d3953b7b0fcec9eb51ee": {
+    "label": "not-worth",
+    "note": "Final alpine stage sets no USER, but a separate Dockerfile.rootless exists for the rootless case; root-by-default is the documented image design."
+  },
+  "sha256:a0d39e782a58eb5539c56fd41c94381ecc36cfd2f91f5f52be9be5c76594da9c": {
+    "label": "not-worth",
+    "note": "Cyclomatic 18 comes from a flat sequence of error-return checks and filters in one preview function; barely over threshold and linear."
+  },
+  "sha256:a7ef4374531a4d305f8e01247cd7c9ca2718f5ad19e3d2674a83cc306c3ae104": {
+    "label": "false",
+    "note": "The line is the Greek translation \"Συνθηματικό\" (Password) of the install.password label, not a credential."
+  },
+  "sha256:3f3ed8f3a961d914e6884ea90a2a2df91b143d148e176db45dd5ebb13dd158b0": {
+    "label": "not-worth",
+    "note": "api.go is the REST route table, a long declarative registration list rather than tangled logic."
+  },
+  "sha256:1417e3a86b7115d0db60d8d9374c4460ec3f9fe4301c2d88c9b41df256a0de57": {
+    "label": "not-worth",
+    "note": "The User model is the central domain type; 34 small methods, struct itself 85 lines."
+  },
+  "sha256:5af79321a24f580c9bd06c492362eb1b0720b5a1b34f966147b612a7d1b416c6": {
+    "label": "false",
+    "note": "requestRecord.funcInfo is read by the logger at logger.go:45,47 and written at context.go:35 on a *requestRecord receiver, so it is used."
+  },
+  "sha256:08800cb10cdd1a6069aa86aff01a4da7794dad9ffb06a3d0b130a033a1b108c8": {
+    "label": "not-worth",
+    "note": "doMergeAndPush is a linear merge/push pipeline with repeated error returns; cyclomatic count comes from the switch and error checks."
+  },
+  "sha256:483989d0aa06c1f2c13a2c65463cc00129713ba83e0de71cdbc5bb96c8e9583e": {
+    "label": "not-worth",
+    "note": "Nightly container job publishes a rolling nightly tag; a rollback step is not meaningful for it."
+  },
+  "sha256:c7fa64a154414f6f47f57ad6f887336d768a8f62ba885f41e32040d52cb5763b": {
+    "label": "not-worth",
+    "note": "All base images are version-tagged (golang:1.27-alpine3.24, alpine:3.24), not latest; digest pinning is optional hardening."
+  },
+  "sha256:28efb5376b784859ca468dc1957d13e735fb97beeef108c74f24e1551b5a6c60": {
+    "label": "not-worth",
+    "note": "Overlap is only the shape of mounting a Vue app from data-locale attributes on two unrelated pages."
   }
 }

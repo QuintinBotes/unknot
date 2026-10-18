@@ -38,5 +38,53 @@
   "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
     "label": "false",
     "note": "Matched names like _update_authorize_status and authorize_payment are payment-authorization, not access checks."
+  },
+  "sha256:060459abe38510d8f7ee9427ed276e5f0e4180ca46a2ff21f973377ae278197c": {
+    "label": "false",
+    "note": "The edge products.py -> collections.py is `from collections import defaultdict` (stdlib), not the sibling module; no real products->collections import exists (only a string reference)."
+  },
+  "sha256:ea19358465a563b8595eebee33d471c045590ce60f66aee55baec165e920df2f": {
+    "label": "not-worth",
+    "note": "One import of a celery task wrapper from a small page utils module; tasks.py does not import utils, no cycle or coupling problem."
+  },
+  "sha256:79d558b2699f75be81890de7f6a44541237d5b43ffd93bc95b801ce7064a62b3": {
+    "label": "not-worth",
+    "note": "Cognitive 24 vs 20 in a single flat per-item loop with try/except, builds bulk-result dicts; just over threshold."
+  },
+  "sha256:52613002c1ba889b725dabd580198867273770c2eb28d96b243c5df8b6f3c8a5": {
+    "label": "not-worth",
+    "note": "Sorter modules are declarative graphene enum/input boilerplate per domain with differing field lists; a shared abstraction would obscure the schema."
+  },
+  "sha256:5707bfea792d45566e26f193b42d8f5a972f3e26dd05844ccd268ba276e9f1b0": {
+    "label": "not-worth",
+    "note": "1012 lines (31 declarative GraphQL translation types) is barely over the 1000 threshold and cohesive."
+  },
+  "sha256:11030acdf83fa2d6304ea68ae96bf8992b435e1646d7d4c9d12f17159654398f": {
+    "label": "false",
+    "note": "The flagged job only computes image name/tags/version outputs (read-only checkout and metadata); the actual build-push and notify are separate reusable-workflow jobs, so it is not a deploy."
+  },
+  "sha256:f7b3fa5b50ab5d5caf6f6eac939c65a0136c4734069ca30a18882c46e6b24c7c": {
+    "label": "not-worth",
+    "note": "GraphQL User type with 25 resolver methods mapping one model's fields; cohesive API surface, not a god class."
+  },
+  "sha256:6cd9d602fb2e2254b3787a4537124c4836f9d79694ba266e72c2f89907931356": {
+    "label": "not-worth",
+    "note": "Both FROM lines use official python:3.12 tags (mutable but versioned); a digest pin is hardening, low value here."
+  },
+  "sha256:a3a086ab62232e07d178c2d0405b09f3be4f9ed67cb1fb5966a8ff8b682db462": {
+    "label": "not-worth",
+    "note": "7 parameters (one over) in a classmethod of a bulk mutation threading shared error/dedupe state; the sibling attribute_bulk_update has the same shape."
+  },
+  "sha256:4f10ca94fbc4cb700eb8bc71f8cf9373f3cfd1cddaae7bb7660f23b5e163738d": {
+    "label": "not-worth",
+    "note": "The ABC has one implementer but is deliberate: it keeps core free of plugin imports and is the spec for Mock in tests/fixtures.py:799."
+  },
+  "sha256:c3d0224aaf47cd944c7f88b57d6ba9eb4b4359dea0e290152aa31ae0fd72ff8e": {
+    "label": "not-worth",
+    "note": "A 2019 RenameField (available_on -> publication_date) in an applied historic migration; nothing to act on now."
+  },
+  "sha256:ef51a7789a06a8f8354e7ebb535f76b2a140b2e620077687042cd5f2aa039fc2": {
+    "label": "not-worth",
+    "note": "Same single-implementation PaymentInterface as the other finding (PluginsManager plus a test Mock spec); deliberate boundary."
   }
 }

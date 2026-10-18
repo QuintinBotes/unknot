@@ -38,5 +38,61 @@
   "sha256:4766f9f6cf34a0d06431926e2995a8ae1bcea74ec58ef61f05286e85d2a414ca": {
     "label": "true",
     "note": "scorecard.yml references actions by mutable tags, not commit SHAs."
+  },
+  "sha256:320a7f2f1843bef0103f026c0c3401e195ef9ab9b49d5dfa09fb0f6edb27589e": {
+    "label": "not-worth",
+    "note": "Context is the static facade over ServiceContext in the same package (same-package use, no import); a facade depending on its implementation is by design."
+  },
+  "sha256:91625d185e14226299eb7538de271f18a102b551b12b43f1cf7820be2dfd720f": {
+    "label": "not-worth",
+    "note": "Overlap is the entity constructor/field boilerplate shared by ConceptName, LocationTag and Alert, not shared logic."
+  },
+  "sha256:d2e6c695ef7fac49f8eb86d6c4385b8d384e71ce8b0cacf51279825d2655f4c4": {
+    "label": "not-worth",
+    "note": "SearchAnalysis imports LuceneConfig only for a javadoc @see (line 23); LuceneConfig uses SearchAnalysis constants, so no runtime cycle."
+  },
+  "sha256:c33c81fffc6a3d7a5412bac4fedf7bed73044b9756420359b5fee2da938099b5": {
+    "label": "not-worth",
+    "note": "PASSWORD is the fixed default-admin hash written into the core-data snapshot by a developer tool, not a live credential."
+  },
+  "sha256:3a940dbbbc3eed31d1028fc7182b6efc0d0f1c856e2c6fc80f9df04adf7d8c2f": {
+    "label": "not-worth",
+    "note": "validate is a single linear metadata loop with nested ifs, 5 levels, just over threshold."
+  },
+  "sha256:7cf57657d22c892993024c92a42986c1a35465f44f21891f685289ed5035c78f": {
+    "label": "not-worth",
+    "note": "Obs is the central domain entity; high fan-in and fan-out is expected for it."
+  },
+  "sha256:eb18a0a0b73bc56b165f9ef9057119ecfc70449b2e6abf555f6e9e8e733031d7": {
+    "label": "not-worth",
+    "note": "The redundant index sits only in initial_test_db.sql, a generated mysqldump used as test fixture."
+  },
+  "sha256:99df2093953ba54dbbb0589e343234cf88b999bac41c4107c33332a900b20a65": {
+    "label": "false",
+    "note": "test-suite/module is a fixture module for module-loading tests; its outward imports to openmrs-api are inherent, there is no cohesion defect."
+  },
+  "sha256:fe27ad13aa8add961d30cab0420f957f867c8b2f724e2bc3b08659ff1f38b026": {
+    "label": "false",
+    "note": "Matches are Lithuanian UI translations of the word password (User.password=Slaptazodis), no secret value."
+  },
+  "sha256:02e98c9de5a1ac06913c43d3ba70a62ebbfdf14c44c0426532a8cd93e5e969c0": {
+    "label": "not-worth",
+    "note": "getFormCriteria is a private helper that appends one optional predicate per filter parameter."
+  },
+  "sha256:5637a113cc55b291fd773da095993acbdddf6072397b997583a37aaa0be0bb8d": {
+    "label": "not-worth",
+    "note": "OpenmrsUtil is a legacy public static utility grab-bag (84 static methods) with 17 tests; splitting is API churn."
+  },
+  "sha256:a4c8e5371b1c6b0dc903d87660428b35610a13d22b7066428cde6260833cbe14": {
+    "label": "not-worth",
+    "note": "The api changeset classes and the web module both write global_property by design during setup/upgrade; the other writers are tests."
+  },
+  "sha256:23bb79bea9aebe53e5e1666ab290f4754da9715eefc16d340eecaf4f8e05092d": {
+    "label": "not-worth",
+    "note": "csrfguard.js is the vendored OWASP CSRFGuard script; hijackExplorer is linear (cyclomatic 1)."
+  },
+  "sha256:c1fed6689231ff00b5ea4e78653d9d70b526a5e672f7dedb73a8666a04929160": {
+    "label": "not-worth",
+    "note": "The job deploys Maven SNAPSHOT artifacts, which are overwritten by the next build; a rollback step does not apply."
   }
 }

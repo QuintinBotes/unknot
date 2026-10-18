@@ -98,5 +98,13 @@
   "sha256:1de1424ed8f76085f3f22276aaf50c672fdc21e47eec30151ee3492d24b3b8f4": {
     "label": "not-worth",
     "note": "True: DefaultClient is the only implementation, but subscriptions.Client is a public interface for realtime clients."
+  },
+  "sha256:3e4628b50a488678db738e698d92f23cf24bd811fd4b66c739f3bb4cc819fdcf": {
+    "label": "not-worth",
+    "note": "core/base.go really imports tools/logger (NewBatchHandler at base.go:1538) but it is a small leaf helper package; direction is natural."
+  },
+  "sha256:88866fffc4ea0390d33fc4edcee2fd19337387f4bfe5f0c2f86dbce18a60d5ea": {
+    "label": "not-worth",
+    "note": "Parallel generic JSONArray/JSONMap types share MarshalJSON/Scan/Value boilerplate; duplication is small and type-specific."
   }
 }
