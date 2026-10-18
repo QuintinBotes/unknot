@@ -3,7 +3,7 @@
 // short-lived, language-table-selected cache entry. It never chooses a tool or command
 // shape itself: that information lives in indexers.mjs.
 
-import { lstatSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { resolveInside } from '../../../runtime/core/paths.mjs';
@@ -11,9 +11,12 @@ import { git, isRepo } from '../../../runtime/apply/git.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { analyzeIndex } from './analyze.mjs';
 import { coveredPaths, indexLanguages, indexTrustProblem, locateIndexes } from './locate.mjs';
-import { executableOnPath, indexerArgv, indexersForPaths, presentLanguages, runBudgets } from './indexers.mjs';
+import { INDEXERS, executableOnPath, indexerArgv, indexersForPaths, presentLanguages, runBudgets } from './indexers.mjs';
+import { matchAny } from '../../../runtime/core/glob.mjs';
 
-const VERSION = '0.3.0';
+const MAX_TEMPLATE_BYTES = 1_000_000;
+
+const VERSION = '0.3.1';
 const EXTRACTOR = `scip@${VERSION}`;
 const DEFAULT_MAX_BYTES = 2 * 1024 ** 3;
 const MAX_LISTED = 50;
@@ -289,7 +292,20 @@ async function link(ctx) {
       else if ((fact.type === 'class' || fact.type === 'interface') && !typeIds.has(`${path}\0${fact.name}`)) typeIds.set(`${path}\0${fact.name}`, fact.id);
     }
   }
-  const res = analyzeIndex(entries.map((entry) => entry.abs), { root: ctx.root, hasFile: (path) => mods.has(path) });
+  // The names a language's templates mention: the index does not cover them, so a member named
+  // there may be read (a Razor view reads `Model.SearchModel`) and is never reported unused.
+  const templateNames = new Map();
+  for (const row of INDEXERS.filter((r) => r.templates)) {
+    const names = new Set();
+    for (const [path, file] of ctx.files ?? []) {
+      if (!matchAny(path, row.templates) || (file?.size ?? 0) > MAX_TEMPLATE_BYTES) continue;
+      let text;
+      try { text = readFileSync(resolveInside(ctx.root, path).real, 'utf8'); } catch { continue; }
+      for (const m of text.matchAll(/[A-Za-z_]\w*/g)) names.add(m[0]);
+    }
+    if (names.size) for (const language of row.languages) templateNames.set(language, names);
+  }
+  const res = analyzeIndex(entries.map((entry) => entry.abs), { root: ctx.root, hasFile: (path) => mods.has(path), templateNames });
   const tool = res.tools.join(', ');
   const out = [];
 

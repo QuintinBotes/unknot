@@ -54,3 +54,11 @@ test('a document with an empty language takes it from its extension in the table
     for (const language of Object.values(entry.extensions)) assert.ok(entry.languages.includes(language), `${entry.language} row maps an extension to ${language}`);
   }
 });
+
+test('a declared document language that is no language id falls back to the extension', async () => {
+  const { documentLanguage } = await import('../../../../adapters/semantic/scip/indexers.mjs');
+  assert.equal(documentLanguage({ language: 'C#', relative_path: 'Shop/Order.cs' }), 'csharp', 'scip-dotnet writes "C#"');
+  assert.equal(documentLanguage({ language: 'CSharp', relative_path: 'Shop/Order.cs' }), 'csharp');
+  assert.equal(documentLanguage({ language: '', relative_path: 'src/a.ts' }), 'typescript');
+  assert.equal(documentLanguage({ language: 'Java', relative_path: 'A.java' }), 'java');
+});
