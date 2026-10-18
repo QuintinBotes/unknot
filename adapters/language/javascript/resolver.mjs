@@ -77,7 +77,9 @@ function exportTargets(exp, key) {
 /**
  * @param {{ has: (p: string) => boolean, tsconfigs: Map<string, object>, packages: Array<{ dir: string, name: string|null, attrs: object }> }} env
  */
-export function createResolver({ has, tsconfigs, packages }) {
+export function createResolver({ has, tsconfigs, packages, aliases = [] }) {
+  // Bundler aliases, nearest configuration first and the longest key first within it.
+  const byAlias = [...aliases].sort((a, b) => b.dir.length - a.dir.length || b.key.length - a.key.length || (a.key < b.key ? -1 : 1));
   const pkgByName = new Map();
   for (const p of packages) if (p.name && !pkgByName.has(p.name)) pkgByName.set(p.name, p);
 
@@ -247,6 +249,11 @@ export function createResolver({ has, tsconfigs, packages }) {
     const { hit, matched } = viaPaths(importer, spec);
     if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'tsconfig-paths' } : { t: 'asset' };
     if (matched) return { t: 'unresolved', reason: 'tsconfig-paths' };
+    for (const a of byAlias) {
+      if ((a.dir && importer !== a.dir && !importer.startsWith(`${a.dir}/`)) || (spec !== a.key && !spec.startsWith(`${a.key}/`))) continue;
+      const hit = probe(join(a.target, spec.slice(a.key.length + 1)), tsFirst);
+      if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'bundler-alias' } : { t: 'asset' };
+    }
     const name = packageName(spec);
     if (pkgByName.has(name)) {
       const sub = spec.length > name.length ? spec.slice(name.length + 1) : '';

@@ -4,7 +4,7 @@
 import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, language, languageForPath, pathMentionExtensions } from '../../../runtime/graph/languages.mjs';
-import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
+import { EXTRACTOR, bundlerAliases, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
 import { conventionRoutes, detectFrameworks, ormMappings } from './frameworks.mjs';
 import { tableFacts } from '../orm-maps.mjs';
 import { analyze } from './structure.mjs';
@@ -278,6 +278,7 @@ function codeFacts(file, text, as = {}) {
     truncated = true;
   }
 
+  const aliases = bundlerAliases(path, tokens, n);
   const attrs = {
     language: ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT,
     loc: tk.loc,
@@ -292,6 +293,7 @@ function codeFacts(file, text, as = {}) {
     imports: analysis.imports,
     calls: analysis.calls,
     directives: analysis.directives,
+    ...(aliases.length && { bundler_aliases: aliases }),
     ...(tk.jsxElements > 0 && { has_jsx: true }),
     ...(pathMentions.size && { path_mentions: [...pathMentions].sort() }),
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),

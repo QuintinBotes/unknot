@@ -51,7 +51,8 @@ export function linkFacts(ctx) {
   packages.sort((a, b) => cmp(a.path, b.path));
 
   const has = (p) => files.has(p) || byFile.has(p);
-  const R = createResolver({ has, tsconfigs, packages });
+  const aliases = paths.flatMap((p) => (mods.get(p)?.bundler_aliases ?? []).map((a) => ({ ...a, dir: dirOf(p) })));
+  const R = createResolver({ has, tsconfigs, packages, aliases });
   const out = [];
   const emittedNodes = new Set();
   const P = (path, line, confidence = 'high') => prov({ source_type: 'ast', source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence });
