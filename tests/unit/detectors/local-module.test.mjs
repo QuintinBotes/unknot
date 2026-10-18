@@ -215,6 +215,21 @@ test('dead-code: configuration, resource, locale, template and data files are ne
   assert.deepEqual(flagged([...others, mod('src/unused.js')]), ['src/unused.js']);
 });
 
+test('dead-code: a module that defines nothing to import but runs code is a script, not dead', () => {
+  const call = [{ name: 'client.convert', line: 3 }];
+  const facts = [
+    mod('src/index.js'), mod('src/used.js'), imp('src/index.js', 'src/used.js'),
+    mod('src/client.js', { exports: [], calls: call }),
+    mod('scripts/gen.py', { language: 'python', top_level_calls: 2 }),
+    mod('src/decl.js', { exports: [], calls: [] }),
+    mod('src/lib.js', { exports: [{ name: 'f', kind: 'function' }], calls: call }),
+    mod('scripts/helpers.py', { language: 'python', top_level_calls: 1 }),
+    fn('scripts/helpers.py', 'helper', { exported: true }),
+    edge('CONTAINS', 'module:scripts/helpers.py', 'function:scripts/helpers.py#helper'),
+  ];
+  assert.deepEqual(keys(run('local.dead-code', facts)), ['module:scripts/helpers.py', 'module:src/decl.js', 'module:src/lib.js']);
+});
+
 test('dead-code: without any IMPORTS edges modules are not judged', () => {
   assert.deepEqual(run('local.dead-code', [mod('a.js'), mod('b.js')]), []);
 });

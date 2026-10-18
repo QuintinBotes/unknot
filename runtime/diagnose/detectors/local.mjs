@@ -467,6 +467,20 @@ function declaredEntries(graph) {
   return entries;
 }
 
+/**
+ * A module that defines nothing another module could import (no exports where the language
+ * declares them, otherwise no function or class) but calls something at top level is run, not
+ * imported: "imported by nothing" is its normal state.
+ */
+function isScript(graph, m) {
+  if (!(m.attrs?.calls ?? []).length && !m.attrs?.top_level_calls) return false;
+  // A Meteor app with a main module runs only what that module imports.
+  const path = m.path ?? '';
+  if (meteorApps(graph).some((a) => !a.eager && (!a.dir || path.startsWith(`${a.dir}/`)))) return false;
+  if (Array.isArray(m.attrs?.exports)) return m.attrs.exports.length === 0;
+  return !graph.children(m.id).some((c) => ['function', 'class', 'interface'].includes(c.type));
+}
+
 /** Why a module is exempt from the unreferenced-module check, or null when it is not. */
 function moduleEntryReason(graph, m, entries) {
   const path = m.path ?? '';
@@ -477,6 +491,7 @@ function moduleEntryReason(graph, m, entries) {
   if (TOOL_ENTRY_RE.test(path)) return 'tool convention (Storybook, type declarations, samples)';
   if (inLibraryDir(graph, path)) return 'generated component library (components.json)';
   if (m.attrs?.entry_script && !isStaleCopy(graph, path)) return 'script run directly (shebang or __main__ guard)';
+  if (isScript(graph, m) && !isStaleCopy(graph, path)) return 'script (defines nothing to import, runs code when loaded)';
   if (m.attrs?.django_convention) return 'Django convention module';
   const own = graph.node(`file:${path}`);
   if (own?.attrs?.manifest) return 'package manifest';
