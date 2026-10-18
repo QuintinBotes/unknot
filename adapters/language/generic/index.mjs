@@ -513,7 +513,7 @@ function link(ctx) {
     const fam = FAMILY[lang];
     if (!reachers.has(fam)) {
       const files = sortedMods.filter((p) => FAMILY[mods.get(p).attrs.language] === fam && MEMBER_SYNTAX[mods.get(p).attrs.language]).map((p) => ({ path: p, attrs: mods.get(p).attrs }));
-      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined));
+      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined, (m) => Boolean(MEMBER_SYNTAX[lang]?.scopePrivate?.test(m))));
     }
     return reachers.get(fam);
   };
@@ -549,6 +549,9 @@ function link(ctx) {
   };
 
   // --- imports, tests -----------------------------------------------------------------
+  // Every family's member reach is read before the loop below drops each file's member attributes;
+  // built lazily, it missed the accesses of every file linked before the first file that needed it.
+  for (const p of sortedMods) if (MEMBER_SYNTAX[mods.get(p).attrs.language]) reachFor(mods.get(p).attrs.language);
   const importsOf = new Map();
   const csLink = csharpLinker(mods, sortedMods, ctx.semantic);
   for (const path of sortedMods) {

@@ -451,3 +451,20 @@ test('Go marks a reference to a type of its own package as inside the package; J
   assert.ok(je, 'Java same-package use is still a dependency');
   assert.equal(je.attrs.intra_package, undefined);
 });
+
+test('Go: an unexported field read in its package through any receiver is used; one nobody reads is not', () => {
+  const base = {
+    'go.mod': 'module example.com/shop\n',
+    'routing/record.go': 'package routing\ntype requestRecord struct {\n\tfuncInfo *FuncInfo\n}\n',
+    'routing/funcinfo.go': 'package routing\ntype FuncInfo struct{ name string }\n',
+  };
+  const edge = (files) => project(files).all.find((f) => f.type === 'IMPORTS' && f.from === 'module:routing/record.go' && f.to === 'module:routing/funcinfo.go');
+  // logger.go sorts before record.go: its reads must survive until record.go is linked.
+  const typed = edge({ ...base, 'routing/logger.go': 'package routing\nfunc printer() func(record *requestRecord) {\n\treturn func(record *requestRecord) {\n\t\tprintln(record.funcInfo == nil)\n\t}\n}\n' });
+  assert.ok(typed && !typed.attrs.declared_only && !typed.attrs.use_evidence, JSON.stringify(typed?.attrs));
+  // A receiver of unknown type (a call result) can only reach a member of a type of the package.
+  const untyped = edge({ ...base, 'routing/use.go': 'package routing\nfunc use() {\n\trecord := getRecord()\n\tprintln(record.funcInfo)\n}\n' });
+  assert.ok(untyped && !untyped.attrs.declared_only && !untyped.attrs.use_evidence, JSON.stringify(untyped?.attrs));
+  const unread = edge({ ...base, 'routing/logger.go': 'package routing\nfunc printer() {}\n' });
+  assert.equal(unread?.attrs.declared_only, true, JSON.stringify(unread?.attrs));
+});
