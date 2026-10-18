@@ -38,5 +38,65 @@
   "sha256:b1f1d7ca48b21acb90d99295c629dda8116d4899941f32d1c4ec1f4e958be583": {
     "label": "false",
     "note": "Cited definitions are error constructors and access helpers, not re-implemented authorization logic outside a package."
+  },
+  "sha256:beae4db93776b8f3b3c8db215c59aad5dd949ce3909981f1bdac07f488bb2e09": {
+    "label": "false",
+    "note": "Fan-in and fan-out are references between files of package core; Go files of one package do not import each other."
+  },
+  "sha256:8a5ca5c92706a0a1a053873e5afc77deaf314fc4a639dcdec35748bff8776d58": {
+    "label": "not-worth",
+    "note": "Its dependents import package core, which reaches every file of it; core using its own logger utility is deliberate."
+  },
+  "sha256:a5697492f991f6dc93809c1ab62fd339008a41e52627ebc5994a6b310245d349": {
+    "label": "true",
+    "note": "core/record_model.go is 1646 lines."
+  },
+  "sha256:b573c7227909a4a99390985262402a44b7643b1d76b5a71e77e4e947bbed982d": {
+    "label": "not-worth",
+    "note": "router.Event is the request/response helper API (JSON, String, Redirect and similar); 29 cohesive methods by design."
+  },
+  "sha256:07498cb096337a32a6c8471e07d252eec8026f121f6c1e140a030e38cdeb78ab": {
+    "label": "not-worth",
+    "note": "Index.Build is linear SQL string building; the length follows the syntax it emits."
+  },
+  "sha256:5369aebb961f65193794c2c89605085ba6a519ff0390cce6bb6bc7797d83b866": {
+    "label": "not-worth",
+    "note": "A UI component written as one factory function with its template, the style of the whole ui/ package."
+  },
+  "sha256:841dcf87ac4072801125fb1b33c0ce9fbe49fbdb39128102f9c549bfb7a8cc7f": {
+    "label": "false",
+    "note": "All 29 files are package core; files of one Go package cannot form an import cycle."
+  },
+  "sha256:c5570125b27670ad3ef8311b7a16af99000a4bdb910e7072eecebf79b4840301": {
+    "label": "not-worth",
+    "note": "API documentation pages with the same layout, each documenting a different endpoint."
+  },
+  "sha256:ba0caa2d6d2c2c32494bb69096aa6ada206695e45a198841ba0f01341de49ce8": {
+    "label": "false",
+    "note": "Two cited assignments set innerHTML to an empty string and the other two to static SVG templates interpolating only a generated element id; no variable text."
+  },
+  "sha256:0b9b2b4b7a99fb08734d5449ac660f2ceb234f644bb68e13b6eb6d5b9a2aaff7": {
+    "label": "false",
+    "note": "Imported by ui/src/router.js as @/logs/pageLogs (Vite resolve.alias @ -> src) and routed at #/logs."
+  },
+  "sha256:0b5a34fbace436f48b3be252c2d883db8fad0e613593b802898b22c06530ee4e": {
+    "label": "true",
+    "note": "BuildExprWithLimit nests six levels in its placeholder replacement loop."
+  },
+  "sha256:7b0aabd63feb517d6b3dc756051450f3d9499b42699b15e512f8b5ee40480f39": {
+    "label": "not-worth",
+    "note": "Cyclomatic 8 confirm handler in a modal; within reason for UI event code."
+  },
+  "sha256:9ad4500994c8caa1daddf3b907ea9eef13f89c2f69198bd1b31397b854fc885c": {
+    "label": "false",
+    "note": "Fan-in and fan-out are references between files of package core; Go files of one package do not import each other."
+  },
+  "sha256:0d5aeca1d84630bcbefb0a1218aa5b31ee0a625b3eb0c0d6bc96dd5ee3df0682": {
+    "label": "not-worth",
+    "note": "True: Settings is the only implementation, but PostValidator is an optional hook interface checked by type assertion."
+  },
+  "sha256:1de1424ed8f76085f3f22276aaf50c672fdc21e47eec30151ee3492d24b3b8f4": {
+    "label": "not-worth",
+    "note": "True: DefaultClient is the only implementation, but subscriptions.Client is a public interface for realtime clients."
   }
 }
