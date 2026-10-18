@@ -82,5 +82,9 @@
   "sha256:90867a82f7669ba43aa3eedcf9b2d0cb64aa9de03e81b81e0ebed0bf1ffcb3dd": {
     "label": "not-worth",
     "note": "Interface is registered in NopStartup.cs:234 and injected in 9 consumers (DI seam, mocked/swapped by plugins); correct but deliberate."
+  },
+  "sha256:d198cfa3d2d87f3bd9bcf5983e0ace828c833bca00bd54fa5135b9617dc509e7": {
+    "label": "true",
+    "note": "public.billingaddress.js and public.shippingaddress.js are nopCommerce scripts with the same 109 lines at 99% similarity; one shared function would serve both."
   }
 }

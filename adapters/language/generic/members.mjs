@@ -168,7 +168,8 @@ function memberAccess(lx, types, code, syn) {
 }
 
 /** The types a file declares, as the engine reads them: `{ name, startLine, endLine, bases }` from `{ name, startLine, endLine, extends, implements, bases }`. */
-export const memberTypes = (types) => types.map((t) => ({ name: t.name, startLine: t.startLine, endLine: t.endLine, bases: [...t.extends, ...t.implements, ...t.bases] }));
+// An embedded type (Go) is a base for member reach: its members are promoted onto the embedder.
+export const memberTypes = (types) => types.map((t) => ({ name: t.name, startLine: t.startLine, endLine: t.endLine, bases: [...t.extends, ...t.implements, ...t.bases, ...(t.embeds ?? []).map((e) => e.split('.').pop())] }));
 
 /** Which form of `syn.forms` the mention of a type at `off` takes, and what it declares; null when none. */
 function formAt(syn, code, off, name) {

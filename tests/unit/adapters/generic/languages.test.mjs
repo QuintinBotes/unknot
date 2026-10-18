@@ -468,3 +468,15 @@ test('Go: an unexported field read in its package through any receiver is used; 
   const unread = edge({ ...base, 'routing/logger.go': 'package routing\nfunc printer() {}\n' });
   assert.equal(unread?.attrs.declared_only, true, JSON.stringify(unread?.attrs));
 });
+
+test('Go: a field read through a type that embeds its owner is used', () => {
+  const files = {
+    'go.mod': 'module example.com/shop\n',
+    'git/base.go': 'package git\ntype RepositoryBase struct {\n\tformatCache *Format\n}\n',
+    'git/repo.go': 'package git\ntype Repository struct {\n\tRepositoryBase\n}\n',
+    'git/format.go': 'package git\ntype Format struct{ name string }\n',
+    'git/object.go': 'package git\nfunc (repo *Repository) GetFormat() *Format {\n\treturn repo.formatCache\n}\n',
+  };
+  const edge = project(files).all.find((f) => f.type === 'IMPORTS' && f.from === 'module:git/base.go' && f.to === 'module:git/format.go');
+  assert.ok(edge && !edge.attrs.declared_only && !edge.attrs.use_evidence, JSON.stringify(edge?.attrs));
+});

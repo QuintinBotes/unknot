@@ -261,3 +261,14 @@ test('a named import of interfaces and type aliases only is erased like `import 
   assert.equal(attr('src/Dropzone.vue', 'src/DropzoneWindow.vue').type_only, undefined);
   assert.equal(attr('src/Mode.ts', 'src/Dropzone.vue').type_only, undefined, 'an enum and a name that is also a value are runtime imports');
 });
+
+test('an extensionless import resolves to a single-file component when no script matches', () => {
+  const { graph } = runAdapter(new Map([
+    ['js/mixins/global.js', 'import AkauntingDate from "./../components/AkauntingDate";\nimport util from "./../components/util";\nexport default { components: { AkauntingDate, util } };\n'],
+    ['js/components/AkauntingDate.vue', '<template><div/></template>\n<script>\nexport default { name: "AkauntingDate" };\n</script>\n'],
+    ['js/components/util.js', 'export default 1;\n'],
+    ['js/components/util.vue', '<template><div/></template>\n'],
+  ]));
+  const to = graph.out('module:js/mixins/global.js', 'IMPORTS').map((e) => e.to).sort();
+  assert.deepEqual(to, ['module:js/components/AkauntingDate.vue', 'module:js/components/util.js'], 'a script wins over a component of the same name');
+});

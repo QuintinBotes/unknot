@@ -307,3 +307,10 @@ test('output is deterministic and files the adapter does not own yield nothing',
   assert.deepEqual(extractOne('README.md', '# hi'), []);
   assert.deepEqual(extractOne('data.json', '{}'), []);
 });
+
+test('a single-file component method named only in its template is used there', () => {
+  const vue = '<template>\n  <button @click="changeTab(1)">tab</button>\n</template>\n<script>\nexport default {\n  methods: {\n    changeTab(n) { this.tab = n; },\n    stale() {},\n  },\n};\n</script>\n';
+  const methods = Object.fromEntries(extractOne('src/List.vue', vue).filter((f) => f.type === 'function' || f.type === 'method').map((f) => [f.name.split('.').pop(), f.attrs.name_occurrences]));
+  assert.ok(methods.changeTab >= 2, JSON.stringify(methods));
+  assert.equal(methods.stale, 1);
+});
