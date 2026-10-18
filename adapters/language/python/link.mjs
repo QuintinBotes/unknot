@@ -100,10 +100,12 @@ export function link(ctx) {
     return (best ?? cands[0]).path;
   };
   // A dotted module name is the normal, observed resolution. A bare name can additionally
-  // match a sibling when a script runs from that directory; that generic rule is inferred.
+  // match a sibling when a script runs from that directory; that generic rule is inferred,
+  // and never for a standard-library name (`from collections import ...` beside collections.py).
   const resolveAbsolute = (language, dotted, importer) => {
     const path = resolveDotted(dotted, importer);
-    return path ? { path, inferred: false } : resolveFlatSiblingImport(language, importer, dotted, pyPaths);
+    if (path) return { path, inferred: false };
+    return STDLIB.has(dotted) ? null : resolveFlatSiblingImport(language, importer, dotted, pyPaths);
   };
   const tryRel = (dir, parts) => {
     const base = join(dir, parts.join('/'));
