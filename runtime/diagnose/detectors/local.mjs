@@ -524,8 +524,9 @@ function calledNames(graph) {
 const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || lexicalLanguageIds().includes(m?.attrs?.language);
 
 // Names that reach a function by convention rather than by a call the graph records:
-// React components (used as JSX), hooks, event handlers and lifecycle callbacks.
-const CONVENTION_NAME = /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z]?|get(Static|Server)Props$|generate(Metadata|StaticParams)$|loader$|action$|default$)/;
+// React components (used as JSX), hooks, event handlers and lifecycle callbacks, those of
+// React class components and of custom elements included.
+const CONVENTION_NAME = /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z]?|get(Static|Server)Props$|generate(Metadata|StaticParams)$|loader$|action$|default$|component(Did|Will)[A-Z]|shouldComponentUpdate$|getSnapshotBeforeUpdate$|getDerivedState|UNSAFE_|(connected|disconnected|adopted|attributeChanged|form[A-Z]\w*)Callback$|observedAttributes$)/;
 
 const deadCode = define({
   name: 'dead-code',
@@ -552,6 +553,7 @@ const deadCode = define({
       const short = nameOf(n).split('.').pop();
       if (/^__\w+__$/.test(short) || /^(main|init|setup|teardown)$/i.test(short) || /^test/i.test(short)) continue;
       if (CONVENTION_NAME.test(short)) continue;
+      if (['constructor', 'getter', 'setter'].includes(n.attrs.kind)) continue; // run by `new` and by property access, not by a call
       if (/\.(jsx|tsx)$/.test(n.path ?? '') && /^[A-Z]/.test(short)) continue; // JSX components
       if ((n.attrs.decorators ?? []).length) continue; // registered by a decorator: reachable by convention
       if (graph.in(n.id, 'CALLS').length) continue;

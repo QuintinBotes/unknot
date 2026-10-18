@@ -184,6 +184,17 @@ test('dead-code: unreferenced private symbols and modules, with the documented e
   assert.ok(mDraft.patterns.includes('code.remove-dead-code'));
 });
 
+test('dead-code: constructors, accessors and framework lifecycle callbacks are run without a call', () => {
+  const methods = ['constructor:constructor', 'datetime:getter', 'value:setter', 'connectedCallback:method', 'attributeChangedCallback:method',
+    'componentDidCatch:method', 'componentWillUnmount:method', 'getDerivedStateFromError:method', 'stale:method'];
+  const facts = [
+    mod('src/a.ts', { language: 'typescript' }), mod('src/b.ts', { language: 'typescript' }), imp('src/b.ts', 'src/a.ts'),
+    ...methods.map((m) => { const [name, kind] = m.split(':'); return sym('method', 'src/a.ts', `Clock.${name}`, { exported: false, kind, language: 'typescript' }); }),
+  ];
+  const [d] = run('local.dead-code', facts);
+  assert.deepEqual(d.evidence.filter((e) => e.ref.startsWith('method:')).map((e) => e.ref), ['method:src/a.ts#Clock.stale']);
+});
+
 test('dead-code: configuration, resource, locale, template and data files are never dead code; an unused source module still is', () => {
   const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
   const others = [mod('src/index.js'), mod('src/a.js'), mod('src/b.js'), imp('src/index.js', 'src/a.js'), imp('src/a.js', 'src/b.js')];

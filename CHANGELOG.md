@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Dead code no longer lists methods that run without a call: constructors (run by `new`), getters and setters (run by property access), and the lifecycle callbacks of React class components (`componentDidCatch`, `componentWillUnmount`, `getDerivedStateFromError` and the like) and custom elements (`connectedCallback`, `attributeChangedCallback` and the like). On excalidraw, prestashop, mastodon and gitea these made three false findings.
 - A Python import of a standard-library name (`from collections import defaultdict`) is never resolved to a same-named sibling file (`collections.py`) by the flat-sibling rule. On saleor that edge closed a false seven-module import cycle (`python` 0.1.14).
 - `DELETE FROM` followed by a table the code fills in (`{schema}.{table}`, `${table}`, `?`) no longer records a table named `from`; the T-SQL form without `FROM` (`DELETE orders WHERE ...`) still names its table. On nopCommerce this removes a `multiple-writers` finding about a table `from` (`database` 0.1.4).
 - JavaScript and TypeScript imports through a bundler alias (`resolve.alias` in a Vite, Vitest or webpack configuration, object or `find`/`replacement` form) resolve to the aliased directory, nearest configuration first; before, `import x from "@/logs/page"` stayed unresolved and the module it named looked dead. On pocketbase this removes 18 false dead-code findings, every page its router imports through `@/`.
