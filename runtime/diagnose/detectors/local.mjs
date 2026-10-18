@@ -5,7 +5,7 @@
 // draft so a reviewer can see what the claim rests on, and heuristic ones say so.
 
 import { derivedFor } from '../../graph/derived.mjs';
-import { LANGUAGE_IDS, languageForPath, lexicalLanguageIds, scriptLanguageIds } from '../../graph/languages.mjs';
+import { LANGUAGE_IDS, language, languageForPath, lexicalLanguageIds, scriptLanguageIds } from '../../graph/languages.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
 const SOURCE_NODE_TYPES = ['function', 'method'];
@@ -400,6 +400,17 @@ const largeModule = define({
 // Dead code
 // ---------------------------------------------------------------------------------------
 
+/**
+ * Whether a module is the source of a programming language. Configuration, resource, locale,
+ * template, data and documentation files are loaded by name or by a framework, never imported,
+ * so "nothing imports it" says nothing about them. The registry's classification decides (a
+ * file of an unregistered kind is not known to be code).
+ */
+function isCodeModule(m) {
+  const row = language(m.attrs?.language) ?? languageForPath(m.path ?? '');
+  return Boolean(row?.code);
+}
+
 const ENTRY_BASENAMES = new Set(['index', 'main', 'app', 'server', 'cli', '__main__', 'manage', '__init__', 'setup', 'conftest', 'wsgi', 'asgi', 'settings']);
 const CONFIG_RE = /(^|\/)(\.?[\w-]*\.config|[\w-]+\.conf|(jest|vite|vitest|webpack|rollup|babel|eslint|prettier|tailwind|postcss|next|nuxt|svelte|astro|tsup|karma|gulpfile|gruntfile|Makefile|noxfile|tox|setup)[\w.-]*)\.(c?m?[jt]s|json|ya?ml|toml|py|rb|cfg)$/i;
 // Files a tool loads by convention rather than by import.
@@ -592,6 +603,7 @@ const deadCode = define({
       for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) {
         if (isTestModule(m)) continue;
         if (lexicalOnly(m)) continue;
+        if (!isCodeModule(m)) continue;
         if (graph.in(m.id, 'IMPORTS').length) continue;
         // Scripts are run, not imported, and an empty module has nothing to remove.
         if (scriptLanguageIds().includes(m.attrs?.language) || languageForPath(m.path ?? '')?.script || (m.attrs?.sloc ?? 1) === 0) continue;

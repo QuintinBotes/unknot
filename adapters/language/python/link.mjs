@@ -6,6 +6,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, extensionsFor, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { ormAccess } from '../orm-maps.mjs';
 import { normalizeRoute } from './frameworks.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
@@ -366,6 +367,7 @@ export function link(ctx) {
     }
   }
   routeGroups(ctx.factsByFile, 'python@', normalizeRoute);
+  for (const f of ormAccess(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }), { attrs: (orm, model) => ({ columns: [], orm, model }) })) emit(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) emit(f);
   return out;
 }

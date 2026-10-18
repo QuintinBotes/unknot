@@ -312,7 +312,10 @@
               "interfaces": { "type": "array", "items": { "type": "string" } },
               "client_repositories": { "type": "array", "items": { "type": "string" }, "description": "Other repositories whose clients call this route" },
               "served_by": { "type": "array", "items": { "type": "string" }, "description": "Other repositories that serve a route this candidate calls" },
-              "workspace_mapped_at": { "type": "string", "description": "When the workspace map that linked the repositories ran" }
+              "workspace_mapped_at": { "type": "string", "description": "When the workspace map that linked the repositories ran" },
+              "consumers": { "type": "integer", "description": "Distinct modules that consume a messaging channel" },
+              "consumer_modules": { "type": "array", "items": { "type": "string" }, "description": "The modules that consume a messaging channel" },
+              "channel_unresolved": { "type": "boolean", "description": "The channel name is not a literal or a resolved constant" }
             },
             "required": ["route", "source", "clients", "interfaces"],
             "additionalProperties": false
@@ -549,6 +552,55 @@
         "coverage_threshold",
         "cap"
       ],
+      "additionalProperties": false
+    },
+    "transaction_evidence": {
+      "type": "object",
+      "description": "Transactions that write tables owned on both sides of the boundary, from imported database statistics, labelled observed, with the window they cover.",
+      "properties": {
+        "label": {"const": "observed"},
+        "window": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"], "additionalProperties": false},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "transactions": {"type": "integer"},
+        "edges": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["label", "window", "sources", "transactions", "edges"],
+      "additionalProperties": false
+    },
+    "delivery_evidence": {
+      "type": "object",
+      "description": "Measured delivery history of the deployable units this candidate's modules belong to, from imported delivery rows, labelled observed, with the window they cover.",
+      "properties": {
+        "label": {"const": "observed"},
+        "window": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"], "additionalProperties": false},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "unit": {"type": "string"},
+              "deployments": {"type": "integer"},
+              "deploys_per_week": {"type": "number"},
+              "change_failure_rate": {"type": "number"},
+              "lead_time_median_hours": {"type": ["number", "null"]},
+              "members_under": {"type": "integer"},
+              "released_with": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {"unit": {"type": "string"}, "share": {"type": "number"}},
+                  "required": ["unit", "share"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["unit", "deployments", "deploys_per_week", "change_failure_rate", "lead_time_median_hours", "members_under", "released_with"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["label", "window", "sources", "units"],
       "additionalProperties": false
     },
     "confidence_cap": {

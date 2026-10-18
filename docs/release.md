@@ -22,6 +22,16 @@ Only that job holds `contents: write`, `id-token: write` and `attestations: writ
 workflow runs with `permissions: {}` or read-only scope, and every action is pinned to a full
 commit SHA.
 
+### Quality check before a release
+
+`.github/workflows/quality.yml` measures precision, factual accuracy and seeded recall on the
+quick corpus every week and runs the cross-command consistency check on each mapped repository
+(see `docs/accuracy.md`). Before tagging, open the latest run: consistency must be green, and the
+step summary's change since the previous run should have no drop you cannot explain. If the
+change you are releasing touches detectors or the graph, dispatch the workflow on the release
+branch first. Nothing gates a release on these numbers automatically yet; the review is a human
+step, and the results go into the release notes.
+
 ### Channels
 
 - **Stable:** the `quintinbotes` catalog installs Unknot from the `stable` branch. After a final

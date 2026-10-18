@@ -5,7 +5,8 @@ import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.m
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, language, languageForPath, pathMentionExtensions } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
-import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
+import { conventionRoutes, detectFrameworks, ormMappings } from './frameworks.mjs';
+import { tableFacts } from '../orm-maps.mjs';
 import { analyze } from './structure.mjs';
 import { tokenize } from './tokenizer.mjs';
 import { detectMicroFrontends } from './mfe.mjs';
@@ -253,6 +254,24 @@ function codeFacts(file, text, as = {}) {
     facts.push(edgeFact('CONTAINS', modId, id, {}, p(s.line, 'medium')));
   }
 
+  // ORM entities -> tables (one rule for every language: ../orm-maps.mjs).
+  let orm = { mappings: [], links: {} };
+  if (!failed) {
+    try {
+      orm = ormMappings({ path, analysis, text, ts });
+    } catch {
+      // Optional signal: a failure here only costs the ORM mapping facts.
+    }
+  }
+  const mappedTables = new Set();
+  for (const m of orm.mappings) {
+    if (mappedTables.has(m.table)) continue;
+    mappedTables.add(m.table);
+    facts.push(...tableFacts(m, {
+      key: m.table, spec: { name: m.table, path, attrs: { orm: m.orm, model: m.entity } }, from: modId, edgeAttrs: { orm: m.orm, model: m.entity }, pv: p(m.line, 'medium', 'inference'),
+    }));
+  }
+
   let truncated = false;
   if (facts.length > MAX_FACTS) {
     facts.length = MAX_FACTS;
@@ -279,6 +298,7 @@ function codeFacts(file, text, as = {}) {
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
     // Link-only: link() finishes the routes whose group prefix another file supplies and removes these.
     ...fw.routeLinks,
+    ...orm.links,
   };
   // Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted.
   // Types are only stated in TypeScript, so only it can be read for them.

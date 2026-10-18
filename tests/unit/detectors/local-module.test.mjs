@@ -184,6 +184,26 @@ test('dead-code: unreferenced private symbols and modules, with the documented e
   assert.ok(mDraft.patterns.includes('code.remove-dead-code'));
 });
 
+test('dead-code: configuration, resource, locale, template and data files are never dead code; an unused source module still is', () => {
+  const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
+  const others = [mod('src/index.js'), mod('src/a.js'), mod('src/b.js'), imp('src/index.js', 'src/a.js'), imp('src/a.js', 'src/b.js')];
+  // [path, registered language id or null when the registry does not know the file kind]
+  const resources = [
+    ['src/main/resources/application.properties', null],
+    ['src/main/resources/messages_de.properties', null],
+    ['config/app.yml', 'yaml'],
+    ['config/settings.json', 'json'],
+    ['locales/en.json', 'json'],
+    ['templates/page.html', null],
+    ['data/sample.csv', null],
+    ['docs/guide.md', 'markdown'],
+  ];
+  for (const [path, language] of resources) {
+    assert.deepEqual(flagged([...others, mod(path, { language })]), [], `${path} is not dead code`);
+  }
+  assert.deepEqual(flagged([...others, mod('src/unused.js')]), ['src/unused.js']);
+});
+
 test('dead-code: without any IMPORTS edges modules are not judged', () => {
   assert.deepEqual(run('local.dead-code', [mod('a.js'), mod('b.js')]), []);
 });
@@ -392,6 +412,22 @@ test('hub-module: package-level imports are not fan-in of one file', () => {
   ];
   assert.equal(run('module.hub-module', build({})).length, 1);
   assert.deepEqual(run('module.hub-module', build({ package_level: true })), []);
+});
+
+test('references inside one package, where the package is the unit, are no import cycle and no hub fan', async () => {
+  const { sccsOf } = await import('../../../runtime/graph/derived.mjs');
+  const pkg = { intra_package: true, via: 'type' };
+  const cycle = [mod('core/a.go'), mod('core/b.go'), mod('api/c.go'), imp('core/a.go', 'core/b.go', pkg), imp('core/b.go', 'core/a.go', pkg), imp('api/c.go', 'core/a.go')];
+  assert.deepEqual(run('module.dependency-cycle', cycle), []);
+  assert.deepEqual(sccsOf(Graph.fromFacts(cycle)), [], 'no component, so graph cycles and decompose agree');
+  assert.equal(run('module.dependency-cycle', [...cycle, imp('core/b.go', 'api/c.go')]).length, 1, 'a cycle through another package still counts');
+  const hub = (attrs) => [
+    mod('core/hub.go'),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`core/in${i}.go`), imp(`core/in${i}.go`, 'core/hub.go', attrs)]).flat(),
+    ...Array.from({ length: 15 }, (_, i) => [mod(`core/out${i}.go`), imp('core/hub.go', `core/out${i}.go`, attrs)]).flat(),
+  ];
+  assert.equal(run('module.hub-module', hub({})).length, 1);
+  assert.deepEqual(run('module.hub-module', hub(pkg)), []);
 });
 
 test('shotgun-surgery: strong co-change partners across four or more packages', () => {

@@ -24,7 +24,7 @@ const all = (m) => [...m.values()].flat();
 
 test('adapter: contract shape and capabilities', () => {
   assert.equal(adapter.id, 'database');
-  assert.equal(adapter.version, '0.1.0');
+  assert.equal(adapter.version, '0.1.3');
   assert.equal(adapter.kind, 'database');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -40,7 +40,7 @@ test('adapter: every fact validates and carries provenance', () => {
   const { factsByFile } = extractTree('flyway-pg');
   for (const f of all(factsByFile)) {
     assertFact(f);
-    assert.equal(f.provenance.extractor, 'database@0.1.0');
+    assert.equal(f.provenance.extractor, 'database@0.1.3');
     assert.match(f.provenance.source_ref, /:\d+$/);
   }
 });
@@ -209,7 +209,7 @@ test('link: raw SQL on module nodes becomes QUERIES / MUTATES / JOINS_WITH', () 
   assert.ok(edges(facts, 'MUTATES').some((e) => e.from === 'module:app/models.py' && e.to === 'table:public.audit_log'));
 });
 
-test('link: ORM table ids from language adapters are normalised with aliases', () => {
+test('canonicalId: language-adapter table ids get the engine schema; link adds no second table', () => {
   const py = 'python@0.1.0';
   const pp = (l) => prov({ source_type: 'ast', source_ref: `app/models.py:${l}`, extractor: py });
   const factsByFile = new Map([['app/models.py', [
@@ -217,14 +217,13 @@ test('link: ORM table ids from language adapters are normalised with aliases', (
     nodeFact('table', 'orders', { path: 'app/models.py' }, pp(3)),
     edgeFact('OWNS_DATA', 'module:app/models.py', 'table:orders', {}, pp(3)),
   ]]]);
-  const facts = adapter.link({ files: new Map(), factsByFile, options: {} });
-  const t = nodes(facts, 'table').find((n) => n.id === 'table:public.orders');
-  assert.deepEqual(t.attrs.aliases, ['table:orders']);
-  const e = edges(facts, 'OWNS_DATA')[0];
-  assert.equal(e.to, 'table:public.orders');
-  assert.deepEqual(e.attrs.aliases, ['table:orders']);
-  // MySQL ids stay unqualified, so nothing is rewritten.
-  assert.equal(adapter.link({ files: new Map(), factsByFile, options: { engine: 'mysql' } }).length, 0);
+  assert.equal(adapter.link({ files: new Map(), factsByFile, options: {} }).length, 0);
+  const canon = adapter.canonicalId.table;
+  assert.equal(canon('table:orders', {}), 'table:public.orders');
+  assert.equal(canon('table:Orders', { engine: 'postgresql' }), 'table:public.orders');
+  assert.equal(canon('table:sales.orders', {}), 'table:sales.orders');
+  // MySQL ids stay unqualified.
+  assert.equal(canon('table:orders', { engine: 'mysql' }), 'table:orders');
 });
 
 test('link: golang-migrate pairs and Flyway undo files resolve has_down; missing down is a finding', () => {

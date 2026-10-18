@@ -53,6 +53,8 @@ export const EDGE_TYPES = Object.freeze(new Set([
   'SIGNS', 'DEPLOYS', 'OBSERVES', 'COSTS_TO', 'PROTECTED_BY', 'VIOLATES_POLICY',
   // structure, history, runtime and UI (Unknot extensions)
   'CONTAINS', 'CO_CHANGES', 'RUNTIME_CALLS', 'RENDERS', 'DEFINES',
+  // deployable units that share release ids in imported delivery history
+  'RELEASED_WITH',
 ]));
 
 // 'vcs' extends the spec's list: git history is recorded fact, not inference.

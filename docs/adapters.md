@@ -86,9 +86,9 @@ Recognition is by pattern on names and shapes (imports, decorators, call shapes)
 | Node HTTP | Express, Fastify, Hono, Koa, NestJS decorators, plain `http` |
 | Node frontend routing | Next.js app and pages routers (incl. `route.ts` handlers), SvelteKit file routes, React Router, Vue Router and Angular route tables |
 | Frontend state | Redux-style stores, by call name |
-| Python | Flask (incl. blueprints), FastAPI (incl. routers), Django URL configs and model classes, SQLAlchemy `__tablename__` |
-| Other languages | HTTP routes, raw SQL strings and ORM table hints by annotation and naming convention (all `inference`, medium or low) |
-| Messaging | Topics and queues from client calls where a literal name is visible (inferred) |
+| Python | Flask (incl. blueprints), FastAPI (incl. routers), Django URL configs, ORM models (see [ORM mappings](#orm-mappings-entities-and-tables)) |
+| Other languages | HTTP routes, raw SQL strings and ORM mappings by annotation and naming convention (all `inference`, medium or low) |
+| Messaging | Channel contracts from publisher calls and consumer calls/handlers; literals and resolved constants, with unresolved names retained (inferred) |
 | Build topology | Nx, Lerna, pnpm workspaces, Turborepo, Rush, Bazel, Make |
 
 Micro-frontend configuration is recognised by text patterns at medium confidence and stored as the module attribute `mfe`: Module Federation (`ModuleFederationPlugin`, `@module-federation` packages, `withModuleFederation`, `federation({...})`, with `name`, `remotes`, `exposes` and `shared` keys), single-spa `registerApplication` names, and Next.js multi-zone rewrites to external hosts. Not recognised in this version: Remix and Nuxt as named frameworks. Routes in Rails, Spring and similar come only from the generic adapter's lexical guesses.
@@ -104,7 +104,7 @@ Micro-frontend configuration is recognised by text patterns at medium confidence
 
 #### HTTP operations: clients and endpoints
 
-One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route, except where the language's routing treats a leading `/` as absolute (attribute routing in C#, where `/x` or `~/x` on a method replaces the type's route); Java and Kotlin annotations, decorators and router calls always append. The `generic` (0.1.9), `javascript` (0.1.14) and `python` (0.1.11) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
+One rule covers every language: a method or function that declares an HTTP method and a route template through an attribute, annotation or decorator (or a router registration call) is an HTTP operation. On an interface, an abstract type or a type whose methods have no bodies it is a client operation; on a concrete handler it is an endpoint. A base path from the enclosing type, or a client-level `path` or `url` argument, is joined to the method's route, except where the language's routing treats a leading `/` as absolute (attribute routing in C#, where `/x` or `~/x` on a method replaces the type's route); Java and Kotlin annotations, decorators and router calls always append. The `generic` (0.1.11), `javascript` (0.1.15) and `python` (0.1.12) adapters read it at medium confidence, labelled `inference`. Detection is by shape, never by library: the spellings below are a table (`SYNTAX` in `adapters/language/http-ops.mjs`), and the library names are examples of what writes them.
 
 | Language | Verb and route markers (examples) | Base path | Client when |
 |---|---|---|---|
@@ -130,6 +130,80 @@ Calls are matched to the function by name, so a name defined in several files on
 Each client interface becomes a `contract` node (`kind: http_client`, with its `operations`), each distinct route a `contract` node (`kind: client_operation`, id `contract:GET /v1/orders/:id`) that the interface `DEFINES`, and the module that declares the interface `CONSUMES` the route. A client is never an `endpoint`: endpoint nodes remain what a repository serves. Routes compare as method plus path template with parameter names dropped (`routeKey` in `runtime/graph/routes.mjs`), so `{id}` and `{orderId}` are the same route.
 
 `unknot workspace map` links a client route in one repository to the endpoint serving it in another (`CONSUMES` from the `contract` node to the `endpoint` node, `via: contract`); see [operations.md](operations.md).
+
+#### Messaging channels: publishers and consumers
+
+One rule covers source languages: a call or handler marker names a channel and a direction. The spellings are rows of `MESSAGING_SYNTAX` in `adapters/language/messaging-ops.mjs`; library names below are examples only. The `contracts` adapter (0.1.1) reads registered source-file globs, using the shared comment/string-aware lexical view. Existing language-adapter facts remain available. Recognition is medium-confidence inference and does not require an import from a particular library.
+
+| Spelling family (library examples only) | Publisher evidence | Consumer evidence |
+|---|---|---|
+| Producer/consumer (Kafka clients) | `kafkaTemplate.send("orders.created", data)`, `KafkaProducer().send("orders.created")`, `producer.send({ topic: 'orders.created' })`, `Produce("orders.created", data)` / `ProduceAsync(...)` | `KafkaConsumer("orders.created")`, `consumer.subscribe({ topic: 'orders.created' })` / `{ topics: [...] }`, `Subscribe("orders.created")`, `@KafkaListener(topics = "orders.created")` |
+| Exchange/queue (AMQP clients) | `basic_publish(exchange="orders", routing_key="orders.created")`, `channel.publish('orders', 'orders.created', data)`, `sendToQueue('orders', data)` | `basic_consume(queue="orders")`, `channel.consume('orders', handler)`, `@RabbitListener(queues = "orders")` |
+| Queue client (cloud queue libraries) | `sendMessage({ QueueUrl: ordersQueue })`, `SendMessage(QueueUrl: ordersQueue)`, `CreateSender("orders")` | `receiveMessage({ QueueUrl: ordersQueue })`, `ReceiveMessage(QueueUrl: ordersQueue)`, `CreateReceiver("orders")`, `CreateProcessor("orders")` |
+| Topic client (cloud messaging libraries) | `topic("orders.created").publish(data)` / `.publishMessage(data)` | topic consumer calls or topic handler markers from the other rows |
+| Subject client (NATS clients) | `nc.publish("orders.created", data)` / `Publish(...)` | `nc.subscribe("orders.created")` / `Subscribe(...)` |
+| Handler markers (decorator and attribute libraries) | publisher calls from the corresponding channel rows | `@MessagePattern("orders.created")`, `@EventPattern(...)`, `[QueueTrigger("orders")]`, `[ServiceBusTrigger("orders")]` |
+
+A channel becomes a `contract` node (`kind: messaging_channel`), such as `contract:topic orders.created`, with module-to-channel `PUBLISHES` and `CONSUMES` edges. Channel types (topic, queue, exchange, subject) remain distinct; channel names compare exactly, including complete queue URLs. Literal subscription/listener arrays name one contract per entry. An empty AMQP exchange uses its routing key as a queue name; a named exchange retains its routing-key evidence without guessing which bound queues receive it.
+
+String constants resolve from the literals adapter's `DEFINES` facts when present: a same-file definition wins, otherwise a unique name across the repository resolves. Conflicting definitions and computed names remain source-scoped contracts with `channel_unresolved: true`; equal variable spellings never link across repositories. Generic member verbs such as `publish`, `subscribe`, `send` and `consume` require a receiver shape stated in the table (bare `publish` and `subscribe` calls are subject spellings), preventing unrelated calls such as `ledger.consume('retries')` from becoming channel evidence. Recognition does not establish broker identity, delivery guarantees or payload compatibility.
+
+Both sides count as `contracts.present`. Each channel row lists distinct consuming modules (`consumers`, `consumer_modules`); `clients.count` counts those consumers and `contracts.consumers_per_channel` is the largest consumer count across the candidate's channels. Publishers do not increase these counts. Workspace mapping links a consumer module to the publisher repository's channel (`CONSUMES`, `via: messaging`), carries the evidence back into each repository's decomposition, and orders release hints with the publisher first. Queue bindings, environment-dependent names, receiver aliases and dynamically constructed clients are not followed.
+
+#### RPC and query clients: service/schema matching
+
+Generated constructors and named query documents are the same client-contract mechanism, with constructor spellings in `RPC_CLIENT_SYNTAX` and protocol matching in `runtime/graph/routes.mjs`. The `contracts` adapter retains client declarations even when their service/schema is absent locally; workspace mapping can match them against another repository's declarations.
+
+| Client spelling | Declaration read by the contracts adapter | Match |
+|---|---|---|
+| `new OrdersServiceClient(channel)` | protobuf `service OrdersService { rpc ListOrders (...) returns (...); }` | service name and calls such as `client.ListOrders(...)` / `client.listOrders(...)` |
+| `OrdersServiceStub(channel)` | the same protobuf service | service and invoked method |
+| `NewOrdersServiceClient(conn)` | the same protobuf service | service and invoked method |
+| `gql` tagged named query, mutation or subscription | GraphQL schema root fields | named document retained; selected root fields match schema operations |
+| `.graphql` / `.gql` named operations | the same schema | `query Orders { latest: orders { id } }` matches `Query.orders`; aliases and nested result fields do not change the match |
+
+A constructor without visible method calls is service-wide evidence for all declared methods; method names compare without underscores and ignoring case. An unqualified service name that belongs to several protobuf packages stays unmatched. Each matching RPC or query operation becomes a `contract` node (`kind: client_operation`, protocol key such as `RPC ledger.OrdersService/ListOrders` or `GRAPHQL Query.orders`), defined by the client and consumed by its module. Service/schema endpoints remain separate nodes. These operations feed `contracts.present`, `clients.count` and workspace contract links alongside HTTP clients; HTTP path normalization is unchanged.
+
+Matching is lexical evidence against a declaration, not proof of a deployed server. Anonymous GraphQL operations, interpolated documents, fragment-only root selections and generated-client aliases are not resolved. Named documents retain unmatched declarations rather than inventing schema fields. Scans are capped at 1.5 million source characters, 400 messaging operations and 400 client declarations per file; the adapter's existing 5,000-fact cap also applies.
+
+#### ORM mappings: entities and tables
+
+One rule covers every language: a code type (class, struct, model) that is mapped to a database table is an entity, and a module that reaches the table through that type is a reader or writer of it. The table is named by the code where the code names it (`table_name_basis` is then absent) and otherwise by the ORM's documented naming convention, marked `table_name_basis: 'convention'`. Detection is by shape, never by library: the spellings are rows of `ORM_SYNTAX` in `adapters/language/orm-maps.mjs`, and the library names below are examples of what writes them. The `generic`, `javascript`, `python` and `database` adapters read their own structures into one view and call the same pass, so every row states the same facts: a `table` node (with `orm`) and, from the module that maps it, an `OWNS_DATA` edge. A schema file (Prisma) declares the table without a module that owns it, so it has no edge.
+
+| Library (example) | Entity is | Explicit table name | Convention when not named |
+|---|---|---|---|
+| JPA / Hibernate (Java, Kotlin) | `@Entity` | `@Table(name = "x")` | snake_case of the class |
+| EF Core (C#) | `[Table("x")]`, `DbSet<T> Name`, `IEntityTypeConfiguration<T>` | `[Table("x")]`, `ToTable("x")` | snake_case of the `DbSet` member |
+| SQLAlchemy (Python) | `__tablename__`, a `db.Model` base, `Table("x", metadata, ...)` | `__tablename__`, the `Table` name | snake_case of the class |
+| Django (Python) | `models.Model` (not abstract) | `Meta.db_table` | `<app>_<lowercase class>` |
+| TypeORM (TypeScript) | `@Entity` | `@Entity('x')`, `@Entity({ name })` | snake_case of the class |
+| Sequelize (JavaScript) | `sequelize.define('X', ...)`, `Model.init(..., { sequelize })` | `tableName` option | pluralised model name |
+| Prisma (schema file) | `model X { ... }` | `@@map("x")` | the model name |
+| ActiveRecord (Ruby) | `< ApplicationRecord` | `self.table_name = "x"` | pluralised snake_case of the class |
+| GORM (Go) | `gorm.Model` embedded, or a `TableName()` method | `TableName()` returns `"x"` | pluralised snake_case of the struct |
+| Doctrine (PHP) | `#[ORM\Entity]` | `#[ORM\Table(name: 'x')]` | snake_case of the class |
+| Eloquent (PHP) | `extends Model` | `protected $table = 'x'` | pluralised snake_case of the class |
+
+Access through the mapped type is the other half of the rule. A call such as `Order.objects.create(...)`, `Order::create(...)`, `session.add(Order(...))`, `em.persist(new Order())` or `ctx.Orders.Add(...)` (a `DbSet` member) makes the calling module `MUTATES` (or `QUERIES`) the table, with `via: orm`; the verbs are per-ORM rows in the same table (`access`). The entity may be declared in another file: the extractors record candidate calls as link-only module attributes (`orm_entities`, `orm_members`, `orm_access`) and `ormAccess` resolves them after all files are read, then removes them. A name that maps to several tables resolves only inside the file that declares it. Two entity types in different modules mapped to the same table, each written through, therefore give the `multiple-writers` detector two writers.
+
+Not covered: a repository or query helper reached through a variable whose type is not visible (`orderRepository.save(order)`), the Prisma client (`prisma.order.create`), Doctrine annotations in docblocks (attributes are read), and any mapping built at run time.
+
+#### Dependency-injection containers: services and implementations
+
+One rule covers every language: a container registration names a service type, the implementation type the container gives for it, and a lifetime. The spellings are rows of `DI_SYNTAX` in `adapters/language/di-ops.mjs` (one row per spelling: the call or annotation names, which type argument or argument is the service and which the implementation, and how the lifetime is spelled), read by one engine from the shared comment/string-aware lexical view, so a registration written in a comment or a string never counts. The `di` adapter (0.1.0, a framework pack separate from any language adapter) records the registrations of a file as a link-only module attribute and, at link time, resolves each name to the class and interface nodes the language adapters already emitted. Lifetimes are normalised to `singleton`, `scoped`, `transient` or `unknown`. Recognition is labelled `inference`: medium confidence for an explicit registration, low for a binding implied by component scanning. Library names below are examples of what writes each spelling.
+
+| Languages | Registration spellings (examples) | Lifetime spelled by |
+|---|---|---|
+| C# | `AddSingleton`/`AddScoped`/`AddTransient<IService, Impl>()` and the `TryAdd...` forms, the self form `AddScoped<Impl>()`, `AddScoped(typeof(IService), typeof(Impl))` (Microsoft.Extensions.DependencyInjection); `RegisterType<Impl>().As<IService>()`, `.AsSelf()` (Autofac) | the method name; Autofac `.SingleInstance()` is a singleton, `.InstancePerLifetimeScope()`/`.InstancePerRequest()` scoped, `.InstancePerDependency()` or nothing transient |
+| Java, Kotlin | `bind(IService.class).to(Impl.class)`, `bind(IService::class.java).to(Impl::class.java)` (Guice); a `@Bean` method whose declared return type is the service and whose body returns a new implementation, and classes marked `@Component`, `@Service`, `@Repository`, `@Controller` or `@RestController` bound to each interface their declaration names (Spring, the second by component scanning); `@Binds` methods (Dagger) | `.in(Singleton.class)`, `.in(Scopes.SINGLETON)` or `.asEagerSingleton()`, else transient (Guice); `@Scope("prototype")` transient, `"request"`/`"session"` scoped, default singleton (Spring); `@Singleton`, else unknown (Dagger) |
+| TypeScript, JavaScript | provider objects `{ provide: IService, useClass: Impl }` (NestJS, Angular); `bind<IService>(token).to(Impl)` on a container (InversifyJS) | `scope: Scope.REQUEST` scoped, `Scope.TRANSIENT` transient, default singleton; `.inSingletonScope()`, `.inRequestScope()`, `.inTransientScope()` or nothing transient |
+| PHP | `$this->app->bind(IService::class, Impl::class)`, `app()->bind(...)`, `App::bind(...)`, and the `singleton(...)`/`scoped(...)` forms (Laravel) | the method name: `bind` transient, `singleton` a singleton, `scoped` scoped |
+| Python | `binder.bind(IService, to=Impl, scope=singleton)` (injector) | `scope=singleton` is a singleton, else transient |
+| Go | `wire.Bind(new(IService), new(*Impl))` (wire) | unknown (wire generates code; no lifetime is written) |
+
+Every resolved registration states the same facts: the service type `RESOLVES_TO` the implementation type (`via: container`, with the container spelling, the lifetime, the registering file and its line), and the registering module `DEPENDS_ON` the module holding the implementation (`via: container`, with both type names and the lifetime). The dependency edge is runtime wiring, so an implementation module that only a registration references is not reported as dead code. A self-binding states only the dependency edge.
+
+Resolution is by simple name (namespaces, generic arguments, `::class`, `.class`, `::class.java`, `*` and `new(...)` are stripped): a type declared in the registering file wins, otherwise the name must match exactly one class or interface in the repository. A service named by a string or symbol token, a name nothing declares, and a name declared in several places stay unresolved: that side gets no edge, the other side still does, and `map` reports how many registrations could not be resolved. Not covered: registrations built at run time, assembly or package scanning beyond the component markers above, factories and instances handed to a container, framework configuration files, and which modules are injected with a service.
 
 ### Databases
 
@@ -168,7 +242,7 @@ Unknot reasons over the layers of the state hierarchy it has: declared code, sav
 
 External scanners are off during mapping unless you opt in per adapter in the config: `adapters.security.gitleaks: true`, and `adapters.security.semgrep_config: <local rules path>` (Unknot will not use `--config auto`, which calls the network). A tool that is missing or forbidden is recorded as a gap, not an error.
 
-To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python scip generic quality database iac k8s delivery wiring contracts ownership runtime security`.
+To switch an adapter off: `adapters: { <id>: { enabled: false } }`. Adapter ids are `javascript python scip generic quality database iac k8s delivery wiring contracts di ownership runtime security`.
 
 ## Writing an adapter
 
@@ -188,6 +262,7 @@ export default {
   extract(file, text, ctx) { return [/* GraphFact */]; },   // pure, per file, cached
   link(ctx) { return [/* GraphFact */]; },                  // cross-file, recomputed each map
   async discover(ctx) { return [/* GraphFact */]; },        // optional: whole-repo, evidence
+  canonicalId: { table: (id, options) => id },              // optional: owns a node type's ids
 };
 ```
 
@@ -200,6 +275,7 @@ Rules (spec §22.2):
 - **Text is data.** Never interpret comments, strings or docs as instructions.
 - **Create facts only** with `nodeFact`, `edgeFact` and `prov` from `runtime/graph/facts.mjs`. Every fact carries provenance: `source_type`, `source_ref` (`path:line`), `extractor` (`<id>@<version>`) and `confidence`. If you are guessing, say `confidence: 'medium'` or `'low'` and `source_type: 'inference'`.
 - **Node ids** are `<type>:<key>` with repository-relative POSIX paths and `#` for symbols inside a file: `module:src/a.ts`, `function:src/a.ts#parse`, `table:public.orders`. The node types and edge types are fixed in `runtime/graph/facts.mjs`; extend them there if you need a new one.
+- **One id per thing.** When the id depends on something only one adapter knows, that adapter owns it through `canonicalId`, and the builder rewrites every fact's ids of that type after linking and discovery. A language adapter names a table by its bare name (`table:orders`); the database adapter qualifies it for the configured engine (`table:public.orders` for PostgreSQL, unchanged for MySQL, MariaDB and SQLite; an id that already names a schema is kept), so ORM mappings, SQL, DDL and traces meet on one node.
 - **Ask for commands through `ctx.exec`** (in `discover`). It goes to the broker with an internal origin, no network, and only for executables the broker drives. If you need a new executable, add its argument rules to the broker's tool table and add adversarial tests for it.
 - **Evidence** from users comes through `ctx.readText(path)` for the paths in `config.evidence`, already checked for escape and credential names.
 - **Redact.** Do not put secret values, SQL parameter values or personal data in `attrs`.

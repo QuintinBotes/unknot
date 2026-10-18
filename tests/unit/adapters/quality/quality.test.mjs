@@ -26,7 +26,7 @@ function run(kinds = {}) {
 
 test('descriptor', () => {
   assert.equal(adapter.id, 'quality');
-  assert.equal(adapter.version, '0.1.2');
+  assert.equal(adapter.version, '0.1.3');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -128,4 +128,30 @@ test('data-only blocks (style sheets, option objects) do not fingerprint as clon
   const logic = `export function f(a, b) {\n${Array.from({ length: 30 }, (_, i) => `  if (a > ${i}) { b = g(b, a - ${i}); } else { b = h(b); }`).join('\n')}\n  return b;\n}\n`;
   assert.ok(fp(styles) <= 2, `style data produced ${fp(styles)} fingerprints`);
   assert.ok(fp(logic) > 10);
+});
+
+test('package, namespace and using directives are plumbing like imports; using statements are code', async () => {
+  const { tokenize, dropBoilerplate } = await import('../../../../adapters/quality/index.mjs');
+  const kept = (t) => dropBoilerplate(tokenize(t, 'c'), 'c').map((x) => x.t).join(' ');
+  assert.equal(kept('package com.example.orders;\nclass A {}\n'), 'class I { }');
+  assert.equal(kept('package orders\n\nfunc f() {}\n'), kept('func f() {}\n'));
+  assert.equal(kept('using System.Linq;\nusing Alias = Shop.Orders;\nusing static Shop.Util;\nnamespace Shop.Orders;\nclass A {}\n'), 'class I { }');
+  assert.equal(kept('namespace Shop.Orders\n{\n    class A {}\n}\n'), '{ class I { } }');
+  assert.match(kept('void F() { using (var s = Open()) { } using var t = Open(); }'), /using \( var .* using var/);
+});
+
+test('two classes that share only their header and injected-constructor shape are no clone', () => {
+  const header = (pkg) => `package com.example.${pkg};\n\n${Array.from({ length: 12 }, (_, i) => `import com.example.lib${i}.Type${i};`).join('\n')}\n\n`;
+  const body = (name, dep) => `public class ${name} {\n    private final ${dep} dep;\n\n    public ${name}(${dep} dep) {\n        this.dep = dep;\n    }\n`;
+  const orders = `${header('orders')}${body('OrderService', 'Gateway')}\n    public long total(long id) {\n        return dep.find(id).sum();\n    }\n}\n`;
+  const ledger = `${header('ledger')}${body('LedgerController', 'LedgerService')}\n    public String show(String key) {\n        return dep.lookup(key).render();\n    }\n}\n`;
+  const factsByFile = new Map();
+  const files = new Map();
+  for (const [path, text] of [['orders/OrderService.java', orders], ['ledger/LedgerController.java', ledger]]) {
+    const entry = { path, kind: 'source' };
+    files.set(path, entry);
+    factsByFile.set(path, adapter.extract(entry, text, {}));
+  }
+  const clones = adapter.link({ files, factsByFile, options: {} }).flatMap((f) => f.attrs.clones ?? []);
+  assert.ok(clones.every((c) => c.lines < 20), `header and constructor shape counted as ${Math.max(0, ...clones.map((c) => c.lines))} duplicated lines`);
 });

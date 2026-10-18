@@ -111,6 +111,155 @@ GROUP BY 1, 2, 3
 
 Percentile function names differ between engines (`APPROX_PERCENTILE`, `PERCENTILE_CONT`, `quantile`). If the backend exposes the same aggregation through an HTTP query API instead, run the equivalent query there and convert the result to CSV or JSON with the columns above. Sampled traces make `count` approximate: scale it by the sampling rate before importing, or say so in `--source` (for example `traces-sampled-10pct`). The export contains route templates and service names only; keep user identifiers and query strings out of it.
 
+## Database query statistics: which statements touch which tables
+
+Unknot works for any database from one documented format and one mechanism. You export statement statistics from your database to a file; Unknot never connects to a database or runs SQL. The file answers "which statements touch which tables, how often, and which tables are written together in one transaction". `unknot import database-stats <file> [--format pg|sqlserver|mysql|normalised] [--source label] [--window w]` validates the file, stores it, and attaches facts to the table nodes the graph already has.
+
+### The normalised format
+
+CSV with a header, a JSON array of rows, or `{"rows": [...], "transactions": [...]}`:
+
+| Column | Meaning |
+|---|---|
+| `statement_id` | Required. Any stable id for the statement (a digest, a query id). |
+| `text` | Optional. The normalised statement (literals as `?` or `$1`; literals are redacted again on import). Used to find tables when the two table columns are empty. |
+| `calls` | Required. Executions in the window, a non-negative integer. |
+| `total_ms`, `mean_ms`, `rows` | Optional non-negative numbers. |
+| `tables_read`, `tables_written` | Optional. Table names, `;`-separated in CSV, an array in JSON; `schema.name` or `name`. When either is given they are used as they are and `text` is not parsed. |
+| `window` | Required unless `--window` supplies it. An ISO interval `start/end` or a duration (`P7D`, `24h`) ending at import time. |
+| `source` | Optional label of where the row came from. |
+| `transaction_id` | Optional. Rows that share a `transaction_id` run in one transaction. |
+
+Transactions can instead be listed as `"transactions": [["place", "reserve"], {"transaction_id": "t2", "statements": ["a", "b"], "count": 40}]`: lists of statement ids, with an optional execution count. Any database that records which statements ran in one transaction (a trace, an audit log, an application log) can produce this; the statistics views below do not record it, so those exports have no transaction grouping unless you add it.
+
+A row that breaks the format (a negative count, an unreadable window, no text and no tables) refuses the whole file and stores nothing, with the first 20 problems listed.
+
+### Readers for each database's own view
+
+Each reader is a small column mapping; `--format` selects one, and the default detects it from the header. All the views below are the database's own; Unknot does not define them. Check column names against your version.
+
+- **PostgreSQL**, `pg_stat_statements` (`--format pg`): `\copy (SELECT queryid, query, calls, total_exec_time, mean_exec_time, rows FROM pg_stat_statements) TO 'pg_stats.csv' CSV HEADER`. Older versions name the time columns `total_time` and `mean_time`; both are read. When the view has `stats_since` and you add `stats_until`, they become the window.
+- **SQL Server**, Query Store (`--format sqlserver`): the query text joined to the runtime statistics, durations in microseconds:
+
+  ```sql
+  SELECT q.query_id, qt.query_sql_text,
+         SUM(rs.count_executions) AS count_executions,
+         SUM(rs.avg_duration * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) AS avg_duration,
+         SUM(rs.avg_rowcount * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) AS avg_rowcount,
+         MIN(i.start_time) AS start_time, MAX(i.end_time) AS end_time
+  FROM sys.query_store_query q
+  JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id
+  JOIN sys.query_store_plan p ON p.query_id = q.query_id
+  JOIN sys.query_store_runtime_stats rs ON rs.plan_id = p.plan_id
+  JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id
+  GROUP BY q.query_id, qt.query_sql_text;
+  ```
+
+- **MySQL**, `performance_schema.events_statements_summary_by_digest` (`--format mysql`), timers in picoseconds:
+
+  ```sql
+  SELECT DIGEST, DIGEST_TEXT, COUNT_STAR, SUM_TIMER_WAIT, AVG_TIMER_WAIT,
+         SUM_ROWS_SENT, SUM_ROWS_AFFECTED, FIRST_SEEN, LAST_SEEN
+  FROM performance_schema.events_statements_summary_by_digest
+  WHERE DIGEST_TEXT IS NOT NULL;
+  ```
+
+For any other database, write the normalised columns directly.
+
+### How tables are found
+
+One shared, conservative extractor reads the statement text: `FROM` and `JOIN` (read), `UPDATE`, `INSERT INTO`, `REPLACE INTO`, `DELETE FROM`, `TRUNCATE`, `SELECT ... INTO` and `MERGE INTO` (write), with `USING` read. It skips CTE names, temporary tables (`#name`) and table variables, quoted and bracketed identifiers keep their case, and a three- or four-part name is reduced to `schema.name`. Text it cannot read (other statement kinds, an unterminated quote, a multi-table `DELETE`) contributes no guessed tables; the import counts these statements and reports the number.
+
+### What is stored, and how it behaves
+
+- A statement becomes a `query` node (calls, times, rows) with `QUERIES` edges to the tables it reads and `MUTATES` edges to the tables it writes, each carrying the call count. Only tables the graph already has are attached; the import reports the matched tables and lists the unmatched names with how many statements named them. A name without a schema matches the one table of that name, and is left unmatched when several tables share it.
+- Tables written by statements of one transaction get a `SHARES_TRANSACTION_WITH` edge, with the number of transactions, their calls, the window, the sources and an expiry (the window end plus `ttl_days`, default 14, the same setting as the runtime import). The shared-table-writer and cross-boundary-transaction signals read it: `decompose` reports transactions that write tables owned on both sides of a boundary as measured evidence, labelled `observed`, with the window (`transaction_evidence` in the record). Expired facts are ignored and named in the evidence gaps.
+- Rows are kept in the project's store and re-matched on every `unknot map`. Importing the same file again with the same source changes nothing; a different file with the same `--source` replaces the earlier import.
+- The file must be inside the repository, outside `.unknot/`, and not a credential path. Statement text is redacted on import (literals become `?`).
+- The PostgreSQL catalog adapter reads the same formats from `evidence.db_metadata` files, with the same facts it always produced for `pg_stat_statements`.
+
+## Delivery history: how often each unit deploys, and with what
+
+Unknot works for any CI/CD system from one documented format. You export deployment rows to a file; Unknot never contacts a CI/CD system. The file answers "how often does each deployable unit deploy, how often does a deploy fail, how long does a change take to reach production, and which units are released together". `unknot import deliveries <file> [--source <label>] [--environment <name>]` validates the file, stores it, and turns it into facts on the deployable units.
+
+### The format
+
+A JSON array of rows, JSON Lines (one row object per line), or CSV with a header. One row per deployment:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `unit` | yes | Name of the deployable unit (service, app, package). |
+| `deployed_at` | yes | ISO 8601 timestamp the deployment finished. |
+| `status` | yes | `success`, `failure` or `rolled_back`, case-insensitive. Aliases: `succeeded`, `ok` count as success; `failed`, `error` as failure; `rollback`, `reverted` as rolled back. Any other value (`canceled`, `skipped`, `running`, ...) is not a deployment: the row is skipped and counted. |
+| `environment` | no | Default `production`. Only rows of the chosen environment count (`--environment`, default `production`); others are skipped and counted. |
+| `commit` | no | Commit id deployed. |
+| `committed_at` | no | ISO time of the oldest commit in the deployment. Lead time is `deployed_at - committed_at`; a negative or missing value gives no lead time for that row. |
+| `release` | no | A release or train id. Units whose rows share a `release` id were released together. |
+| `code_root` | no | Repository-relative directory holding the unit's code. |
+
+```csv
+unit,deployed_at,status,environment,commit,committed_at,release,code_root
+orders-api,2026-09-08T10:30:00Z,success,production,9f2c1aa,2026-09-07T09:00:00Z,2026.37,services/orders
+billing,2026-09-08T10:31:00Z,success,production,41bd0e0,2026-09-06T15:00:00Z,2026.37,services/billing
+```
+
+A row that breaks the format refuses the whole file and stores nothing, naming the first bad rows: a missing `unit`, `deployed_at` or `status`, a timestamp that does not parse, or a `code_root` that is absolute or contains `..` segments. The observed window of an import is the earliest to the latest counted `deployed_at`.
+
+### What is stored, and how it behaves
+
+- Each unit with at least one counted deployment becomes a `deployable` node (`deployable:<unit>`, the id the CI adapter already uses, so the measured data merges onto a CI-derived node of the same name without erasing its `co_deployed_with`) carrying `attrs.delivery`: `deployments`, `failures` and `rolled_back` counts; `change_failure_rate`, (failures + rolled back) / deployments; `deploys_per_week`, deployments over the observed window; `lead_time_median_hours` and `lead_time_p90_hours` (nearest-rank p90; both null when no row has a lead time); `code_root`, the value the unit's rows name most often, else the code root of a service node with the same name, else null; and the sources, `imported: true`, the import time, the observed window and an expiry (the window end plus `adapters.delivery.ttl_days`, default 14, the same default as database statistics):
+
+  ```yaml
+  adapters:
+    delivery:
+      ttl_days: 14
+  ```
+
+- Each pair of units sharing at least one `release` id gets a `RELEASED_WITH` edge from the lexicographically smaller unit to the larger, with the number of shared release ids (`releases`), their `share` of the smaller side's counted release ids, the sources, the window and the expiry.
+- Rows from several sources for one unit combine their counts and keep the union of their windows. Do not import overlapping windows of the same deployments under two sources.
+- Rows are kept in the project's store and re-projected on every `unknot map`. Importing the same file again with the same source changes nothing; a different file with the same `--source` replaces the earlier import. The command re-maps so the graph holds the rows, and reports how many deployments and units it counted, which units' code roots hold modules (matched), and how many rows were skipped as not deployments or as other environments.
+- The file must be inside the repository, outside `.unknot/`, and not a credential path.
+
+### How decompose uses it
+
+A unit belongs to a candidate when at least one member module's path is under the unit's `code_root` (`.` or empty means the whole repository). For each candidate with a placed unit, the record's `delivery_evidence` is labelled `observed` and lists, per unit, its deployments, deploys per week, change failure rate, median lead time, how many member modules lie under its code root, and the units it was released with (with their shares), with the window and the sources. `service.deploy_coupling` is the largest share of a `RELEASED_WITH` edge between a unit of the candidate and a unit outside it, omitted when there is none. Expired delivery facts are ignored and named in the evidence gaps; with no delivery history at all the gap says deploy frequency, change failure rate and lead time are unknown; and when no unit's code root contains a member, the gap says the units could not be placed and that a `code_root` column places them. Delivery evidence never records or infers a decomposition driver.
+
+### Converting a vendor export
+
+There are no vendor readers; convert an export to the rows above. Two recipes, both placeholders to adapt (one run per deploy workflow or project, setting `unit` and `code_root` each time):
+
+GitHub Actions runs of one deploy workflow. `conclusion` values other than success or failure are passed through and skipped on import; these fields carry no lead time or release id, so both stay unknown:
+
+```bash
+gh run list --workflow <file> --json conclusion,updatedAt,headSha,workflowName --limit 200 \
+  | jq '[.[] | select(.conclusion != null) | {
+      unit: "orders-api",
+      deployed_at: .updatedAt,
+      status: (if .conclusion == "success" then "success"
+               elif .conclusion == "failure" then "failure"
+               else .conclusion end),
+      environment: "production",
+      commit: .headSha,
+      code_root: "services/orders"
+    }]' > exports/orders-api-deliveries.json
+```
+
+GitLab deployments of one project (`GET /projects/:id/deployments?environment=production`). A `failed` status is read as failure on import; `deployable.commit.created_at` is the deployed commit's time, so lead time is measured from that commit rather than the oldest one in the deployment:
+
+```bash
+curl -s "https://example.com/api/v4/projects/<id>/deployments?environment=production&per_page=100" \
+  -H "PRIVATE-TOKEN: $TOKEN" \
+  | jq '[.[] | {
+      unit: "billing",
+      deployed_at: (.finished_at // .updated_at),
+      status: .status,
+      environment: (.environment.name // "production"),
+      commit: .sha,
+      committed_at: .deployable.commit.created_at,
+      code_root: "services/billing"
+    }]' > exports/billing-deliveries.json
+```
+
 ## Vendor-neutral recipes
 
 ### Metrics: PromQL HTTP API to a JSON file

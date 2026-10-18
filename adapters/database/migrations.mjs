@@ -61,6 +61,12 @@ export function detectFramework(path, text = '') {
   if (/\.sql$/i.test(name) && /^--\s*liquibase formatted sql/i.test(text.slice(0, 200))) {
     return { framework: 'liquibase', version: null, order_key: name, description: name, kind: 'formatted-sql' };
   }
+  if ((m = /^(\d{4}_\d{2}_\d{2}_\d{6})_(.+)\.php$/.exec(name)) && (/(?:^|\/)migrations?\//.test(p) || /Schema::/.test(text))) {
+    return { framework: 'laravel', version: m[1], order_key: m[1], description: m[2] };
+  }
+  if ((m = /^(\d{14})_(.+)\.cs$/.exec(name)) && /(?:^|\/)migrations\//i.test(p) && (text === '' || /MigrationBuilder/.test(text))) {
+    return { framework: 'efcore', version: m[1], order_key: m[1], description: m[2] };
+  }
   if (/(?:^|\/)migrations?\/[^/]+\.(?:[cm]?js|ts)$/.test(p)) {
     const key = (/^(\d+)/.exec(name) ?? [])[1] ?? name;
     const desc = name.replace(/^\d+[-_]?/, '').replace(/\.\w+$/, '');
@@ -186,19 +192,95 @@ function synth(sql, line, dialect, src, out) {
   }
 }
 
+/** Replace everything except newlines with spaces, so line numbers survive. */
+const blankOut = (s) => s.replace(/[^\n]/g, ' ');
+
+/**
+ * Rollback sections per migration DSL, as data. A drop inside one is the undo of the forward
+ * change, never a forward-destructive operation, so the readers below never read these ranges.
+ *   ruby:  `def down` / `def self.down` / `dir.down do ... end`, closed by the `end` at the opening indent.
+ *   brace: a method or function head, closed by its matching brace (PHP, C#).
+ */
+const ROLLBACK_SECTIONS = {
+  ruby: [/^([ \t]*)def\s+(?:self\.)?down\b/, /^([ \t]*)[\w.]*\bdown\s+do\b/],
+  php: [/\bfunction\s+down\s*\(/],
+  csharp: [/\bvoid\s+Down\s*\(/],
+};
+
+/** Blank the rollback sections of `text` for a family of syntaxes in ROLLBACK_SECTIONS. */
+function withoutRollback(text, family) {
+  if (family === 'ruby') {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const head = ROLLBACK_SECTIONS.ruby.map((re) => re.exec(lines[i])).find(Boolean);
+      if (!head) continue;
+      const closeRe = new RegExp(`^${head[1]}end\\b`);
+      let j = i + 1;
+      for (; j < lines.length && !closeRe.test(lines[j]); j++);
+      for (let k = i; k <= Math.min(j, lines.length - 1); k++) lines[k] = blankOut(lines[k]);
+      i = j;
+    }
+    return lines.join('\n');
+  }
+  let out = text;
+  for (const re of ROLLBACK_SECTIONS[family] ?? []) {
+    const m = re.exec(out);
+    if (!m) continue;
+    const brace = out.indexOf('{', m.index);
+    if (brace < 0) continue;
+    const { end } = balanced(out, brace);
+    out = out.slice(0, m.index) + blankOut(out.slice(m.index, end)) + out.slice(end);
+  }
+  return out;
+}
+
+const IRREGULAR_PLURALS = { person: 'people', child: 'children', man: 'men', woman: 'women' };
+/** Conventional table name for a singular model or association name (user -> users). */
+function pluralize(w) {
+  const s = String(w).toLowerCase();
+  if (IRREGULAR_PLURALS[s]) return IRREGULAR_PLURALS[s];
+  if (/(?:s|x|z|ch|sh)$/.test(s)) return `${s}es`;
+  if (/[^aeiou]y$/.test(s)) return `${s.slice(0, -1)}ies`;
+  return `${s}s`;
+}
+const snake = (s) => String(s).replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[-\s]+/g, '_').toLowerCase();
+
+/** Spellings of a referential action across frameworks -> SQL (null = the default). */
+const ON_DELETE_SQL = { cascade: 'CASCADE', cascadeondelete: 'CASCADE', setnull: 'SET NULL', nullify: 'SET NULL', nullondelete: 'SET NULL', restrict: 'RESTRICT', restrictondelete: 'RESTRICT', protect: 'RESTRICT', setdefault: 'SET DEFAULT' };
+const onDeleteSql = (v) => {
+  const k = String(v ?? '').replace(/^.*[.:]/, '').toLowerCase().replace(/[^a-z]/g, '');
+  return ON_DELETE_SQL[k] ? ` ON DELETE ${ON_DELETE_SQL[k]}` : '';
+};
+
+/** One foreign key as the same SQL a DDL `REFERENCES` produces, so it yields the same facts. */
+const fkClause = (cols, refTable, refCols, onDelete) => `FOREIGN KEY (${[].concat(cols).join(', ')}) REFERENCES ${refTable} (${[].concat(refCols?.length ? refCols : 'id').join(', ')})${onDeleteSql(onDelete)}`;
+const fkAlter = (table, cols, refTable, refCols, onDelete) => `ALTER TABLE ${table} ADD ${fkClause(cols, refTable, refCols, onDelete)};`;
+
 // ---------------------------------------------------------------- Rails
 
-function readRails(text, dialect) {
+/** `t.<type>` calls inside create_table that declare no column. */
+const RAILS_NON_COLUMNS = new Set(['index', 'foreign_key', 'check_constraint', 'exclusion_constraint', 'unique_constraint', 'remove', 'remove_references', 'remove_belongs_to', 'timestamps', 'rename', 'change']);
+
+/** The foreign key a Rails reference option asks for: `foreign_key: true` or `foreign_key: { to_table: :users }`. */
+function railsForeignKey(name, named) {
+  const v = named.foreign_key;
+  if (v === undefined || v === 'false' || v === 'nil') return null;
+  const o = /^\{/.test(v) ? parseArgs(v.replace(/^\{|\}$/g, '')).named : {};
+  return { table: unq(o.to_table) || pluralize(name), primary_key: unq(o.primary_key) || 'id', on_delete: o.on_delete };
+}
+
+function readRails(fullText, dialect) {
   const out = [];
   const notes = {};
+  const text = withoutRollback(fullText, 'ruby');
   notes.no_transaction = /disable_ddl_transaction!/.test(text);
-  const hasDown = /def\s+(self\.)?down\b/.test(text) && !/def\s+(self\.)?down\b[\s\S]{0,200}raise\s+ActiveRecord::IrreversibleMigration/.test(text);
-  const hasChange = /def\s+(self\.)?change\b/.test(text);
-  const execOutsideReversible = /\bexecute\b/.test(text.replace(/reversible\s+do[\s\S]*?\n\s*end\s*\n\s*end/g, '')) && !/reversible\s+do/.test(text);
-  const irreversibleChange = hasChange && (execOutsideReversible || /\b(remove_column\s*:\w+\s*,\s*:\w+\s*\)|drop_table\s*:\w+\s*\)|change_column\b)/.test(text));
+  const hasDown = /def\s+(self\.)?down\b/.test(fullText) && !/def\s+(self\.)?down\b[\s\S]{0,200}raise\s+ActiveRecord::IrreversibleMigration/.test(fullText);
+  const hasChange = /def\s+(self\.)?change\b/.test(fullText);
+  const execOutsideReversible = /\bexecute\b/.test(fullText.replace(/reversible\s+do[\s\S]*?\n\s*end\s*\n\s*end/g, '')) && !/reversible\s+do/.test(fullText);
+  const irreversibleChange = hasChange && (execOutsideReversible || /\b(remove_column\s*:\w+\s*,\s*:\w+\s*\)|drop_table\s*:\w+\s*\)|change_column\b)/.test(fullText));
   notes.has_down = hasDown || (hasChange && !irreversibleChange);
 
-  const call = /^[ \t]*(add_column|remove_column|remove_columns|change_column|change_column_null|change_column_default|rename_column|rename_table|add_index|remove_index|add_foreign_key|remove_foreign_key|drop_table|create_table|add_check_constraint|add_reference|execute)\b[ (]*/gm;
+  const call = /^[ \t]*(add_column|remove_column|remove_columns|change_column|change_column_null|change_column_default|rename_column|rename_table|add_index|remove_index|add_foreign_key|remove_foreign_key|drop_table|create_table|add_check_constraint|add_reference|add_belongs_to|add_timestamps|execute)\b[ (]*/gm;
   let m;
   while ((m = call.exec(text))) {
     const line = lineOf(text, m.index);
@@ -228,7 +310,14 @@ function readRails(text, dialect) {
         synth(`ALTER TABLE ${t} ADD COLUMN ${unq(pa[1])} ${typ}${rubyDefault(named.default)}${named.null === 'false' ? ' NOT NULL' : ''};`, line, dialect, verb, out);
         break;
       }
-      case 'add_reference': synth(`ALTER TABLE ${t} ADD COLUMN ${unq(pa[1])}_id bigint;`, line, dialect, verb, out); break;
+      case 'add_reference': case 'add_belongs_to': {
+        const col = `${unq(pa[1])}_id`;
+        synth(`ALTER TABLE ${t} ADD COLUMN ${col} bigint;`, line, dialect, verb, out);
+        const fk = railsForeignKey(unq(pa[1]), named);
+        if (fk) synth(fkAlter(t, col, fk.table, [fk.primary_key], fk.on_delete), line, dialect, verb, out);
+        break;
+      }
+      case 'add_timestamps': for (const c of ['created_at', 'updated_at']) synth(`ALTER TABLE ${t} ADD COLUMN ${c} timestamp;`, line, dialect, verb, out); break;
       case 'remove_column': case 'remove_columns':
         for (const c of pa.slice(1).filter((x) => /^:/.test(x))) synth(`ALTER TABLE ${t} DROP COLUMN ${unq(c)};`, line, dialect, verb, out);
         break;
@@ -249,7 +338,7 @@ function readRails(text, dialect) {
       case 'add_foreign_key': {
         const to = unq(pa[1]);
         const col = unq(named.column) || `${to.replace(/s$/, '')}_id`;
-        synth(`ALTER TABLE ${t} ADD FOREIGN KEY (${col}) REFERENCES ${to} (${unq(named.primary_key) || 'id'})${named.on_delete ? ` ON DELETE ${unq(named.on_delete).replace('_', ' ').toUpperCase()}` : ''}${named.validate === 'false' ? ' NOT VALID' : ''};`, line, dialect, verb, out);
+        synth(`ALTER TABLE ${t} ADD FOREIGN KEY (${col}) REFERENCES ${to} (${unq(named.primary_key) || 'id'})${onDeleteSql(named.on_delete)}${named.validate === 'false' ? ' NOT VALID' : ''};`, line, dialect, verb, out);
         break;
       }
       case 'remove_foreign_key': synth(`ALTER TABLE ${t} DROP CONSTRAINT fk_rails_${unq(pa[1])};`, line, dialect, verb, out); break;
@@ -259,16 +348,34 @@ function readRails(text, dialect) {
         const endIdx = text.indexOf('\n  end', bodyStart);
         const body = text.slice(bodyStart, endIdx < 0 ? text.length : endIdx);
         const cols = [];
+        const fks = [];
         let cm;
-        const colRe = /^\s*t\.(\w+)\s+:?["']?(\w+)["']?([^\n]*)/gm;
+        // A column is `t.<type> :name` or `t.<type> "name"`; anything else after the type is an option.
+        const colRe = /^\s*t\.(\w+)\s+((?::\w+|["']\w+["'])(?:\s*,\s*(?::\w+|["']\w+["']))*)([^\n]*)/gm;
         while ((cm = colRe.exec(body))) {
-          if (cm[1] === 'index') continue;
-          if (cm[1] === 'references' || cm[1] === 'belongs_to') { cols.push(`${cm[2]}_id bigint`); continue; }
+          if (RAILS_NON_COLUMNS.has(cm[1])) continue;
+          const names = splitArgs(cm[2]).map(unq);
           const o = parseArgs(cm[3].replace(/^\s*,/, ''));
-          cols.push(`${cm[2]} ${SQL_TYPES[cm[1]] ?? cm[1]}${rubyDefault(o.named.default)}${o.named.null === 'false' ? ' NOT NULL' : ''}`);
+          const notNull = o.named.null === 'false' ? ' NOT NULL' : '';
+          if (cm[1] === 'references' || cm[1] === 'belongs_to') {
+            for (const n of names) {
+              cols.push(`${n}_id ${SQL_TYPES[unq(o.named.type)] ?? 'bigint'}${notNull}`);
+              if (o.named.polymorphic && o.named.polymorphic !== 'false') { cols.push(`${n}_type varchar(255)${notNull}`); continue; }
+              const fk = railsForeignKey(n, o.named);
+              if (fk) fks.push(fkClause(`${n}_id`, fk.table, [fk.primary_key], fk.on_delete));
+            }
+            continue;
+          }
+          if (cm[1] === 'column') { cols.push(`${names[0]} ${SQL_TYPES[unq(names[1])] ?? unq(names[1])}${notNull}`); continue; }
+          for (const n of names) cols.push(`${n} ${SQL_TYPES[cm[1]] ?? cm[1]}${rubyDefault(o.named.default)}${notNull}`);
         }
-        if (/t\.timestamps/.test(body)) cols.push('created_at timestamp NOT NULL', 'updated_at timestamp NOT NULL');
+        for (const fm of body.matchAll(/^\s*t\.foreign_key\s+:?["']?(\w+)["']?([^\n]*)/gm)) {
+          const o = parseArgs(fm[2].replace(/^\s*,/, ''));
+          fks.push(fkClause(unq(o.named.column) || `${fm[1].replace(/s$/, '')}_id`, fm[1], [unq(o.named.primary_key) || 'id'], o.named.on_delete));
+        }
+        if (/t\.timestamps\b/.test(body)) cols.push('created_at timestamp NOT NULL', 'updated_at timestamp NOT NULL');
         if (named.id !== 'false') cols.unshift('id bigserial PRIMARY KEY');
+        cols.push(...fks);
         synth(`CREATE TABLE ${t} (${cols.join(', ')});`, line, dialect, verb, out);
         for (const ix of body.matchAll(/^\s*t\.index\s+(\[[^\]]*\]|"[^"]+"|:\w+)([^\n]*)/gm)) {
           const o = parseArgs(ix[2].replace(/^\s*,/, ''));
@@ -309,13 +416,23 @@ function djangoField(src) {
     else def = " DEFAULT 'callable'"; // callables are evaluated once by Django's schema editor
   }
   const fk = m[1] === 'ForeignKey' || m[1] === 'OneToOneField';
-  return { type: fn(args), nullable: args.named.null === 'True', name_suffix: fk ? '_id' : '', default: def, unique: args.named.unique === 'True' || m[1] === 'OneToOneField', fk: fk ? unq(args.positional[0] ?? args.named.to) : null, kind: m[1] };
+  return { type: fn(args), nullable: args.named.null === 'True', name_suffix: fk ? '_id' : '', default: def, unique: args.named.unique === 'True' || m[1] === 'OneToOneField', fk: fk && args.named.db_constraint !== 'False' ? unq(args.positional[0] ?? args.named.to) : null, on_delete: args.named.on_delete, to_field: unq(args.named.to_field), kind: m[1] };
 }
 
 function readDjango(path, text, dialect) {
   const out = [];
   const app = (/(?:^|\/)([^/]+)\/migrations\//.exec(posix(path)) ?? [])[1] ?? 'app';
   const tbl = (model) => `${app}_${String(unq(model)).toLowerCase()}`;
+  // 'app.Model' names that app's table, a bare 'Model' this app's. settings.AUTH_USER_MODEL names
+  // no table here (projects often swap in their own user model), so it gives no foreign key.
+  // shortcut: the swapped model is in settings, which this reader never sees; resolve it in link if needed.
+  const target = (ref, self) => {
+    const r = String(ref);
+    if (r === 'self') return self;
+    if (/AUTH_USER_MODEL/.test(r)) return null;
+    const [a, mdl] = r.includes('.') ? r.split('.') : [app, r];
+    return `${a}_${mdl.toLowerCase()}`;
+  };
   let reversible = true;
   const re = /\b(?:migrations|operations|postgres_ops|pg_ops)\.(\w+)\s*\(/g;
   let m;
@@ -330,12 +447,15 @@ function readDjango(path, text, dialect) {
       case 'CreateModel': {
         const fieldsSrc = a.named.fields ?? a.positional[1] ?? '';
         const cols = [];
+        const self = tbl(get('name', 0));
         for (const item of splitArgs(fieldsSrc.replace(/^\[|\]$/g, ''))) {
           const inner = item.replace(/^\(|\)$/g, '');
           const parts = splitArgs(inner);
           if (parts.length < 2) continue;
           const f = djangoField(parts.slice(1).join(','));
           cols.push(`${unq(parts[0])}${f.name_suffix} ${f.type}${f.nullable ? '' : ' NOT NULL'}${f.kind === 'AutoField' || f.kind === 'BigAutoField' ? ' PRIMARY KEY' : ''}`);
+          const to = f.fk && target(f.fk, self);
+          if (to) cols.push(fkClause(`${unq(parts[0])}${f.name_suffix}`, to, [f.to_field], f.on_delete));
         }
         synth(`CREATE TABLE ${tbl(get('name', 0))} (${cols.join(', ')});`, line, dialect, op, out);
         break;
@@ -346,6 +466,8 @@ function readDjango(path, text, dialect) {
         const f = djangoField(get('field', 2));
         const col = `${unq(get('name', 1))}${f.name_suffix}`;
         synth(`ALTER TABLE ${tbl(get('model_name', 0))} ADD COLUMN ${col} ${f.type}${f.default}${f.nullable ? '' : ' NOT NULL'};`, line, dialect, op, out);
+        const to = f.fk && target(f.fk, tbl(get('model_name', 0)));
+        if (to) synth(fkAlter(tbl(get('model_name', 0)), col, to, [f.to_field], f.on_delete), line, dialect, op, out);
         break;
       }
       case 'RemoveField': synth(`ALTER TABLE ${tbl(get('model_name', 0))} DROP COLUMN ${unq(get('name', 1))};`, line, dialect, op, out); break;
@@ -409,6 +531,12 @@ function saType(src) {
   return (SA_TYPES[m[1]] ?? (() => m[1].toLowerCase()))(args);
 }
 
+/** `'schema.table.column'` or `'table.column'` -> table and column. */
+function saRef(s) {
+  const parts = unq(s).split('.');
+  return parts.length < 2 ? null : { table: parts.slice(0, -1).join('.'), column: parts.at(-1) };
+}
+
 function saColumn(src, line) {
   const open = src.indexOf('(');
   const { positional: p, named } = parseArgs(balanced(src, open).body);
@@ -421,7 +549,15 @@ function saColumn(src, line) {
   }
   void line;
   const pk = named.primary_key === 'True' ? ' PRIMARY KEY' : '';
-  return `${name} ${saType(p[1])}${def}${named.nullable === 'False' ? ' NOT NULL' : ''}${pk}`;
+  let ref = '';
+  for (const arg of p.slice(1)) {
+    const fk = /(?:^|\.)ForeignKey\s*\(/.exec(arg);
+    if (!fk) continue;
+    const fa = parseArgs(balanced(arg, arg.indexOf('(', fk.index)).body);
+    const r = saRef(fa.positional[0]);
+    if (r) ref = ` REFERENCES ${r.table} (${r.column})${onDeleteSql(fa.named.ondelete)}`;
+  }
+  return `${name} ${saType(p[1])}${def}${named.nullable === 'False' ? ' NOT NULL' : ''}${pk}${ref}`;
 }
 
 function readAlembic(text, dialect) {
@@ -433,7 +569,9 @@ function readAlembic(text, dialect) {
   const upIdx = text.search(/def\s+upgrade\s*\(/);
   const dgIdx = text.search(/def\s+downgrade\s*\(/);
   const upStart = upIdx < 0 ? 0 : text.indexOf(':', text.indexOf(')', upIdx)) + 1;
-  const upEnd = dgIdx > upIdx && upIdx >= 0 ? dgIdx : text.length;
+  // The forward body ends at the next top-level definition, which is usually downgrade().
+  const nextDef = upIdx >= 0 ? text.slice(upStart).search(/^def\s/m) : -1;
+  const upEnd = nextDef >= 0 ? upStart + nextDef : (dgIdx > upIdx && upIdx >= 0 ? dgIdx : text.length);
   const upBody = text.slice(upStart, upEnd);
   const upOffset = upStart;
   const dg = /def\s+downgrade\s*\([^)]*\)\s*(?:->\s*\w+)?\s*:([\s\S]*)$/.exec(text);
@@ -469,6 +607,14 @@ function readAlembic(text, dialect) {
       case 'drop_index': synth(`DROP INDEX ${a.named.postgresql_concurrently === 'True' ? 'CONCURRENTLY ' : ''}${unq(a.positional[0])};`, line, dialect, verb, out); break;
       case 'create_table': {
         const cols = a.positional.slice(1).filter((x) => /Column\(/.test(x)).map((x) => saColumn(x.slice(x.indexOf('Column(') + 6), line));
+        for (const x of a.positional.slice(1)) {
+          const k = /(?:^|\.)(ForeignKeyConstraint|PrimaryKeyConstraint)\s*\(/.exec(x);
+          if (!k) continue;
+          const ka = parseArgs(balanced(x, x.indexOf('(', k.index)).body);
+          if (k[1] === 'PrimaryKeyConstraint') { cols.push(`PRIMARY KEY (${ka.positional.map(unq).join(', ')})`); continue; }
+          const refs = listOf(ka.positional[1]).map(saRef).filter(Boolean);
+          if (refs.length) cols.push(fkClause(listOf(ka.positional[0]), refs[0].table, refs.map((r) => r.column), ka.named.ondelete));
+        }
         synth(`CREATE TABLE ${t} (${cols.join(', ')});`, line, dialect, verb, out);
         break;
       }
@@ -476,7 +622,7 @@ function readAlembic(text, dialect) {
       case 'rename_table': synth(`ALTER TABLE ${t} RENAME TO ${unq(a.positional[1])};`, line, dialect, verb, out); break;
       case 'create_foreign_key': {
         const [name, src, ref, lc, rc] = a.positional;
-        synth(`ALTER TABLE ${unq(src)} ADD CONSTRAINT ${unq(name)} FOREIGN KEY (${listOf(lc).join(', ')}) REFERENCES ${unq(ref)} (${listOf(rc).join(', ')})${a.named.ondelete ? ` ON DELETE ${unq(a.named.ondelete)}` : ''};`, line, dialect, verb, out);
+        synth(`ALTER TABLE ${unq(src)} ADD CONSTRAINT ${unq(name)} FOREIGN KEY (${listOf(lc).join(', ')}) REFERENCES ${unq(ref)} (${listOf(rc).join(', ')})${onDeleteSql(a.named.ondelete)};`, line, dialect, verb, out);
         break;
       }
       case 'create_unique_constraint': synth(`ALTER TABLE ${unq(a.positional[1])} ADD CONSTRAINT ${unq(a.positional[0])} UNIQUE (${listOf(a.positional[2]).join(', ')});`, line, dialect, verb, out); break;
@@ -522,30 +668,64 @@ function readJs(framework, fullText, dialect) {
     const a = parseArgs(body);
     const line = lineOf(text, m.index);
     const t = unq(a.positional[0]);
+    // `references: { model: 'users', key: 'id' }` on a column attribute object.
+    const seqRef = (table, col, src, ln) => {
+      const r = /\breferences\s*:\s*\{([^{}]*)\}/.exec(src);
+      const model = r && /\b(?:model|table)\s*:\s*['"`]([\w.]+)['"`]/.exec(r[1]);
+      if (!model) return;
+      synth(fkAlter(table, col, model[1], [/\b(?:key|field)\s*:\s*['"`](\w+)['"`]/.exec(r[1])?.[1] ?? 'id'], /onDelete\s*:\s*['"`]([\w ]+)['"`]/.exec(src)?.[1]), ln, dialect, 'references', out);
+    };
     const typeOf = (s) => { const mm = /(?:Sequelize|DataTypes)\.(\w+)(?:\((\d+)\))?/.exec(s ?? ''); return mm ? (mm[1] === 'STRING' && mm[2] ? `varchar(${mm[2]})` : JS_TYPES[mm[1]] ?? 'text') : 'text'; };
     switch (m[1]) {
-      case 'addColumn': synth(`ALTER TABLE ${t} ADD COLUMN ${unq(a.positional[1])} ${typeOf(a.positional[2])}${/allowNull:\s*false/.test(a.positional[2] ?? '') ? ' NOT NULL' : ''}${/defaultValue:\s*[^,}]+/.test(a.positional[2] ?? '') ? ' DEFAULT 0' : ''};`, line, dialect, m[1], out); break;
+      case 'addColumn':
+        synth(`ALTER TABLE ${t} ADD COLUMN ${unq(a.positional[1])} ${typeOf(a.positional[2])}${/allowNull:\s*false/.test(a.positional[2] ?? '') ? ' NOT NULL' : ''}${/defaultValue:\s*[^,}]+/.test(a.positional[2] ?? '') ? ' DEFAULT 0' : ''};`, line, dialect, m[1], out);
+        seqRef(t, unq(a.positional[1]), a.positional[2] ?? '', line);
+        break;
       case 'removeColumn': synth(`ALTER TABLE ${t} DROP COLUMN ${unq(a.positional[1])};`, line, dialect, m[1], out); break;
       case 'renameColumn': synth(`ALTER TABLE ${t} RENAME COLUMN ${unq(a.positional[1])} TO ${unq(a.positional[2])};`, line, dialect, m[1], out); break;
       case 'changeColumn': synth(`ALTER TABLE ${t} ALTER COLUMN ${unq(a.positional[1])} TYPE ${typeOf(a.positional[2])};`, line, dialect, m[1], out); break;
       case 'addIndex': synth(`CREATE ${/unique:\s*true/.test(a.positional[2] ?? '') ? 'UNIQUE ' : ''}INDEX ${/concurrently:\s*true/.test(a.positional[2] ?? '') ? 'CONCURRENTLY ' : ''}idx_${t} ON ${t} (${listOf(a.positional[1]).join(', ')});`, line, dialect, m[1], out); break;
       case 'removeIndex': synth(`DROP INDEX ${unq(a.positional[1])};`, line, dialect, m[1], out); break;
-      case 'createTable': synth(`CREATE TABLE ${t} (id integer);`, line, dialect, m[1], out); break;
+      case 'createTable': {
+        synth(`CREATE TABLE ${t} (id integer);`, line, dialect, m[1], out);
+        for (const f of (a.positional[1] ?? '').matchAll(/(\w+)\s*:\s*\{[^{}]*\breferences\s*:\s*\{[^{}]*\}/g)) seqRef(t, f[1], f[0], line);
+        break;
+      }
       case 'dropTable': synth(`DROP TABLE ${t};`, line, dialect, m[1], out); break;
       case 'renameTable': synth(`ALTER TABLE ${t} RENAME TO ${unq(a.positional[1])};`, line, dialect, m[1], out); break;
       default: break;
     }
   }
   // Knex schema builder and TypeORM QueryRunner DSL (table-name calls only).
+  // `t.integer('user_id').references('id').inTable('users')` and `t.foreign('user_id').references('users.id')`.
+  const knexForeignKeys = (table, body, ln) => {
+    for (const st of body.split(/[;{}]/)) {
+      const base = /^\s*\w+\.(\w+)\s*\(\s*(\[[^\]]*\]|['"`]\w+['"`])/.exec(st);
+      const ref = /\.references\s*\(\s*(\[[^\]]*\]|['"`][\w.]+['"`])\s*\)/.exec(st);
+      if (!base || !ref) continue;
+      const refCols = listOf(ref[1]);
+      const inTable = /\.inTable\s*\(\s*['"`]([\w.]+)['"`]/.exec(st)?.[1];
+      const dotted = !inTable && refCols.length === 1 ? refCols[0].split('.') : null;
+      const target = inTable ?? (dotted?.length > 1 ? dotted.slice(0, -1).join('.') : null);
+      if (!target) continue;
+      const rc = dotted ? [dotted.at(-1)] : refCols;
+      synth(fkAlter(table, listOf(base[2]), target, rc, /\.onDelete\s*\(\s*['"`]([\w ]+)['"`]/.exec(st)?.[1]), ln, dialect, 'references', out);
+    }
+  };
   const kx = /\.(createTable|createTableIfNotExists|dropTable|dropTableIfExists|alterTable|table)\s*\(\s*['"`]([\w.]+)['"`]/g;
   let current = null;
   while ((m = kx.exec(text))) {
     const line = lineOf(text, m.index);
     if (m[1].startsWith('dropTable')) synth(`DROP TABLE ${m[2]};`, line, dialect, m[1], out);
-    else if (m[1].startsWith('createTable')) synth(`CREATE TABLE ${m[2]} (id integer);`, line, dialect, m[1], out);
-    else current = { table: m[2], at: m.index, line };
+    else if (m[1].startsWith('createTable')) {
+      const body = balanced(text, text.indexOf('(', m.index)).body;
+      synth(`CREATE TABLE ${m[2]} (id integer${/\.(?:timestamps|timestampsTz)\s*\(/.test(body) ? ', created_at timestamp, updated_at timestamp' : ''});`, line, dialect, m[1], out);
+      knexForeignKeys(m[2], body, line);
+    } else current = { table: m[2], at: m.index, line };
     if (current && (m[1] === 'alterTable' || m[1] === 'table')) {
       const { body } = balanced(text, text.indexOf('(', m.index));
+      knexForeignKeys(m[2], body, line);
+      if (/\.(?:timestamps|timestampsTz)\s*\(/.test(body)) for (const c of ['created_at', 'updated_at']) synth(`ALTER TABLE ${m[2]} ADD COLUMN ${c} timestamp;`, line, dialect, 'timestamps', out);
       for (const d of body.matchAll(/\.\s*(dropColumn|renameColumn)\s*\(\s*['"`](\w+)['"`](?:\s*,\s*['"`](\w+)['"`])?/g)) {
         synth(d[1] === 'dropColumn' ? `ALTER TABLE ${m[2]} DROP COLUMN ${d[2]};` : `ALTER TABLE ${m[2]} RENAME COLUMN ${d[2]} TO ${d[3]};`, line, dialect, d[1], out);
       }
@@ -555,6 +735,23 @@ function readJs(framework, fullText, dialect) {
         synth(sql, line, dialect, d[1], out);
       }
     }
+  }
+  // TypeORM: `createForeignKey('t', new TableForeignKey({...}))` and `foreignKeys: [{...}]` of `new Table({ name })`.
+  const tormFk = (table, obj, ln) => {
+    const cols = /columnNames\s*:\s*(\[[^\]]*\])/.exec(obj)?.[1];
+    const target = /referencedTableName\s*:\s*['"`]([\w.]+)['"`]/.exec(obj)?.[1];
+    if (!cols || !target) return;
+    synth(fkAlter(table, listOf(cols), target, listOf(/referencedColumnNames\s*:\s*(\[[^\]]*\])/.exec(obj)?.[1] ?? '[id]'), /onDelete\s*:\s*['"`]([\w ]+)['"`]/.exec(obj)?.[1]), ln, dialect, 'references', out);
+  };
+  for (const cf of text.matchAll(/\.createForeignKey\s*\(\s*['"`]([\w.]+)['"`]\s*,\s*new\s+TableForeignKey\s*\(/g)) {
+    tormFk(cf[1], balanced(text, cf.index + cf[0].length - 1).body, lineOf(text, cf.index));
+  }
+  for (const nt of text.matchAll(/\bnew\s+Table\s*\(/g)) {
+    const body = balanced(text, nt.index + nt[0].length - 1).body;
+    const name = /\bname\s*:\s*['"`]([\w.]+)['"`]/.exec(body)?.[1];
+    if (!name) continue;
+    synth(`CREATE TABLE ${name} (id integer);`, lineOf(text, nt.index), dialect, 'createTable', out);
+    for (const fk of body.matchAll(/\{[^{}]*columnNames[^{}]*\}/g)) tormFk(name, fk[0], lineOf(text, nt.index));
   }
   const qr = /\bqueryRunner\.(dropColumn|dropTable|renameColumn)\s*\(\s*['"`]([\w.]+)['"`](?:\s*,\s*['"`](\w+)['"`])?(?:\s*,\s*['"`](\w+)['"`])?/g;
   while ((m = qr.exec(text))) {
@@ -569,6 +766,212 @@ function readJs(framework, fullText, dialect) {
   else if (framework === 'sequelize') has_down = /\bdown\s*[:(]|async\s+down\b/.test(fullText) && !/down\s*[:(][^{]*\{\s*\}/.test(fullText);
   else has_down = /exports\.down\s*=|function\s+down\b|export\s+(?:async\s+)?function\s+down/.test(fullText);
   return { statements: out, has_down };
+}
+
+// ---------------------------------------------------------------- Laravel
+
+const LARAVEL_TYPES = {
+  string: 'varchar(255)', char: 'char(255)', text: 'text', tinyText: 'text', mediumText: 'text', longText: 'text', integer: 'integer', unsignedInteger: 'integer',
+  tinyInteger: 'smallint', unsignedTinyInteger: 'smallint', smallInteger: 'smallint', unsignedSmallInteger: 'smallint', mediumInteger: 'integer', bigInteger: 'bigint',
+  unsignedBigInteger: 'bigint', boolean: 'boolean', date: 'date', dateTime: 'timestamp', dateTimeTz: 'timestamp', timestamp: 'timestamp', timestampTz: 'timestamp',
+  time: 'time', year: 'integer', float: 'double precision', double: 'double precision', decimal: 'numeric', json: 'json', jsonb: 'jsonb', uuid: 'uuid', ulid: 'char(26)',
+  binary: 'bytea', enum: 'varchar(255)', ipAddress: 'varchar(45)', macAddress: 'varchar(17)',
+};
+/** Blueprint methods that add fixed columns whatever their arguments. */
+const LARAVEL_FIXED = {
+  timestamps: ['created_at timestamp', 'updated_at timestamp'], timestampsTz: ['created_at timestamp', 'updated_at timestamp'], nullableTimestamps: ['created_at timestamp', 'updated_at timestamp'],
+  softDeletes: ['deleted_at timestamp'], softDeletesTz: ['deleted_at timestamp'], rememberToken: ['remember_token varchar(100)'],
+};
+
+/** Calls of a fluent chain: `$table->foreignId('x')->constrained('y')` -> [{name, args}, ...]. */
+function fluentChain(stmt) {
+  const calls = [];
+  const re = /(?:->|\.)\s*(\w+)\s*\(/g;
+  let m;
+  while ((m = re.exec(stmt))) {
+    const { body, end } = balanced(stmt, m.index + m[0].length - 1);
+    calls.push({ name: m[1], args: parseArgs(body), raw: body });
+    re.lastIndex = end;
+  }
+  return calls;
+}
+
+function readLaravel(fullText, dialect) {
+  const out = [];
+  const text = withoutRollback(fullText, 'php');
+  const re = /Schema::(create|table|drop|dropIfExists|dropColumns|rename)\s*\(/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const line = lineOf(text, m.index);
+    const { body, end } = balanced(text, m.index + m[0].length - 1);
+    const a = parseArgs(body.split(/,\s*(?:static\s+)?function\b|,\s*fn\b/)[0]);
+    const t = unq(a.positional[0]);
+    re.lastIndex = end;
+    if (m[1] === 'drop' || m[1] === 'dropIfExists') { synth(`DROP TABLE ${t};`, line, dialect, m[1], out); continue; }
+    if (m[1] === 'rename') { synth(`ALTER TABLE ${t} RENAME TO ${unq(a.positional[1])};`, line, dialect, m[1], out); continue; }
+    if (m[1] === 'dropColumns') { for (const c of listOf(a.positional[1])) synth(`ALTER TABLE ${t} DROP COLUMN ${c};`, line, dialect, m[1], out); continue; }
+    const closure = body.slice(body.search(/\{/) + 1);
+    const cols = [];
+    const constraints = [];
+    const after = [];
+    const addCol = (c) => cols.push(c);
+    const colByName = (n) => cols.find((c) => c.split(' ')[0] === n);
+    for (const stmt of closure.split(';')) {
+      const head = /^\s*\$\w+->(\w+)\s*\(/.exec(stmt);
+      if (!head) continue;
+      const chain = fluentChain(stmt);
+      const base = chain[0];
+      const mods = chain.slice(1);
+      const has = (n) => mods.some((c) => c.name === n);
+      const firstName = unq(base.args.positional[0]);
+      const nullable = has('nullable') ? '' : ' NOT NULL';
+      const sqlDefault = mods.find((c) => c.name === 'default') ? ` DEFAULT ${unq(mods.find((c) => c.name === 'default').args.positional[0])}`.replace(/ DEFAULT (?!-?\d|true|false|null)(.+)/i, " DEFAULT '$1'") : '';
+      const onDelete = mods.find((c) => /^(onDelete|cascadeOnDelete|nullOnDelete|restrictOnDelete)$/.test(c.name));
+      const onDeleteVal = onDelete ? (onDelete.name === 'onDelete' ? onDelete.args.positional[0] : onDelete.name) : undefined;
+      let fk = null;
+      switch (base.name) {
+        case 'id': case 'bigIncrements': addCol(`${firstName || 'id'} bigserial PRIMARY KEY`); break;
+        case 'increments': case 'integerIncrements': addCol(`${firstName || 'id'} serial PRIMARY KEY`); break;
+        case 'foreignId': case 'foreignUuid': case 'foreignUlid': {
+          addCol(`${firstName} ${base.name === 'foreignId' ? 'bigint' : base.name === 'foreignUuid' ? 'uuid' : 'char(26)'}${nullable}`);
+          const c = mods.find((x) => x.name === 'constrained');
+          if (c) fk = { cols: [firstName], table: unq(c.args.positional[0] ?? c.args.named.table) || pluralize(firstName.replace(/_id$/, '')), refCols: [unq(c.args.positional[1] ?? c.args.named.column) || 'id'] };
+          break;
+        }
+        case 'foreignIdFor': {
+          const model = /(\w+)::class|(\w+)/.exec(base.raw)?.slice(1).find(Boolean) ?? '';
+          const col = unq(base.args.positional[1] ?? base.args.named.column) || `${snake(model)}_id`;
+          addCol(`${col} bigint${nullable}`);
+          if (mods.some((x) => x.name === 'constrained')) fk = { cols: [col], table: pluralize(snake(model)), refCols: ['id'] };
+          break;
+        }
+        case 'morphs': case 'nullableMorphs': case 'uuidMorphs': case 'ulidMorphs': {
+          const n = base.name === 'nullableMorphs' || has('nullable') ? '' : ' NOT NULL';
+          addCol(`${firstName}_type varchar(255)${n}`);
+          addCol(`${firstName}_id ${/uuid/i.test(base.name) ? 'uuid' : /ulid/i.test(base.name) ? 'char(26)' : 'bigint'}${n}`);
+          break;
+        }
+        case 'foreign': {
+          const r = mods.find((x) => x.name === 'references');
+          const on = mods.find((x) => x.name === 'on');
+          if (r && on) fk = { cols: listOf(base.args.positional[0]), table: unq(on.args.positional[0]), refCols: listOf(r.args.positional[0]) };
+          break;
+        }
+        case 'index': case 'unique': case 'fullText': {
+          const ic = listOf(base.args.positional[0]);
+          const nm = unq(base.args.positional[1]) || `${t}_${ic.join('_')}_${base.name === 'unique' ? 'unique' : 'index'}`;
+          after.push(`CREATE ${base.name === 'unique' ? 'UNIQUE ' : ''}INDEX ${nm} ON ${t} (${ic.join(', ')});`);
+          break;
+        }
+        case 'primary': constraints.push(`PRIMARY KEY (${listOf(base.args.positional[0]).join(', ')})`); break;
+        case 'dropColumn': for (const c of base.args.positional.flatMap(listOf)) after.push(`ALTER TABLE ${t} DROP COLUMN ${c};`); break;
+        case 'renameColumn': after.push(`ALTER TABLE ${t} RENAME COLUMN ${unq(base.args.positional[0])} TO ${unq(base.args.positional[1])};`); break;
+        default:
+          if (LARAVEL_FIXED[base.name]) for (const c of LARAVEL_FIXED[base.name]) addCol(c);
+          else if (LARAVEL_TYPES[base.name] && firstName) {
+            const len = /^\d+$/.test(base.args.positional[1] ?? '') && /^(string|char)$/.test(base.name) ? `${base.name === 'string' ? 'varchar' : 'char'}(${base.args.positional[1]})` : LARAVEL_TYPES[base.name];
+            addCol(`${firstName} ${len}${sqlDefault}${nullable}`);
+            const r = mods.find((x) => x.name === 'references');
+            const on = mods.find((x) => x.name === 'on');
+            if (r && on) fk = { cols: [firstName], table: unq(on.args.positional[0]), refCols: listOf(r.args.positional[0]) };
+          }
+          break;
+      }
+      if (fk) constraints.push(fkClause(fk.cols, fk.table, fk.refCols, onDeleteVal));
+    }
+    void colByName;
+    if (m[1] === 'create') {
+      synth(`CREATE TABLE ${t} (${[...cols, ...constraints].join(', ')});`, line, dialect, m[1], out);
+    } else {
+      for (const c of cols) synth(`ALTER TABLE ${t} ADD COLUMN ${c};`, line, dialect, m[1], out);
+      for (const c of constraints) synth(`ALTER TABLE ${t} ADD ${c};`, line, dialect, m[1], out);
+    }
+    for (const sql of after) synth(sql, line, dialect, m[1], out);
+  }
+  return { statements: out, has_down: /\bfunction\s+down\s*\([^)]*\)[^{]*\{\s*[^}\s]/.test(fullText) };
+}
+
+// ---------------------------------------------------------------- EF Core
+
+const CS_TYPES = { int: 'integer', long: 'bigint', short: 'smallint', byte: 'smallint', bool: 'boolean', string: 'varchar(255)', decimal: 'numeric', double: 'double precision', float: 'real', DateTime: 'timestamp', DateTimeOffset: 'timestamp with time zone', DateOnly: 'date', TimeOnly: 'time', Guid: 'uuid', 'byte[]': 'bytea' };
+
+/** Identifiers a column selector names: `x => x.A` or `x => new { x.A, x.B }` or `"A"` / `new[] { "A", "B" }`. */
+function efColumns(v) {
+  if (v === undefined) return [];
+  if (/=>/.test(v)) return [...v.matchAll(/\b\w+\.(\w+)/g)].map((x) => x[1]).filter((n) => n !== 'new');
+  return [...v.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+}
+
+function readEfCore(fullText, dialect) {
+  const out = [];
+  const text = withoutRollback(fullText, 'csharp');
+  const str = (v) => (v === undefined ? undefined : /^"([\s\S]*)"$|^@"([\s\S]*)"$/.exec(v.trim())?.slice(1).find((x) => x !== undefined) ?? unq(v));
+  const re = /\bmigrationBuilder\s*\.\s*(\w+)(?:<[^>]*>)?\s*\(/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const verb = m[1];
+    const { body, end } = balanced(text, m.index + m[0].length - 1);
+    re.lastIndex = end;
+    const line = lineOf(text, m.index);
+    const a = parseArgs(body);
+    const g = (k, i) => a.named[k] ?? a.positional[i];
+    const name = str(g('name', 0));
+    const table = str(g('table', 1));
+    switch (verb) {
+      case 'CreateTable': {
+        const cols = [];
+        const colsSrc = a.named.columns ?? '';
+        const open = colsSrc.indexOf('{');
+        const inner = open < 0 ? '' : balanced(colsSrc, open).body;
+        for (const item of splitArgs(inner)) {
+          const cm = /^(\w+)\s*=\s*table\.Column<([^>]+)>\s*\(/.exec(item.trim());
+          if (!cm) continue;
+          const ca = parseArgs(balanced(item, item.indexOf('(', cm[0].length - 1)).body);
+          const type = str(ca.named.type);
+          cols.push(`${str(ca.named.name) ?? cm[1]} ${type ?? CS_TYPES[cm[2].replace(/\?$/, '')] ?? 'text'}${ca.named.nullable === 'true' || /\?$/.test(cm[2]) ? '' : ' NOT NULL'}`);
+        }
+        const consSrc = a.named.constraints ?? '';
+        for (const c of consSrc.matchAll(/table\.(PrimaryKey|ForeignKey|UniqueConstraint)\s*\(/g)) {
+          const ca = parseArgs(balanced(consSrc, c.index + c[0].length - 1).body);
+          if (c[1] === 'PrimaryKey') { const pc = efColumns(ca.positional[1] ?? ca.named.columns); if (pc.length) cols.push(`PRIMARY KEY (${pc.join(', ')})`); continue; }
+          if (c[1] === 'UniqueConstraint') { const uc = efColumns(ca.positional[1] ?? ca.named.columns); if (uc.length) cols.push(`UNIQUE (${uc.join(', ')})`); continue; }
+          const fc = efColumns(ca.named.column ?? ca.named.columns);
+          const target = str(ca.named.principalTable);
+          if (fc.length && target) cols.push(fkClause(fc, target, efColumns(ca.named.principalColumn ?? ca.named.principalColumns), ca.named.onDelete));
+        }
+        synth(`CREATE TABLE ${name} (${cols.join(', ')});`, line, dialect, verb, out);
+        break;
+      }
+      case 'DropTable': synth(`DROP TABLE ${name};`, line, dialect, verb, out); break;
+      case 'RenameTable': synth(`ALTER TABLE ${name} RENAME TO ${str(a.named.newName)};`, line, dialect, verb, out); break;
+      case 'AddColumn': synth(`ALTER TABLE ${table} ADD COLUMN ${name} ${str(a.named.type) ?? CS_TYPES[(/<([^>]+)>/.exec(m[0])?.[1] ?? '').replace(/\?$/, '')] ?? 'text'}${a.named.nullable === 'true' ? '' : ' NOT NULL'}${a.named.defaultValue !== undefined || a.named.defaultValueSql !== undefined ? ' DEFAULT 0' : ''};`, line, dialect, verb, out); break;
+      case 'DropColumn': synth(`ALTER TABLE ${table} DROP COLUMN ${name};`, line, dialect, verb, out); break;
+      case 'RenameColumn': synth(`ALTER TABLE ${table} RENAME COLUMN ${name} TO ${str(a.named.newName)};`, line, dialect, verb, out); break;
+      case 'AlterColumn': {
+        const type = str(a.named.type) ?? CS_TYPES[(/<([^>]+)>/.exec(m[0])?.[1] ?? '').replace(/\?$/, '')];
+        if (type) synth(`ALTER TABLE ${table} ALTER COLUMN ${name} TYPE ${type};`, line, dialect, verb, out);
+        if (a.named.nullable !== undefined) synth(`ALTER TABLE ${table} ALTER COLUMN ${name} ${a.named.nullable === 'true' ? 'DROP' : 'SET'} NOT NULL;`, line, dialect, verb, out);
+        break;
+      }
+      case 'CreateIndex': {
+        const ic = efColumns(a.named.column ?? a.named.columns);
+        if (ic.length) synth(`CREATE ${a.named.unique === 'true' ? 'UNIQUE ' : ''}INDEX ${name} ON ${table} (${ic.join(', ')});`, line, dialect, verb, out);
+        break;
+      }
+      case 'DropIndex': synth(`DROP INDEX ${name};`, line, dialect, verb, out); break;
+      case 'AddForeignKey': {
+        const fc = efColumns(a.named.column ?? a.named.columns);
+        const target = str(a.named.principalTable);
+        if (fc.length && target) synth(`ALTER TABLE ${table} ADD CONSTRAINT ${name} ${fkClause(fc, target, efColumns(a.named.principalColumn ?? a.named.principalColumns), a.named.onDelete)};`, line, dialect, verb, out);
+        break;
+      }
+      case 'DropForeignKey': synth(`ALTER TABLE ${table} DROP CONSTRAINT ${name};`, line, dialect, verb, out); break;
+      case 'AddPrimaryKey': { const pc = efColumns(a.named.column ?? a.named.columns); if (pc.length) synth(`ALTER TABLE ${table} ADD PRIMARY KEY (${pc.join(', ')});`, line, dialect, verb, out); break; }
+      case 'Sql': { const sql = str(a.positional[0]); if (sql) synth(sql, line, dialect, verb, out); break; }
+      default: break;
+    }
+  }
+  return { statements: out, has_down: /\bvoid\s+Down\s*\([^)]*\)\s*\{\s*[^}\s]/.test(fullText) };
 }
 
 // ---------------------------------------------------------------- Liquibase
@@ -801,6 +1204,8 @@ export function analyzeMigration(path, text, opts = {}) {
       extra = { change_sets: sets.map((s) => ({ id: s.id, author: s.author, types: s.changes.map((c) => c.type), rollback: s.rollback })) };
       break;
     }
+    case 'laravel': { const r = readLaravel(text, dialect); parsed = r.statements; has_down = r.has_down; break; }
+    case 'efcore': { const r = readEfCore(text, dialect); parsed = r.statements; has_down = r.has_down; break; }
     case 'knex': case 'typeorm': case 'sequelize': {
       const r = readJs(info.framework, text, dialect);
       parsed = r.statements; has_down = r.has_down;

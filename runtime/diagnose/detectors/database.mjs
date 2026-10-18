@@ -143,10 +143,13 @@ const duplicateIndex = detector('duplicate-index', ({ graph }) => {
   for (const ix of graph.nodes('index')) {
     const a = ix.attrs;
     if (!a.table || !Array.isArray(a.columns) || !a.columns.length || a.valid === false) continue;
-    if (!byTable.has(a.table)) byTable.set(a.table, []);
-    byTable.get(a.table).push(ix);
+    // Indexes of different dialect variants of one table are alternatives, never compared.
+    const group = `${a.table}\u0000${a.variant ?? ''}`;
+    if (!byTable.has(group)) byTable.set(group, []);
+    byTable.get(group).push(ix);
   }
-  for (const [table, list] of byTable) {
+  for (const [group, list] of byTable) {
+    const table = group.split('\u0000')[0];
     list.sort((x, y) => (x.attrs.primary ? -1 : y.attrs.primary ? 1 : 0) || x.id.localeCompare(y.id));
     const flagged = new Set();
     for (let i = 0; i < list.length; i++) {

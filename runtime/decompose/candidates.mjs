@@ -4,9 +4,10 @@
 
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
 import { cycleBreakdown } from '../graph/algorithms.mjs';
-import { MAX_CYCLES, sccsOf } from '../graph/derived.mjs';
+import { MAX_CYCLES, cycleView, sccsOf } from '../graph/derived.mjs';
 import { moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
+import { underRoot } from '../core/paths.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
 import { contractEvidence } from './contracts.mjs';
 import { runtimeBoundary } from './runtime-evidence.mjs';
@@ -266,9 +267,77 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     m['boundary.cross_joins'] = cbj;
   } else gaps.push('no table access facts: shared_table_writers and cross_joins unknown');
   // CBT: transactions spanning tables owned by different candidates (needs transaction facts).
-  const tx = graph.edges('SHARES_TRANSACTION_WITH');
-  if (tx.length) m['boundary.cross_transactions'] = tx.filter((e) => ownedHere.has(e.from) !== ownedHere.has(e.to)).length;
-  else gaps.push('no transaction-boundary facts: cross_transactions unknown');
+  // Imported transaction facts carry a window and an expiry: expired ones are ignored and named.
+  const now = new Date().toISOString();
+  const txAll = graph.edges('SHARES_TRANSACTION_WITH');
+  const tx = txAll.filter((e) => !(e.attrs?.expires_at && e.attrs.expires_at < now));
+  if (txAll.length - tx.length) gaps.push(`${txAll.length - tx.length} transaction fact(s) are past their expiry and were not used; re-export database statistics and import again`);
+  if (tx.length) {
+    const crossing = tx.filter((e) => ownedHere.has(e.from) !== ownedHere.has(e.to));
+    m['boundary.cross_transactions'] = crossing.length;
+    details.evidence['boundary.cross_transactions'] = crossing.map((e) => e.id).sort();
+    const measured = crossing.filter((e) => e.attrs?.observed_window);
+    if (measured.length) {
+      const starts = measured.map((e) => e.attrs.observed_window.start).sort();
+      const ends = measured.map((e) => e.attrs.observed_window.end).sort();
+      details.transactions = {
+        label: 'observed',
+        window: { start: starts[0], end: ends[ends.length - 1] },
+        sources: [...new Set(measured.flatMap((e) => (e.attrs.sources ?? []).map((x) => `import:${x}`)))].sort(),
+        transactions: measured.reduce((n, e) => n + (e.attrs.transactions ?? 0), 0),
+        edges: measured.map((e) => e.id).sort().slice(0, 50),
+      };
+    }
+  } else if (!txAll.length) gaps.push('no transaction-boundary facts: cross_transactions unknown');
+  else gaps.push('every transaction fact is past its expiry: cross_transactions unknown');
+  // Delivery: measured deployments of the units this candidate's modules belong to.
+  // Imported delivery facts carry a window and an expiry: expired ones are ignored and named.
+  const deliveryAll = graph.nodes('deployable').filter((n) => n.attrs?.delivery);
+  const releasedAll = graph.edges('RELEASED_WITH');
+  const expiredDelivery = deliveryAll.filter((n) => n.attrs.delivery.expires_at && n.attrs.delivery.expires_at < now).length
+    + releasedAll.filter((e) => e.attrs?.expires_at && e.attrs.expires_at < now).length;
+  if (expiredDelivery) gaps.push(`${expiredDelivery} delivery fact(s) are past their expiry and were not used; re-export delivery history and import again with unknot import deliveries`);
+  const freshDelivery = deliveryAll.filter((n) => !(n.attrs.delivery.expires_at && n.attrs.delivery.expires_at < now));
+  const releasedFresh = releasedAll.filter((e) => !(e.attrs?.expires_at && e.attrs.expires_at < now));
+  if (!deliveryAll.length && !releasedAll.length) {
+    gaps.push('no delivery history: deploy frequency, change failure rate and lead time unknown; import with unknot import deliveries');
+  } else if (freshDelivery.length) {
+    const memberList = [...members].map((id) => graph.node(id)?.path ?? id.slice('module:'.length));
+    const placed = freshDelivery
+      .map((n) => ({ node: n, unit: n.id.slice('deployable:'.length), delivery: n.attrs.delivery, members_under: memberList.filter((p) => underRoot(p, n.attrs.delivery.code_root)).length }))
+      .filter((u) => u.members_under > 0)
+      .sort((a, b) => a.unit.localeCompare(b.unit));
+    if (!placed.length) {
+      gaps.push(`delivery history exists for ${freshDelivery.length} unit(s) but the units could not be placed under this candidate: no unit's code_root contains a member module; a code_root column in the delivery import places them`);
+    } else {
+      const own = new Set(placed.map((u) => u.node.id));
+      const partnersOf = (id) => releasedFresh
+        .filter((e) => e.from === id || e.to === id)
+        .map((e) => ({ unit: (e.from === id ? e.to : e.from).slice('deployable:'.length), share: e.attrs.share, edge: e }))
+        .sort((a, b) => a.unit.localeCompare(b.unit));
+      const starts = placed.map((u) => u.delivery.observed_window?.start).filter(Boolean).sort();
+      const ends = placed.map((u) => u.delivery.observed_window?.end).filter(Boolean).sort();
+      details.delivery = {
+        label: 'observed',
+        ...(starts.length ? { window: { start: starts[0], end: ends[ends.length - 1] } } : {}),
+        sources: [...new Set(placed.flatMap((u) => (u.delivery.sources ?? []).map((x) => `import:${x}`)))].sort(),
+        units: placed.map((u) => ({
+          unit: u.unit,
+          deployments: u.delivery.deployments,
+          deploys_per_week: u.delivery.deploys_per_week,
+          change_failure_rate: u.delivery.change_failure_rate,
+          lead_time_median_hours: u.delivery.lead_time_median_hours ?? null,
+          members_under: u.members_under,
+          released_with: partnersOf(u.node.id).map(({ unit, share }) => ({ unit, share })),
+        })),
+      };
+      const coupling = releasedFresh.filter((e) => own.has(e.from) !== own.has(e.to));
+      if (coupling.length) {
+        m['service.deploy_coupling'] = Math.max(...coupling.map((e) => e.attrs.share ?? 0));
+        details.evidence['service.deploy_coupling'] = coupling.map((e) => e.id).sort();
+      }
+    }
+  }
   // CCL: share of co-change weight that crosses the boundary.
   let inside = 0;
   let crossing = 0;
@@ -349,7 +418,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   m['boundary.internal_cycle_size'] = wholly.length ? wholly[0].length : 0;
   if (wholly.length) {
     // The stored breakdown of that component, the one `graph cycles` and diagnose read.
-    const b = sccsOf(graph).find((c) => c.members.join() === wholly[0].join()) ?? cycleBreakdown(graph, wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: MAX_CYCLES });
+    const b = sccsOf(graph).find((c) => c.members.join() === wholly[0].join()) ?? cycleBreakdown(cycleView(graph), wholly[0], { edgeTypes: ['IMPORTS'], maxCycles: MAX_CYCLES });
     details.cycle_detail = { scope: 'internal', size: wholly[0].length, members: b.members, cycles: b.cycles.map((c) => c.nodes), cycles_truncated: b.truncated, cut: b.cut, declared_only: b.cut.filter((e) => e.declared_only).length };
   }
   // Consumers, contracts, per-unit CI and chattiness (spec §15A.4 and the card vocabulary).
@@ -374,6 +443,11 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     details.contracts = contract.routes;
     details.evidence['contracts.present'] = contract.evidence;
     m['clients.count'] = contract.clients;
+    const channels = contract.routes.filter((r) => r.source === 'messaging');
+    if (channels.length) {
+      m['contracts.consumers_per_channel'] = Math.max(...channels.map((r) => r.consumers));
+      details.evidence['contracts.consumers_per_channel'] = channels.flatMap((r) => r.consumer_modules ?? []);
+    }
     details.evidence['clients.count'] = contract.routes.flatMap((r) => r.interfaces).filter((x, i, a) => a.indexOf(x) === i).sort();
   }
   const dirs = [...new Set([...members].map((id) => (graph.node(id)?.path ?? id.slice(7)).split('/').slice(0, -1).join('/')))];
