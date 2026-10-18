@@ -287,6 +287,10 @@ test('DML: target table and WHERE detection', () => {
   assert.equal(one('INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 2').table.name, 't');
   const mysqlDel = one('DELETE a FROM a JOIN b ON a.id = b.id WHERE b.x = 1', { dialect: 'mysql' });
   assert.deepEqual([mysqlDel.table.name, mysqlDel.reads.map((r) => r.name)], ['a', ['a', 'b']]);
+  for (const placeholder of ['{cfg.Schema}.{cfg.Table}', '${table}', '?']) {
+    assert.equal(one(`DELETE FROM ${placeholder} WHERE id = 1`).table, null, `FROM is no table name before ${placeholder}`);
+  }
+  assert.equal(one('DELETE orders WHERE id = 1', { dialect: 'sqlserver' }).table.name, 'orders', 'T-SQL DELETE without FROM');
 });
 
 test('SELECT: FROM/JOIN extraction, schema-qualified names, CTEs excluded', () => {

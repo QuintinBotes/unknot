@@ -4,7 +4,7 @@
 import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, language, languageForPath, pathMentionExtensions } from '../../../runtime/graph/languages.mjs';
-import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
+import { EXTRACTOR, bundlerAliases, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
 import { conventionRoutes, detectFrameworks, ormMappings } from './frameworks.mjs';
 import { tableFacts } from '../orm-maps.mjs';
 import { analyze } from './structure.mjs';
@@ -47,16 +47,20 @@ function vueFacts(file, text) {
   let code = '';
   let at = 0;
   let ts = false;
+  let outside = '';
   const blank = (s) => s.replace(/[^\n]/g, '');
   for (const m of text.matchAll(VUE_SCRIPT_RE)) {
     const bodyStart = m.index + m[0].indexOf('>') + 1;
+    outside += text.slice(at, bodyStart);
     code += blank(text.slice(at, bodyStart)) + m[2];
     at = bodyStart + m[2].length;
     if (/\blang\s*=\s*["']?tsx?\b/i.test(m[1])) ts = true;
   }
   if (!code) return [];
+  outside += text.slice(at);
   code += blank(text.slice(at));
-  return codeFacts(file, code, { ts, jsx: false });
+  // The template names what it uses (`@click="changeTab(...)"`): those are uses of the script's names.
+  return codeFacts(file, code, { ts, jsx: false, templateNames: outside.match(/[A-Za-z_$][\w$]*/g) ?? [] });
 }
 
 function mk(path, degraded) {
@@ -98,6 +102,7 @@ function codeFacts(file, text, as = {}) {
   // list — even when no call edge resolves (golden-suite gap 1).
   const nameCount = new Map();
   for (let i = 0; i < n; i++) if (tokens[i].t === 'id') nameCount.set(tokens[i].v, (nameCount.get(tokens[i].v) ?? 0) + 1);
+  for (const name of as.templateNames ?? []) nameCount.set(name, (nameCount.get(name) ?? 0) + 1);
   // Source files the code starts by path (`spawn(node, [join(here, 'hook-main.ts')])`,
   // `new Worker(new URL('./worker.js', import.meta.url))`): link turns them into REFERENCES.
   const pathMentions = new Set();
@@ -278,6 +283,7 @@ function codeFacts(file, text, as = {}) {
     truncated = true;
   }
 
+  const aliases = bundlerAliases(path, tokens, n);
   const attrs = {
     language: ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT,
     loc: tk.loc,
@@ -292,6 +298,7 @@ function codeFacts(file, text, as = {}) {
     imports: analysis.imports,
     calls: analysis.calls,
     directives: analysis.directives,
+    ...(aliases.length && { bundler_aliases: aliases }),
     ...(tk.jsxElements > 0 && { has_jsx: true }),
     ...(pathMentions.size && { path_mentions: [...pathMentions].sort() }),
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),

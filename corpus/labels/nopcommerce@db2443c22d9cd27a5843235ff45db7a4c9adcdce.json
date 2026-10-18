@@ -38,5 +38,53 @@
   "sha256:cfa407fd6e474d8e850efdd8feafbee1feb49636bedd260767325be8ad94a1d7": {
     "label": "true",
     "note": "The workflow has no permissions block, so default token permissions apply."
+  },
+  "sha256:670886cd8321d91c71d1cdccc44c7c3b685bba7c1d8dbc66c381e423d0bef1cb": {
+    "label": "not-worth",
+    "note": "Nine constructor parameters are DI-injected services of an admin controller, the normal pattern in this codebase."
+  },
+  "sha256:970bca42426a42c225064a1f5e3a903a7f67fa4bc01554a27e76b83a54c359f5": {
+    "label": "not-worth",
+    "note": "Only first-party actions/checkout@v4 and setup-dotnet@v4 are tag-pinned, a low risk."
+  },
+  "sha256:dff6909d172ef49ba822e77172e5710a608c1adc6124a8fc62e5b7b0f2eb3312": {
+    "label": "not-worth",
+    "note": "CatalogModelFactory is one cohesive factory of catalog page models behind ICatalogModelFactory; size alone, no mixed concerns."
+  },
+  "sha256:59c2dc51f1e9eeafe46eb453cfd4d098d238342f2d11d3953b7b0fcec9eb51ee": {
+    "label": "true",
+    "note": "Dockerfile runtime stage has no USER instruction before ENTRYPOINT, so the app runs as root."
+  },
+  "sha256:8ea34fd39271c7b82fa3225b86db083d6648208830cef9066ec1c5fbdbf6640e": {
+    "label": "not-worth",
+    "note": "89 lines vs threshold 80, cyclomatic 7, a linear tag-helper."
+  },
+  "sha256:6aa97d7ddd0f87703c5049718896a9876dbecc19953bb6ca38ad596317830dc7": {
+    "label": "true",
+    "note": "CustomerController.Info is 219 lines with cyclomatic 52 and nesting 6, a real hotspot."
+  },
+  "sha256:cf17f60dccbb1b6cd250cfde95109d60a1318cb53b22bc98f15acb1352ed1b86": {
+    "label": "not-worth",
+    "note": "Matches are JsonProperty DTO boilerplate across API model classes, not shared logic."
+  },
+  "sha256:95525808f01c4a1c0dd3cf784b709f2040a0181669d682b48735cabcf6ab699d": {
+    "label": "not-worth",
+    "note": "1024 source lines vs 1000 threshold in a single-purpose Brevo API manager."
+  },
+  "sha256:b9eb95abc8a15b247525d37e2b98678de055b991495d65c4e74728e19b88d662": {
+    "label": "true",
+    "note": "createCombinationsBehavior is a 225-line closure with cyclomatic 29, used from _ProductAttributes.cshtml:352; first-party code."
+  },
+  "sha256:6cd9d602fb2e2254b3787a4537124c4836f9d79694ba266e72c2f89907931356": {
+    "label": "not-worth",
+    "note": "Both base images are official Microsoft tag-pinned images; digest pinning is optional hardening."
+  },
+  "sha256:90867a82f7669ba43aa3eedcf9b2d0cb64aa9de03e81b81e0ebed0bf1ffcb3dd": {
+    "label": "not-worth",
+    "note": "Interface is registered in NopStartup.cs:234 and injected in 9 consumers (DI seam, mocked/swapped by plugins); correct but deliberate."
+  },
+  "sha256:d198cfa3d2d87f3bd9bcf5983e0ace828c833bca00bd54fa5135b9617dc509e7": {
+    "label": "true",
+    "note": "public.billingaddress.js and public.shippingaddress.js are nopCommerce scripts with the same 109 lines at 99% similarity; one shared function would serve both."
   }
 }

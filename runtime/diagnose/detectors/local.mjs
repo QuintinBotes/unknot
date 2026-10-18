@@ -467,6 +467,20 @@ function declaredEntries(graph) {
   return entries;
 }
 
+/**
+ * A module that defines nothing another module could import (no exports where the language
+ * declares them, otherwise no function or class) but calls something at top level is run, not
+ * imported: "imported by nothing" is its normal state.
+ */
+function isScript(graph, m) {
+  if (!(m.attrs?.calls ?? []).length && !m.attrs?.top_level_calls) return false;
+  // A Meteor app with a main module runs only what that module imports.
+  const path = m.path ?? '';
+  if (meteorApps(graph).some((a) => !a.eager && (!a.dir || path.startsWith(`${a.dir}/`)))) return false;
+  if (Array.isArray(m.attrs?.exports)) return m.attrs.exports.length === 0;
+  return !graph.children(m.id).some((c) => ['function', 'class', 'interface'].includes(c.type));
+}
+
 /** Why a module is exempt from the unreferenced-module check, or null when it is not. */
 function moduleEntryReason(graph, m, entries) {
   const path = m.path ?? '';
@@ -477,6 +491,7 @@ function moduleEntryReason(graph, m, entries) {
   if (TOOL_ENTRY_RE.test(path)) return 'tool convention (Storybook, type declarations, samples)';
   if (inLibraryDir(graph, path)) return 'generated component library (components.json)';
   if (m.attrs?.entry_script && !isStaleCopy(graph, path)) return 'script run directly (shebang or __main__ guard)';
+  if (isScript(graph, m) && !isStaleCopy(graph, path)) return 'script (defines nothing to import, runs code when loaded)';
   if (m.attrs?.django_convention) return 'Django convention module';
   const own = graph.node(`file:${path}`);
   if (own?.attrs?.manifest) return 'package manifest';
@@ -500,7 +515,8 @@ function moduleEntryReason(graph, m, entries) {
 /** Names referenced by calls in a module, last dotted segment included (self.helper -> helper). */
 function calledNames(graph) {
   const byModule = new Map();
-  for (const type of SOURCE_NODE_TYPES) {
+  // A module's own calls are its top-level code (`server.listen()` in an entry file).
+  for (const type of [...SOURCE_NODE_TYPES, 'module']) {
     for (const n of graph.nodes(type)) {
       const calls = Array.isArray(n.attrs?.calls) ? n.attrs.calls : [];
       if (!calls.length) continue;
@@ -524,8 +540,9 @@ function calledNames(graph) {
 const lexicalOnly = (m) => ['lexical', 'degraded'].includes(m?.attrs?.parse_quality) || lexicalLanguageIds().includes(m?.attrs?.language);
 
 // Names that reach a function by convention rather than by a call the graph records:
-// React components (used as JSX), hooks, event handlers and lifecycle callbacks.
-const CONVENTION_NAME = /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z]?|get(Static|Server)Props$|generate(Metadata|StaticParams)$|loader$|action$|default$)/;
+// React components (used as JSX), hooks, event handlers and lifecycle callbacks, those of
+// React class components and of custom elements included.
+const CONVENTION_NAME = /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z]?|get(Static|Server)Props$|generate(Metadata|StaticParams)$|loader$|action$|default$|component(Did|Will)[A-Z]|shouldComponentUpdate$|getSnapshotBeforeUpdate$|getDerivedState|UNSAFE_|(connected|disconnected|adopted|attributeChanged|form[A-Z]\w*)Callback$|observedAttributes$)/;
 
 const deadCode = define({
   name: 'dead-code',
@@ -552,6 +569,7 @@ const deadCode = define({
       const short = nameOf(n).split('.').pop();
       if (/^__\w+__$/.test(short) || /^(main|init|setup|teardown)$/i.test(short) || /^test/i.test(short)) continue;
       if (CONVENTION_NAME.test(short)) continue;
+      if (['constructor', 'getter', 'setter'].includes(n.attrs.kind)) continue; // run by `new` and by property access, not by a call
       if (/\.(jsx|tsx)$/.test(n.path ?? '') && /^[A-Z]/.test(short)) continue; // JSX components
       if ((n.attrs.decorators ?? []).length) continue; // registered by a decorator: reachable by convention
       if (graph.in(n.id, 'CALLS').length) continue;
@@ -749,8 +767,11 @@ const oneImplementationInterface = define({
       if (!isInterfaceLike(n)) continue;
       const impls = [...new Set(graph.in(n.id, ['EXTENDS', 'IMPLEMENTS']).map((e) => e.from))].sort();
       if (impls.length !== 1) continue;
+      // A test double as the only implementation: the real one is a dependency's, generated or a framework proxy.
+      if (moduleOf(graph, graph.node(impls[0]))?.attrs?.is_test) continue;
       const mod = moduleOf(graph, n);
       const consumers = mod ? importersOf(graph, mod.id).size : 0;
+      const structural = Boolean(language(n.attrs?.language)?.genericSyntax?.structuralInterfaces);
       const d = base(graph, n, {
         kind: 'code.one-implementation-interface',
         title: `${nameOf(n)} has exactly one implementation (${nameOf(graph.node(impls[0]))})`,
@@ -760,7 +781,7 @@ const oneImplementationInterface = define({
         benefit: 1.5 + Math.min(1.5, graph.in(n.id).length / 10),
         cost: 2,
         evidence: 0.9 * (mod?.attrs?.parse_quality === 'lexical' ? 0.66 : 1),
-        uncertain: 2,
+        uncertain: structural ? 3 : 2,
       });
       out.push({
         ...d,
@@ -773,7 +794,8 @@ const oneImplementationInterface = define({
           { id: 'collapse-hierarchy', summary: 'Merge the interface into its single implementer.' },
         ],
         patterns: ['code.collapse-hierarchy', 'anti-pattern.speculative-generality', 'domain.dependency-inversion'],
-        uncertainties: [...d.uncertainties, 'Consumers outside the analysed repository are not visible.'],
+        uncertainties: [...d.uncertainties, 'Consumers outside the analysed repository are not visible.',
+          ...(structural ? ['Types outside the analysed repository (the standard library, dependencies) can implement this interface without naming it.'] : [])],
       });
     }
     return out;

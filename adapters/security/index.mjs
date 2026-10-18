@@ -8,7 +8,7 @@ import { nodeFact, prov } from '../../runtime/graph/facts.mjs';
 import { findSecrets, redact } from '../../runtime/core/redact.mjs';
 
 export const ID = 'security';
-export const VERSION = '0.1.2';
+export const VERSION = '0.1.3';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 1024 * 1024;
 const MAX_SECRETS_PER_FILE = 200;
@@ -16,6 +16,10 @@ const MAX_SCANNER_PER_FILE = 50;
 const TIMEOUT_MS = 120_000;
 const LOCKFILE = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|Pipfile\.lock|uv\.lock|composer\.lock|Gemfile\.lock|go\.sum|gradle\.lockfile|packages\.lock\.json|[^/]+\.lock)$/;
 const SKIP_KINDS = new Set(['binary', 'generated', 'vendored']);
+// Translations: a `password` key there holds the word for it, so only token-shaped secrets count.
+// A file named as a stand-in (`repo1_hook_verification_dummy_gpg_key.txt`) holds a fake secret by its own account.
+const PLACEHOLDER_FILE = /(^|[/_.-])(dummy|fake|placeholder|example|sample)s?([/_.-]|$)/i;
+const LOCALE_FILE = /(^|\/)(locales?|i18n|l10n|lang|langs|translations?)\/|(^|\/)(messages|locale|strings)[_-][a-z]{2,3}([_-][A-Za-z]{2,4})?\.(properties|json|ya?ml|xml)$|\.(po|pot|xliff|xlf)$/i;
 const MAX_AUTHZ_PER_FILE = 50;
 // Access checks that name what they require: a call whose argument is a quoted role,
 // permission or policy, or an annotation or decorator carrying one.
@@ -118,7 +122,7 @@ export default {
   extract(file, text) {
     if (!file?.path || typeof text !== 'string') return [];
     if (SKIP_KINDS.has(file.kind) || (file.size ?? 0) > MAX_BYTES || text.length > MAX_BYTES || LOCKFILE.test(file.path)) return [];
-    const hits = findSecrets(text, { precise: true });
+    const hits = PLACEHOLDER_FILE.test(file.path) ? [] : findSecrets(text, { precise: true, assignments: !LOCALE_FILE.test(file.path) });
     const authz = CODE_FILE.test(file.path) ? authorizationChecks(text) : [];
     if (!hits.length && !authz.length) return [];
     // Kind and line only: the offset is used to compute the line and then discarded.

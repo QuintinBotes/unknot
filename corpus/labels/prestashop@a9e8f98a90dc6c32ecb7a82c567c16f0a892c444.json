@@ -38,5 +38,57 @@
   "sha256:f57c8ef649ee4f16b0c3dc7d1dad25b03d5febf393b73cc5db4acafb2da90b3b": {
     "label": "not-worth",
     "note": "maildev is a local development mail catcher in a dev compose file."
+  },
+  "sha256:abf4232bdadb1dc348a6176df28c347181c31cf7a6a63611274c05ca496fbd4d": {
+    "label": "not-worth",
+    "note": "1162 lines vs 1000, legacy admin script just over threshold."
+  },
+  "sha256:26173254a8e0bafbcf2dd65d18b60fa4279e82990a591e47cf31caa7d87efd50": {
+    "label": "not-worth",
+    "note": "SmartyDev is a 23-line subclass variant; overlap is the small shared boilerplate."
+  },
+  "sha256:a06022fbff086beb04776d1f8c51f2c07ca9e01aeb68ff5fd1a2d31397d0b7b8": {
+    "label": "false",
+    "note": "The constructor is called by new OrderReturnDeletionStager($form) at form.ts:111."
+  },
+  "sha256:89312235bade57a1ae3b27071e8fa6870bc6a3c4e3d57c75fb9a4124fe5dfa00": {
+    "label": "true",
+    "note": "NavBar.constructor is a 171-line constructor mostly wrapping one jQuery ready callback."
+  },
+  "sha256:725fb8006e5bb507dd60784c7971d79984db2a2dd19beedefce62b348afb5dbb": {
+    "label": "true",
+    "note": "Workflow has no permissions block (callers integration.yml:6 and api-module.yml:6 set theirs)."
+  },
+  "sha256:e9bc6ec6dbcf1195b987f2a127842c794775e9747097a8aaacee34238f67725f": {
+    "label": "false",
+    "note": "DropzoneWindow.vue:177 imports only the exported interface PSDropzoneFile (Dropzone.vue:141), erased at compile, so no runtime cycle."
+  },
+  "sha256:ab3c39d74416caad1a4e79a17184c882b70c1f16a2853f80d8ae15eca314c841": {
+    "label": "true",
+    "note": "jaywcjlove/github-action-read-file@main is a third-party action on a moving branch."
+  },
+  "sha256:00d5af45d86b4ab5f190095a539c9dee7fc84e72fb4ab5c29b9fce3459e84a10": {
+    "label": "not-worth",
+    "note": ".docker/Dockerfile is a dev image extending prestashop/base with a www-data uid remap."
+  },
+  "sha256:5b5f26f722ce05eecd1009d32776ca86c02b5759e109ee2b07d0c37ba1802065": {
+    "label": "not-worth",
+    "note": "Nesting 5 vs 4 and cyclomatic 9 in a short dependency-sort install loop."
+  },
+  "sha256:19f305015f2ec5f52ae0d73297e02b0c462e67b833ab1ddb2ce609ba95f513fc": {
+    "label": "not-worth",
+    "note": "KEY order_detail_order(id_order) is a prefix of the composite key, true but legacy install schema."
+  },
+  "sha256:d0a567383c12e5e68498515101c586cbfbb21acb023fe912e9955f6aaa04c481": {
+    "label": "not-worth",
+    "note": "integration.yml and api-module.yml share setup steps for different test suites."
+  },
+  "sha256:e190178913682987c0c9b19630ebb047f679638a0d8d94cbf28cdf39f9638292": {
+    "label": "not-worth",
+    "note": "Unused selector functions in the exported product selector map (nothing in the theme names them); true but trivial, and exported rather than private."
+  },
+  "sha256:88af57039e6a51fdcf6f2030d533721ae84b8009dcb94daf7183dcd227131cf6": {
+    "label": "not-worth",
+    "note": "A Symfony form type constructor taking its injected services."
   }
 }

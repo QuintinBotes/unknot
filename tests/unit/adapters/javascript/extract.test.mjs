@@ -12,7 +12,7 @@ const edges = (facts, type) => facts.filter((f) => f.kind === 'edge' && f.type =
 
 test('adapter contract: identity and capabilities', () => {
   assert.equal(adapter.id, 'javascript');
-  assert.equal(adapter.version, '0.1.15');
+  assert.equal(adapter.version, '0.1.16');
   assert.equal(adapter.kind, 'language');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -154,6 +154,20 @@ test('security signals', () => {
   ].sort((a, b) => Number(a.split('@')[1]) - Number(b.split('@')[1])));
 });
 
+test('innerHTML set to a literal with nothing joined to it is no signal', () => {
+  const src = [
+    'el.innerHTML = "";',
+    'el.innerHTML = `<b>static</b>`;',
+    'el.outerHTML = \'<i></i>\';',
+    'el.innerHTML = `<b>${name}</b>`;',
+    'el.innerHTML = "<b>" + name;',
+    'el.innerHTML = html;',
+    'el.innerHTML += "".concat(x);',
+  ].join('\n');
+  const m = moduleAttrs(extractOne('dom.js', src), 'dom.js');
+  assert.deepEqual(m.security_signals.map((s) => `${s.kind}@${s.line}`), ['inner-html@4', 'inner-html@5', 'inner-html@6', 'inner-html@7']);
+});
+
 test('exec is only flagged when child_process is imported and the command is not a literal', () => {
   const noImport = moduleAttrs(extractOne('r.js', 'function f(re, s) { return re.exec(s); }'), 'r.js');
   assert.deepEqual(noImport.security_signals, []);
@@ -292,4 +306,11 @@ test('output is deterministic and files the adapter does not own yield nothing',
   assert.deepEqual(extractOne('src/App.tsx', src), extractOne('src/App.tsx', src));
   assert.deepEqual(extractOne('README.md', '# hi'), []);
   assert.deepEqual(extractOne('data.json', '{}'), []);
+});
+
+test('a single-file component method named only in its template is used there', () => {
+  const vue = '<template>\n  <button @click="changeTab(1)">tab</button>\n</template>\n<script>\nexport default {\n  methods: {\n    changeTab(n) { this.tab = n; },\n    stale() {},\n  },\n};\n</script>\n';
+  const methods = Object.fromEntries(extractOne('src/List.vue', vue).filter((f) => f.type === 'function' || f.type === 'method').map((f) => [f.name.split('.').pop(), f.attrs.name_occurrences]));
+  assert.ok(methods.changeTab >= 2, JSON.stringify(methods));
+  assert.equal(methods.stale, 1);
 });

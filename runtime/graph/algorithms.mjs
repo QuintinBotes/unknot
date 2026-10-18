@@ -101,7 +101,8 @@ export function shortestCycle(graph, component, edgeTypes = DEFAULT_EDGES) {
       depth++;
       const next = [];
       for (const v of frontier) {
-        const targets = graph.out(v, edgeTypes).map((e) => e.to).filter((t) => members.has(t)).sort();
+        // A module importing itself (a recursive component) is no cycle to show when others take part.
+        const targets = graph.out(v, edgeTypes).map((e) => e.to).filter((t) => members.has(t) && (t !== v || members.size === 1)).sort();
         for (const t of targets) {
           if (t === start) { found = v; break; }
           if (!parent.has(t)) { parent.set(t, v); next.push(t); }

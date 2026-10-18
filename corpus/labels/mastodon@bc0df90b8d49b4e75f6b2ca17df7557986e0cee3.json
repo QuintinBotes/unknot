@@ -38,5 +38,65 @@
   "sha256:deb8852c2a341d8646909d96ca7b697922453c7f6fed6530b2dd70e0d255cfcb": {
     "label": "not-worth",
     "note": "Large vendored-style migration helper module with independent helpers."
+  },
+  "sha256:dc09b99b55d990d052a3167d87a293c81ccd0fd69e962702565a8d7172b21f6c": {
+    "label": "not-worth",
+    "note": "Schema confirms no FK on statuses.conversation_id/poll_id, but Mastodon deliberately omits FKs on its huge statuses table (indexes plus model-level handling)."
+  },
+  "sha256:d4d98e412a91cc9369d41a1fbf725ccbbe3930b40e5ca0f31c87d220d61149bf": {
+    "label": "not-worth",
+    "note": "Real 2-module cycle (index.tsx re-exports items.tsx, items.tsx imports useMenuContext from '.') but items only uses it at render time, so it is harmless."
+  },
+  "sha256:bd3c8e1b9a5c2268e133dd532cbec21882418f20509ff445a61f66f24d9981c4": {
+    "label": "not-worth",
+    "note": "The db root write is the 2022 post_migrate data seed inserting default roles, not a second runtime writer; app owns user_roles."
+  },
+  "sha256:7dd208be1576a88ff0bd5386f88b9ff7bd82b9126abca1e1d7ca14098e2a62d5": {
+    "label": "not-worth",
+    "note": "drop_column fasp_providers.capabilities happens after copying the data into fasp_capabilities and down restores it."
+  },
+  "sha256:43373c0de8fb199eec2a649c0c82e4507bdb8aee3653d24154539632f76e2851": {
+    "label": "false",
+    "note": "componentDidCatch is a React error-boundary lifecycle method invoked by React; it has no explicit callers by design and the boundary is used in the file."
+  },
+  "sha256:aa6d66eab98a511b03ec2cdbd034c84e9dbe29e1f299e6cb565210cf363f9ae4": {
+    "label": "not-worth",
+    "note": "A card importing its sibling lockup component (instability 0.73 vs 0.29) is ordinary component composition."
+  },
+  "sha256:00763d8b0c0d152bdbd8f88501735964677bfcaec51740efab5b6c9c3e9029fd": {
+    "label": "not-worth",
+    "note": "compose.js imports a single emoji search helper from emoji/picker; a normal action-to-feature import, no practical instability cost."
+  },
+  "sha256:df4484de15479b767f7bae2021f3a8e447ee40bdfeb17b5a49c62160445a0f99": {
+    "label": "not-worth",
+    "note": "99-line hook vs 80 limit with cyclomatic 3 and no nesting; linear floating-ui setup."
+  },
+  "sha256:85846a59d51aa6a1ea9d66427ece2c58404fbaa2ebe71d57f916333b353bc80d": {
+    "label": "true",
+    "note": "test-js.yml has no permissions block at workflow or job level (grep finds none), so default token scope applies."
+  },
+  "sha256:baf8a462080a8ef281acce1f8819b657cc4f62e89a5c72e6d2f3ef7b8c59a16d": {
+    "label": "true",
+    "note": "Real value-import cycle: actions/compose.js:20 imports requestComposerFocus from reducers/slices/composer.ts, which imports many runtime values from actions/compose (composer.ts:5-17)."
+  },
+  "sha256:7a1d205e4aa0069e5675c87bc24a98db98c2f721efb94d5d1288d47ddb037a0c": {
+    "label": "not-worth",
+    "note": "7 parameters (one over) in an internal reducer helper in a JS file, called in one module."
+  },
+  "sha256:9ed36bc98731e691065edb62b9d087b81522e1dc05977943dc0885a8f4ba3a96": {
+    "label": "not-worth",
+    "note": "Vite build plugin config, a single-purpose build script outside application code."
+  },
+  "sha256:99b20652662a5fe14e6e24065a4de960ec0f58adc25d7bbd12b75d66ca3cadf3": {
+    "label": "not-worth",
+    "note": "Dev-container image for local development only; running as root (devcontainers base image provides a vscode user) is irrelevant to production."
+  },
+  "sha256:9d0dd36f356c2189af66fb0d2b0817c537ea253124d8c1cff0ffcdfd9a4dbbf1": {
+    "label": "not-worth",
+    "note": "Compose importing ui shell pieces (async-components, navigation_bar messages, breakpoint hook, modal type) is the expected app-shell coupling."
+  },
+  "sha256:17332d47328365b0180a4dd2fc81999ee278e83b1105e401743036aea4e4e6a0": {
+    "label": "true",
+    "note": "Both workflows run the same steps and differ only in trigger and branch; one reusable workflow would do."
   }
 }

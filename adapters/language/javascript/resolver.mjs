@@ -7,6 +7,9 @@ const js = language(LANGUAGE_IDS.JAVASCRIPT);
 const ts = language(LANGUAGE_IDS.TYPESCRIPT);
 const vue = language(LANGUAGE_IDS.VUE);
 const CODE_EXTS = [...(ts?.resolverExtensions ?? []), ...(js?.resolverExtensions ?? [])];
+// Single-file components, tried after the code extensions: webpack setups for Vue resolve
+// `import X from './X'` to X.vue.
+const COMPONENT_EXTS = (vue?.extensions ?? []).filter((extension) => !CODE_EXTS.includes(extension));
 export const CODE_RE = new RegExp(`(?:${[...CODE_EXTS, ...(vue?.extensions ?? [])].map((extension) => extension.replace('.', '\\.')).join('|')})$`);
 const TS_SWAP = ts?.swapFrom?.[LANGUAGE_IDS.JAVASCRIPT] ?? {};
 const CONDITIONS = ['types', 'import', 'module', 'default', 'require', 'node', 'browser'];
@@ -77,7 +80,9 @@ function exportTargets(exp, key) {
 /**
  * @param {{ has: (p: string) => boolean, tsconfigs: Map<string, object>, packages: Array<{ dir: string, name: string|null, attrs: object }> }} env
  */
-export function createResolver({ has, tsconfigs, packages }) {
+export function createResolver({ has, tsconfigs, packages, aliases = [] }) {
+  // Bundler aliases, nearest configuration first and the longest key first within it.
+  const byAlias = [...aliases].sort((a, b) => b.dir.length - a.dir.length || b.key.length - a.key.length || (a.key < b.key ? -1 : 1));
   const pkgByName = new Map();
   for (const p of packages) if (p.name && !pkgByName.has(p.name)) pkgByName.set(p.name, p);
 
@@ -92,6 +97,7 @@ export function createResolver({ has, tsconfigs, packages }) {
     } else cands.push(base);
     for (const e of CODE_EXTS) cands.push(base + e);
     for (const e of CODE_EXTS) cands.push(`${base}/index${e}`);
+    for (const e of COMPONENT_EXTS) cands.push(base + e);
     for (const c of cands) if (has(c)) return c;
     return null;
   }
@@ -247,6 +253,11 @@ export function createResolver({ has, tsconfigs, packages }) {
     const { hit, matched } = viaPaths(importer, spec);
     if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'tsconfig-paths' } : { t: 'asset' };
     if (matched) return { t: 'unresolved', reason: 'tsconfig-paths' };
+    for (const a of byAlias) {
+      if ((a.dir && importer !== a.dir && !importer.startsWith(`${a.dir}/`)) || (spec !== a.key && !spec.startsWith(`${a.key}/`))) continue;
+      const hit = probe(join(a.target, spec.slice(a.key.length + 1)), tsFirst);
+      if (hit) return CODE_RE.test(hit) ? { t: 'module', path: hit, via: 'bundler-alias' } : { t: 'asset' };
+    }
     const name = packageName(spec);
     if (pkgByName.has(name)) {
       const sub = spec.length > name.length ? spec.slice(name.length + 1) : '';

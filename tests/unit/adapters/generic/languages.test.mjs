@@ -29,6 +29,7 @@ test('countParams counts top-level commas only', () => {
   assert.equal(countParams('int a', 'java'), 1);
   assert.equal(countParams('Map<String, List<Integer>> m, int b', 'java'), 2);
   assert.equal(countParams('f func(a, b int) error, x int', 'go'), 2);
+  assert.equal(countParams('args []string, in <-chan int, out chan<- int', 'go'), 3);
   assert.equal(countParams('a: Int = foo(1, 2), b: Int,', 'kotlin'), 2);
   assert.equal(countParams('&self, a: i32, cb: impl Fn(i32) -> i32', 'rust'), 2);
   assert.equal(countParams('a, b = {x: 1, y: 2}, *rest', 'ruby'), 3);
@@ -355,6 +356,89 @@ test('truncation and unknown files', () => {
   assert.deepEqual(facts[0].attrs.truncated, { facts: 6001, kept: 5000 });
 });
 
+test('Go: a type implements an interface by having its methods, and only then', () => {
+  const p = project({
+    'store/store.go': [
+      'package store',
+      'import "io"',
+      'type Reader interface {\n\tGet(id string) (Item, error)\n}',
+      'type Store interface {\n\tReader\n\tPut(id string, v Item) error\n}',
+      'type Closer interface { io.Closer }',
+      'type sealed interface { seal() }',
+      'type Number interface { ~int | ~float64 }',
+      'type Empty interface{}',
+    ].join('\n'),
+    'store/local.go': 'package store\ntype local struct{}\nfunc (l local) seal() {}\n',
+    'mem/mem.go': [
+      'package mem',
+      'type Mem struct{}',
+      'func (m *Mem) Get(id string) (store.Item, error) { return nil, nil }',
+      'func (m *Mem) Put(id string, v store.Item) error { return nil }',
+      'func (m *Mem) seal() {}',
+      'type ReadOnly struct{}',
+      'func (r ReadOnly) Get(id string) (store.Item, error) { return nil, nil }',
+      'type Wrong struct{}',
+      'func (w Wrong) Get(id, rev string) (store.Item, error) { return nil, nil }',
+    ].join('\n'),
+    'go.mod': 'module example.com/shop\n',
+    'mem/doc.go': [
+      'package mem',
+      'import st "example.com/shop/store"',
+      'type Base struct{ id string }',
+      'func (b *Base) Get(id string) (store.Item, error) { return nil, nil }',
+      'type Doc struct {\n\t*Base `json:"base"`\n\tmeta struct {\n\t\tsync.Mutex\n\t}\n}',
+      'func (d *Doc) Put(id string, v store.Item) error { return nil }',
+      'type Proxy struct {\n\tst.Store\n}',
+      'type Locked struct {\n\tsync.Mutex\n}',
+    ].join('\n'),
+  });
+  const I = (n) => `interface:store/store.go#${n}`;
+  const edges = p.all.filter((f) => f.kind === 'edge' && f.type === 'IMPLEMENTS').map((f) => `${f.from.split('#')[1]}->${f.to.split('#')[1]}`).sort();
+  assert.deepEqual(edges, ['Base->Reader', 'Doc->Reader', 'Doc->Store', 'Mem->Reader', 'Mem->Store', 'Proxy->Reader', 'Proxy->Store', 'ReadOnly->Reader', 'local->sealed'],
+    'embedded methods count; a parameter count differs; an unexported method is only met in its own directory; an unresolved embed, a type set and an empty interface imply nothing');
+  assert.deepEqual(p.node(I('Store')).attrs.embeds, ['Reader']);
+  assert.deepEqual(p.node('class:mem/doc.go#Doc').attrs.embeds, ['Base'], 'a pointer embed with a tag counts; a nested struct body does not');
+  assert.deepEqual(p.node('class:mem/doc.go#Locked').attrs.embeds, ['sync.Mutex'], 'a type from elsewhere is recorded, and adds no methods');
+  assert.deepEqual(p.node('class:mem/doc.go#Proxy').attrs.embeds, ['st.Store'], 'an embed under an import alias resolves through the import');
+  assert.equal(p.node(I('Number')).attrs.method_set, undefined);
+  assert.ok(p.all.filter((f) => f.type === 'IMPLEMENTS').every((f) => f.attrs.by === 'structural' && f.provenance.confidence === 'low' && f.provenance.source_type === 'inference'));
+});
+
+test('Go: an interface that very many types satisfy gets 25 structural edges, each with the full count', () => {
+  const files = { 'io/closer.go': 'package io\ntype Closer interface { Close() error }\n' };
+  for (let i = 0; i < 26; i++) files[`res/r${i}.go`] = `package res\ntype R${i} struct{}\nfunc (r R${i}) Close() error { return nil }\n`;
+  const many = project(files).all.filter((f) => f.type === 'IMPLEMENTS');
+  assert.equal(many.length, 25);
+  assert.ok(many.every((f) => f.attrs.satisfied_by === 26));
+  delete files['res/r25.go'];
+  const all = project(files).all.filter((f) => f.type === 'IMPLEMENTS');
+  assert.equal(all.length, 25);
+  assert.ok(all.every((f) => f.attrs.satisfied_by === undefined));
+});
+
+test('Go: a compile-time assertion states an implementation the methods cannot show', () => {
+  const p = project({
+    'go.mod': 'module example.com/shop\n',
+    'store/store.go': 'package store\ntype Reader interface {\n\tGet(id string) error\n}\ntype Writer interface {\n\tPut(id string) error\n}\n',
+    'ext/ext.go': [
+      'package ext',
+      'import "example.com/shop/store"',
+      'type Ext struct {\n\tvendor.Client\n}',
+      'type Buf struct{}',
+      'var _ store.Reader = (*Ext)(nil)',
+      'var (\n\t_ store.Writer = &Buf{}\n\t_ store.Reader = Buf{}\n)',
+      'func run() { for _, x := range xs { _ = x } }',
+      'type Reader interface { Get(id string) error }',
+      'var _ store.Writer = (*vendor.Reader)(nil)',
+      'var _ io.Reader = (*Buf)(nil)',
+    ].join('\n'),
+  });
+  const edges = p.all.filter((f) => f.kind === 'edge' && f.type === 'IMPLEMENTS').map((f) => `${f.from.split('#')[1]}->${f.to.split('#')[1]}:${f.attrs.by}`).sort();
+  assert.deepEqual(edges, ['Buf->Reader:impl', 'Buf->Writer:impl', 'Ext->Reader:impl'],
+    'a type from a package not imported is not the same-named local interface or type');
+  assert.ok(!p.all.some((f) => f.type === 'IMPLEMENTS' && f.to === 'interface:ext/ext.go#Reader'), 'io.Reader is not the local Reader');
+});
+
 test('Go marks a reference to a type of its own package as inside the package; Java does not', () => {
   const go = project({ 'shop/a.go': 'package shop\nfunc Make(id uint) Order {\n\treturn Order{ID: id}\n}\n', 'shop/b.go': 'package shop\ntype Order struct{ ID uint }\n' });
   const ge = go.all.find((f) => f.type === 'IMPORTS' && f.from === 'module:shop/a.go' && f.to === 'module:shop/b.go');
@@ -366,4 +450,33 @@ test('Go marks a reference to a type of its own package as inside the package; J
   const je = java.all.find((f) => f.type === 'IMPORTS' && f.from === 'module:src/main/java/shop/A.java' && f.to === 'module:src/main/java/shop/Order.java');
   assert.ok(je, 'Java same-package use is still a dependency');
   assert.equal(je.attrs.intra_package, undefined);
+});
+
+test('Go: an unexported field read in its package through any receiver is used; one nobody reads is not', () => {
+  const base = {
+    'go.mod': 'module example.com/shop\n',
+    'routing/record.go': 'package routing\ntype requestRecord struct {\n\tfuncInfo *FuncInfo\n}\n',
+    'routing/funcinfo.go': 'package routing\ntype FuncInfo struct{ name string }\n',
+  };
+  const edge = (files) => project(files).all.find((f) => f.type === 'IMPORTS' && f.from === 'module:routing/record.go' && f.to === 'module:routing/funcinfo.go');
+  // logger.go sorts before record.go: its reads must survive until record.go is linked.
+  const typed = edge({ ...base, 'routing/logger.go': 'package routing\nfunc printer() func(record *requestRecord) {\n\treturn func(record *requestRecord) {\n\t\tprintln(record.funcInfo == nil)\n\t}\n}\n' });
+  assert.ok(typed && !typed.attrs.declared_only && !typed.attrs.use_evidence, JSON.stringify(typed?.attrs));
+  // A receiver of unknown type (a call result) can only reach a member of a type of the package.
+  const untyped = edge({ ...base, 'routing/use.go': 'package routing\nfunc use() {\n\trecord := getRecord()\n\tprintln(record.funcInfo)\n}\n' });
+  assert.ok(untyped && !untyped.attrs.declared_only && !untyped.attrs.use_evidence, JSON.stringify(untyped?.attrs));
+  const unread = edge({ ...base, 'routing/logger.go': 'package routing\nfunc printer() {}\n' });
+  assert.equal(unread?.attrs.declared_only, true, JSON.stringify(unread?.attrs));
+});
+
+test('Go: a field read through a type that embeds its owner is used', () => {
+  const files = {
+    'go.mod': 'module example.com/shop\n',
+    'git/base.go': 'package git\ntype RepositoryBase struct {\n\tformatCache *Format\n}\n',
+    'git/repo.go': 'package git\ntype Repository struct {\n\tRepositoryBase\n}\n',
+    'git/format.go': 'package git\ntype Format struct{ name string }\n',
+    'git/object.go': 'package git\nfunc (repo *Repository) GetFormat() *Format {\n\treturn repo.formatCache\n}\n',
+  };
+  const edge = project(files).all.find((f) => f.type === 'IMPORTS' && f.from === 'module:git/base.go' && f.to === 'module:git/format.go');
+  assert.ok(edge && !edge.attrs.declared_only && !edge.attrs.use_evidence, JSON.stringify(edge?.attrs));
 });

@@ -2,6 +2,7 @@
 // JSON (after stripping JSONC comments and trailing commas) and never evaluated.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { normalize } from './resolver.mjs';
 
 export const EXTRACTOR = 'javascript@0.1.11';
 
@@ -105,4 +106,62 @@ export function tsconfigFacts(path, text) {
     dir: dirOf(path),
   };
   return [nodeFact('build_target', path, { name: path, path, attrs }, prov({ source_type: 'config', source_ref: `${path}:1`, extractor: EXTRACTOR, confidence: 'high' }))];
+}
+
+const BUNDLER_CONFIG = /(^|\/)(?:vite|vitest|webpack)\.config\.[cm]?[jt]s$/;
+const PATH_LIKE = /^[\w./@-]+$/;
+
+/**
+ * The import aliases a bundler configuration declares (`resolve.alias` in Vite or webpack), as
+ * `{ '@': path }` or `[{ find: '@', replacement: path }]`. A target is the last path-like string
+ * in the value, relative to the configuration's directory, which covers
+ * `path.resolve(__dirname, 'src')`, `import.meta.dirname + '/src'` and
+ * `fileURLToPath(new URL('./src', import.meta.url))`. A value with no string is skipped.
+ * @returns {{key: string, target: string}[]}
+ */
+export function bundlerAliases(path, tokens, n) {
+  if (!BUNDLER_CONFIG.test(path)) return [];
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+  const lit = (t) => t && (t.t === 'str' || t.t === 'tpl');
+  const isP = (k, v) => tokens[k]?.t === 'p' && tokens[k].v === v;
+  const targetIn = (from, to) => {
+    let s = null;
+    for (let k = from; k < to; k++) if (lit(tokens[k]) && PATH_LIKE.test(tokens[k].v)) s = tokens[k].v;
+    return s === null ? null : normalize(dir ? `${dir}/${s.replace(/^\/+/, '')}` : s.replace(/^\/+/, ''));
+  };
+  // Entries of the object or array at `open`: [start, end) token ranges split at its own commas.
+  const entries = (open) => {
+    const out = [];
+    let depth = 0;
+    let start = open + 1;
+    for (let k = open; k < n; k++) {
+      const t = tokens[k];
+      if (t.t !== 'p') continue;
+      if (t.v === '{' || t.v === '[' || t.v === '(') depth++;
+      else if (t.v === '}' || t.v === ']' || t.v === ')') { if (--depth === 0) { if (k > start) out.push([start, k]); return out; } }
+      else if (t.v === ',' && depth === 1) { out.push([start, k]); start = k + 1; }
+    }
+    return out;
+  };
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = tokens[i];
+    if (!((t.t === 'id' || t.t === 'str') && t.v === 'alias' && isP(i + 1, ':') && (isP(i + 2, '{') || isP(i + 2, '[')))) continue;
+    for (const [s, e] of entries(i + 2)) {
+      let key = null;
+      let target = null;
+      if (isP(i + 2, '{') && (tokens[s].t === 'id' || lit(tokens[s])) && isP(s + 1, ':')) {
+        key = tokens[s].v;
+        target = targetIn(s + 2, e);
+      } else if (isP(s, '{')) {
+        const inner = entries(s);
+        const field = (name) => inner.find(([a]) => (tokens[a].t === 'id' || lit(tokens[a])) && tokens[a].v === name && isP(a + 1, ':'));
+        const f = field('find');
+        const r = field('replacement');
+        if (f && r && lit(tokens[f[0] + 2]) && f[1] === f[0] + 3) { key = tokens[f[0] + 2].v; target = targetIn(r[0] + 2, r[1]); }
+      }
+      if (key && target !== null) out.push({ key: key.replace(/\/$/, ''), target });
+    }
+  }
+  return out;
 }

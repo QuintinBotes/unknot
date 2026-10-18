@@ -111,6 +111,18 @@ for (const mode of MODES) {
     assert.ok(!edges(ambiguous, 'IMPORTS').some((fact) => fact.from === 'module:flows/helpers.py' && fact.to.startsWith('module:flows/proc')), 'two sibling layouts do not become an arbitrary edge');
     assert.ok(edges(ambiguous, 'IMPORTS').some((fact) => fact.from === 'module:flows/helpers.py' && fact.to === 'dependency:proc'), 'the unresolved import remains external instead of inventing a local target');
   });
+
+  test(`[${mode.name}] a standard-library name is never a flat sibling`, { skip }, async () => {
+    const { linked } = await repo({
+      'shop/types/__init__.py': '',
+      'shop/types/collections.py': 'from .products import Product\n',
+      'shop/types/products.py': 'from collections import defaultdict\nfrom pricing import price\n\nclass Product: pass\n',
+      'shop/types/pricing.py': 'def price(): return 1\n',
+    }, mode.exec);
+    const from = (p) => pairs(linked, 'IMPORTS').filter((e) => e.startsWith(`module:${p} `));
+    assert.ok(!from('shop/types/products.py').includes('module:shop/types/products.py -> module:shop/types/collections.py'), 'collections is the standard library');
+    assert.ok(from('shop/types/products.py').includes('module:shop/types/products.py -> module:shop/types/pricing.py'), 'other bare names still reach a unique sibling');
+  });
 }
 
 test('source roots: pyproject dirs, src/ and ctx.options.roots', async () => {

@@ -126,7 +126,7 @@ describe('delivery metrics and facts', () => {
     assert.deepEqual(orders.observed_window, { start: '2026-09-01T00:00:00.000Z', end: '2026-09-22T00:00:00.000Z' });
     assert.equal(orders.expires_at, '2026-10-06T00:00:00.000Z'); // window end + 14 days
     const fact = facts.find((f) => f.id === 'deployable:orders');
-    assert.deepEqual([fact.provenance.source_type, fact.provenance.confidence, fact.provenance.extractor], ['catalog', 'medium', 'delivery@0.1.3']);
+    assert.deepEqual([fact.provenance.source_type, fact.provenance.confidence, fact.provenance.extractor], ['catalog', 'medium', 'delivery@0.1.4']);
   });
 
   test('a unit with no usable lead time reports nulls, and a negative lead time is ignored', () => {
@@ -148,7 +148,7 @@ describe('delivery metrics and facts', () => {
   });
 
   test('the delivery attributes survive merging with a CI-derived deployable node', () => {
-    const ci = nodeFact('deployable', 'orders', { name: 'orders', attrs: { co_deployed_with: ['invoices'], inferred: true } }, prov({ source_type: 'inference', source_ref: 'ci.yml:1', extractor: 'delivery@0.1.3', confidence: 'medium' }));
+    const ci = nodeFact('deployable', 'orders', { name: 'orders', attrs: { co_deployed_with: ['invoices'], inferred: true } }, prov({ source_type: 'inference', source_ref: 'ci.yml:1', extractor: 'delivery@0.1.4', confidence: 'medium' }));
     const node = Graph.fromFacts([ci, ...facts]).node('deployable:orders');
     assert.deepEqual(node.attrs.co_deployed_with, ['invoices']);
     assert.equal(node.attrs.delivery.deployments, 4);
@@ -188,7 +188,7 @@ describe('delivery metrics and facts', () => {
   });
 
   test('a candidate places a whole-repository unit, and names units it cannot place', () => {
-    const P = prov({ source_type: 'catalog', source_ref: 'x:1', extractor: 'delivery@0.1.3', confidence: 'medium' });
+    const P = prov({ source_type: 'catalog', source_ref: 'x:1', extractor: 'delivery@0.1.4', confidence: 'medium' });
     const members = new Set(['module:shop/orders/a.js', 'module:shop/orders/b.js']);
     const run = (root) => boundaryMetrics(Graph.fromFacts([
       nodeFact('module', 'shop/orders/a.js', { name: 'a', path: 'shop/orders/a.js' }, P),

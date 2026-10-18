@@ -256,6 +256,8 @@ export const MEMBER_SYNTAX = {
     ],
     weak: /^[a-z_]/,
     weakLabel: 'package',
+    // An unexported name: only the package can touch it, so any access to it there is a use.
+    scopePrivate: /^[a-z_]/,
     ctorAssign: /(?:\b\w+\s*\.\s*)?\b(\w+)\s*(?::|=)\s*(\w+)\s*(?=[,}\n;)]|$)/g,
     self: [],
     selfDecl: /\bfunc\s*\(\s*(\w+)\s+\*?\s*(\w+)\s*(?:\[[^\]]*\])?\s*\)/g,

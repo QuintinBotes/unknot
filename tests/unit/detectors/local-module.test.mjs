@@ -184,6 +184,17 @@ test('dead-code: unreferenced private symbols and modules, with the documented e
   assert.ok(mDraft.patterns.includes('code.remove-dead-code'));
 });
 
+test('dead-code: constructors, accessors and framework lifecycle callbacks are run without a call', () => {
+  const methods = ['constructor:constructor', 'datetime:getter', 'value:setter', 'connectedCallback:method', 'attributeChangedCallback:method',
+    'componentDidCatch:method', 'componentWillUnmount:method', 'getDerivedStateFromError:method', 'stale:method'];
+  const facts = [
+    mod('src/a.ts', { language: 'typescript' }), mod('src/b.ts', { language: 'typescript' }), imp('src/b.ts', 'src/a.ts'),
+    ...methods.map((m) => { const [name, kind] = m.split(':'); return sym('method', 'src/a.ts', `Clock.${name}`, { exported: false, kind, language: 'typescript' }); }),
+  ];
+  const [d] = run('local.dead-code', facts);
+  assert.deepEqual(d.evidence.filter((e) => e.ref.startsWith('method:')).map((e) => e.ref), ['method:src/a.ts#Clock.stale']);
+});
+
 test('dead-code: configuration, resource, locale, template and data files are never dead code; an unused source module still is', () => {
   const flagged = (facts) => run('local.dead-code', facts).filter((d) => /imported by nothing/.test(d.title)).map((d) => d.scope[0]).sort();
   const others = [mod('src/index.js'), mod('src/a.js'), mod('src/b.js'), imp('src/index.js', 'src/a.js'), imp('src/a.js', 'src/b.js')];
@@ -202,6 +213,31 @@ test('dead-code: configuration, resource, locale, template and data files are ne
     assert.deepEqual(flagged([...others, mod(path, { language })]), [], `${path} is not dead code`);
   }
   assert.deepEqual(flagged([...others, mod('src/unused.js')]), ['src/unused.js']);
+});
+
+test('dead-code: a method called only from a module\'s top-level code is used', () => {
+  const facts = [
+    mod('src/index.js', { calls: [{ name: 'server.listen', line: 75 }] }), mod('src/server.js'), imp('src/index.js', 'src/server.js'),
+    sym('method', 'src/server.js', 'Server.listen', { exported: false, kind: 'method' }),
+    sym('method', 'src/server.js', 'Server.stale', { exported: false, kind: 'method' }),
+  ];
+  const [d] = run('local.dead-code', facts);
+  assert.deepEqual(d.evidence.filter((e) => e.ref.startsWith('method:')).map((e) => e.ref), ['method:src/server.js#Server.stale']);
+});
+
+test('dead-code: a module that defines nothing to import but runs code is a script, not dead', () => {
+  const call = [{ name: 'client.convert', line: 3 }];
+  const facts = [
+    mod('src/index.js'), mod('src/used.js'), imp('src/index.js', 'src/used.js'),
+    mod('src/client.js', { exports: [], calls: call }),
+    mod('scripts/gen.py', { language: 'python', top_level_calls: 2 }),
+    mod('src/decl.js', { exports: [], calls: [] }),
+    mod('src/lib.js', { exports: [{ name: 'f', kind: 'function' }], calls: call }),
+    mod('scripts/helpers.py', { language: 'python', top_level_calls: 1 }),
+    fn('scripts/helpers.py', 'helper', { exported: true }),
+    edge('CONTAINS', 'module:scripts/helpers.py', 'function:scripts/helpers.py#helper'),
+  ];
+  assert.deepEqual(keys(run('local.dead-code', facts)), ['module:scripts/helpers.py', 'module:src/decl.js', 'module:src/lib.js']);
 });
 
 test('dead-code: without any IMPORTS edges modules are not judged', () => {
@@ -229,6 +265,22 @@ test('one-implementation-interface: exactly one implementer, no more, no less', 
   assert.equal(out[0].measurements['interface.implementations'], 1);
   assert.ok(out[0].patterns.includes('code.collapse-hierarchy'));
   assert.ok(out[0].alternatives.some((a) => a.id === 'retain'));
+});
+
+test('one-implementation-interface: a test double as the only implementer is no finding; a structural language says what it cannot see', () => {
+  const facts = [
+    mod('client/client.go', { language: 'go' }),
+    mod('client/fake_test.go', { language: 'go', is_test: true }),
+    sym('interface', 'client/client.go', 'Doer', { kind: 'interface', language: 'go' }),
+    sym('class', 'client/fake_test.go', 'fakeDoer', { kind: 'class', language: 'go' }),
+    edge('IMPLEMENTS', 'class:client/fake_test.go#fakeDoer', 'interface:client/client.go#Doer'),
+    sym('interface', 'client/client.go', 'Store', { kind: 'interface', language: 'go' }),
+    sym('class', 'client/client.go', 'Sql', { kind: 'class', language: 'go' }),
+    edge('IMPLEMENTS', 'class:client/client.go#Sql', 'interface:client/client.go#Store'),
+  ];
+  const out = run('local.one-implementation-interface', facts);
+  assert.deepEqual(keys(out), ['interface:client/client.go#Store']);
+  assert.ok(out[0].uncertainties.some((u) => /without naming it/.test(u)));
 });
 
 test('duplicated-code: one finding per clone group; small, dissimilar, test and barrel clones are ignored', () => {

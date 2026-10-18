@@ -65,7 +65,12 @@ const DEPLOY_CMD_RE = /\b(kubectl\s+(apply|set\s+image|rollout)|helm\s+(upgrade|
 const withoutPaths = (cmd) => String(cmd)
   .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ') // URLs: a download path is not a verb
   .replace(/(?:\.{0,2}\/)?[\w.-]+(?:\/[\w.-]+)+/g, (p) => ` ${p.slice(p.lastIndexOf('/') + 1)} `);
-export const hasDeployStep = (steps) => steps.some((s) => (s.run && (DEPLOY_CMD_RE.test(String(s.run)) || DEPLOY_RE.test(withoutPaths(s.run)))) || (s.uses && DEPLOY_RE.test(String(s.uses))));
+// The words of a script's commands: comments and quoted text are prose (`echo "not a release"`).
+const commandWords = (cmd) => withoutPaths(String(cmd).replace(/(^|\s)#[^\n]*/g, '$1').replace(/"(?:[^"\\\n]|\\.)*"|'[^'\n]*'/g, ' '));
+// A job that creates the cluster it deploys to tests the deployment; it deploys nothing.
+const EPHEMERAL_CLUSTER_RE = /\b(helm\/kind-action|kind\s+create\s+cluster|medyagh\/setup-minikube|minikube\s+start|k3d\s+cluster\s+create|AbsaOSS\/k3d-action|k3s-io\/|nolar\/setup-k3d-k3s)\b/i;
+export const createsEphemeralCluster = (steps) => steps.some((s) => EPHEMERAL_CLUSTER_RE.test(`${s.uses ?? ''}\n${s.run ?? ''}`));
+export const hasDeployStep = (steps) => steps.some((s) => (s.run && (DEPLOY_CMD_RE.test(String(s.run)) || DEPLOY_RE.test(commandWords(s.run)))) || (s.uses && DEPLOY_RE.test(String(s.uses))));
 
 /** Service names named in deploy commands. Heuristic; callers record confidence low. */
 export function commandTargets(run) {
@@ -196,9 +201,9 @@ export function emitPipeline(m) {
 
   for (const job of m.jobs) {
     const jobId = `job:${m.path}#${job.id}`;
-    const signalText = [job.id, job.name, job.environment, job.extraSignal, ...job.steps.flatMap((s) => [s.name, s.uses, s.run])]
+    const signalText = [job.id, job.name, job.environment, job.extraSignal, ...job.steps.flatMap((s) => [s.name, s.uses, s.run && commandWords(s.run)])]
       .filter(Boolean).join('\n');
-    const deploySignal = Boolean(job.environment) || DEPLOY_RE.test(signalText);
+    const deploySignal = !createsEphemeralCluster(job.steps) && (Boolean(job.environment) || DEPLOY_RE.test(signalText));
     const inferred = deploySignal ? inferTargets(job, m.pathFilters ?? []) : { targets: [], evidence: [] };
     for (const t of inferred.targets) allDeploys.add(t);
     for (const s of job.steps) signatures.add(stepSignature(s));

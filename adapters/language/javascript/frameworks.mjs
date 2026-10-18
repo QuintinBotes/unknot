@@ -547,9 +547,14 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
         case 'runInNewContext': case 'runInThisContext': case 'runInContext':
           if (call && afterDot) addSignal('vm-run', tk.l, `vm.${tk.v}()`);
           break;
-        case 'innerHTML': case 'outerHTML':
-          if (afterDot && (isP(i + 1, '=') || isP(i + 1, '+='))) addSignal('inner-html', tk.l, `${tk.v} assignment`);
+        case 'innerHTML': case 'outerHTML': {
+          if (!afterDot || !(isP(i + 1, '=') || isP(i + 1, '+='))) break;
+          // A literal with nothing joined to it (`el.innerHTML = ""`, a template without holes) inserts no variable text.
+          const v = at(i + 2);
+          if ((v.t === 'str' || v.t === 'tpl') && !isP(i + 3, '+') && !isP(i + 3, '.')) break;
+          addSignal('inner-html', tk.l, `${tk.v} assignment`);
           break;
+        }
         case 'dangerouslySetInnerHTML':
           addSignal('dangerously-set-inner-html', tk.l, 'dangerouslySetInnerHTML');
           break;

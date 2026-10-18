@@ -233,3 +233,42 @@ test('.vue single-file components: script and script setup blocks are read for i
   assert.equal(factsByFile.get('src/Empty.vue').length, 0);
   assert.equal(graph.in('module:src/store.ts', 'IMPORTS').length, 1);
 });
+
+test('imports through a bundler alias resolve to the aliased directory', () => {
+  const { graph } = runAdapter(new Map([
+    ['ui/package.json', '{"name":"ui"}'],
+    ['ui/vite.config.js', 'import { defineConfig } from "vite";\nexport default defineConfig({\n  resolve: {\n    alias: {\n      "@": import.meta.dirname + "/src",\n      "@lib": path.resolve(__dirname, "./src/lib"),\n      vue$: "vue/dist/vue.esm.js",\n    },\n  },\n});\n'],
+    ['ui/src/router.js', 'import { pageLogs } from "@/logs/pageLogs";\nimport { fmt } from "@lib/fmt";\nimport Vue from "vue";\nexport const routes = [pageLogs, fmt, Vue];\n'],
+    ['ui/src/logs/pageLogs.js', 'export function pageLogs() {}\n'],
+    ['ui/src/lib/fmt.js', 'export const fmt = 1;\n'],
+    ['web/webpack.config.js', 'module.exports = { resolve: { alias: [{ find: "~", replacement: path.resolve(__dirname, "app") }] } };\n'],
+    ['web/app/main.js', 'import { util } from "~/util";\nimport { x } from "@/logs/pageLogs";\nexport default [util, x];\n'],
+    ['web/app/util.js', 'export const util = 1;\n'],
+  ]));
+  const to = (from) => graph.out(`module:${from}`, 'IMPORTS').map((e) => e.to).sort();
+  assert.deepEqual(to('ui/src/router.js'), ['dependency:vue', 'module:ui/src/lib/fmt.js', 'module:ui/src/logs/pageLogs.js']);
+  assert.deepEqual(to('web/app/main.js'), ['module:web/app/util.js'], "an alias applies only under its configuration's directory");
+});
+
+test('a named import of interfaces and type aliases only is erased like `import type`', () => {
+  const { graph } = runAdapter(new Map([
+    ['src/Dropzone.vue', '<script lang="ts">\nimport DropzoneWindow from "./DropzoneWindow.vue";\nexport interface PSFile { id: string }\nexport type Alias = string;\nexport enum Mode { A }\nexport interface Merged { a: 1 }\nexport const Merged = 1;\nexport default { components: { DropzoneWindow } };\n</script>\n'],
+    ['src/DropzoneWindow.vue', '<script lang="ts">\nimport {PSFile, Alias} from "./Dropzone.vue";\nexport default {};\n</script>\n'],
+    ['src/Mode.ts', 'import {Mode} from "./Dropzone.vue";\nimport {Merged} from "./Dropzone.vue";\nexport const m = [Mode, Merged];\n'],
+  ]));
+  const attr = (from, to) => graph.out(`module:${from}`, 'IMPORTS').find((e) => e.to === `module:${to}`)?.attrs;
+  assert.equal(attr('src/DropzoneWindow.vue', 'src/Dropzone.vue').type_only, true);
+  assert.equal(attr('src/Dropzone.vue', 'src/DropzoneWindow.vue').type_only, undefined);
+  assert.equal(attr('src/Mode.ts', 'src/Dropzone.vue').type_only, undefined, 'an enum and a name that is also a value are runtime imports');
+});
+
+test('an extensionless import resolves to a single-file component when no script matches', () => {
+  const { graph } = runAdapter(new Map([
+    ['js/mixins/global.js', 'import AkauntingDate from "./../components/AkauntingDate";\nimport util from "./../components/util";\nexport default { components: { AkauntingDate, util } };\n'],
+    ['js/components/AkauntingDate.vue', '<template><div/></template>\n<script>\nexport default { name: "AkauntingDate" };\n</script>\n'],
+    ['js/components/util.js', 'export default 1;\n'],
+    ['js/components/util.vue', '<template><div/></template>\n'],
+  ]));
+  const to = graph.out('module:js/mixins/global.js', 'IMPORTS').map((e) => e.to).sort();
+  assert.deepEqual(to, ['module:js/components/AkauntingDate.vue', 'module:js/components/util.js'], 'a script wins over a component of the same name');
+});

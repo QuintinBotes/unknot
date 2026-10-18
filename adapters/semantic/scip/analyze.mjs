@@ -22,12 +22,12 @@
 // read. Any member reached, method called or type used elsewhere is a real use and F is left alone.
 // The edge F -> M is then declared-only (`unused_evidence: 'semantic'`), naming the members.
 
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROLE, rangeOf, scipRecords } from './reader.mjs';
 import { classify, descriptors } from './symbols.mjs';
-import { documentLanguage } from './indexers.mjs';
+import { annotationRulesFor, documentLanguage } from './indexers.mjs';
 
 // SymbolInformation.Kind values: Interface 21, Protocol 42, Trait 53.
 const INTERFACE_KINDS = new Set([21, 42, 53]);
@@ -71,7 +71,7 @@ const inside = (outer, o) => {
  * @param {string[]} indexPaths absolute paths of SCIP index files
  * @param {{root: string, hasFile: (path: string) => boolean}} opts `hasFile` says whether a repository path is a mapped file
  */
-export function analyzeIndex(indexPaths, { root, hasFile }) {
+export function analyzeIndex(indexPaths, { root, hasFile, templateNames = new Map() }) {
   const t0 = Date.now();
   const syms = []; // id → symbol
   const defs = new Map(); // symbol → id
@@ -147,6 +147,7 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
   const reads = new Uint32Array(syms.length);
   const readsOut = new Uint32Array(syms.length); // reads that are not inside the member's own definition
   const memberLine = new Uint32Array(syms.length);
+  const annotated = new Uint8Array(syms.length); // a member with an annotation (attribute) on it or on the line above
   const memberTypes = new Map(); // member id → type symbols occurring in its definition range
   const storedTypes = new Map(); // member id → type symbols of the parameters stored into it
   const paramState = new Map(); // file + parameter symbol → { other reads, member ids it is stored into }
@@ -157,6 +158,18 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
     // A method calling itself is not a use of it from outside: its own enclosing range is skipped.
     const own = new Map();
     for (const o of d.occurrences) if (o.enclosing && (o.roles & ROLE.Definition) && defKind[defs.get(o.symbol)] === 2) own.set(o.symbol, o.enclosing);
+    // A write is an occurrence with WriteAccess and no ReadAccess. An indexer that records no access
+    // roles at all (scip-dotnet) leaves only the source: there a write is followed by a lone `=`.
+    const noRoles = !d.occurrences.some((o) => o.roles & (ROLE.ReadAccess | ROLE.WriteAccess));
+    let lines = null;
+    const after = (o) => {
+      if (lines === null) {
+        try { lines = readFileSync(resolve(root, path), 'utf8').split('\n'); } catch { lines = []; }
+      }
+      const r = rangeOf(o.range);
+      return (lines[r[2]] ?? '').slice(r[3]);
+    };
+    const isWrite = (o) => ((o.roles & ROLE.WriteAccess) ? !(o.roles & ROLE.ReadAccess) : noRoles && /^\s*=(?![=>])/.test(after(o)));
     // This file's definitions the unused-dependency decision needs: members, parameters, type bodies, and the writes to members.
     const kindOf = new Map(d.symbols.map((x) => [x.symbol, x.kind]));
     const boxOf = (o) => (o.enclosing?.length ? rangeOf(o.enclosing) : [o.range[0] ?? 0, 0, o.range[0] ?? 0, Infinity]);
@@ -177,9 +190,15 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
         mdefs.push({ id, box: boxOf(o), types: new Set() });
         memberLine[id] = (o.range[0] ?? 0) + 1;
       }
-      if ((o.roles & ROLE.Definition) || ((o.roles & ROLE.WriteAccess) && !(o.roles & ROLE.ReadAccess))) writes.push({ id, line: o.range[0] ?? 0, col: o.range[1] ?? 0 });
+      if ((o.roles & ROLE.Definition) || isWrite(o)) writes.push({ id, line: o.range[0] ?? 0, col: o.range[1] ?? 0 });
     }
     const mdefOf = new Map(mdefs.map((m) => [m.id, m]));
+    const ann = annotationRulesFor(files[fi].language);
+    if (ann && mdefs.length) {
+      const lines = new Set();
+      for (const o of d.occurrences) if (o.symbol && !(o.roles & ROLE.Definition) && ann.annotation.test(o.symbol) && !ann.injection?.test(o.symbol)) lines.add((o.range[0] ?? 0) + 1);
+      for (const m of mdefs) if (lines.has(memberLine[m.id]) || lines.has(memberLine[m.id] - 1)) annotated[m.id] = 1;
+    }
     for (const o of d.occurrences) {
       if (!o.symbol || (o.roles & (ROLE.Definition | ROLE.ForwardDefinition))) continue;
       const pd = pdefs.get(o.symbol);
@@ -199,7 +218,7 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
       const enclosing = own.get(o.symbol);
       if (enclosing && inside(enclosing, o.range)) continue;
       refs[id]++;
-      const writeOnly = (o.roles & ROLE.WriteAccess) && !(o.roles & ROLE.ReadAccess);
+      const writeOnly = isWrite(o);
       if (!writeOnly) reads[id]++;
       if (defKind[id] === 3 && !writeOnly) {
         const m = mdefOf.get(id);
@@ -263,15 +282,42 @@ export function analyzeIndex(indexPaths, { root, hasFile }) {
     if (rel && types.has(rel)) return [rel];
     return [...(memberTypes.get(id) ?? storedTypes.get(id) ?? [])];
   };
+  // A member is read through an interface or base type of its own that the repository defines
+  // and that declares a member of the same name (`INameCompatibility.TableNames` reaches every
+  // implementation's TableNames); an annotated member is reached by the framework that reads it.
+  const supers = new Map();
+  for (const [from, to] of rels) {
+    if (!supers.has(from)) supers.set(from, []);
+    supers.get(from).push(to);
+  }
+  const readThroughSuper = (id) => {
+    const sym = syms[id];
+    const owner = sym.slice(0, sym.lastIndexOf('#') + 1);
+    if (!owner) return false;
+    const tail = sym.slice(owner.length);
+    const seen = new Set([owner]);
+    const stack = [...(supers.get(owner) ?? [])];
+    while (stack.length) {
+      const u = stack.pop();
+      if (seen.has(u)) continue;
+      seen.add(u);
+      const cid = defs.get(u + tail);
+      if (cid !== undefined && reads[cid]) return true;
+      stack.push(...(supers.get(u) ?? []));
+    }
+    return false;
+  };
+  const namedInTemplates = (id) => Boolean(templateNames.get(files[defFile[id]].language)?.has(classify(syms[id])?.name));
+  const isRead = (id) => Boolean(readsOut[id] || annotated[id] || readThroughSuper(id) || namedInTemplates(id));
   const deps = new Map();
   for (const p of pairs.values()) {
-    const unused = files[p.src].memberIds.filter((id) => defKind[id] === 3 && !readsOut[id] && typeSymbolsOf(id).some((t) => types.get(t)?.file === p.tgt));
+    const unused = files[p.src].memberIds.filter((id) => defKind[id] === 3 && !isRead(id) && typeSymbolsOf(id).some((t) => types.get(t)?.file === p.tgt));
     if (!unused.length) continue;
     let excused = p.importLike;
-    for (const [id, n] of p.inMember) if (!readsOut[id]) excused += n;
+    for (const [id, n] of p.inMember) if (!isRead(id)) excused += n;
     for (const [key, n] of p.inParam) {
       const st = paramState.get(key);
-      if (st && !st.other && st.stores.every((id) => !readsOut[id])) excused += n;
+      if (st && !st.other && st.stores.every((id) => !isRead(id))) excused += n;
     }
     if (p.refs + p.calls - excused > 0) continue;
     const from = files[p.src].path;
