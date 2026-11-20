@@ -107,31 +107,52 @@ const FORGE_REVIEW_TEXT = /approve|\/reviews\b|PullRequestReview|\bpr\s+review\b
 const REVIEW_ENDPOINT = /\/pulls\/[^/\s]+\/reviews\b|PullRequestReview/;
 // gh api flags that take a value; the endpoint is the first other word.
 const GH_API_VALUE_FLAGS = new Set(['-X', '--method', '-H', '--header', '-f', '--raw-field', '-F', '--field', '-q', '--jq', '-t', '--template', '--input', '-p', '--preview', '--hostname', '--cache']);
+// Flags gh takes ahead of a (sub)command, with a value: `gh -R o/r pr review`, `gh pr -R o/r review`.
+const GH_LEADING_VALUE_FLAGS = new Set(['-R', '--repo', '--hostname']);
+const commandAt = (words) => {
+  let i = 0;
+  while (i < words.length && !words[i].dynamic && words[i].value.startsWith('-')) i += GH_LEADING_VALUE_FLAGS.has(words[i].value) ? 2 : 1;
+  return i;
+};
 
-/** Would gh, given these words, submit an approving review? A word gh reads that cannot be read here counts as one. */
-function ghApproves(words) {
-  const args = words.map((w) => w.value);
+/**
+ * Would gh, given these words, submit an approving review? A word gh reads that cannot be read
+ * here (computed by the shell, or added by xargs from stdin) counts as one where it could be one.
+ */
+function ghApproves(words, fromStdin) {
+  const i = commandAt(words);
+  if (i >= words.length) return fromStdin;
+  const sub = words[i];
+  const rest = words.slice(i + 1);
+  const args = rest.map((w) => w.value);
+  const computed = fromStdin || rest.some((w) => w.dynamic);
+  if (sub.dynamic) return true;
   // An alias can be defined to approve (`gh alias set`, `gh alias import`); listing them cannot.
-  if (args[0] === 'alias') return args[1] !== 'list';
-  if (args[0] === 'pr' && args.includes('review')) {
+  if (sub.value === 'alias') return args[0] !== 'list';
+  if (sub.value === 'pr') {
+    const j = commandAt(rest);
+    if (j >= rest.length) return fromStdin;
+    if (rest[j].dynamic) return true;
+    if (rest[j].value !== 'review') return false;
     // `-a` combines with other short flags (`-ab lgtm`). A computed word may be `-a`, unless another
     // review kind is given: gh takes exactly one.
     if (args.some((a) => /^--approve(=|$)/.test(a) || /^-[^-=]*a/.test(a))) return true;
-    return words.some((w) => w.dynamic) && !args.some((a) => /^(-c|-r|--comment|--request-changes)$/.test(a));
+    return computed && !args.some((a) => /^(-c|-r|--comment|--request-changes)$/.test(a));
   }
-  if (args[0] !== 'api') return false;
+  if (sub.value !== 'api') return false;
   // A body from a file or stdin (`--input`, `-F key=@file`) or a computed word cannot be seen.
-  const unseen = words.some((w) => w.dynamic) || args.some((a) => /^--input(=|$)/.test(a) || /=@/.test(a));
-  const rest = words.slice(1);
-  const endpoint = rest.find((w, i) => !w.value.startsWith('-') && !GH_API_VALUE_FLAGS.has(rest[i - 1]?.value));
+  const unseen = computed || args.some((a) => /^--input(=|$)/.test(a) || /=@/.test(a));
+  const endpoint = rest.find((w, k) => !w.value.startsWith('-') && !GH_API_VALUE_FLAGS.has(rest[k - 1]?.value));
   if (unseen && (!endpoint || endpoint.dynamic || endpoint.value === 'graphql')) return true;
   return args.some((a) => REVIEW_ENDPOINT.test(a)) && (unseen || args.some((a) => /APPROVE/i.test(a)));
 }
 
 function forgeApprovalCommand(cmd) {
   // Every command is parsed: quoting (`g""h pr "review" -a`) changes no word gh receives. Text that
-  // names gh and a review counts as one where the command cannot be read that precisely.
-  const suspect = /\bgh\b/.test(cmd) && FORGE_REVIEW_TEXT.test(cmd);
+  // names gh and a review, quotes aside, counts as one where the command cannot be read that precisely:
+  // an interpreter, a computed command word, or git running shell text (a `!` alias, `rebase --exec`).
+  const plain = cmd.replace(/["'\\]/g, '');
+  const suspect = /\bgh\b/.test(plain) && FORGE_REVIEW_TEXT.test(plain);
   const parsed = parseShell(cmd);
   if (!parsed.ok) return suspect;
   for (const c of effectiveCommands(parsed)) {
@@ -139,8 +160,8 @@ function forgeApprovalCommand(cmd) {
     if (!word) continue;
     const name = word.dynamic ? null : basenameOf(word);
     if (name === 'gh') {
-      if (ghApproves(c.argv.slice(1))) return true;
-    } else if (suspect && !DATA_ONLY.has(name)) return true;
+      if (ghApproves(c.argv.slice(1), Boolean(c.context?.fromStdin))) return true;
+    } else if (suspect && (!DATA_ONLY.has(name) || (name === 'git' && c.argv.some((w) => /alias|^!|^--exec|^-x$/.test(w.value))))) return true;
   }
   return false;
 }
@@ -149,12 +170,14 @@ function forgeApprovalCommand(cmd) {
 function forgeApprovalTool(op) {
   if (/approve/i.test(op.name)) return true;
   if (!/review/i.test(op.name)) return false;
-  // One tool may create or submit by a method argument (GitHub's `pull_request_review_write`).
+  // One tool may create or submit by a method argument (GitHub's `pull_request_review_write`); names
+  // come in any case style (`createPullRequestReview`, `create-pull-request-review`).
   const verb = `${op.name} ${op.input?.method ?? ''}`;
-  if (!/(^|[_\s])(create|submit|add|write)([_\s]|$)/i.test(verb)) return false;
+  if (!/create|submit|add|write/i.test(verb)) return false;
   const event = String(op.input?.event ?? op.input?.state ?? '').toUpperCase();
-  // The event may sit deeper in a tool's own argument shape (`{ input: { event: 'APPROVE' } }`).
-  return event === 'APPROVE' || (event === '' && /submit/i.test(verb)) || /"APPROVE"/i.test(JSON.stringify(op.input ?? {}));
+  // The event may sit deeper in a tool's own argument shape (`{ input: { event: 'APPROVE' } }`), or
+  // be spelled as a state (Gitea's `APPROVED`).
+  return /^APPROVED?$/.test(event) || (event === '' && /submit/i.test(verb)) || /"APPROVED?"/i.test(JSON.stringify(op.input ?? {}));
 }
 
 /**
