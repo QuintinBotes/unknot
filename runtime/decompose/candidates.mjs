@@ -413,7 +413,27 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   details.evidence['cycle.size'] = [...worst, ...closing];
   // `cycle.size` counts only cycles that cross the boundary; the cycle wholly inside it is
   // `boundary.internal_cycle_size`. `cycle.crossing_size` names the first so neither reads as "the cycle".
+  // Both are context: the size of a component the candidate touches is the same for every candidate in it.
   m['cycle.crossing_size'] = m['cycle.size'];
+  // The candidate's own part in a cycle (#73): collapsed to one node, its boundary edges that lie on
+  // a cycle through it. An edge out lies on one when its target reaches the candidate again, an edge
+  // in when the candidate reaches its source, both through files outside it.
+  const imports = (id, dir) => graph[dir](id, 'IMPORTS').filter((e) => !e.attrs?.intra_package);
+  const outward = [...members].flatMap((x) => imports(x, 'out').filter((e) => !members.has(e.to)));
+  const inward = [...members].flatMap((x) => imports(x, 'in').filter((e) => !members.has(e.from)));
+  const walk = (starts, next) => {
+    const seen = new Set(starts);
+    const queue = [...seen];
+    while (queue.length) for (const y of next(queue.pop())) if (!members.has(y) && !seen.has(y)) { seen.add(y); queue.push(y); }
+    return seen;
+  };
+  const reaching = walk(inward.map((e) => e.from), (x) => imports(x, 'in').map((e) => e.from));
+  const back = outward.filter((e) => reaching.has(e.to));
+  // Every file on a cycle through the candidate reaches it, so the forward walk stays inside `reaching`.
+  const reached = back.length ? walk(back.map((e) => e.to), (x) => imports(x, 'out').map((e) => e.to).filter((y) => reaching.has(y))) : new Set();
+  const onCycle = [...back, ...inward.filter((e) => reached.has(e.from))].map((e) => e.id).sort();
+  m['cycle.boundary_edges'] = onCycle.length;
+  details.evidence['cycle.boundary_edges'] = onCycle;
   const wholly = touching.filter((c) => c.every((x) => members.has(x))).sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1));
   m['boundary.internal_cycle_size'] = wholly.length ? wholly[0].length : 0;
   if (wholly.length) {
