@@ -909,7 +909,8 @@ function parseDml(tokens, src, st, verb) {
   const write = tables.find((t) => t.role === 'write');
   st.table = write ? { schema: write.schema, name: write.name } : null;
   // MySQL multi-table DELETE t1 FROM t1 JOIN t2: the target precedes FROM.
-  if (st.kind === 'delete' && !st.table) {
+  // `DELETE FROM {table}` names no table we can read: FROM is the keyword, not the target.
+  if (st.kind === 'delete' && !st.table && tokens[tokens.findIndex((t) => t.u === 'DELETE') + 1]?.u !== 'FROM') {
     const i = tokens.findIndex((t) => t.u === 'DELETE');
     const c = new Cur(tokens, src); c.i = i + 1;
     const nm = parseName(c);

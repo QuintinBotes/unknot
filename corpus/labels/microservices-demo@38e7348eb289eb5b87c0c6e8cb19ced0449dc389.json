@@ -38,5 +38,57 @@
   "sha256:ca0a87ef70a4288f3333abf6310586dbcc12ab3d1f88f6d80631ab9533ee9e6b": {
     "label": "not-worth",
     "note": "Dockerfile sets no USER but the deployment manifest enforces runAsNonRoot and a user id."
+  },
+  "sha256:4fef312c194316acc5d02349c75fa29852635878c97572bddafc70c45fa43dbb": {
+    "label": "true",
+    "note": "Deployment container \"server\" defines no liveness/readiness probe, unlike the core service manifests."
+  },
+  "sha256:2b19cc030ea958762db757da89bae31f5d08e5dba78fdd9ac013af1affc6eccf": {
+    "label": "not-worth",
+    "note": "frontend-external is the storefront entry point; LoadBalancer exposure is the intended design of the demo."
+  },
+  "sha256:18473eefd69da5bffda1e2f8979ef0d4829d15da844faf97e43e69b486ea06aa": {
+    "label": "not-worth",
+    "note": "Code after raise is a deliberate not-implemented stub in a demo (cloud mail client not implemented)."
+  },
+  "sha256:58f7379b97e2fd1639a963eb5393fed1cad033930d5245e870eb5140db22b510": {
+    "label": "not-worth",
+    "note": "82 lines vs an 80 threshold, cyclomatic 6, straight-line form parsing and call sequence."
+  },
+  "sha256:a6a7de4de555c2caae7c233b447c94a36300091eeb08a7170a38c39b83220068": {
+    "label": "not-worth",
+    "note": "Finding cites a test kustomization; the otel-gateway container lives in the optional google-cloud-operations component and omits resources, minor for an add-on."
+  },
+  "sha256:3807612dff6a76c5842c0f45e6ce740a2785ea51e6ff4f64f88157c1f4dc371d": {
+    "label": "not-worth",
+    "note": "deployment-tests is a CI smoke test deploying to an ephemeral cluster; rollback is not applicable."
+  },
+  "sha256:79aade53e8cb4a8c986e444461ba8f3940d7aefe275f6b998d776fcbff934c21": {
+    "label": "true",
+    "note": "Runtime stage is untagged gcr.io/distroless/static while the builder stage is digest-pinned; easy to pin."
+  },
+  "sha256:e02b7be8bc13a898998e4dc95cb015a6196262b3cee62bf9acffea9380a5a977": {
+    "label": "false",
+    "note": "client.js is a standalone manual gRPC test client (listed in .dockerignore), not a module meant to be imported."
+  },
+  "sha256:3b861118790779e7fb9135c6653086dddc53e594af3fc29e0ba5f78539300dcb": {
+    "label": "not-worth",
+    "note": "loadgenerator is a traffic generator, not a request-serving service, so probes add little."
+  },
+  "sha256:6e345111be1a1752e55afc08af333d20fad842eee3e20ca4ae051e423df4d027": {
+    "label": "true",
+    "note": "helm-chart-ci.yaml has no permissions block at workflow or job level, so default token scope applies; trivial to restrict."
+  },
+  "sha256:ab71cb467f1d1781bcc86773a9540c4719e9517a2f717d9f3a178fd725564d6f": {
+    "label": "false",
+    "note": "Called at src/paymentservice/index.js:75 (server.listen()) on new HipsterShopServer."
+  },
+  "sha256:7b634bc34d0387601aeac064f036ed084e20e0999c5e058b98389a5496d6295f": {
+    "label": "true",
+    "note": "gcr.io/distroless/static is used without a tag or digest."
+  },
+  "sha256:9e28325d0f2dff8aba58db204372150912c4a682a56ef3ff469930d81cf64594": {
+    "label": "not-worth",
+    "note": "Official Google actions referenced by major tag in a demo repository."
   }
 }

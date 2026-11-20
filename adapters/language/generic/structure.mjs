@@ -278,7 +278,7 @@ export function countParams(text, lang) {
     const ch = t[i];
     if (ch === '(' || ch === '[' || ch === '{') depth++;
     else if (ch === ')' || ch === ']' || ch === '}') depth--;
-    else if (ch === '<') depth++;
+    else if (ch === '<' && t[i + 1] !== '-') depth++; // a channel arrow (`<-chan`, `chan<-`) opens nothing
     else if (ch === '>' && t[i - 1] !== '-' && t[i - 1] !== '=') depth--;
     if (ch === ',' && depth <= 0) { segs.push(cur); cur = ''; count++; } else cur += ch;
     if (!/\s/.test(ch)) any = true;
@@ -289,6 +289,42 @@ export function countParams(text, lang) {
   if (list[list.length - 1] === '') list = list.slice(0, -1);
   if (genericSyntax(lang).dropSelfParam) list = list.filter((s) => !/^&?\s*(?:'\w+\s+)?(?:mut\s+)?self\b/.test(s));
   return list.length;
+}
+
+/**
+ * The method specs and embedded interfaces of an interface body, for languages whose types
+ * implement an interface by having its methods. A type-set term (`~int | float64`) makes the
+ * interface a constraint, which nothing implements: no method set.
+ */
+function interfaceMethods(body, lang) {
+  const methods = [];
+  const embeds = [];
+  for (const line of body.split(/[\n;]/)) {
+    const s = line.trim();
+    if (!s) continue;
+    const m = /^([A-Za-z_]\w*)\s*\(/.exec(s);
+    if (m) {
+      let depth = 0;
+      let k = m[0].length - 1;
+      for (; k < s.length; k++) if (s[k] === '(') depth++; else if (s[k] === ')' && --depth === 0) break;
+      methods.push({ name: m[1], params: countParams(s.slice(m[0].length, k), lang) });
+    } else if (/^[A-Za-z_][\w.]*$/.test(s)) embeds.push(s);
+    else return { methodSet: null };
+  }
+  return { methodSet: methods, embeds };
+}
+
+/** The types a struct body embeds: fields that are only a type name, outside nested bodies. */
+function embeddedFields(body) {
+  const out = [];
+  let depth = 0;
+  for (const line of body.split('\n')) {
+    const s = line.replace(/`[^`]*`|"[^"]*"/g, '').trim();
+    const m = depth === 0 && /^\*?([A-Za-z_][\w.]*)(?:\[[^\]]*\])?$/.exec(s);
+    if (m) out.push(m[1]);
+    for (const ch of s) depth += ch === '{' ? 1 : ch === '}' ? -1 : 0;
+  }
+  return out;
 }
 
 const DECISION = {
@@ -582,6 +618,7 @@ export function analyze(lx, lang) {
       exported: exportedFor(lang, name, prefix),
       ...parseBases(lang, typeKind.split(' ')[0], hdr),
     };
+    if (syntax.structuralInterfaces && body >= 0) Object.assign(t, isIface ? interfaceMethods(code.slice(body + 1, end), lang) : { embeds: embeddedFields(code.slice(body + 1, end)) });
     types.push(t);
   };
 
@@ -672,6 +709,12 @@ export function analyze(lx, lang) {
         extraScopes.push({ name: typeName, start: m.index, end: bm[sh.body] >= 0 ? bm[sh.body] : n - 1 });
         if (traitName) impls.push({ type: typeName, trait: traitName, line: lx.lineOf(m.index) });
       }
+    }
+    // A declaration that only checks a type implements an interface (`var _ I = (*T)(nil)`): group 1 the interface, 2 or 3 the type.
+    for (const m of syntax.implementsAssertion ? code.matchAll(syntax.implementsAssertion) : []) {
+      const type = simpleName(m[2] ?? m[3]);
+      const trait = simpleName(m[1]);
+      if (type && trait) impls.push({ type, trait, line: lx.lineOf(m.index), ...((m[2] ?? m[3]).includes('.') && { type_qualified: true }), ...(m[1].includes('.') && { trait_qualified: true }) });
     }
     if (syntax.extensionBlocks) {
       for (const m of code.matchAll(/(?<![\w.])extension\s+([A-Za-z_][\w.]*)/g)) {

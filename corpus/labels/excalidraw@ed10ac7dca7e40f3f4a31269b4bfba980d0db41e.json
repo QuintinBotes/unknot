@@ -38,5 +38,53 @@
   "sha256:99814f5b8d6bc35afa0acef9a0bc02b6e3d575567c53bceaa4cc0b9fc1abc423": {
     "label": "not-worth",
     "note": "Barrel index re-exports one more module; instability metric is not meaningful here."
+  },
+  "sha256:dfa07db897d8aa8db1eee9f146558b1864827678234b2bdc8b52e8b3a43d308e": {
+    "label": "not-worth",
+    "note": "innerHTML is set from svg.outerHTML of an SVG element the app itself exported from library elements, not from attacker-assembled text."
+  },
+  "sha256:bd4cc1f1d26a758bd40489003d4caf791a65c6e029fc682403f9be4f7740b51f": {
+    "label": "true",
+    "note": "firebase.ts value-imports getSyncableElements from index.ts (line 35, used at 218+) while index.ts imports saveFilesToFirebase from firebase.ts (line 39): a real two-file cycle."
+  },
+  "sha256:b5b9ece4e56913c6a0c09adbeaebb3017b5aee4d76a80605059d578ef7ba342b": {
+    "label": "not-worth",
+    "note": "execSync builds a pyftmerge command from font paths produced inside the build script; dev-time tooling with no external input."
+  },
+  "sha256:89e4fadf635968d88f9f945d9b57bf8fa5a2ea60cf5896c0975ed2adff5815c8": {
+    "label": "not-worth",
+    "note": "bindOrUnbindBindingElement is 88 lines, cyclomatic 9, nesting 2, just over the threshold."
+  },
+  "sha256:e3dab882349f7cebb958fe7e0767c3bd85b42518afe5166751add2f943ad66fa": {
+    "label": "true",
+    "note": "size-limit.yml has no permissions block and passes GITHUB_TOKEN to a third-party action, so the repository default token scope applies."
+  },
+  "sha256:24f7c5324d001d26c24fa44492af5e0d9e469847134326de4a4e452582995d6b": {
+    "label": "not-worth",
+    "note": "The Algolia apiKey in docusaurus config is the public search-only key that Docusaurus ships to the browser by design."
+  },
+  "sha256:59c2dc51f1e9eeafe46eb453cfd4d098d238342f2d11d3953b7b0fcec9eb51ee": {
+    "label": "not-worth",
+    "note": "Final stage is the stock nginx static-file server with a HEALTHCHECK; root master process is the image default for serving the built app."
+  },
+  "sha256:98707df43c3ccdb8bdccad69c5ba28e01ab2bca435be43afab43009d66c8cded": {
+    "label": "not-worth",
+    "note": "with-script-in-browser is an example project under examples/, not a product frontend."
+  },
+  "sha256:94095216a716b5bc9418118dc300dd2edb6a5bfea34a414ebc7466316dd33b42": {
+    "label": "true",
+    "note": "The @excalidraw/* alias table is copy-pasted between vite.config.mts and vitest.config.mts, so a new package must be added in both."
+  },
+  "sha256:eacdf5da002deaa5eb2943681caca1dd15d063f2c2dab75e2a1cc03e4e70c253": {
+    "label": "not-worth",
+    "note": "shape.ts is a cohesive shape-generation module just over 1000 lines (42 data lines)."
+  },
+  "sha256:52919437ff27e19456bbe2cd74e74547a7b7a7fb9d53230251997016fb604839": {
+    "label": "not-worth",
+    "note": "packages/element/src/index.ts is the package barrel; fan-in 127 and fan-out 53 are what a re-export index looks like."
+  },
+  "sha256:196d5b184e440c5aa762b865d3ea5be8b84a5f6d48c26370cfaecc2b983df877": {
+    "label": "not-worth",
+    "note": "woff2ServerPlugin is an esbuild font-build script (233 lines, 18 data), run at dev/build time only."
   }
 }

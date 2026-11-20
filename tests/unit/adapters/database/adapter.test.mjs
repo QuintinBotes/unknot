@@ -24,7 +24,7 @@ const all = (m) => [...m.values()].flat();
 
 test('adapter: contract shape and capabilities', () => {
   assert.equal(adapter.id, 'database');
-  assert.equal(adapter.version, '0.1.3');
+  assert.equal(adapter.version, '0.1.4');
   assert.equal(adapter.kind, 'database');
   assert.deepEqual(adapter.capabilities.executes, []);
   assert.equal(adapter.capabilities.network, false);
@@ -40,7 +40,7 @@ test('adapter: every fact validates and carries provenance', () => {
   const { factsByFile } = extractTree('flyway-pg');
   for (const f of all(factsByFile)) {
     assertFact(f);
-    assert.equal(f.provenance.extractor, 'database@0.1.3');
+    assert.equal(f.provenance.extractor, 'database@0.1.4');
     assert.match(f.provenance.source_ref, /:\d+$/);
   }
 });

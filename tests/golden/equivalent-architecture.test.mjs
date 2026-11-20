@@ -23,8 +23,9 @@ const UNIT_EDGES = ['api->orders', 'app->api', 'app->invoices', 'app->orders', '
 // Includes uses of a type from the same package or directory, which need no import.
 const FILE_EDGES = [['service', 'entity'], ['service', 'port'], ['port', 'entity'], ['adapter', 'port'], ['adapter', 'entity'], ['controller', 'service']];
 const FINDINGS = ['code.one-implementation-interface'];
+// Go states no implementation: a type with the interface's methods implements it.
 // What a language's tier cannot see, named so a fix shows up here.
-const TIER_GAPS = { go: { 'code.one-implementation-interface': 'Go satisfies interfaces implicitly; the lexical tier sees no implementation' } };
+const TIER_GAPS = {};
 const DDL = { 'db/schema.sql': 'CREATE TABLE orders (id integer primary key);\n' };
 
 const unitOf = (p) => (p ?? '').toLowerCase().split('/').find((s) => UNITS.includes(s)) ?? null;

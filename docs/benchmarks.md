@@ -139,6 +139,43 @@ at the start:
 The rest of each total is the derived step and opening the store. The 250k tier has not been
 re-run with these changes.
 
+### 250k after delta projection, and a same-day comparison (2026-10-18)
+
+`node scripts/bench.mjs --sizes 50k,250k` on the development branch after 0.4.0, same machine.
+It was not idle: other work kept the load average between 9 and 24 (on 10 cores) during the
+run, so read the cold times as upper bounds.
+
+| Tier | Cold | No change | 10 changed | Peak RSS | Store |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 250k | 1,222.5 s | 365.2 s | 379.4 s | 5,199 MB | 11,255 MB |
+
+| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 250k cold | 51.6 s | 432.2 s | 84.9 s | 4.7 s | 6.2 s | 6.3 s | 556.8 s |
+| 250k no change | 54.9 s | 135.3 s | 73.3 s | 8.7 s | 9.1 s | 4.2 s | 79.8 s |
+| 250k 10 changed | 46.6 s | 63.5 s | 90.4 s | 8.7 s | 10.5 s | 8.7 s | 78.6 s |
+
+Against the earlier 250k run, which preceded delta projection: re-maps are 2.3 times
+(no change) and 3.6 times (10 changed) faster, projection on a re-map fell from 682 to 80 s,
+and peak memory from 6,705 to 5,199 MB (the store grew from 10,401 to 11,255 MB). The cold map took 1,222 s against 654 s then.
+
+To tell load from code, the 50k tier was run four times, alternating v0.3.3 and the branch:
+
+| Run | Cold | No change | 10 changed | Load average at the end |
+| --- | ---: | ---: | ---: | ---: |
+| v0.3.3, round 1 | 108.1 s | 24.4 s | 28.9 s | 10.5 |
+| branch, round 1 | 110.4 s | 29.7 s | 36.7 s | 10.2 |
+| v0.3.3, round 2 | 108.1 s | 27.3 s | 33.6 s | 14.3 |
+| branch, round 2 | 121.8 s | 33.2 s | 40.9 s | 33.9 |
+
+Cold maps are the same within the noise of the load. Re-maps are about 20% slower. The graph is
+identical (195,493 nodes, 597,813 edges), but the branch extracts 300,006 adapter-file pairs
+against 200,006: the `contracts` adapter (messaging channels) and the `di` adapter read every
+source file. Each pair is a cache lookup on every re-map even when it holds no facts, and the
+extra time is spread over census, extraction, link and projection rather than one phase. The
+cold 250k time therefore says more about the load during that run than about the code; a
+v0.3.3 run at 250k on an idle machine would settle it.
+
 ## Reading the results against the targets
 
 - **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and

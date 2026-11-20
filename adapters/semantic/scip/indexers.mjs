@@ -30,6 +30,13 @@ export const INDEXERS = Object.freeze([
     language: LANGUAGE_IDS.CSHARP,
     // Some indexers leave a document's language empty; its extension then names it.
     markers: ['**/*.sln', '**/*.csproj'],
+    // An attribute on a member is a reference to its constructor (`JsonPropertyAttribute#`.ctor`().`).
+    // A framework reads such a member by reflection, except where the attribute asks a container to
+    // inject it (the C# injection attributes of the member syntax): that is a write.
+    annotation: /Attribute#(?:`\.ctor`\([^)]*\)\.)?$/,
+    injection: /[/#.](?:Dependency|Inject|FromServices|Import|ImportMany|Autowired)Attribute#/,
+    // Templates the indexer does not read, which name members (Razor views: `Model.X`, `asp-for="X"`).
+    templates: ['**/*.cshtml', '**/*.razor'],
     executable: 'scip-dotnet',
     argv: ['index', '--output', OUTPUT],
     executesRepositoryCode: true,
@@ -113,17 +120,25 @@ export const INDEXERS = Object.freeze([
 ]);
 
 const LANGUAGE_BY_EXTENSION = new Map(INDEXERS.flatMap((entry) => Object.entries(entry.extensions)));
+const KNOWN_LANGUAGES = new Set(Object.values(LANGUAGE_IDS));
 
 /**
- * A SCIP document's language: the one it declares, else the one its extension names in the
- * table. scip-typescript, for one, writes every document with an empty language.
+ * A SCIP document's language: the one it declares when that is a language id, else the one its
+ * extension names in the table. scip-typescript, for one, writes every document with an empty
+ * language, and scip-dotnet writes "C#".
  */
 export function documentLanguage(document) {
   const declared = String(document?.language ?? '').toLowerCase();
-  if (declared) return declared;
+  if (declared && KNOWN_LANGUAGES.has(declared)) return declared;
   const path = String(document?.relative_path ?? '');
   const dot = path.lastIndexOf('.');
   return dot === -1 ? '' : (LANGUAGE_BY_EXTENSION.get(path.slice(dot).toLowerCase()) ?? '');
+}
+
+/** For a language: the symbols an annotation on a member references, and those of injection annotations. */
+export function annotationRulesFor(language) {
+  const row = INDEXERS.find((entry) => entry.languages.includes(language));
+  return row?.annotation ? { annotation: row.annotation, injection: row.injection ?? null } : null;
 }
 
 export const INDEXER_EXECUTABLES = Object.freeze([...new Set(INDEXERS.map((entry) => entry.executable))]);

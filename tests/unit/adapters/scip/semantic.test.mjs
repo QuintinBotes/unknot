@@ -407,3 +407,59 @@ test('Python: a parameter stored on self is the member\'s type, and a stored-onl
   await map(p);
   assert.ok(!importEdge(p, 'shop/orders.py', 'shop/repo.py').declared_only, 'a read of the parameter on another line is not a store');
 });
+
+// scip-dotnet writes no access roles and names its documents "C#"; the rules below must hold then.
+const PLACE_WRITES = 'namespace Shop\n{\n    public class OrderService\n    {\n        [Inject] public Mailer Notifier { get; set; }\n        public void Place() { Notifier = null; }\n    }\n}\n';
+const PLACE_READS = 'namespace Shop\n{\n    public class OrderService\n    {\n        [Inject] public Mailer Notifier { get; set; }\n        public void Place() { Notifier.Send(); }\n    }\n}\n';
+/** The OrderService document as scip-dotnet writes it: no roles but Definition, language "C#". */
+const ordersDoc = (occurrences, symbols = []) => S.document({
+  path: 'Shop/OrderService.cs', language: 'C#', symbols,
+  occurrences: [def(sy.orders, 2), def(sy.ordersNotifier, 4), ref(sy.mailer, 4, 0), def(sy.place, 5), ...occurrences],
+});
+const withOrders = (doc, more = []) => {
+  const base = indexBytes();
+  return { ...base, documents: [base.documents[0], doc, ...base.documents.slice(2), ...more] };
+};
+
+test('without access roles, a member followed by `=` is written; any other occurrence is a read', async () => {
+  const at = { range: [5, 30, 38], symbol: sy.ordersNotifier, roles: 0 };
+  const written = K.makeProject({ files: { ...FILES, 'Shop/OrderService.cs': PLACE_WRITES } });
+  S.writeIndex(join(written.dir, 'index.scip'), withOrders(ordersDoc([at])));
+  await map(written);
+  assert.equal(importEdge(written, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only, true, '`Notifier = null` is a write');
+  const read = K.makeProject({ files: { ...FILES, 'Shop/OrderService.cs': PLACE_READS } });
+  S.writeIndex(join(read.dir, 'index.scip'), withOrders(ordersDoc([at])));
+  await map(read);
+  assert.ok(!importEdge(read, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only, '`Notifier.Send()` is a read');
+});
+
+test('a serializer attribute on a member is a read by reflection; an injection attribute is not', async () => {
+  const attribute = (name) => ({ range: [4, 9, 15], symbol: `scip-dotnet nuget Lib 1.0.0.0 Lib/${name}Attribute#\`.ctor\`().`, roles: 0 });
+  for (const [name, unused] of [['JsonProperty', false], ['Inject', true], ['Dependency', true]]) {
+    const p = K.makeProject({ files: FILES });
+    S.writeIndex(join(p.dir, 'index.scip'), withOrders(ordersDoc([attribute(name)])));
+    await map(p);
+    assert.equal(Boolean(importEdge(p, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only), unused, name);
+  }
+});
+
+test('a member read through an interface it implements is read', async () => {
+  const iface = S.sym('Shop', 'IOrders');
+  const ifaceNotifier = S.sym('Shop', 'IOrders', 'Notifier.');
+  const files = { ...FILES, 'Shop/IOrders.cs': 'namespace Shop\n{\n    public interface IOrders\n    {\n        Mailer Notifier { get; }\n    }\n}\n' };
+  const ifaceDoc = (reads) => S.document({ path: 'Shop/IOrders.cs', language: 'C#', occurrences: [def(iface, 2), def(ifaceNotifier, 4), ...reads] });
+  const implementing = [{ symbol: sy.orders, kind: S.KIND.Class, relationships: [{ symbol: iface, implementation: true }] }];
+  for (const [reads, unused] of [[[], true], [[ref(ifaceNotifier, 5, 0)], false]]) {
+    const p = K.makeProject({ files });
+    S.writeIndex(join(p.dir, 'index.scip'), withOrders(ordersDoc([], implementing), [ifaceDoc(reads)]));
+    await map(p);
+    assert.equal(Boolean(importEdge(p, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only), unused, reads.length ? 'read through IOrders' : 'nobody reads IOrders.Notifier');
+  }
+});
+
+test('a member a template names may be read: the index does not cover Razor views', async () => {
+  const p = K.makeProject({ files: { ...FILES, 'Views/Orders/Index.cshtml': '@model Shop.OrderService\n<p>@Model.Notifier</p>\n' } });
+  S.writeIndex(join(p.dir, 'index.scip'), withOrders(ordersDoc([])));
+  await map(p);
+  assert.ok(!importEdge(p, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only);
+});

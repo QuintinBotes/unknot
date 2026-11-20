@@ -10,7 +10,7 @@ import { LANGUAGE_IDS, adapterGlobs } from '../../../runtime/graph/languages.mjs
 
 export default {
   id: LANGUAGE_IDS.JAVASCRIPT,
-  version: '0.1.15',
+  version: '0.1.16',
   kind: 'language',
   capabilities: {
     get files() {

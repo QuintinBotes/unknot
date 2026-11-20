@@ -57,6 +57,8 @@ test('shortestCycle: finds the shortest, handles self-loop', () => {
   assert.deepEqual(shortestCycle(loop, ['s']), ['s']);
   const ring = graphOf([['a', 'b'], ['b', 'c'], ['c', 'a']]);
   assert.deepEqual(shortestCycle(ring, ['a', 'b', 'c']), ['a', 'b', 'c']);
+  const recursive = graphOf([['a', 'a'], ['a', 'b'], ['b', 'a']]);
+  assert.deepEqual(shortestCycle(recursive, ['a', 'b']), ['a', 'b'], 'a self-import does not stand in for the cycle between files');
 });
 
 test('impactCone: direction and maxDepth', () => {

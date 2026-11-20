@@ -168,7 +168,8 @@ function memberAccess(lx, types, code, syn) {
 }
 
 /** The types a file declares, as the engine reads them: `{ name, startLine, endLine, bases }` from `{ name, startLine, endLine, extends, implements, bases }`. */
-export const memberTypes = (types) => types.map((t) => ({ name: t.name, startLine: t.startLine, endLine: t.endLine, bases: [...t.extends, ...t.implements, ...t.bases] }));
+// An embedded type (Go) is a base for member reach: its members are promoted onto the embedder.
+export const memberTypes = (types) => types.map((t) => ({ name: t.name, startLine: t.startLine, endLine: t.endLine, bases: [...t.extends, ...t.implements, ...t.bases, ...(t.embeds ?? []).map((e) => e.split('.').pop())] }));
 
 /** Which form of `syn.forms` the mention of a type at `off` takes, and what it declares; null when none. */
 function formAt(syn, code, off, name) {
@@ -312,8 +313,10 @@ export function dropMemberAttrs(a) {
  * declaring type, one related to it by inheritance, or unresolved (name-only evidence); a bare
  * read counts in a derived class where the language allows it. `inScope(declaring, other)` says whether
  * `other` can see the declaring file's members at all (a Go field is private to its package directory).
+ * `scopePrivate(member)` says whether only files in scope can name the member (a Go unexported name):
+ * there an access with an unresolved receiver can only be a member of a type in scope, so it is a use.
  */
-export function memberReach(files, typeNames, bareOf, inScope = () => true) {
+export function memberReach(files, typeNames, bareOf, inScope = () => true, scopePrivate = () => false) {
   const add = (m, k, v) => {
     if (!m.has(k)) m.set(k, []);
     m.get(k).push(v);
@@ -362,6 +365,7 @@ export function memberReach(files, typeNames, bareOf, inScope = () => true) {
       if (t.path === path || !inScope(path, t.path)) continue;
       for (const r of t.recvs ?? []) {
         if (r === '' || (r.startsWith('~') && !typeNames.has(r.slice(1)))) {
+          if (scopePrivate(member)) return 'typed';
           best ??= 'name-only';
           where?.add(t.path);
         } else if (related(r.startsWith('~') ? r.slice(1) : r, owner)) return 'typed';

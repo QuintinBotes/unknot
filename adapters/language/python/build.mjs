@@ -110,6 +110,7 @@ export function buildFacts(path, raw, text, quality) {
       security_signals: raw.security,
       parse_quality: quality,
       ...(entryScript && { entry_script: true }),
+      ...(raw.calls?.length && { top_level_calls: raw.calls.length }),
       ...(dottedStrings(raw, text).length && { dotted_strings: dottedStrings(raw, text) }),
       ...(djangoImport && isDjangoConventionPath(path) && { django_convention: true }),
       ...memberFacts(raw, text),

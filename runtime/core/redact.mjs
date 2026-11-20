@@ -21,8 +21,12 @@ const RULES = [
   ['url-credentials', /(?<=\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]{1,128}:)(?!(?:password|postgres|secret|changeme|example|test|testing|dev|admin|root|guest|pass|user|mysql|redis|rabbit|local|\$\{?[A-Za-z_]+\}?|<[^>]+>)@)[^\s@'"]{3,256}(?=@)/gi],
 ];
 
-const ASSIGNMENT =
-  /\b(password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|token|private[_-]?key)\b["']?\s*[:=]\s*["']?([^\s"'`,;)}\]]{8,})/gi;
+const CREDENTIAL = 'password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|token|private[_-]?key';
+const VALUE = '\\s*["\']?([^\\s"\'`,;)}\\]]{8,})';
+const ASSIGNMENT = new RegExp(`\\b(${CREDENTIAL})\\b["']?\\s*[:=]${VALUE}`, 'gi');
+// For findings the separator is `=` or `:`, never the start of `==`, `=>` or `::`
+// (`$r == Password::RESET_LINK_SENT`); redaction keeps the broader form.
+const ASSIGNMENT_PRECISE = new RegExp(`\\b(${CREDENTIAL})\\b["']?\\s*(?:=(?![=>])|:(?!:))${VALUE}`, 'gi');
 
 const PLACEHOLDER = /^(?:\$\{?|<|%|\{\{|changeme|change_me|example|xxx+|\*+|your[_-]|replace|dummy|test|password|secret|null|none|true|false|undefined|env\.|process\.env)/i;
 
@@ -58,11 +62,12 @@ function entropy(s) {
 
 /**
  * @param {string} text
- * @param {{extraPatterns?: string[], precise?: boolean}} [opts] extra regex sources from config
- *   `security.redact_patterns`; `precise` drops placeholders (for findings, never for redaction)
+ * @param {{extraPatterns?: string[], precise?: boolean, assignments?: boolean}} [opts] extra regex sources from config
+ *   `security.redact_patterns`; `precise` drops placeholders (for findings, never for redaction);
+ *   `assignments: false` skips `label = value` matches, for text whose values are prose
  * @returns {{kind: string, start: number, end: number}[]} non-overlapping, sorted
  */
-export function findSecrets(text, { extraPatterns = [], precise = false } = {}) {
+export function findSecrets(text, { extraPatterns = [], precise = false, assignments = true } = {}) {
   if (typeof text !== 'string' || text.length === 0) return [];
   const hits = [];
   for (const [kind, re] of RULES) {
@@ -73,8 +78,9 @@ export function findSecrets(text, { extraPatterns = [], precise = false } = {}) 
       hits.push({ kind, start: m.index, end: m.index + m[0].length });
     }
   }
-  ASSIGNMENT.lastIndex = 0;
-  for (const m of text.matchAll(ASSIGNMENT)) {
+  const assignment = precise ? ASSIGNMENT_PRECISE : ASSIGNMENT;
+  assignment.lastIndex = 0;
+  for (const m of assignments ? text.matchAll(assignment) : []) {
     const value = m[2];
     if (PLACEHOLDER.test(value) || entropy(value) < 3.2) continue;
     // `token = secrets.token_urlsafe(32)` or `password: req.body.password` is code, not a
