@@ -427,9 +427,11 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     while (queue.length) for (const y of next(queue.pop())) if (!members.has(y) && !seen.has(y)) { seen.add(y); queue.push(y); }
     return seen;
   };
-  const reached = walk(outward.map((e) => e.to), (x) => imports(x, 'out').map((e) => e.to));
   const reaching = walk(inward.map((e) => e.from), (x) => imports(x, 'in').map((e) => e.from));
-  const onCycle = [...outward.filter((e) => reaching.has(e.to)), ...inward.filter((e) => reached.has(e.from))].map((e) => e.id).sort();
+  const back = outward.filter((e) => reaching.has(e.to));
+  // Every file on a cycle through the candidate reaches it, so the forward walk stays inside `reaching`.
+  const reached = back.length ? walk(back.map((e) => e.to), (x) => imports(x, 'out').map((e) => e.to).filter((y) => reaching.has(y))) : new Set();
+  const onCycle = [...back, ...inward.filter((e) => reached.has(e.from))].map((e) => e.id).sort();
   m['cycle.boundary_edges'] = onCycle.length;
   details.evidence['cycle.boundary_edges'] = onCycle;
   const wholly = touching.filter((c) => c.every((x) => members.has(x))).sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1));
