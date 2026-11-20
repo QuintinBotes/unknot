@@ -95,3 +95,12 @@ test('verify-release fails on a tampered checksum, SBOM or tarball', (t) => {
   writeFileSync(r.tarball, tar);
   assert.equal(verifyRelease(out).ok, false);
 });
+
+// docs/release.md: the two versions must agree; the release job checks only package.json
+// against the tag, and Claude Code reads the plugin's version from plugin.json.
+test('package.json, plugin.json and the changelog name the same version', () => {
+  const read = (p) => readFileSync(join(repoRoot, p), 'utf8');
+  const { version } = JSON.parse(read('package.json'));
+  assert.equal(JSON.parse(read('.claude-plugin/plugin.json')).version, version);
+  assert.ok(read('CHANGELOG.md').includes(`\n## [${version}] - `), `CHANGELOG.md has no section for ${version}`);
+});
