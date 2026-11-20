@@ -6,7 +6,7 @@
 
 import { csvRecords } from '../../runtime/metrics.mjs';
 import { parseWindow } from '../../runtime/imports.mjs';
-import { safeName, toIso } from '../../runtime/util.mjs';
+import { redactStatement, safeName, toIso } from '../../runtime/util.mjs';
 import { extractTables } from './tables.mjs';
 
 export const STATS_COLUMNS = Object.freeze([
@@ -143,7 +143,8 @@ function normaliseRow(raw, { now, strict, index, fallbackWindow, idFallback }) {
   const window = windowOf(raw.window, now) ?? fallbackWindow ?? null;
   return {
     statement_id: id,
-    text: text === null ? null : text.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT),
+    // Literals go before the row is stored or named in the graph: an export may carry a credential.
+    text: text === null ? null : redactStatement(text, MAX_TEXT),
     calls,
     total_ms: measure('total_ms'),
     mean_ms: measure('mean_ms'),

@@ -87,6 +87,13 @@ describe('readers produce the normalised rows', () => {
     const bad = readStats('statement_id,text,calls\na,SELECT 1 FROM orders,-1\n,SELECT 1 FROM orders,1\n', { now: NOW });
     assert.deepEqual(bad.invalid.map((x) => x.row), [1, 2]);
   });
+
+  test('a statement\'s literals are redacted before the row is stored or named', () => {
+    const fake = ['hunter', '2', 'xyz'].join(''); // built here so secret scanners do not flag the fixture
+    const res = readStats(`statement_id,text,calls\na,"UPDATE users SET password = '${fake}' WHERE id = 7",1\n`, { now: NOW });
+    assert.equal(res.rows[0].text, 'UPDATE users SET password = ? WHERE id = ?');
+    assert.deepEqual(res.rows[0].tables_written, ['users']);
+  });
 });
 
 // ---- import and decompose ------------------------------------------------------------
