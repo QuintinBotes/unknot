@@ -52,4 +52,4 @@ Start with the [top-level README](../README.md) for what Unknot is, how to insta
 | [spec.md](spec.md) | The product specification: goals and non-goals, architecture, security model, subsystems, acceptance scenarios |
 | [research/decomposition.md](research/decomposition.md) | The sources behind decomposition, with sourced claims separated from Unknot heuristics |
 
-The user documentation describes what the code does in version 0.1.0. Where the code does less than the specification says, the user pages say so; the specification is the target, not a description of the current behaviour.
+The user documentation describes what the code in the same revision does. Where the code does less than the specification says, the user pages say so; the specification is the target, not a description of the current behaviour.

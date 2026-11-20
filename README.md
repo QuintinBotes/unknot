@@ -172,6 +172,6 @@ Your accept and reject decisions on findings are the feedback. `unknot learn rep
 - [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), [COMPATIBILITY.md](COMPATIBILITY.md), [CHANGELOG.md](CHANGELOG.md)
 - Design: [docs/spec.md](docs/spec.md), [docs/research/decomposition.md](docs/research/decomposition.md), [docs/operations.md](docs/operations.md), [docs/release.md](docs/release.md), [docs/benchmarks.md](docs/benchmarks.md)
 
-Version 0.1.0 is pre-release. Minor releases before 1.0 may break compatibility; breaking changes are listed in the changelog.
+Unknot is pre-1.0 (0.x). Minor releases before 1.0 may break compatibility; breaking changes are listed in the changelog.
 
 License: Apache-2.0.

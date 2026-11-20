@@ -285,12 +285,13 @@ These are heuristics and each finding says so in its `thresholds`. `unknot learn
 | `min_shared_commits` | 10 | Minimum commits two files must share to count as co-changing. |
 | `max_changeset` | 50 | Commits touching more files than this are ignored for co-change. |
 | `history_days` | 365 | Git history window. |
+| `history_min_commits` | 1000 | Read at least this many recent commits when `history_days` holds fewer, so a quiet repository still has co-change evidence. |
 | `size_band` | `[5, 20]` | Modules per candidate considered neither nano nor mega. |
 | `thresholds.ownership_alignment` | 0.8 | Share of a candidate owned by one team. Overrides the value the pattern cards compare against (cards default to 0.8). |
 | `thresholds.co_change_leak` | 0.2 | Maximum share of commits crossing the boundary. Used by the `decomposition.co-change-leak` detector and overrides the pattern-card value (default 0.2). |
 | `thresholds.chatty_calls_p95` | 5 | Maximum cross-boundary calls per request. Overrides the pattern-card value (default 5). |
 | `thresholds.robustness` | 0.9 | Share of a candidate's modules that must keep their membership under perturbation. Used. |
-| `drivers` | `[]` | Recorded decomposition drivers: list of `{id, scope?, evidence?, owner?}`. `id` is one of `independent_deploy`, `independent_scale`, `availability_isolation`, `security_isolation`, `team_autonomy`, `technology_divergence`, `build_time`. |
+| `drivers` | `[]` | Recorded decomposition drivers: list of `{id, scope?, evidence?, owner?, source?, quote?}`, where `source` is where the driver was stated (a URL or document) and `quote` the sentence that states it. `id` is one of `independent_deploy`, `independent_scale`, `availability_isolation`, `security_isolation`, `team_autonomy`, `technology_divergence`, `build_time`. |
 
 All of these are heuristics, not measured facts, and the output lists the ones it used. See [decomposition.md](decomposition.md).
 

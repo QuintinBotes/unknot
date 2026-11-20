@@ -16,8 +16,9 @@ import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
 import { redact } from '../core/redact.mjs';
+import { VERSION } from '../core/version.mjs';
 
-export const SCOPE = { name: 'unknot', version: '0.1.0' };
+export const SCOPE = { name: 'unknot', version: VERSION };
 export const MAX_STRING = 128;
 export const EXPORT_TIMEOUT_MS = 5000;
 
