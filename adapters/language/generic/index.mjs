@@ -7,7 +7,7 @@
 // module says `parse_quality: 'lexical'`. Nothing here opens files or runs code.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
-import { analysesFor, genericGlobs, language, languageForPath, languagesForEcosystem } from '../../../runtime/graph/languages.mjs';
+import { analysesFor, genericGlobs, language, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
@@ -530,7 +530,7 @@ function link(ctx) {
     ];
   };
   const units = pkgs.filter((p) => p.type === 'package');
-  const dependsOn = new Map(units.map((p) => [p.id, references(p)]));
+  const dependsOn = new Map(units.map((p) => [p, references(p)]));
   const build = buildGraph(units, dependsOn, mods, types);
 
   // --- members: a type held only through a member nothing reads (members.mjs) --------------
@@ -608,7 +608,8 @@ function link(ctx) {
       for (const imp of a.imports ?? []) {
         const r = resolve(path, a, imp);
         for (const p of r.paths) {
-          if (p === path || !build.allowed(path, p, imp.spec.slice(imp.spec.lastIndexOf('.') + 1))) continue;
+          // The type an import names is its first capitalised segment (`y.Helper.CONSTANT` names `Helper`).
+          if (p === path || !build.allowed(path, p, imp.spec.split('.').find((s) => /^[A-Z]/.test(s)))) continue;
           resolved.add(p);
           if (r.package_level || imp.kind === 'static' || !/(?:^|\.)[A-Z]\w*$/.test(imp.spec)) unplain.add(p);
           if (seenTo.has(p)) continue;
@@ -682,7 +683,9 @@ function link(ctx) {
     for (const t of list) {
       for (const [names, kind] of [[t.attrs.extends, 'extends'], [t.attrs.implements, 'implements'], [t.attrs.bases, 'bases']]) {
         for (const name of names ?? []) {
-          const cands = (types.get(name) ?? []).filter((c) => build.allowed(t.path, c.path, name));
+          // Only an unambiguous name ever linked, so only then is a refusal a rejected edge.
+          const all = types.get(name) ?? [];
+          const cands = all.filter((c) => (all.length === 1 ? build.allowed : build.visible)(t.path, c.path, name));
           if (cands.some((c) => c.path === t.path) || cands.length !== 1 || cands[0].id === t.id) continue;
           push(edgeFact(inheritEdge(t.type, kind, cands[0].type), t.id, cands[0].id, { by: 'name' }, prov_(t.path, t.attrs.start_line ?? 1, 'low')));
         }
@@ -710,11 +713,8 @@ function link(ctx) {
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------
-  const compat = (p, lang) => languagesForEcosystem(p.attrs.ecosystem).includes(lang);
-  const byDepth = pkgs.filter((p) => p.type === 'package').sort((a, b) => b.attrs.dir.length - a.attrs.dir.length || a.id.localeCompare(b.id));
   for (const path of sortedMods) {
-    const lang = mods.get(path).attrs.language;
-    const owner = byDepth.find((p) => compat(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`)));
+    const owner = build.ownerOf(path);
     if (owner) push(edgeFact('CONTAINS', owner.id, mods.get(path).id, {}, prov_(owner.path, 1)));
   }
   for (const p of pkgs) {
@@ -730,7 +730,7 @@ function link(ctx) {
       for (const q of others) if (q.attrs.manifest === f) push(edgeFact('CONTAINS', p.id, q.id, {}, prov_(src, 1)));
     }
     if (p.type !== 'package') continue;
-    for (const q of dependsOn.get(p.id)) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
+    for (const q of dependsOn.get(p)) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
     for (const [tname, libs] of Object.entries(p.attrs.extra_links ?? {})) {
       for (const l of libs) {
         const to = targets.has(l) ? `build_target:${l}` : dependency(l, src, 1);
@@ -747,7 +747,7 @@ function link(ctx) {
   // A refused pair another reference linked after all is no rejected edge.
   const rejected = [...build.rejected].reduce((n, [from, tos]) => n + [...tos].filter((to) => !importsOf.get(from)?.has(to)).length, 0);
   if (units.length && ctx.stats) ctx.stats.build_graph = { rejected };
-  for (const m of build.unread) ctx.notes?.push(`the project references of ${m} could not be read, so its files link by name as before`);
+  if (build.unread.length) ctx.notes?.push(`the project references of ${build.unread.length} .NET project(s) could not be read (${build.unread.slice(0, 3).join(', ')}${build.unread.length > 3 ? ', ...' : ''}), so their files link by name as before`);
 
   for (const name of [...deps.keys()].sort()) out.push(deps.get(name));
   return out;

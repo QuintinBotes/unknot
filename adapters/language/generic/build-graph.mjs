@@ -4,7 +4,7 @@
 // through project references, and only to a type the language does not hide from P (a C#
 // `internal` or Kotlin `internal` type outside its project unless the project names P as a friend
 // assembly; a Java package-private type outside its package). A file in no project, or in a
-// project whose file could not be read, keeps plain name matching.
+// project whose references could not be read, keeps plain name matching.
 
 import { languagesForEcosystem, language } from '../../../runtime/graph/languages.mjs';
 
@@ -16,8 +16,9 @@ import { languagesForEcosystem, language } from '../../../runtime/graph/language
 const CLOSED = new Set(['dotnet']);
 
 /**
+ * Package facts are keys by identity: two manifests can share a name (two `Api.csproj`).
  * @param {object[]} units package facts (one per project manifest)
- * @param {Map<string, object[]>} dependsOn package id → packages it references
+ * @param {Map<object, object[]>} dependsOn package fact → packages it references
  * @param {Map<string, object>} mods path → module fact
  * @param {Map<string, object[]>} types type name → class/interface facts
  */
@@ -28,11 +29,16 @@ export function buildGraph(units, dependsOn, mods, types) {
     if (!compat.has(p.attrs.ecosystem)) compat.set(p.attrs.ecosystem, languagesForEcosystem(p.attrs.ecosystem));
     return compat.get(p.attrs.ecosystem).includes(lang);
   };
+  /** The project whose manifest directory is the file's nearest ancestor, for the file's language. */
+  const ownerOf = (path) => {
+    const lang = mods.get(path)?.attrs.language;
+    return byDepth.find((p) => fits(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`))) ?? null;
+  };
   const unitCache = new Map();
   const unitsOf = (path) => {
     if (unitCache.has(path)) return unitCache.get(path);
+    const own = ownerOf(path);
     const lang = mods.get(path)?.attrs.language;
-    const own = byDepth.find((p) => fits(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`)));
     const linked = units.filter((p) => p !== own && fits(p, lang) && p.attrs.compile_includes?.includes(path));
     const out = own ? [own, ...linked] : linked;
     unitCache.set(path, out);
@@ -42,57 +48,71 @@ export function buildGraph(units, dependsOn, mods, types) {
   // Projects each project reaches; null when a project on the way is open (its references unknown).
   const reachCache = new Map();
   const reach = (p) => {
-    if (reachCache.has(p.id)) return reachCache.get(p.id);
-    let out = new Set([p.id]);
+    if (reachCache.has(p)) return reachCache.get(p);
+    let out = new Set([p]);
     const queue = [p];
     while (queue.length) {
       const q = queue.shift();
       if (open(q)) { out = null; break; }
-      for (const r of dependsOn.get(q.id) ?? []) if (!out.has(r.id)) { out.add(r.id); queue.push(r); }
+      for (const r of dependsOn.get(q) ?? []) if (!out.has(r)) { out.add(r); queue.push(r); }
     }
-    reachCache.set(p.id, out);
+    reachCache.set(p, out);
     return out;
   };
   const assembly = (p) => (p.attrs.assembly ?? p.name).toLowerCase();
-  const friends = new Map();
-  for (const p of units) friends.set(p.id, new Set((p.attrs.internals_visible_to ?? []).map((n) => n.toLowerCase())));
+  const friends = new Map(units.map((p) => [p, new Set((p.attrs.internals_visible_to ?? []).map((n) => n.toLowerCase()))]));
   for (const [path, m] of mods) {
-    for (const n of m.attrs.internals_visible_to ?? []) for (const p of unitsOf(path)) friends.get(p.id)?.add(n.toLowerCase());
+    for (const n of m.attrs.internals_visible_to ?? []) for (const p of unitsOf(path)) friends.get(p)?.add(n.toLowerCase());
   }
-  // A type is hidden when no declaration of it in the project says public (a partial type's other parts inherit it).
+  // A type nested in an interface is public without saying so (Java, C#).
+  const interfacesIn = new Map();
+  for (const list of types.values()) for (const t of list) if (t.type === 'interface') interfacesIn.set(t.path, [...(interfacesIn.get(t.path) ?? []), t]);
+  const exported = (t) => t.attrs.exported || (interfacesIn.get(t.path) ?? []).some((o) => o !== t && o.attrs.start_line <= t.attrs.start_line && o.attrs.end_line >= t.attrs.end_line);
+  // The namespaces (or package) a file declares: same-named types in different ones are different types.
+  const spaces = (path) => {
+    const a = mods.get(path)?.attrs ?? {};
+    return a.namespaces?.length ? a.namespaces : [a.package ?? ''];
+  };
+  // A type is hidden when no declaration of it in the project and namespace says public (a partial
+  // type's other parts inherit it).
   const nonPublic = new Map();
-  const hiddenIn = (q, name, p) => {
-    const k = `${q.id}|${name}`;
-    if (!nonPublic.has(k)) {
-      const decls = (types.get(name) ?? []).filter((t) => unitsOf(t.path).includes(q));
-      nonPublic.set(k, decls.length > 0 && !decls.some((t) => t.attrs.exported));
+  const hiddenIn = (q, name, p, to) => {
+    const k = `${name}|${to}`;
+    if (!nonPublic.has(q)) nonPublic.set(q, new Map());
+    const memo = nonPublic.get(q);
+    if (!memo.has(k)) {
+      const ns = spaces(to);
+      const decls = (types.get(name) ?? []).filter((t) => unitsOf(t.path).includes(q) && spaces(t.path).some((s) => ns.includes(s)));
+      memo.set(k, decls.length > 0 && !decls.some(exported));
     }
-    return nonPublic.get(k) && !friends.get(q.id).has(assembly(p));
+    return memo.get(k) && !friends.get(q).has(assembly(p));
   };
 
-  const rejected = new Map(); // from → targets a reference was refused
-  const unread = units.filter((p) => CLOSED.has(p.attrs.ecosystem) && open(p)).map((p) => p.attrs.manifest).sort();
-  /** Whether a reference to `name` (when known) from file `from` may link to a declaration in file `to`. */
-  const allowed = (from, to, name) => {
+  /** Whether the build lets file `from` see `name` (when known) declared in file `to`. */
+  const visible = (from, to, name) => {
     if (from === to) return true;
     const rule = language(mods.get(to)?.attrs.language)?.genericSyntax.nonPublic;
-    const ok = (() => {
-      if (rule === 'package' && name) {
-        const decls = (types.get(name) ?? []).filter((t) => t.path === to);
-        if (decls.length && !decls.some((t) => t.attrs.exported) && mods.get(from).attrs.package !== mods.get(to).attrs.package) return false;
-      }
-      const fu = unitsOf(from);
-      const tu = unitsOf(to);
-      if (!fu.length || !tu.length) return true;
-      return fu.some((p) => tu.some((q) => {
-        if (p === q) return true;
-        const r = reach(p);
-        if (r && !r.has(q.id)) return false;
-        return !(rule === 'unit' && name && hiddenIn(q, name, p));
-      }));
-    })();
+    if (rule === 'package' && name) {
+      const decls = (types.get(name) ?? []).filter((t) => t.path === to);
+      if (decls.length && !decls.some(exported) && mods.get(from).attrs.package !== mods.get(to).attrs.package) return false;
+    }
+    const fu = unitsOf(from);
+    const tu = unitsOf(to);
+    if (!fu.length || !tu.length) return true;
+    return fu.some((p) => tu.some((q) => {
+      if (p === q) return true;
+      const r = reach(p);
+      if (r && !r.has(q)) return false;
+      return !(rule === 'unit' && name && hiddenIn(q, name, p, to));
+    }));
+  };
+  const rejected = new Map(); // from → targets name matching would have linked and the build refused
+  /** `visible`, recording a refusal: for a candidate that name matching alone would have linked. */
+  const allowed = (from, to, name) => {
+    const ok = visible(from, to, name);
     if (!ok) (rejected.get(from) ?? rejected.set(from, new Set()).get(from)).add(to);
     return ok;
   };
-  return { allowed, rejected, unread };
+  const unread = units.filter((p) => CLOSED.has(p.attrs.ecosystem) && open(p)).map((p) => p.attrs.manifest).sort();
+  return { allowed, visible, ownerOf, rejected, unread };
 }

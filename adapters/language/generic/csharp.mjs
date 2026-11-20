@@ -88,10 +88,11 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
       } else h.decl = false;
     };
     const ok = (to, spec) => allowed(path, to, spec.slice(spec.lastIndexOf('.') + 1));
+    // Only a declaration the namespaces make visible is asked about, so a refusal counts an edge name matching would have drawn.
     const lookup = (name) => {
-      const all = (byName.get(name) ?? []).filter((e) => ok(e.path, name));
-      const mine = all.filter((e) => ownNs.has(e.ns));
-      return mine.length ? mine : all.filter((e) => usings.has(e.ns));
+      const all = byName.get(name) ?? [];
+      const mine = all.filter((e) => ownNs.has(e.ns) && ok(e.path, name));
+      return mine.length ? mine : all.filter((e) => usings.has(e.ns) && ok(e.path, name));
     };
     for (const ref of a.refs ?? []) {
       if (ref.includes('.')) {

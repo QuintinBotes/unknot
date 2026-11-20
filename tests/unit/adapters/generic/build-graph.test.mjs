@@ -200,3 +200,92 @@ test('FR-005: the map summary counts the candidate edges the build graph rejecte
   const r = await mapRepository(p.ctx, { config: K.cfg({ mode: 'plan' }), configDigest: 'd', scope: [], history: false });
   assert.deepEqual(r.build_graph, { rejected: 2 });
 });
+
+test('two project files with one name keep their own references', () => {
+  const g = build({
+    'svc1/Api/Api.csproj': proj('../Billing/Billing.csproj'),
+    'svc1/Api/Use.cs': cls('Svc1.Api', 'Use', '        Charge c;', 'using Svc1.Billing;\n'),
+    'svc1/Billing/Billing.csproj': proj(),
+    'svc1/Billing/Charge.cs': cls('Svc1.Billing', 'Charge'),
+    'svc2/Api/Api.csproj': proj(),
+    'svc2/Api/Use.cs': cls('Svc2.Api', 'Use', '        Charge c;', 'using Svc1.Billing;\n'),
+  });
+  assert.deepEqual(g.imports('svc1/Api/Use.cs'), ['svc1/Billing/Charge.cs']);
+  assert.deepEqual(g.imports('svc2/Api/Use.cs'), []);
+  const gradle = build({
+    'feature-a/api/build.gradle': "dependencies { implementation project(':shared:model') }\n",
+    'feature-b/api/build.gradle': "dependencies { implementation project(':shared:util') }\n",
+    'shared/model/build.gradle': '\n',
+    'shared/util/build.gradle': '\n',
+  });
+  const deps = gradle.all.filter((f) => f.kind === 'edge' && f.type === 'DEPENDS_ON' && f.from === 'package:api').map((e) => e.to).sort();
+  assert.deepEqual(deps, ['package:model', 'package:util']);
+});
+
+test('a reference attribute in single quotes counts', () => {
+  const g = build({
+    'A/A.csproj': "<Project Sdk='Microsoft.NET.Sdk'>\n  <ItemGroup>\n    <ProjectReference Include='../B/B.csproj' />\n  </ItemGroup>\n</Project>\n",
+    'A/Use.cs': cls('Shop.App', 'Use', '        Helper h;', 'using Shop.Core;\n'),
+    'B/B.csproj': proj(),
+    'B/Helper.cs': cls('Shop.Core', 'Helper'),
+  });
+  assert.deepEqual(g.imports('A/Use.cs'), ['B/Helper.cs']);
+});
+
+test('a friend named by an AssemblyAttribute item sees internal types', () => {
+  const friend = '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">\n      <_Parameter1>A</_Parameter1>\n    </AssemblyAttribute>\n  </ItemGroup>\n</Project>\n';
+  const g = build({
+    'A/A.csproj': proj('../B/B.csproj'),
+    'A/Use.cs': cls('Shop.App', 'Use', '        Helper h;', 'using Shop.Core;\n'),
+    'B/B.csproj': friend,
+    'B/Helper.cs': cls('Shop.Core', 'Helper', '', '', 'internal '),
+  });
+  assert.deepEqual(g.imports('A/Use.cs'), ['B/Helper.cs']);
+});
+
+test('an internal type stays hidden when a public type of the same name lives in another namespace', () => {
+  const g = build({
+    'A/A.csproj': proj('../B/B.csproj'),
+    'A/Use.cs': cls('Shop.App', 'Use', '        Helper h;', 'using Shop.Y;\n'),
+    'B/B.csproj': proj(),
+    'B/Y/Helper.cs': cls('Shop.Y', 'Helper', '', '', 'internal '),
+    'B/Z/Helper.cs': cls('Shop.Z', 'Helper'),
+  });
+  assert.deepEqual(g.imports('A/Use.cs'), []);
+});
+
+test('Java: a type nested in an interface is public; a static import of a package-private class is not linked', () => {
+  const g = build({
+    'a/src/main/java/com/x/Use.java': 'package com.x;\nimport com.y.Api.Request;\nimport static com.y.Hidden.LIMIT;\npublic class Use { Request r; }\n',
+    'b/src/main/java/com/y/Api.java': 'package com.y;\npublic interface Api {\n  class Request { }\n}\n',
+    'b/src/main/java/com/y/Hidden.java': 'package com.y;\nclass Hidden { static final int LIMIT = 1; }\n',
+  });
+  assert.deepEqual(g.imports('a/src/main/java/com/x/Use.java'), ['b/src/main/java/com/y/Api.java']);
+});
+
+test('FR-005: a declaration name matching would never have linked is not counted as rejected', () => {
+  const g = build({
+    'A/A.csproj': proj(),
+    'A/Use.cs': cls('Shop.App', 'Use', '        Order o;', 'using Shop.Models;\n', 'public class Use : Base { } public '),
+    'A/Order.cs': cls('Shop.Models', 'Order'),
+    'B/B.csproj': proj(),
+    'B/Order.cs': cls('Other.Place', 'Order'),
+    'B/Base.cs': cls('Other.Place', 'Base'),
+    'C/C.csproj': proj(),
+    'C/Base.cs': cls('Third.Place', 'Base'),
+  });
+  assert.deepEqual(g.imports('A/Use.cs'), ['A/Order.cs']);
+  assert.deepEqual(g.stats.build_graph, { rejected: 0 });
+});
+
+test('the projects whose references cannot be read are named in one notice', () => {
+  const g = build({
+    'A/A.csproj': proj('$(RepoRoot)B/B.csproj'),
+    'B/B.csproj': 'not a project file\n',
+    'C/C.csproj': proj('$(RepoRoot)B/B.csproj'),
+    'A/X.cs': cls('Shop', 'X'),
+  });
+  const notes = g.notes.filter((n) => n.includes('could not be read'));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /3 \.NET project\(s\).*A\/A\.csproj, B\/B\.csproj, C\/C\.csproj/);
+});

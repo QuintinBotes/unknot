@@ -185,7 +185,7 @@ function readCsproj(path, text) {
   const dir = dirname(path);
   const name = tag(t, 'AssemblyName') ?? tag(t, 'PackageId') ?? basename(path).replace(/\.csproj$/, '');
   const deps = [...t.matchAll(/<PackageReference\s+(?:Include|Update)="([^"]+)"/gi)].map((m) => ({ name: m[1] }));
-  const refs = [...t.matchAll(/<ProjectReference\s+Include="([^"]+)"/gi)].map((m) => m[1]);
+  const refs = [...t.matchAll(/<ProjectReference\s+Include=(["'])([^"']+)\1/gi)].map((m) => m[2]);
   const local = refs.filter((r) => !r.includes('$(')).map((r) => resolvePath(dir, r));
   const file = basename(path).replace(/\.csproj$/, '');
   const assembly = tag(t, 'AssemblyName') ?? file;
@@ -195,9 +195,12 @@ function readCsproj(path, text) {
     attrs: {
       target_framework: tag(t, 'TargetFramework') ?? tag(t, 'TargetFrameworks'),
       assembly,
-      internals_visible_to: uniq([...t.matchAll(/<InternalsVisibleTo\s+Include="([^"]+)"/gi)].map((m) => friend(m[1]))),
+      internals_visible_to: uniq([
+        ...[...t.matchAll(/<InternalsVisibleTo\s+Include=(["'])([^"']+)\1/gi)].map((m) => m[2]),
+        ...[...t.matchAll(/<AssemblyAttribute\s+Include=["'](?:System\.Runtime\.CompilerServices\.)?InternalsVisibleTo(?:Attribute)?["']\s*>\s*<_Parameter1>([^<]+)<\/_Parameter1>/gi)].map((m) => m[1]),
+      ].map(friend)),
       // Source files outside the project directory that it compiles too (linked files).
-      compile_includes: uniq([...t.matchAll(/<Compile\s+Include="([^"*?;$]+)"/gi)].map((m) => resolvePath(dir, m[1])).filter((p) => dir && !p.startsWith(`${dir}/`))),
+      compile_includes: uniq([...t.matchAll(/<Compile\s+Include=(["'])([^"'*?;$]+)\1/gi)].map((m) => resolvePath(dir, m[2])).filter((p) => dir && !p.startsWith(`${dir}/`))),
       parse_error: !/<Project\b/.test(t) || undefined,
       // A reference through an MSBuild property (`$(SolutionDir)…`) names a project this reader cannot resolve.
       references_unresolved: refs.some((r) => r.includes('$(')) || undefined,
