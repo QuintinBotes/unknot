@@ -253,7 +253,11 @@ const onDeleteSql = (v) => {
 };
 
 /** One foreign key as the same SQL a DDL `REFERENCES` produces, so it yields the same facts. */
-const fkClause = (cols, refTable, refCols, onDelete) => `FOREIGN KEY (${[].concat(cols).join(', ')}) REFERENCES ${refTable} (${[].concat(refCols?.length ? refCols : 'id').join(', ')})${onDeleteSql(onDelete)}`;
+// An unnamed referenced column (Django's `to_field` left out) is the primary key, `id`.
+const fkClause = (cols, refTable, refCols, onDelete) => {
+  const ref = [].concat(refCols ?? []).filter(Boolean);
+  return `FOREIGN KEY (${[].concat(cols).join(', ')}) REFERENCES ${refTable} (${(ref.length ? ref : ['id']).join(', ')})${onDeleteSql(onDelete)}`;
+};
 const fkAlter = (table, cols, refTable, refCols, onDelete) => `ALTER TABLE ${table} ADD ${fkClause(cols, refTable, refCols, onDelete)};`;
 
 // ---------------------------------------------------------------- Rails

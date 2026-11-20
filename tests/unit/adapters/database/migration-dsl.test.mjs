@@ -204,3 +204,9 @@ test('dialect variants: files that name no dialect are unaffected', () => {
   assert.equal(dupes(graph).length, 1);
   assert.equal(graph.node('table:public.orders').attrs.variants, undefined);
 });
+
+test('a Django ForeignKey without to_field references the primary key', () => {
+  const text = "from django.db import migrations, models\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.CreateModel(name='Invoice', fields=[('id', models.AutoField(primary_key=True)), ('order', models.ForeignKey(on_delete=models.CASCADE, to='shop.order'))]),\n        migrations.AddField(model_name='invoice', name='buyer', field=models.ForeignKey(on_delete=models.CASCADE, to='shop.customer')),\n    ]\n";
+  const refs = edges(extract('shop/migrations/0001_initial.py', text), 'REFERENCES').map((e) => e.attrs.ref_columns);
+  assert.deepEqual(refs, [['id'], ['id']]);
+});
