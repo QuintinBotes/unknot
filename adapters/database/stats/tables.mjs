@@ -25,7 +25,8 @@ function tokenize(sql) {
   while (i < n) {
     const c = s[i];
     if (/\s/.test(c)) { i++; continue; }
-    if ((c === '-' && s[i + 1] === '-') || (c === '#' && !/[\w#]/.test(s[i + 1] ?? ''))) { while (i < n && s[i] !== '\n') i++; continue; }
+    // `#` starts a MySQL comment, but `#>`, `#>>` and `#-` are PostgreSQL jsonb operators.
+    if ((c === '-' && s[i + 1] === '-') || (c === '#' && !/[\w#>-]/.test(s[i + 1] ?? ''))) { while (i < n && s[i] !== '\n') i++; continue; }
     if (c === '/' && s[i + 1] === '*') {
       const end = s.indexOf('*/', i + 2);
       if (end < 0) { unbalanced = true; break; }

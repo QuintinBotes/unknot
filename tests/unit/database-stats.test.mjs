@@ -31,6 +31,7 @@ describe('shared SQL table extractor', () => {
     ['SELECT * FROM #scratch JOIN orders ON 1 = 1 /* FROM hidden */', { reads: ['orders'], writes: [] }],
     ['SELECT a INTO archive FROM orders', { reads: ['orders'], writes: ['archive'] }],
     ['TRUNCATE TABLE ledger', { reads: [], writes: ['ledger'] }],
+    ['SELECT payload #>> $1, doc #- $2 FROM events WHERE id = $3', { reads: ['events'], writes: [] }],
   ];
   for (const [sql, want] of cases) {
     test(sql.slice(0, 60), () => {
