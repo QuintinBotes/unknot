@@ -12,10 +12,15 @@ import { foldReason, foldSiblings } from './fold.mjs';
 import { contractEvidence } from './contracts.mjs';
 import { runtimeBoundary } from './runtime-evidence.mjs';
 
+/** The size band a repository of `n` modules gets when the configuration sets none: [5, 20] at 100 modules, growing with its square root. */
+export const sizeBandFor = (n) => [Math.max(2, Math.round(Math.sqrt(n) / 2)), Math.max(3, Math.round(Math.sqrt(n) * 2))];
+
 /**
+ * `units` (from buildUnits in affinity.mjs) means the affinity nodes are build units: each
+ * candidate is measured on, and lists, the files of its units.
  * @returns {{candidates: object[], modularity: number, stats: object}}
  */
-export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null } = {}) {
+export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null, units = null } = {}) {
   const input = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
   const rob = robustness(input, { seed });
   const partition = rob.baseline;
@@ -27,17 +32,20 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   const tableOwners = ownersOfTables(graph, cache);
   const sccs = sccsOf(graph).map((c) => c.members);
   const clusters = cm.clusters.filter((cl) => cl.size >= 2);
-  const { folds, absorbed } = foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
+  // A build unit already holds its files; folding siblings is a file-level repair.
+  const { folds, absorbed } = units ? { folds: new Map(), absorbed: new Set() } : foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
   const candidates = clusters
     .map((cl, i) => {
       if (absorbed.has(i)) return null;
       const folded = folds.get(i) ?? [];
-      const all = [...cl.members, ...folded.map((f) => f.module)].sort();
+      const parts = [...cl.members, ...folded.map((f) => f.module)].sort();
+      const all = units ? parts.flatMap((u) => units.files.get(u)).sort() : parts;
       const members = new Set(all);
       const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
       const touching = cl.internal + cl.external;
-      const named = describeName(cl.members, graph);
-      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(m) ? partition.get(m) : null), self: partition.get(cl.members[0]), workspace });
+      const named = units ? unitName(parts, graph) : describeName(cl.members, graph);
+      const partOf = units ? (m) => units.unitOf.get(m) : (m) => m;
+      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(partOf(m)) ? partition.get(partOf(m)) : null), self: partition.get(cl.members[0]), workspace });
       // Share of the affinity weight touching the candidate that stays inside, and that leaves it.
       metrics.metrics['boundary.cohesion'] = +cl.cohesion.toFixed(3);
       if (touching > 0) metrics.metrics['boundary.coupling'] = +(cl.external / touching).toFixed(3);
@@ -45,6 +53,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
       return {
         id: `C-${i + 1}`,
         modules: all,
+        ...(units && { units: parts.map((u) => ({ id: u, name: unitLabel(u, graph), kind: u.startsWith('module:') ? 'file' : 'build_unit', files: units.files.get(u) })) }),
         size: all.length,
         ...(folded.length ? { folded: folded.map((f) => ({ module: f.module, reason: foldReason(f) })) } : {}),
         clustered: cl.members,
@@ -148,6 +157,15 @@ export function describeName(modules, graph = null) {
   const top = ranked.length < 2 || ranked[0][1] > ranked[1][1] ? ranked[0]?.[0] : undefined;
   const base = [...prefix, ...(top ? [top] : [])].join('/') || '.';
   return { name: base, base, basis: 'directory' };
+}
+
+const unitLabel = (id, graph) => (id.startsWith('module:') ? id.slice(7) : graph?.node(id)?.name ?? id.replace(/^\w+:/, ''));
+
+/** A candidate of build units is named after them: up to three, then a count of the rest. */
+function unitName(ids, graph) {
+  const names = ids.map((u) => unitLabel(u, graph)).sort();
+  const base = names.slice(0, 3).join(' + ');
+  return { name: names.length > 3 ? `${base} (+${names.length - 3} more)` : base, base, basis: 'build_unit' };
 }
 
 /** Kept for callers that name a module list without a graph. */

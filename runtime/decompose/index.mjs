@@ -13,9 +13,9 @@ import { readDerived, testSet } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card } from '../patterns/engine.mjs';
 import { appendEvent } from '../state/ledger.mjs';
-import { buildAffinity } from './affinity.mjs';
+import { buildAffinity, buildUnits, unitAffinity } from './affinity.mjs';
 import { workspaceLinks } from '../enterprise/workspace.mjs';
-import { disambiguate, findCandidates, topFiles } from './candidates.mjs';
+import { disambiguate, findCandidates, sizeBandFor, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
 import { fingerprintIndex, fingerprintOf, currentGeneration, loadRecords, predecessorOf } from './records.mjs';
 import { capConfidence, runtimeSummary } from './runtime-evidence.mjs';
@@ -166,18 +166,24 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   const global = globalSignals(graph, effective);
   const d = config.decomposition;
   const gen = currentGeneration(ctx);
-  const heuristics = [`weights structural=${d.weights.structural} data=${d.weights.data} evolutionary=${d.weights.evolutionary} semantic=${d.weights.semantic}`, `ownership_alignment>=${d.thresholds.ownership_alignment}`, `co_change_leak<=${d.thresholds.co_change_leak}`, `chatty_calls_p95<=${d.thresholds.chatty_calls_p95}`, `robustness>=${d.thresholds.robustness}`, `size_band=${d.size_band.join('-')}`];
+  const heuristics = [`weights structural=${d.weights.structural} data=${d.weights.data} evolutionary=${d.weights.evolutionary} semantic=${d.weights.semantic}`, `ownership_alignment>=${d.thresholds.ownership_alignment}`, `co_change_leak<=${d.thresholds.co_change_leak}`, `chatty_calls_p95<=${d.thresholds.chatty_calls_p95}`, `robustness>=${d.thresholds.robustness}`];
+  const bandUsed = {};
   const provenance = allDrivers.length ? provenanceFor(config, drivers, allDrivers, driverProvenance) : [];
   const workspace = workspaceLinks(ctx);
   const work = [];
   const analyses = {};
   for (const t of targets) {
     const modules = (t === 'frontend' ? front : source.filter((n) => !isFrontendModule(graph, n))).map((n) => n.id);
-    const affinity = buildAffinity(graph, { modules, weights: d.weights });
-    const found = findCandidates(graph, affinity, { sizeBand: d.size_band, robustness: d.thresholds.robustness, eligible: modules, workspace });
+    // A compiled language's build unit is the module; its files are the drill-down (#74).
+    const units = t === 'frontend' ? null : buildUnits(graph, modules);
+    const fileAffinity = buildAffinity(graph, { modules, weights: d.weights });
+    const affinity = units ? unitAffinity(fileAffinity, units.unitOf) : fileAffinity;
+    const band = d.size_band ?? sizeBandFor(affinity.nodes.length);
+    bandUsed[t] = `size_band=${band.join('-')}${d.size_band ? '' : ` (derived from ${affinity.nodes.length} modules)`}`;
+    const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
-    analyses[t] = { modules: modules.length, affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
+    analyses[t] = { modules: affinity.nodes.length, ...(units && { units: affinity.nodes, files: modules.length }), affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
     const candidates = t === 'frontend' && fe?.groups.length >= 2
       ? fe.groups.map((g, i) => ({ id: `R-${i + 1}`, name: `routes:/${g.name}`, name_basis: 'route', modules: g.modules, size: g.modules.length, robust: true, stability: 1, cohesion: null, metrics: { 'boundary.size': g.modules.length, gaps: [] }, teams: g.teams }))
       : found.candidates;
@@ -232,6 +238,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         name_basis: cand.name_basis,
         top_files: cand.top_files,
         modules: cand.modules,
+        ...(cand.units ? { units: cand.units } : {}),
         robust: Boolean(cand.robust),
         metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && (/^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime|contracts|clients)\./.test(k) || k === 'service.deploy_coupling'))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
@@ -265,7 +272,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       recovery: { type: (card0.rollback_strategies ?? ['revert'])[0] ?? 'revert' },
       irreversible: false,
       retain_score: sel.treatment === 'T0' ? 1 : +Math.max(0, 1 - 0.25 * sel.favoring_signals.length).toFixed(2),
-      heuristics_used: heuristics,
+      heuristics_used: [...heuristics, bandUsed[t]],
     };
     assertArtifact('decomposition-recommendation', rec);
     recommendations.push({ ...rec, id, reused: Boolean(existing), evaluations: sel.evaluations, sequence: sel.sequence, serves: sel.serves });

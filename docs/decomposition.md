@@ -44,6 +44,8 @@ w(a,b) = structural x S(a,b) + data x D(a,b) + evolutionary x E(a,b) + semantic 
 
 Each component is first scaled to the range 0 to 1 (divided by its largest value), so the weights mean what they say.
 
+**Build units are the modules of compiled languages.** For a language whose row in the language table declares `buildUnit` (C#, Java, Kotlin and Rust), a file belongs to the build unit the language adapter assigns it to: the .NET project, Maven or Gradle module or crate whose manifest directory is its nearest ancestor. That unit is one module of the affinity graph, and the weight between two units is the sum of the weights between their files. A file in no build unit, and every file of another language, stays a module of its own. A repository with fewer than three build units keeps one module per file, since one or two projects leave no groups of projects to choose between. A linked file compiled by several projects belongs to the nearest one. `analyses.<target>` gives `modules` (the units), `units` (their ids) and `files`; each candidate lists its `units`, each with its `kind` (`build_unit` or `file`) and `files`, and is named after its units (`name_basis: build_unit`, up to three names joined by ` + `, then a count). `modules` in a record still lists every member file, so a unit's files are one step away (and `unknot graph node package:<name>` lists them as `CONTAINS` edges). A test project's files stay out of the candidates, as all test files do, and still count as tests of the files they test.
+
 | Component | What it measures | Source |
 |---|---|---|
 | S, structural | Imports (weighted by number of imported names) and calls, rolled up to modules | Language adapters |
@@ -92,7 +94,7 @@ Computed for each candidate. They are relative to your repository, not absolute 
 
 | Metric (signal name) | Meaning | Needs |
 |---|---|---|
-| Size (`boundary.size`) | Modules in the candidate; flagged nano or mega outside `size_band` | graph |
+| Size (`boundary.size`) | Modules in the candidate; flagged nano or mega outside `size_band`. Without `decomposition.size_band` in the configuration the band is derived from the number of modules n, `[max(2, round(√n / 2)), max(3, round(2√n))]` (5 to 20 at 100 modules), and the record's `heuristics_used` says `size_band=<lo>-<hi> (derived from n modules)`; a configured band is used as it is | graph |
 | Interface count (`boundary.interface_count`) | Candidate modules used from outside | imports |
 | Cohesion, coupling, stability (`boundary.cohesion`, `boundary.coupling`, `boundary.stability`) | Share of the affinity weight touching the candidate that stays inside, the share that leaves it, and how steadily its modules stay together under perturbation | affinity graph |
 | Test code | Test code is never a candidate member. The census marks files in test projects as tests: directories named `*.Tests`, `*.UnitTests`, `*.IntegrationTests`, `*.FunctionalTests`, `*.Specs`, `*Tests`, a project file named like a test project (`*Tests.csproj`, `*Specs.csproj`), and anything under a project whose file references `Microsoft.NET.Test.Sdk`, xunit, NUnit or MSTest or sets `<IsTestProject>true` (each project file is read once). A re-map extracts a file again when its classification changes, even if its bytes did not | census |

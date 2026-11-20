@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Changed
+
+- The build unit is the default module for compiled languages (#74, from a large-monolith run where 29,086 file modules gave candidates of 2 to 2,477 files with uninformative names): for C#, Java, Kotlin and Rust (`buildUnit` in the language table) a .NET project, Maven or Gradle module or crate is one module of the decomposition, candidates are named after the units they contain and list each unit's files, and other languages keep one module per file. The default `decomposition.size_band` now scales with the number of modules (5 to 20 at 100) and a configured band wins. Decomposition records of compiled-language repositories change once after the upgrade.
+
 ## [0.4.0] - 2026-11-20
 
 ### Added

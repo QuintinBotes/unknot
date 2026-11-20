@@ -630,7 +630,7 @@
           "minimum": 1
         },
         "size_band": {
-          "type": "array",
+          "type": ["array", "null"],
           "prefixItems": [
             {
               "type": "integer",

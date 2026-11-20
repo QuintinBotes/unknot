@@ -61,6 +61,21 @@
             "type": "string"
           }
         },
+        "units": {
+          "type": "array",
+          "description": "The build units (projects, Maven or Gradle modules, crates) the candidate is made of, each with its files; a file in no build unit is its own unit of kind file",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "kind": { "enum": ["build_unit", "file"] },
+              "files": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["id", "name", "kind", "files"],
+            "additionalProperties": false
+          }
+        },
         "robust": {
           "type": "boolean"
         },
@@ -76,7 +91,8 @@
           "enum": [
             "namespace",
             "directory",
-            "route"
+            "route",
+            "build_unit"
           ],
           "description": "How the name was chosen"
         },

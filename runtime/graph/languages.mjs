@@ -285,6 +285,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testGlobs: ['**/*Test.java'],
     testPathPatterns: [/(?:^|\/)src\/test\//, /(?:Tests?|IT|Spec|Suite)\.java$/],
     ecosystems: ['maven', 'gradle'],
+    buildUnit: true, // decompose treats its project, module or crate as one module (#74)
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['java'],
     genericSyntax: {
@@ -317,6 +318,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     inheritance: 'colon',
     testPathPatterns: [/(?:^|\/)src\/test\//, /(?:Tests?|IT|Spec|Suite)\.(?:kt|kts)$/],
     ecosystems: ['maven', 'gradle'],
+    buildUnit: true,
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['kt'],
     genericSyntax: {
@@ -367,6 +369,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/Tests?\.cs$/, /(?:^|\/)[^/]*\.Tests?\//, /(?:^|\/)Tests?\//],
     generatedGlobs: ['**/*.g.cs'],
     ecosystems: ['dotnet'],
+    buildUnit: true,
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['cs'],
     genericSyntax: {
@@ -399,6 +402,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     inheritance: 'trait_bounds',
     testPathPatterns: [/(?:^|\/)tests\//],
     ecosystems: ['cargo'],
+    buildUnit: true,
     qualityFamily: QUALITY_FAMILIES.RUST,
     affinityTerms: ['rs'],
     genericSyntax: {
