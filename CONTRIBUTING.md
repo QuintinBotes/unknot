@@ -111,7 +111,7 @@ node scripts/writepath-e2e.mjs --repo <path> --test '<json argv>' [--setup '<she
 node scripts/live-suite.mjs --install local [--repos click] [--change all|none|<name>]
 ```
 
-The `Live sessions` workflow runs it nightly with `--install fresh` (a new Claude config, the plugin added from this checkout as a marketplace) when the repository has an `ANTHROPIC_API_KEY` secret, and uploads the transcripts. Run it before a release; a failure there is a release blocker.
+The `Live sessions` workflow runs it by hand (`gh workflow run live.yml`), never on a schedule, with `--install fresh` (a new Claude config, the plugin added from this checkout as a marketplace) when the repository has an `ANTHROPIC_API_KEY` secret, and uploads the transcripts. Run it before a release; a failure there is a release blocker.
 
 ## Commits and pull requests
 

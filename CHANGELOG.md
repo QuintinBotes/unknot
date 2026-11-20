@@ -65,6 +65,10 @@ All notable changes are documented here. The format follows
 - A unique flat sibling Python import such as `from proc import process` now resolves through the shared table-driven import rule with inferred provenance; conflicting sibling module layouts remain unresolved rather than becoming an arbitrary dependency (#57).
 - During an open run, subagents can deliver a final report through `SubagentHandback` and can read an existing regular background-task `.output` file from their session's harness task directory (#52). The exception is limited to that direct file path: other temporary files, traversal outside the directory and symlink targets remain denied.
 
+### Changed
+
+- The `Live sessions` workflow (`.github/workflows/live.yml`) no longer runs every night. Run it by hand before a release (about $3 a run); a failure there still blocks the release (#82).
+
 ## [0.3.3] - 2026-10-06
 
 ### Fixed
