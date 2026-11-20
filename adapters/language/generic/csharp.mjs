@@ -13,6 +13,9 @@ import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
 
 const SYNTAX = MEMBER_SYNTAX[LANGUAGE_IDS.CSHARP];
 
+/** Friend assemblies an `[assembly: InternalsVisibleTo("Name, PublicKey=…")]` attribute names. */
+export const friendAssemblies = (lx) => [...new Set([...lx.plain.matchAll(/\[\s*assembly\s*:\s*(?:[\w.]+\.)?InternalsVisibleTo(?:Attribute)?\s*\(\s*@?"([^",]+)/g)].map((m) => m[1].trim()))].sort();
+
 /** Names a C# file mentions, minus the types it declares, and the member facts of members.mjs. */
 export function csharpRefs(lx, an) {
   return memberRefs(lx, memberTypes(an.types), SYNTAX);
@@ -23,8 +26,9 @@ export function csharpRefs(lx, an) {
  * answers, per file, which other files it uses at type level. `semantic` (path to what a SCIP index
  * decided, see adapters/semantic/scip) replaces the name matching for the files it covers: whether an
  * injected member is used comes from the index, and the name-matched module calls are dropped.
+ * `allowed(from, to, name)` says whether the build lets `from` see `name` declared in `to` (build-graph.mjs).
  */
-export function csharpLinker(mods, sortedMods, semantic = null) {
+export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => true) {
   const byName = new Map();
   const full = new Map();
   const known = new Set();
@@ -83,10 +87,12 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
         for (const m of pub) h.pub.add(m);
       } else h.decl = false;
     };
+    const ok = (to, spec) => allowed(path, to, spec.slice(spec.lastIndexOf('.') + 1));
+    // Only a declaration the namespaces make visible is asked about, so a refusal counts an edge name matching would have drawn.
     const lookup = (name) => {
       const all = byName.get(name) ?? [];
-      const mine = all.filter((e) => ownNs.has(e.ns));
-      return mine.length ? mine : all.filter((e) => usings.has(e.ns));
+      const mine = all.filter((e) => ownNs.has(e.ns) && ok(e.path, name));
+      return mine.length ? mine : all.filter((e) => usings.has(e.ns) && ok(e.path, name));
     };
     for (const ref of a.refs ?? []) {
       if (ref.includes('.')) {
@@ -95,8 +101,8 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
         for (let k = segs.length; k >= 2 && !done; k--) {
           const name = segs.slice(0, k).join('.');
           for (const prefix of ['', ...[...ownNs, ...usings.keys()].map((n) => `${n}.`)]) {
-            const ps = full.get(`${prefix}${name}`);
-            if (!ps) continue;
+            const ps = full.get(`${prefix}${name}`)?.filter((p) => ok(p, name));
+            if (!ps?.length) continue;
             for (const p of ps) hit(p, `${prefix}${name}`, 1, false);
             done = true;
             break;
@@ -106,7 +112,7 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
       }
       const al = alias.get(ref);
       if (al) {
-        for (const p of full.get(al.spec) ?? []) hit(p, al.spec, al.line, false);
+        for (const p of full.get(al.spec) ?? []) if (ok(p, al.spec)) hit(p, al.spec, al.line, false);
         continue;
       }
       let name = ref;
@@ -114,7 +120,7 @@ export function csharpLinker(mods, sortedMods, semantic = null) {
       if (!es.length) es = lookup((name = `${ref}Attribute`));
       for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref], declPublic[ref]);
     }
-    for (const s of statics) for (const p of full.get(s.spec) ?? []) hit(p, s.spec, s.line, false);
+    for (const s of statics) for (const p of full.get(s.spec) ?? []) if (ok(p, s.spec)) hit(p, s.spec, s.line, false);
     // A member another file reaches is an ordinary use, however the declaring file treats it. A file a
     // SCIP index covers has the index's verdict instead (see withSemantic), never name matching.
     const owners = a.public_owners ?? {};
