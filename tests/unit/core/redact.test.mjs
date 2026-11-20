@@ -23,3 +23,13 @@ test('findings ignore labelled fixtures, sequential fillers and optional-chain r
   }
   assert.equal(findSecrets("token: 'jira-token'").length, 1, 'redaction still covers labelled values');
 });
+
+test('a comparison or a scope operator after a credential word is no assignment', () => {
+  const kinds = (t) => findSecrets(t, { precise: true }).map((h) => h.kind);
+  const fake = ['Kx9v', 'Q2mL', 'p7Zr'].join(''); // built here so secret scanners do not flag the fixture
+  assert.deepEqual(kinds('return $response == Password::RESET_LINK_SENT ? a : b;'), []);
+  assert.deepEqual(kinds(`if (password === "${fake}") {}`), []);
+  assert.deepEqual(kinds('$t = Token::fromHeaderValue($h);'), []);
+  assert.deepEqual(kinds(`password = "${fake}"`), ['assigned-password']);
+  assert.deepEqual(kinds(`password: ${fake}`), ['assigned-password']);
+});

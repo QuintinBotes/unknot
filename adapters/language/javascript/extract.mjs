@@ -4,8 +4,9 @@
 import { dataLinePrefix, dataLinesIn } from '../../../runtime/graph/data-lines.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, language, languageForPath, pathMentionExtensions } from '../../../runtime/graph/languages.mjs';
-import { EXTRACTOR, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
-import { conventionRoutes, detectFrameworks } from './frameworks.mjs';
+import { EXTRACTOR, bundlerAliases, isPackageJson, isTsConfig, packageFacts, tsconfigFacts } from './config.mjs';
+import { conventionRoutes, detectFrameworks, ormMappings } from './frameworks.mjs';
+import { tableFacts } from '../orm-maps.mjs';
 import { analyze } from './structure.mjs';
 import { tokenize } from './tokenizer.mjs';
 import { detectMicroFrontends } from './mfe.mjs';
@@ -46,16 +47,20 @@ function vueFacts(file, text) {
   let code = '';
   let at = 0;
   let ts = false;
+  let outside = '';
   const blank = (s) => s.replace(/[^\n]/g, '');
   for (const m of text.matchAll(VUE_SCRIPT_RE)) {
     const bodyStart = m.index + m[0].indexOf('>') + 1;
+    outside += text.slice(at, bodyStart);
     code += blank(text.slice(at, bodyStart)) + m[2];
     at = bodyStart + m[2].length;
     if (/\blang\s*=\s*["']?tsx?\b/i.test(m[1])) ts = true;
   }
   if (!code) return [];
+  outside += text.slice(at);
   code += blank(text.slice(at));
-  return codeFacts(file, code, { ts, jsx: false });
+  // The template names what it uses (`@click="changeTab(...)"`): those are uses of the script's names.
+  return codeFacts(file, code, { ts, jsx: false, templateNames: outside.match(/[A-Za-z_$][\w$]*/g) ?? [] });
 }
 
 function mk(path, degraded) {
@@ -97,6 +102,7 @@ function codeFacts(file, text, as = {}) {
   // list — even when no call edge resolves (golden-suite gap 1).
   const nameCount = new Map();
   for (let i = 0; i < n; i++) if (tokens[i].t === 'id') nameCount.set(tokens[i].v, (nameCount.get(tokens[i].v) ?? 0) + 1);
+  for (const name of as.templateNames ?? []) nameCount.set(name, (nameCount.get(name) ?? 0) + 1);
   // Source files the code starts by path (`spawn(node, [join(here, 'hook-main.ts')])`,
   // `new Worker(new URL('./worker.js', import.meta.url))`): link turns them into REFERENCES.
   const pathMentions = new Set();
@@ -253,12 +259,31 @@ function codeFacts(file, text, as = {}) {
     facts.push(edgeFact('CONTAINS', modId, id, {}, p(s.line, 'medium')));
   }
 
+  // ORM entities -> tables (one rule for every language: ../orm-maps.mjs).
+  let orm = { mappings: [], links: {} };
+  if (!failed) {
+    try {
+      orm = ormMappings({ path, analysis, text, ts });
+    } catch {
+      // Optional signal: a failure here only costs the ORM mapping facts.
+    }
+  }
+  const mappedTables = new Set();
+  for (const m of orm.mappings) {
+    if (mappedTables.has(m.table)) continue;
+    mappedTables.add(m.table);
+    facts.push(...tableFacts(m, {
+      key: m.table, spec: { name: m.table, path, attrs: { orm: m.orm, model: m.entity } }, from: modId, edgeAttrs: { orm: m.orm, model: m.entity }, pv: p(m.line, 'medium', 'inference'),
+    }));
+  }
+
   let truncated = false;
   if (facts.length > MAX_FACTS) {
     facts.length = MAX_FACTS;
     truncated = true;
   }
 
+  const aliases = bundlerAliases(path, tokens, n);
   const attrs = {
     language: ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT,
     loc: tk.loc,
@@ -273,12 +298,14 @@ function codeFacts(file, text, as = {}) {
     imports: analysis.imports,
     calls: analysis.calls,
     directives: analysis.directives,
+    ...(aliases.length && { bundler_aliases: aliases }),
     ...(tk.jsxElements > 0 && { has_jsx: true }),
     ...(pathMentions.size && { path_mentions: [...pathMentions].sort() }),
     ...(fw.mongo?.collections.length && { mongo_collections: fw.mongo.collections }),
     ...(fw.mongo?.ops.length && { mongo_ops: fw.mongo.ops }),
     // Link-only: link() finishes the routes whose group prefix another file supplies and removes these.
     ...fw.routeLinks,
+    ...orm.links,
   };
   // Link-only inputs for the unused-member analysis (members.mjs); link() removes them so they are never persisted.
   // Types are only stated in TypeScript, so only it can be read for them.

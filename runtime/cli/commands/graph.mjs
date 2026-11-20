@@ -2,7 +2,7 @@ import { UnknotError } from '../../core/errors.mjs';
 import { matchAny } from '../../core/glob.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
 import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, explainRef, stronglyConnected } from '../../graph/algorithms.mjs';
-import { MAX_CYCLES, readDerived } from '../../graph/derived.mjs';
+import { MAX_CYCLES, cycleView, readDerived } from '../../graph/derived.mjs';
 
 const ALL_CYCLES = 5000;
 import { EDGE_TYPES } from '../../graph/facts.mjs';
@@ -167,7 +167,8 @@ export async function run({ positional, flags }) {
     // The default view (module imports, whole repository) is the stored derived fact every command
     // reads; another edge type or a scope is an ad-hoc view computed here.
     const stored = edgeTypes.length === 1 && edgeTypes[0] === 'IMPORTS' && pred.scope.all ? readDerived(ctx, 'scc', { graph: g }).map((r) => r.body) : null;
-    const all = stored ? stored.map((b) => b.members) : stronglyConnected(g, { edgeTypes, nodeFilter: pred.scope.all ? undefined : pred });
+    const cg = cycleView(g);
+    const all = stored ? stored.map((b) => b.members) : stronglyConnected(cg, { edgeTypes, nodeFilter: pred.scope.all ? undefined : pred });
     // --limit caps the components listed; --max-cycles the elementary cycles per component
     // (0 or "all": as many as the work budget allows).
     const rawMax = flags.max_cycles ?? flags['max-cycles'];
@@ -175,7 +176,7 @@ export async function run({ positional, flags }) {
     const maxCycles = rawMax === undefined ? MAX_CYCLES : rawMax === 'all' || Number(rawMax) === 0 ? ALL_CYCLES : intFlag({ max_cycles: rawMax }, 'max_cycles', MAX_CYCLES, ALL_CYCLES);
     const comps = all.slice(0, limit).map((c, i) => {
       // More cycles than were stored for a component: list that one deeper.
-      const b = stored && (maxCycles <= MAX_CYCLES || !stored[i].truncated) ? { ...stored[i], cycles: stored[i].cycles.slice(0, maxCycles), truncated: stored[i].truncated || stored[i].cycles.length > maxCycles } : cycleBreakdown(g, c, { edgeTypes, maxCycles });
+      const b = stored && (maxCycles <= MAX_CYCLES || !stored[i].truncated) ? { ...stored[i], cycles: stored[i].cycles.slice(0, maxCycles), truncated: stored[i].truncated || stored[i].cycles.length > maxCycles } : cycleBreakdown(cg, c, { edgeTypes, maxCycles });
       // Every listed cycle names the edges that would break it, the ones shared by most cycles first.
       const key = (e) => `${e.from}->${e.to}`;
       const share = new Map();

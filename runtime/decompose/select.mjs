@@ -59,9 +59,10 @@ const EVIDENCE_FOR = {
   'boundary.cross_joins': 'table access facts (SQL or ORM adapters)',
   'module.co_change_leak': 'commit history with enough co-changing commits',
   'ci.per_unit_pipeline': 'CI workflow facts with path filters',
-  'contracts.present': 'contract files (OpenAPI, pact), a typed HTTP client interface or a catalog naming the endpoints',
-  'clients.count': 'typed HTTP client interfaces declaring the candidate routes, or traces naming the callers',
+  'contracts.present': 'contract files, HTTP/RPC/query clients, messaging channels or a catalog naming the endpoints',
+  'clients.count': 'client interfaces, consuming modules per messaging channel, or traces naming the callers',
   'requests.interceptable': 'traces or a catalog naming the endpoints (evidence.traces, evidence.catalogs)',
+  'service.deploy_coupling': 'delivery history with release ids (unknot import deliveries)',
   'tests.present': 'tests that cover the scope',
 };
 

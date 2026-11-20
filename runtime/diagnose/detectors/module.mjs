@@ -355,8 +355,9 @@ const hubModule = define({
     const ids = new Set(mods.map((m) => m.id));
     for (const m of mods) {
       // An import of a whole package targets every file in it, so it says nothing about this file.
-      const fi = sortedUnique(graph.in(m.id, IMPORT).filter((e) => !e.attrs?.package_level).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
-      const fo = sortedUnique(graph.out(m.id, IMPORT).map((e) => e.to).filter((t) => t !== m.id && ids.has(t)));
+      // A reference inside one package (where the package is the unit) is not an import of the file.
+      const fi = sortedUnique(graph.in(m.id, IMPORT).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
+      const fo = sortedUnique(graph.out(m.id, IMPORT).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => t !== m.id && ids.has(t)));
       if (fi.length < o.fan_in || fo.length < o.fan_out) continue;
       const tests = graph.in(m.id, 'TESTS').length;
       out.push(draft({

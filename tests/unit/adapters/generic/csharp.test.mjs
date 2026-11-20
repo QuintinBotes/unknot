@@ -154,7 +154,7 @@ test('Entity Framework: fluent ToTable names the table, owned by the entity file
     'D/Ctx.cs': 'namespace Shop.Data\n{\n    public class Ctx : DbContext\n    {\n        public DbSet<Order> Orders { get; set; }\n        protected void OnModelCreating(ModelBuilder modelBuilder)\n        {\n            modelBuilder.Entity<Order>().ToTable("tbl_orders");\n        }\n    }\n}\n',
     'D/LineMap.cs': 'namespace Shop.Data\n{\n    public class LineMap : IEntityTypeConfiguration<Line>\n    {\n        public void Configure(EntityTypeBuilder<Line> builder)\n        {\n            builder.ToTable("order_lines");\n        }\n    }\n}\n',
   });
-  const owns = (to) => g.all.filter((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && f.to === `table:public.${to}`).map((f) => f.from);
+  const owns = (to) => g.all.filter((f) => f.kind === 'edge' && f.type === 'OWNS_DATA' && f.to === `table:${to}`).map((f) => f.from);
   assert.deepEqual(owns('tbl_orders'), ['module:D/Order.cs']);
   assert.deepEqual(owns('order_lines'), ['module:D/Line.cs']);
   assert.deepEqual(owns('orders'), [], 'explicit mapping replaces the DbSet name guess');

@@ -237,7 +237,9 @@ const crossBoundaryTransaction = {
       const w = [...graph.in(t, 'MUTATES'), ...graph.in(t, 'OWNS_DATA')].map((e) => moduleOf(graph, e.from, cache)).filter(Boolean)[0];
       return w ? groupOf(graph, w) : null;
     };
+    const now = new Date().toISOString();
     for (const e of graph.edges('SHARES_TRANSACTION_WITH')) {
+      if (e.attrs?.expires_at && e.attrs.expires_at < now) continue; // expired evidence is not used
       const a = owner(e.from);
       const b = owner(e.to);
       if (!a || !b || a === b) continue;
@@ -246,7 +248,7 @@ const crossBoundaryTransaction = {
         title: `One transaction spans ${e.from.slice(6)} (${label(a)}) and ${e.to.slice(6)} (${label(b)})`,
         scope: [label(a), label(b)],
         key: e.id,
-        evidence: [{ ref: e.from, label: 'observed', summary: `shares a transaction with ${e.to}` }],
+        evidence: [{ ref: e.from, label: 'observed', summary: `shares a transaction with ${e.to}${e.attrs?.observed_window ? ` (${e.attrs.transactions ?? '?'} transaction(s), observed ${e.attrs.observed_window.start} to ${e.attrs.observed_window.end})` : ''}` }],
         measurements: { 'boundary.cross_transactions': 1 },
         thresholds: {},
         blast_radius: 'high',

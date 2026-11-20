@@ -233,7 +233,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
         top_files: cand.top_files,
         modules: cand.modules,
         robust: Boolean(cand.robust),
-        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && /^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime|contracts|clients)\./.test(k))),
+        metrics: Object.fromEntries(Object.entries(signals).filter(([k, v]) => typeof v === 'number' && (/^(boundary|module|ownership|owners|requests|cycle|tests|frontend|layer|traces|ci|driver|runtime|contracts|clients)\./.test(k) || k === 'service.deploy_coupling'))),
         ...(cand.details?.cycle_detail ? { cycle_detail: cand.details.cycle_detail } : {}),
         // Modules outside the candidate that it imports: the candidate depends on them.
         ...(cand.details?.reverse_targets ? { outbound_dependency_targets: cand.details.reverse_targets } : {}),
@@ -256,6 +256,8 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
       confidence: cand.robust ? cap.confidence : 'low',
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
+      ...(cand.details?.transactions ? { transaction_evidence: cand.details.transactions } : {}),
+      ...(cand.details?.delivery?.window ? { delivery_evidence: cand.details.delivery } : {}),
       ...(cap.capped ? { confidence_cap: cap.reason } : {}),
       ...(sel.treatment === 'T0' ? { retain_reason: sel.retain_reason } : { selection_reason: sel.selection_reason }),
       first_slice: firstSlice(sel.treatment, cand, sel),

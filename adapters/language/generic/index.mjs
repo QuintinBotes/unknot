@@ -11,6 +11,7 @@ import { analysesFor, genericGlobs, language, languageForPath, languagesForEcosy
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
+import { ormAccess, tableFacts } from '../orm-maps.mjs';
 import { clientFacts, routeGroupAttrs, routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { csharpLinker, csharpRefs } from './csharp.mjs';
 import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
@@ -18,7 +19,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.10';
+const VERSION = '0.1.14';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -142,7 +143,7 @@ function extract(file, text, ctx) {
     const refs = syntax.memberLinker === 'namespace' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang]);
     Object.assign(attrs, memberAttrs(refs));
   }
-  Object.assign(attrs, fw.routeLinks);
+  Object.assign(attrs, fw.routeLinks, fw.ormLinks);
   if (fw.sql.length) attrs.sql = fw.sql;
   if (fw.signals.length) attrs.security_signals = fw.signals;
   const mod = nodeFact('module', path, { name: path, path, attrs }, prov_(path, 1));
@@ -160,6 +161,8 @@ function extract(file, text, ctx) {
       attrs: {
         language: lang, type_kind: t.typeKind, start_line: t.startLine, end_line: t.endLine, lines: t.endLine - t.startLine + 1,
         exported: t.exported, extends: t.extends, implements: t.implements, bases: t.bases, methods: methodCounts.get(t.name) ?? 0,
+        ...(t.methodSet && { method_set: t.methodSet }),
+        ...(t.embeds?.length && { embeds: t.embeds }),
       },
     }, prov_(path, t.startLine)));
     body.push(edgeFact('CONTAINS', modId, id, {}, prov_(path, t.startLine)));
@@ -229,11 +232,10 @@ function extract(file, text, ctx) {
     }));
   }
   for (const t of fw.tables) {
-    const tid =`public.${t.name}`;
-    body.push(nodeFact('table', tid, { name: t.name, attrs: { schema: 'public', orm: t.orm } }, prov_(path, t.line, t.confidence, 'inference')));
+    const pv = prov_(path, t.line, t.confidence, 'inference');
     // A fluent mapping names an entity whose file may differ from this one: link() adds that owner.
     if (t.entity) (attrs.ef_tables ??= []).push({ entity: t.entity, table: t.name, line: t.line });
-    else body.push(edgeFact('OWNS_DATA', modId, `table:${tid}`, { orm: t.orm }, prov_(path, t.line, t.confidence, 'inference')));
+    body.push(...tableFacts(t, { key: t.name, spec: { name: t.name, attrs: { orm: t.orm, ...(t.model && { model: t.model }) } }, from: t.entity ? null : modId, edgeAttrs: { orm: t.orm }, pv }));
   }
 
   if (body.length + 1 > MAX_FACTS) {
@@ -254,16 +256,92 @@ function rustModuleDir(path) {
   return b === 'mod.rs' || b === 'lib.rs' || b === 'main.rs' ? dirname(path) : `${dirname(path)}/${b.replace(/\.rs$/, '')}`.replace(/^\//, '');
 }
 
+// shortcut: an interface more types satisfy (`Close()`, `String()`) gets edges from this many, in id order, each with the full count; raise it if a consumer needs them all.
+const MAX_STRUCTURAL = 25;
+
+/**
+ * A type implements an interface by having its methods, in languages that say so
+ * (`structuralInterfaces`): same names and parameter counts, an unexported name only from the
+ * interface's own directory. Embedded interfaces add their methods; one that does not resolve to
+ * exactly one interface leaves the method set unknown, and an unknown set implies nothing. A
+ * type's methods include those of the repository's types it embeds, which the language promotes;
+ * an embedded type from elsewhere adds none, since its methods are not visible here.
+ */
+function structuralImplements(types, receivers, mods, importsOf) {
+  const all = [...types.values()].flat().filter((t) => genericSyntax(t.attrs.language).structuralInterfaces).sort((a, b) => (a.id < b.id ? -1 : 1));
+  // The one type of `type` an embedded name means: in the embedder's directory, or, qualified, in
+  // a package the embedder's file imports (by alias or name, so the qualifier only breaks a tie).
+  const embedded = (from, e, type) => {
+    const i = e.lastIndexOf('.');
+    const [q, n] = i < 0 ? [null, e] : [e.slice(0, i), e.slice(i + 1)];
+    const named = (types.get(n) ?? []).filter((x) => x.type === type);
+    let c = named.filter((x) => (q ? importsOf.get(from.path)?.has(x.path) : dirname(x.path) === dirname(from.path)));
+    if (q && c.length > 1) c = c.filter((x) => mods.get(x.path)?.attrs.package === q);
+    return c.length === 1 ? c[0] : null;
+  };
+  const methodSet = (iface, seen = new Set()) => {
+    if (!iface.attrs.method_set || seen.has(iface.id)) return null;
+    seen.add(iface.id);
+    const set = iface.attrs.method_set.map((m) => ({ ...m, dir: dirname(iface.path) }));
+    for (const e of iface.attrs.embeds ?? []) {
+      const c = embedded(iface, e, 'interface');
+      const sub = c ? methodSet(c, seen) : null;
+      if (!sub) return null;
+      set.push(...sub);
+    }
+    seen.delete(iface.id); // `seen` is the embedding path: two embeds sharing an interface is no cycle
+    return set;
+  };
+  const methodsOf = (t, seen = new Set()) => {
+    const ms = new Map(receivers.get(`${dirname(t.path)}|${t.name}`) ?? []);
+    seen.add(t.id);
+    for (const e of t.attrs.embeds ?? []) {
+      const s = embedded(t, e, 'class');
+      const i = s ? null : embedded(t, e, 'interface');
+      const promoted = s ? (seen.has(s.id) ? new Map() : methodsOf(s, seen)) : new Map(((i && methodSet(i)) ?? []).map((m) => [m.name, m]));
+      for (const [k, v] of promoted) if (!ms.has(k)) ms.set(k, v);
+    }
+    return ms;
+  };
+  const byMethod = new Map();
+  for (const t of all) {
+    if (t.type !== 'class') continue;
+    const ms = methodsOf(t);
+    for (const name of ms.keys()) {
+      if (!byMethod.has(name)) byMethod.set(name, []);
+      byMethod.get(name).push({ t, ms });
+    }
+  }
+  const out = [];
+  for (const iface of all) {
+    if (iface.type !== 'interface') continue;
+    const set = methodSet(iface);
+    if (!set?.length) continue;
+    const rarest = set.map((m) => byMethod.get(m.name) ?? []).sort((a, b) => a.length - b.length)[0];
+    // An unexported method is the declaring package's own: it matches only one declared there.
+    const hits = rarest.filter(({ ms }) => set.every((m) => ms.get(m.name)?.params === m.params && (/^[A-Z]/.test(m.name) || ms.get(m.name).dir === m.dir)));
+    const attrs = { by: 'structural', ...(hits.length > MAX_STRUCTURAL && { satisfied_by: hits.length }) };
+    for (const { t } of hits.slice(0, MAX_STRUCTURAL)) out.push(edgeFact('IMPLEMENTS', t.id, iface.id, attrs, prov_(t.path, t.attrs.start_line ?? 1, 'low', 'inference')));
+  }
+  return out;
+}
+
 function link(ctx) {
   const mods = new Map();
   const types = new Map();
   const pkgs = [];
   const targets = new Map();
   const factIndex = new Map();
+  const receivers = new Map(); // `${dir}|${type}` → method name → { params, dir }, for structural interfaces
   for (const [path, facts] of ctx.factsByFile) {
     for (const f of facts) {
       if (f.kind !== 'node' || f.provenance.extractor !== EXTRACTOR) continue;
       factIndex.set(f.id, f);
+      if (f.type === 'method' && f.attrs.owner && genericSyntax(f.attrs.language).structuralInterfaces) {
+        const k = `${dirname(path)}|${f.attrs.owner}`;
+        if (!receivers.has(k)) receivers.set(k, new Map());
+        receivers.get(k).set(f.name, { params: f.attrs.params, dir: dirname(path) });
+      }
       if (f.type === 'module') mods.set(path, f);
       else if (f.type === 'class' || f.type === 'interface') {
         if (!types.has(f.name)) types.set(f.name, []);
@@ -436,7 +514,7 @@ function link(ctx) {
     const fam = FAMILY[lang];
     if (!reachers.has(fam)) {
       const files = sortedMods.filter((p) => FAMILY[mods.get(p).attrs.language] === fam && MEMBER_SYNTAX[mods.get(p).attrs.language]).map((p) => ({ path: p, attrs: mods.get(p).attrs }));
-      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined));
+      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined, (m) => Boolean(MEMBER_SYNTAX[lang]?.scopePrivate?.test(m))));
     }
     return reachers.get(fam);
   };
@@ -472,6 +550,9 @@ function link(ctx) {
   };
 
   // --- imports, tests -----------------------------------------------------------------
+  // Every family's member reach is read before the loop below drops each file's member attributes;
+  // built lazily, it missed the accesses of every file linked before the first file that needed it.
+  for (const p of sortedMods) if (MEMBER_SYNTAX[mods.get(p).attrs.language]) reachFor(mods.get(p).attrs.language);
   const importsOf = new Map();
   const csLink = csharpLinker(mods, sortedMods, ctx.semantic);
   for (const path of sortedMods) {
@@ -513,12 +594,11 @@ function link(ctx) {
       }
       const syn = MEMBER_SYNTAX[a.language];
       if (syn && !sem && (a.refs ?? []).length) {
+        // A type of the same package or directory needs no import, yet using it is a dependency.
         for (const [to, h] of typeHits(path, a, syn)) {
-          if (!Object.keys(h.attrs).length) continue;
           const ex = items.find((i) => i.to === to);
-          if (ex) {
-            if (!(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
-          } else if (h.declared) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...h.attrs } });
+          if (!ex) items.push({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...(genericSyntax(a.language).packageUnit && dirname(to) === dirname(path) && { intra_package: true }), ...h.attrs } });
+          else if (Object.keys(h.attrs).length && !(h.declared && unplain.has(to))) Object.assign(ex.attrs, h.attrs);
         }
       }
       // Emitted in the order the imports gave them; an edge only the index or the member analysis found comes last.
@@ -566,7 +646,7 @@ function link(ctx) {
       const own = (types.get(t.entity) ?? []).filter((c) => c.path === path);
       const decl = own.length ? own : (types.get(t.entity) ?? []);
       const owner = decl.length === 1 ? mods.get(decl[0].path).id : m.id;
-      push(edgeFact('OWNS_DATA', owner, `table:public.${t.table}`, { orm: 'efcore' }, prov_(path, t.line, 'medium', 'inference')));
+      push(edgeFact('OWNS_DATA', owner, `table:${t.table}`, { orm: 'efcore' }, prov_(path, t.line, 'medium', 'inference')));
     }
   }
 
@@ -584,17 +664,22 @@ function link(ctx) {
   }
   for (const path of sortedMods) {
     const m = mods.get(path);
+    // A qualified name (an assertion's `pkg.T`) is a type of a package this file imports.
+    const imported = (c) => importsOf.get(path)?.has(c.path);
     for (const im of m.attrs.impls ?? []) {
-      const own = (types.get(im.type) ?? []).filter((c) => c.path === path);
-      const srcs = own.length ? own : (types.get(im.type) ?? []);
-      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface');
+      const concrete = (types.get(im.type) ?? []).filter((c) => c.type !== 'interface' && (!im.type_qualified || imported(c)));
+      const own = concrete.filter((c) => c.path === path);
+      const srcs = own.length ? own : concrete;
+      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface' && (!im.trait_qualified || imported(c)));
       const near = trs.filter((c) => c.path === path);
       const tr = near.length ? near : trs;
       if (srcs.length === 1 && tr.length === 1) push(edgeFact('IMPLEMENTS', srcs[0].id, tr[0].id, { by: 'impl' }, prov_(path, im.line, 'low')));
     }
   }
+  for (const f of structuralImplements(types, receivers, mods, importsOf)) push(f);
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
+  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------

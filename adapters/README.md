@@ -32,6 +32,10 @@ export default {
   // Whole-repository discovery for adapters that are not per-file (imported plans,
   // traces, git history). Optional; may be async and may use ctx.exec.
   async discover(ctx) { return [/* GraphFact */]; },
+
+  // The one id of a node type this adapter owns, applied to every fact of every adapter
+  // after linking and discovery. Optional; the database adapter owns `table`.
+  canonicalId: { table: (id, options) => id },
 };
 ```
 

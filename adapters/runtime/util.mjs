@@ -3,7 +3,7 @@
 
 import { prov } from '../../runtime/graph/facts.mjs';
 
-export const EXTRACTOR = 'runtime@0.1.0';
+export const EXTRACTOR = 'runtime@0.1.1';
 export const DEFAULT_TTL_DAYS = 14;
 export const MAX_SPANS = 2_000_000;
 export const MAX_FACTS_PER_FILE = 5000;

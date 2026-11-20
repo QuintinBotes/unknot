@@ -16,6 +16,7 @@ const edges = (facts, type, from, to) => facts.filter((f) => f.kind === 'edge' &
 
 test('adapter shape', () => {
   assert.equal(adapter.id, 'contracts');
+  assert.equal(adapter.version, '0.1.1');
   assert.equal(adapter.kind, 'contracts');
   assert.equal(adapter.capabilities.network, false);
   assert.deepEqual(run('not-a-contract.json', 'openapi-config.json'), []);

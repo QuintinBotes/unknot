@@ -38,5 +38,37 @@
   "sha256:dc9a9f3e51aa0edd3ac2c589d41687db79547a11aa052fffd4b54bf84ea4d440": {
     "label": "not-worth",
     "note": "Dev-only compose file for a local Postgres database; no healthcheck is a minor omission."
+  },
+  "sha256:4e16d6a9a6c3f4652a086fc46d6529f3deb5197e18acb7aaedd3ae28fe02c81b": {
+    "label": "true",
+    "note": "idx_pets_owner_id (owner_id) is served by the leading column of unique_owner_pet_name (owner_id, LOWER(name)) in db/postgres/schema.sql."
+  },
+  "sha256:302d707d9f256d10e23cc37b4aa31d484e4d9ed94ae1757caf676de6e06892c0": {
+    "label": "true",
+    "note": "deploy-and-test-cluster.yml has no permissions block at workflow or job level."
+  },
+  "sha256:6cc23901521328b990b5c283b47b4a11edbc0f92d6daebe3afed24cc7c2bc5fb": {
+    "label": "not-worth",
+    "note": "Official actions referenced by major tag in a sample project; pinning to a SHA is hardening, not a defect."
+  },
+  "sha256:b8734f0db0e471d6eabf5ff29dc8e085d6d487b06e3e09a241fd6af146dd3773": {
+    "label": "not-worth",
+    "note": "Demo Kubernetes manifest without resource requests or limits; true but not worth acting on for a sample."
+  },
+  "sha256:4093b3217ffb49851bc970f6e73103b56f217e47e808d69aaa30f59faf8424fc": {
+    "label": "true",
+    "note": "gradle-build.yml has no permissions block at workflow or job level."
+  },
+  "sha256:6a08f9ee841c3d0db63d7fbc0c01df6bbfc7c7b98c753deaff56a36308b994dc": {
+    "label": "not-worth",
+    "note": "Official actions referenced by major tag in a sample project."
+  },
+  "sha256:ad272a163ca80ec8431c77073fc5e6bc672c250bfe5c2ec6dca4ee223afc4e7b": {
+    "label": "not-worth",
+    "note": "Demo Kubernetes manifest using the untagged sample image dsyer/petclinic."
+  },
+  "sha256:56bd43496b5da1859f237bb0b7b85405ccdc3f55dae032b35decbd024c06586e": {
+    "label": "not-worth",
+    "note": "actions/checkout@v2 and helm/kind-action@v1 by tag in a demo cluster test workflow."
   }
 }

@@ -19,3 +19,24 @@ export function routeKeyOfId(id) {
   const m = /^(?:endpoint|contract):(?:[^:\s]+:)?([A-Za-z]+) (\/[^\s]*)$/.exec(String(id));
   return m ? routeKey(m[1], m[2]) : null;
 }
+
+/** Client/service identity: HTTP normalization stays separate from RPC/schema names. */
+export function operationKey(node) {
+  if (node?.attrs?.contract_key) return node.attrs.contract_key;
+  if (/^endpoint:(?:RPC|GRAPHQL) /.test(node?.id ?? '')) return node.id.slice('endpoint:'.length);
+  return routeKeyOfId(node?.id) ?? routeKey(node?.attrs?.method, node?.attrs?.path);
+}
+
+/** A generated client/query document matched against a declared service/schema operation. */
+export function clientMatches(client, endpoint) {
+  const c = client?.attrs ?? client;
+  const e = endpoint?.attrs;
+  if (!e?.from_contract) return false;
+  if (c?.kind === 'rpc_client') {
+    const methodKey = (s) => String(s).replace(/_/g, '').toLowerCase();
+    return endpoint.id.startsWith('endpoint:RPC ') && e.service === c.service
+      && (!(c.methods?.length) || c.methods.some((m) => methodKey(m) === methodKey(e.method)));
+  }
+  return c?.kind === 'graphql_client' && endpoint.id.startsWith('endpoint:GRAPHQL ')
+    && e.operation === c.operation && (c.fields?.includes(e.field) || c.operation_name === e.field);
+}

@@ -686,7 +686,7 @@ export function analyze(tokens, n, match, { ts = false } = {}) {
         else if (isP(r.s, '{')) {
           for (const e of objectEntries(r.s)) {
             const v = U.literalOf(e.s, e.e);
-            if (v !== null && (e.key === 'path' || e.key === 'name')) { args = [v, ...args]; break; }
+            if (v !== null && (e.key === 'path' || e.key === 'name' || e.key === 'tableName')) { args = [v, ...args]; break; }
           }
         }
       }

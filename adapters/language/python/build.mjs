@@ -110,6 +110,7 @@ export function buildFacts(path, raw, text, quality) {
       security_signals: raw.security,
       parse_quality: quality,
       ...(entryScript && { entry_script: true }),
+      ...(raw.calls?.length && { top_level_calls: raw.calls.length }),
       ...(dottedStrings(raw, text).length && { dotted_strings: dottedStrings(raw, text) }),
       ...(djangoImport && isDjangoConventionPath(path) && { django_convention: true }),
       ...memberFacts(raw, text),
@@ -145,7 +146,7 @@ export function buildFacts(path, raw, text, quality) {
   }
 
   const heuristic = (line) => pv(line, true);
-  facts.push(...frameworkFacts({ path, raw, moduleId, symbols, pv: heuristic, pvModel, moduleAttrs: moduleFact.attrs }));
+  facts.push(...frameworkFacts({ path, raw, text, moduleId, symbols, pv: heuristic, pvModel, moduleAttrs: moduleFact.attrs }));
 
   if (facts.length > MAX_FACTS) {
     const dropped = facts.length - MAX_FACTS;

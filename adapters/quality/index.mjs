@@ -143,6 +143,16 @@ export function dropBoilerplate(toks, family) {
       // Java/Kotlin/Go imports end at the line or `;`; never swallow more than a few lines.
       if (toks[k - 1] && toks[k - 1].line - t.line <= 40) { i = k; continue; }
     }
+    // A package or namespace header and a `using` directive (`using A.B;`, `using C = A.B;`) say
+    // where the file lives, like an import; `using (...)` and `using var` are statements.
+    if (t.t === 'package' || t.t === 'namespace' || (t.t === 'using' && family !== QUALITY_FAMILIES.PYTHON)) {
+      let k = i + 1;
+      while (toks[k]?.line === t.line && (toks[k].t === 'I' || toks[k].t === '.' || (t.t === 'using' && (toks[k].t === '=' || toks[k].t === 'static')))) k++;
+      if (k > i + 1 && (k === toks.length || toks[k].t === ';' || toks[k].t === '{' || toks[k].line > t.line)) {
+        i = toks[k]?.t === ';' ? k + 1 : k;
+        continue;
+      }
+    }
     if (t.t === '@' && toks[i + 1]?.t === 'I') {
       let k = i + 2;
       while (toks[k]?.t === '.' && toks[k + 1]?.t === 'I') k += 2;
@@ -228,7 +238,7 @@ function mergeMatches(matches) {
 
 export default {
   id: 'quality',
-  version: '0.1.2',
+  version: '0.1.3',
   kind: 'language',
   capabilities: {
     get files() { return qualityGlobs(); },

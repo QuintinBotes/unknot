@@ -57,3 +57,11 @@ test('polyglot monorepo: with independent_deploy the frontend still needs eviden
   const fe = d.details.find((x) => x.target === 'frontend');
   assert.ok(fe.rejected_treatments.some((x) => x.treatment === 'T7' && /evidence missing: /.test(x.reason)));
 });
+
+test('polyglot monorepo: messaging contract evidence passes the recommendation schema', async () => {
+  const extra = { 'workers/billing/events.py': 'producer.send("invoices.issued", data)\n', 'services/api/internal/orders/listen.py': 'consumer.subscribe(["invoices.issued"])\n' };
+  const m = await analyse('polyglot-monorepo', { extra, skipDiagnose: true });
+  const d = await decompose(m.ctx, { config: m.config, dryRun: true });
+  const routes = d.details.flatMap((rec) => rec.candidate.contracts ?? []).filter((c) => c.source === 'messaging');
+  assert.ok(routes.some((c) => c.consumers === 1 && c.consumer_modules.length === 1), JSON.stringify(routes));
+});

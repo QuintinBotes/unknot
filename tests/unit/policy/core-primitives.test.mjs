@@ -9,6 +9,7 @@ import { findSecrets, redact, redactDeep } from '../../../runtime/core/redact.mj
 import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../../../runtime/core/injection.mjs';
 import { canonicalJSON, digest, sha256 } from '../../../runtime/core/canonical.mjs';
 import { addMs, parseDuration, resetClock, setClock, now } from '../../../runtime/core/clock.mjs';
+import { limit } from '../../helpers/speed.mjs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'uk-core-')));
 after(() => {
@@ -82,7 +83,7 @@ describe('glob', () => {
     const t = Date.now();
     m('**/**/**/**/**/**/a', 'x/'.repeat(40) + 'b');
     m('**/a/**/a/**/a/**/a/**/b', 'a/'.repeat(30));
-    assert.ok(Date.now() - t < 1000);
+    assert.ok(Date.now() - t < limit(1000), `took ${Date.now() - t}ms (limit ${limit(1000)}ms)`);
   });
 
   test('a run of consecutive stars does not backtrack catastrophically',
@@ -90,7 +91,7 @@ describe('glob', () => {
     () => {
       const t = Date.now();
       m('*'.repeat(18) + 'a', 'a'.repeat(26) + 'b');
-      assert.ok(Date.now() - t < 100, `took ${Date.now() - t}ms`);
+      assert.ok(Date.now() - t < limit(100), `took ${Date.now() - t}ms (limit ${limit(100)}ms)`);
     });
 
   test('matchAny / inScope', () => {

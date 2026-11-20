@@ -79,8 +79,28 @@ node scripts/accuracy.mjs --quick --work "$RUNNER_TEMP/uk-corpus" --out accuracy
 `--out` receives `accuracy.md`, `accuracy.json` and `samples/<name>@<sha>.json`, which lists the
 sampled findings with titles, scope, evidence and fingerprints for labelling. Other flags:
 `--sample N`, `--seed S`, `--no-recall`, `--labels DIR`, `--corpus FILE`. `--work` and `--out`
-must be outside this repository. A scheduled CI job runs the `--quick` line and uploads
-`accuracy-report`; none is configured yet.
+must be outside this repository. The exit status is 1 when any repository fails to fetch or
+analyse.
+
+### Scheduled run
+
+`.github/workflows/quality.yml` runs weekly (Monday 04:23 UTC) and on demand (Actions, Quality,
+Run workflow). It runs the `--quick` line above on the corpus clones (cached on
+`scripts/corpus.json`), then `node scripts/consistency.mjs --work <the same directory>`, which
+runs the cross-command consistency check over every repository the accuracy run mapped. The job
+has `contents: read` and `actions: read` only and a 60 minute limit. It fails when a repository
+cannot be analysed or when the commands disagree; it does **not** fail on precision or recall
+numbers, because there is no gate yet.
+
+Results appear in two places. The run's step summary shows overall precision and factual
+accuracy, seeded recall, the change since the previous run and the consistency output. The
+`quality-results` artifact (kept 90 days) holds `accuracy.md`, `accuracy.json`, `samples/`,
+`comparison.md` and `consistency.txt`. The comparison comes from
+`node scripts/accuracy-compare.mjs <previous accuracy.json> <current accuracy.json>`, which prints
+the change in precision, factual accuracy and seeded recall, overall and per detector; the workflow
+downloads the artifact of the last successful run for it, and says so instead of failing when
+there is none. Unlabelled samples are not counted, so a change in a small labelled sample is noise
+until the labels grow.
 
 ## Adding a repository
 
@@ -103,6 +123,51 @@ the title. Write `corpus/labels/<name>@<sha>.json`:
 A bare string value (`"false"`) is accepted too. Labels are keyed by fingerprint, so they
 carry over while a finding keeps its kind and scope; labels for findings that no longer exist
 are ignored. Raise `--sample` to bring more of the stratified order into the labelled set.
+
+## Results after 0.4.0 (2026-10-18)
+
+Same corpus and seed, Twenty excluded, 20 findings sampled per repository. 150 samples new
+since 0.2.0 were labelled by reading the cited source: 23 on the quick corpus, 109 on the rest,
+which four read-only labelling agents proposed and a reviewer checked (every `false` label
+against the source; one was changed to not-worth), and 18 that later runs sampled as fixes
+changed the findings. Both rows below are scored with the same labels; the first is the sample
+before the fixes those labels led to, the second after.
+One Saleor cycle keeps its fingerprint across the fixes but is now shown through real imports
+instead of a false `collections` edge, so it is labelled true.
+
+| | Labelled | True | Wrong | Not worth | Precision | Factual |
+|---|---:|---:|---:|---:|---:|---:|
+| before the label fixes (3cfe221) | 217 | 37 | 23 | 157 | 17% | 89% |
+| after (ca2dde3) | 216 | 43 | 10 | 163 | 20% | 95% |
+
+The fixes removed sampled findings labelled wrong for these causes: a Python standard-library
+import resolved to a same-named sibling file (a false seven-module cycle on Saleor), a
+TypeScript import of interfaces only closing a cycle, constructors, accessors and framework
+lifecycle callbacks reported as dead, credential words before `==` or `::` and in translation
+files read as secrets, `DELETE FROM {table}` recording a table named `from`, and CI jobs
+treated as deploys because of words in comments, echoed text or a cluster the job creates
+itself, a Go field read through a type that embeds its owner or through a receiver of unknown
+type, a JavaScript import of a `.vue` file without its extension, a method called only from a
+module's top-level code or from a Vue template, a script that exports nothing reported as a
+module nothing imports, and a dummy key file read as a secret. Earlier in the same round, Go
+files of one package stopped forming import cycles and hubs, and imports through Vite and
+webpack aliases resolve (18 false dead-code findings on PocketBase). Every sampled finding is
+labelled.
+
+| Seeded defect | Found | Seeded |
+|---|---:|---:|
+| dependency cycle | 11 | 11 |
+| long function | 11 | 11 |
+| dead function | 2 | 11 |
+| unused injected member | 3 | 3 |
+
+Dead functions are still reported only where the code is parsed into a syntax tree, so the
+lexical languages miss the seeded ones by design. The ten remaining wrong findings are a form
+field and a PEM placeholder read as secrets, a fake credential in a test string, `innerHTML` set
+from templates of generated markup, two package entry points read as implementation leakage, a
+private method called through a parameter of its class, TypeScript overloads counted as
+parameters, a C# string constant named like a type closing a cycle, and a decomposition
+measurement that misses same-package Java users.
 
 ## Results for Unknot 0.2.0
 

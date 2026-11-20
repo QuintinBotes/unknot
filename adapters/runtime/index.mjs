@@ -16,7 +16,7 @@ const posInt = (v, d) => (Number.isInteger(v) && v > 0 ? v : d);
 
 export default {
   id: 'runtime',
-  version: '0.1.0',
+  version: '0.1.1',
   kind: 'runtime',
   capabilities: { files: [], executes: [], network: false },
 

@@ -7,6 +7,7 @@ import { makeUtil } from './tokutil.mjs';
 import { clientPath, operations, readMarker, typeBase } from '../http-ops.mjs';
 import { scanRouteGroups } from './route-groups.mjs';
 import { LANGUAGE_IDS, extensionsFor } from '../../../runtime/graph/languages.mjs';
+import { accessCandidates, mapEntities, ormAttrs } from '../orm-maps.mjs';
 
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'];
 const HTTP_SET = new Set(HTTP_METHODS);
@@ -546,9 +547,14 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
         case 'runInNewContext': case 'runInThisContext': case 'runInContext':
           if (call && afterDot) addSignal('vm-run', tk.l, `vm.${tk.v}()`);
           break;
-        case 'innerHTML': case 'outerHTML':
-          if (afterDot && (isP(i + 1, '=') || isP(i + 1, '+='))) addSignal('inner-html', tk.l, `${tk.v} assignment`);
+        case 'innerHTML': case 'outerHTML': {
+          if (!afterDot || !(isP(i + 1, '=') || isP(i + 1, '+='))) break;
+          // A literal with nothing joined to it (`el.innerHTML = ""`, a template without holes) inserts no variable text.
+          const v = at(i + 2);
+          if ((v.t === 'str' || v.t === 'tpl') && !isP(i + 3, '+') && !isP(i + 3, '.')) break;
+          addSignal('inner-html', tk.l, `${tk.v} assignment`);
           break;
+        }
         case 'dangerouslySetInnerHTML':
           addSignal('dangerously-set-inner-html', tk.l, 'dangerouslySetInnerHTML');
           break;
@@ -579,4 +585,34 @@ export function detectFrameworks({ path, tokens, n, match, analysis }) {
   securitySignals();
   res.routeLinks = rg.moduleAttrs();
   return res;
+}
+
+/**
+ * ORM mappings in one file, from the class structure (decorators and parents) and the text
+ * (`sequelize.define(...)`, `Model.init(...)`), through the one rule in ../orm-maps.mjs.
+ * @returns {{ mappings: object[], links: object }} the mappings and the link-only module attributes
+ */
+export function ormMappings({ path, analysis, text, ts }) {
+  const lang = ts ? LANGUAGE_IDS.TYPESCRIPT : LANGUAGE_IDS.JAVASCRIPT;
+  const types = analysis.classes.map((c) => ({
+    name: c.qname, ref: c, kind: null, line: c.start_line,
+    bases: [c.extends, ...(c.implements ?? [])].flat().filter(Boolean),
+    markers: c.decorators.map((d) => ({ name: d.name.split('.').pop(), args: { positional: d.args.map((a) => JSON.stringify(String(a))), named: {} }, line: d.line })),
+    assigns: {}, embeds: [],
+  }));
+  const starts = [0];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) starts.push(i + 1);
+  const lineOf = (off) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= off) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  const view = { lang, path, imports: [], text, lineOf, matches: (re) => [...text.matchAll(re)], types };
+  const { mappings, classes } = mapEntities(view);
+  const entities = mappings.map((m) => ({ n: m.entity, t: m.table, o: m.orm }));
+  return { mappings, links: ormAttrs(entities, [], accessCandidates(text, lang, lineOf), classes) };
 }

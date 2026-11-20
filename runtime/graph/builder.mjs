@@ -18,7 +18,9 @@ import { isSecretPath, resolveInside } from '../core/paths.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { loadAdapters } from '../../adapters/registry.mjs';
 import { importFacts } from '../../adapters/runtime/imports.mjs';
-import { loadImports } from './runtime-imports.mjs';
+import { statsImportFacts } from '../../adapters/database/stats/imports.mjs';
+import { deliveryImportFacts } from '../../adapters/delivery/history/imports.mjs';
+import { loadDeliveryImports, loadImports, loadStatsImports } from './runtime-imports.mjs';
 import { git } from '../apply/git.mjs';
 import { adapterExec } from '../broker/broker.mjs';
 import { charge } from '../policy/budget.mjs';
@@ -269,6 +271,29 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
   }
+  // One id per thing, whichever adapter named it: an adapter that owns a node type's identity
+  // (`canonicalId: { <type>: (id, options) => id }`) rewrites every id of that type.
+  const owners = loaded.filter((a) => a.canonicalId).map((a) => [a.canonicalId, config.adapters?.[a.id] ?? {}]);
+  if (owners.length) {
+    const canon = (id) => {
+      for (const [by, options] of owners) {
+        const f = by[id.slice(0, id.indexOf(':'))];
+        if (f) id = f(id, options);
+      }
+      return id;
+    };
+    const rewrite = (f) => {
+      if (f.kind === 'node') {
+        const id = canon(f.id);
+        return id === f.id ? f : { ...f, id };
+      }
+      const from = canon(f.from);
+      const to = canon(f.to);
+      return from === f.from && to === f.to ? f : { ...f, from, to };
+    };
+    fileFacts = fileFacts.map(rewrite);
+    for (let i = 0; i < global.length; i++) global[i] = rewrite(global[i]);
+  }
   // Imported runtime tables (`unknot import runtime`) are matched against the graph as mapped now.
   const imports = loadImports(ctx.store);
   if (imports.length) {
@@ -277,6 +302,26 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       pushAll(global, importFacts(imports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
     } catch (err) {
       failures.push({ path: '<runtime-import>', adapter: 'runtime', error: String(err?.message ?? err) });
+    }
+  }
+  // Imported database statistics (`unknot import database-stats`) attach to the table nodes mapped now.
+  const statsImports = loadStatsImports(ctx.store);
+  if (statsImports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, statsImportFacts(statsImports, mapped, { options: config.adapters?.runtime ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<database-stats-import>', adapter: 'database', error: String(err?.message ?? err) });
+    }
+  }
+  // Imported delivery history (`unknot import deliveries`) attaches to the deployable units mapped now.
+  const deliveryImports = loadDeliveryImports(ctx.store);
+  if (deliveryImports.length) {
+    try {
+      const mapped = Graph.fromFacts([...fileFacts, ...global]);
+      pushAll(global, deliveryImportFacts(deliveryImports, mapped, { options: config.adapters?.delivery ?? {} }).map(assertFact));
+    } catch (err) {
+      failures.push({ path: '<delivery-import>', adapter: 'delivery', error: String(err?.message ?? err) });
     }
   }
   lap('discovery_ms');

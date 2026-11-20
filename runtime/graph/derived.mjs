@@ -24,22 +24,34 @@ export const MIN_FINDING_SIZE = 2;
 const IMPORT = ['IMPORTS'];
 const isTest = (n) => !n || n.attrs?.is_test === true;
 
-/** The graph without lazy (function-body) and type-only imports: what a runtime cycle needs. */
+/**
+ * The graph without references between files of one package where the language makes the
+ * package the unit (`intra_package`, Go): such files form no import cycle.
+ */
+export function cycleView(graph) {
+  const view = Object.create(graph);
+  view.out = (id, type) => graph.out(id, type).filter((e) => !e.attrs?.intra_package);
+  return view;
+}
+
+/** The cycle view without lazy (function-body) and type-only imports: what a runtime cycle needs. */
 export function strictView(graph) {
+  const base = cycleView(graph);
   const strict = Object.create(graph);
-  strict.out = (id, type) => graph.out(id, type).filter((e) => !(e.attrs?.lazy || e.attrs?.type_only));
+  strict.out = (id, type) => base.out(id, type).filter((e) => !(e.attrs?.lazy || e.attrs?.type_only));
   return strict;
 }
 
 /** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key */
 export function computeDerived(graph) {
-  const sccs = stronglyConnected(graph, { edgeTypes: IMPORT, nodeTypes: ['module'] });
+  const view = cycleView(graph);
+  const sccs = stronglyConnected(view, { edgeTypes: IMPORT, nodeTypes: ['module'] });
   const strict = stronglyConnected(strictView(graph), { edgeTypes: IMPORT, nodeTypes: ['module'] });
   const compOf = new Map();
   for (const c of sccs) for (const id of c) compOf.set(id, c[0]);
 
   const scc = sccs.map((members) => {
-    const b = cycleBreakdown(graph, members, { edgeTypes: IMPORT, maxCycles: MAX_CYCLES });
+    const b = cycleBreakdown(view, members, { edgeTypes: IMPORT, maxCycles: MAX_CYCLES });
     const inComp = new Set(members);
     const strictHere = strict.filter((c) => inComp.has(c[0]));
     const nonTest = (c) => c.filter((id) => !isTest(graph.node(id))).length;

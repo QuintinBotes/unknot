@@ -29,10 +29,6 @@ export function verbOf(statement) {
   return ['insert', 'update', 'delete', 'merge', 'replace', 'upsert', 'truncate'].includes(w) ? 'MUTATES' : 'QUERIES';
 }
 
-function tableKey(name) {
-  return name.includes('.') ? name : `public.${name}`;
-}
-
 function summarise(durs, errors, count) {
   const sorted = ascending(durs);
   return {
@@ -145,8 +141,8 @@ export function deriveTraceFacts(spanStream, meta, { file, options, now, ttlDays
         const stmt = at['db.statement'] ?? '';
         const names = at['db.sql.table'] ? [at['db.sql.table'].toLowerCase()] : tablesOf(stmt);
         const rel = stmt ? verbOf(stmt) : 'QUERIES';
-        for (const n of names) {
-          const tk = tableKey(n);
+        // Bare names: the database adapter's canonicalId qualifies them for the engine.
+        for (const tk of names) {
           const a = bump(tables, `${c.service}\0${rel}\0${tk}`, { service: c.service, rel, table: tk, shape: null }, c);
           if (stmt && (a.shape === null || stmt < a.shape)) a.shape = stmt;
           if (!nodeAttrs.table.has(tk)) nodeAttrs.table.set(tk, { db_system: at['db.system'], db_name: at['db.name'] });

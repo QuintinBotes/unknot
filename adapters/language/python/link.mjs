@@ -6,6 +6,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS, extensionsFor, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR, isDjangoConventionPath } from './build.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { ormAccess } from '../orm-maps.mjs';
 import { normalizeRoute } from './frameworks.mjs';
 import { MANIFEST_RE, manifestKind } from './manifests.mjs';
 import { DIST_ALIASES, STDLIB, normalizeDist } from './stdlib.mjs';
@@ -99,10 +100,12 @@ export function link(ctx) {
     return (best ?? cands[0]).path;
   };
   // A dotted module name is the normal, observed resolution. A bare name can additionally
-  // match a sibling when a script runs from that directory; that generic rule is inferred.
+  // match a sibling when a script runs from that directory; that generic rule is inferred,
+  // and never for a standard-library name (`from collections import ...` beside collections.py).
   const resolveAbsolute = (language, dotted, importer) => {
     const path = resolveDotted(dotted, importer);
-    return path ? { path, inferred: false } : resolveFlatSiblingImport(language, importer, dotted, pyPaths);
+    if (path) return { path, inferred: false };
+    return STDLIB.has(dotted) ? null : resolveFlatSiblingImport(language, importer, dotted, pyPaths);
   };
   const tryRel = (dir, parts) => {
     const base = join(dir, parts.join('/'));
@@ -366,6 +369,7 @@ export function link(ctx) {
     }
   }
   routeGroups(ctx.factsByFile, 'python@', normalizeRoute);
+  for (const f of ormAccess(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }), { attrs: (orm, model) => ({ columns: [], orm, model }) })) emit(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'python@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) emit(f);
   return out;
 }

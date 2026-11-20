@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { lex } from '../../../../adapters/language/generic/lexer.mjs';
 import adapter from '../../../../adapters/language/generic/index.mjs';
 import { rng } from './helpers.mjs';
+import { limit } from '../../../helpers/speed.mjs';
 
 const LANGS = ['go', 'java', 'kotlin', 'csharp', 'rust', 'ruby', 'php', 'scala', 'swift', 'dart', 'c', 'cpp', 'groovy'];
 
@@ -153,7 +154,7 @@ test('a 1 MB Java file extracts in under 1.5 seconds', () => {
   const t0 = performance.now();
   const facts = adapter.extract({ path: 'src/main/java/big/Big.java', kind: 'source' }, src, {});
   const ms = performance.now() - t0;
-  assert.ok(ms < 1500, `took ${ms.toFixed(0)} ms`);
+  assert.ok(ms < limit(1500), `took ${ms.toFixed(0)} ms (limit ${limit(1500)}ms)`);
   const mod = facts.find((f) => f.id === 'module:src/main/java/big/Big.java');
   assert.ok(mod.attrs.truncated, 'huge files are capped and say so');
   assert.equal(facts.length, 5000);

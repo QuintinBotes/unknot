@@ -20,6 +20,14 @@ export function isInside(parent, child) {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
+/** Whether a repository-relative path lies under a code root (`.` or empty: the whole repository). */
+export function underRoot(path, root) {
+  if (root === '.' || root === '') return true;
+  if (typeof root !== 'string' || !root) return false;
+  const r = root.replace(/^\.\//, '').replace(/\/+$/, '');
+  return r === '.' || r === '' || path === r || path.startsWith(`${r}/`);
+}
+
 /** realpath of the deepest existing ancestor, with the missing tail re-appended. */
 export function realpathLenient(abs) {
   const tail = [];

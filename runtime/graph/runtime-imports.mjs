@@ -21,3 +21,43 @@ export function saveImport(store, entry) {
   const rest = loadImports(store).filter((e) => e.source !== entry.source);
   store.meta(KEY, JSON.stringify([...rest, entry].sort((a, b) => (a.source < b.source ? -1 : 1))));
 }
+
+// Imported database statistics (`unknot import database-stats`) are kept the same way.
+const STATS_KEY = 'database_stats_imports';
+
+/** @returns {{source: string, file: string, digest: string, imported_at: string, format: string, rows: object[], transactions: object[]}[]} */
+export function loadStatsImports(store) {
+  const raw = store.meta(STATS_KEY);
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveStatsImport(store, entry) {
+  const rest = loadStatsImports(store).filter((e) => e.source !== entry.source);
+  store.meta(STATS_KEY, JSON.stringify([...rest, entry].sort((a, b) => (a.source < b.source ? -1 : 1))));
+}
+
+// Imported delivery history (`unknot import deliveries`) is kept the same way.
+const DELIVERY_KEY = 'delivery_imports';
+
+/** @returns {{source: string, file: string, digest: string, imported_at: string, environment: string, rows: object[], window: object}[]} */
+export function loadDeliveryImports(store) {
+  const raw = store.meta(DELIVERY_KEY);
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDeliveryImport(store, entry) {
+  const rest = loadDeliveryImports(store).filter((e) => e.source !== entry.source);
+  store.meta(DELIVERY_KEY, JSON.stringify([...rest, entry].sort((a, b) => (a.source < b.source ? -1 : 1))));
+}

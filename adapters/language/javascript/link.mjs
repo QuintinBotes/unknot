@@ -7,6 +7,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS } from '../../../runtime/graph/languages.mjs';
 import { EXTRACTOR } from './config.mjs';
 import { routeGroups, serverInterfaces } from '../http-ops.mjs';
+import { ormAccess } from '../orm-maps.mjs';
 import { joinPath } from './frameworks.mjs';
 import { createResolver, normalize as normalizePath } from './resolver.mjs';
 import { MEMBER_SYNTAX } from '../generic/member-syntax.mjs';
@@ -50,7 +51,8 @@ export function linkFacts(ctx) {
   packages.sort((a, b) => cmp(a.path, b.path));
 
   const has = (p) => files.has(p) || byFile.has(p);
-  const R = createResolver({ has, tsconfigs, packages });
+  const aliases = paths.flatMap((p) => (mods.get(p)?.bundler_aliases ?? []).map((a) => ({ ...a, dir: dirOf(p) })));
+  const R = createResolver({ has, tsconfigs, packages, aliases });
   const out = [];
   const emittedNodes = new Set();
   const P = (path, line, confidence = 'high') => prov({ source_type: 'ast', source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence });
@@ -99,6 +101,12 @@ export function linkFacts(ctx) {
     if (kinds.length > 1) attrs.kinds = kinds;
     // `import type` and `export type ... from` are erased at compile time: no runtime edge.
     if (kinds.length === 1 && kinds[0] === 'type') attrs.type_only = true;
+    // So is a named import of interfaces and type aliases only, written without `type`.
+    const exported = agg.internal ? mods.get(agg.to.slice('module:'.length))?.exports : null;
+    if (!attrs.type_only && exported && kinds.length === 1 && kinds[0] === 'static' && agg.names.size) {
+      const erased = (n) => exported.some((e) => e.name === n && (e.kind === 'interface' || e.kind === 'type')) && !exported.some((e) => e.name === n && e.kind !== 'interface' && e.kind !== 'type');
+      if ([...agg.names].every(erased)) attrs.type_only = true;
+    }
     agg.attrs = attrs;
   }
   for (const [path, list] of [...unresolved.entries()].sort((a, b) => cmp(a[0], b[0]))) {
@@ -407,6 +415,7 @@ export function linkFacts(ctx) {
     }
   }
   routeGroups(ctx.factsByFile, 'javascript@', joinPath);
+  for (const f of ormAccess(ctx.factsByFile, 'javascript@', (p, line) => prov({ source_type: 'inference', source_ref: `${p}:${line}`, extractor: EXTRACTOR, confidence: 'medium' }))) out.push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'javascript@', (p, line) => P(p, line, 'medium'))) out.push(f);
   return out;
 }

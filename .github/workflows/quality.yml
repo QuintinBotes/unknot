@@ -1,0 +1,86 @@
+name: Quality
+
+# Scheduled measurement of Unknot on the quick corpus of pinned public repositories
+# (scripts/corpus.json, docs/accuracy.md): precision, factual accuracy and seeded recall, plus
+# the cross-command consistency check on every mapped repository. Nothing gates on the numbers
+# yet; the job fails only when a repository cannot be analysed or the commands disagree. Each
+# run uploads its reports and compares itself with the last successful run.
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: quality
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: accuracy and consistency (quick corpus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Only to download the previous run's artifact for the comparison.
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Cache the corpus clones
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/corpus
+            !${{ runner.temp }}/corpus/**/.unknot
+          key: corpus-${{ hashFiles('scripts/corpus.json') }}
+      - name: Accuracy (quick corpus)
+        run: node scripts/accuracy.mjs --quick --work "$RUNNER_TEMP/corpus" --out "$RUNNER_TEMP/accuracy"
+      - name: Consistency over every mapped repository
+        shell: bash
+        run: node scripts/consistency.mjs --work "$RUNNER_TEMP/corpus" | tee "$RUNNER_TEMP/accuracy/consistency.txt"
+      - name: Compare with the previous run
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/accuracy/accuracy.json" ]; then echo "no accuracy report to compare"; exit 0; fi
+          mkdir -p "$RUNNER_TEMP/previous"
+          prev=$(gh run list --workflow quality.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -n "$prev" ]; then
+            gh run download "$prev" --name quality-results --dir "$RUNNER_TEMP/previous" || echo "previous artifact not available"
+          fi
+          node scripts/accuracy-compare.mjs "$RUNNER_TEMP/previous/accuracy.json" "$RUNNER_TEMP/accuracy/accuracy.json" | tee "$RUNNER_TEMP/accuracy/comparison.md"
+      - name: Step summary
+        if: ${{ !cancelled() }}
+        run: |
+          [ -f "$RUNNER_TEMP/accuracy/accuracy.md" ] || { echo "The accuracy run produced no report." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          {
+            echo "## Unknot quality, quick corpus"
+            echo
+            # The overall precision and factual accuracy row, then the seeded recall tables.
+            awk '/^## /{keep = ($0 ~ /^## (Precision overall|Recall by detector|Recall by language)/)} keep' "$RUNNER_TEMP/accuracy/accuracy.md"
+            echo
+            cat "$RUNNER_TEMP/accuracy/comparison.md" 2>/dev/null || true
+            echo
+            echo "## Consistency"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/accuracy/consistency.txt" 2>/dev/null || echo "consistency did not run"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-results
+          path: ${{ runner.temp }}/accuracy
+          if-no-files-found: error
+          retention-days: 90
