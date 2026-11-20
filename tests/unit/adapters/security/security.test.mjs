@@ -120,7 +120,9 @@ test('a translation file names the word for a password, not one; token-shaped se
 
 test('a file named as a stand-in holds no real secret', () => {
   assert.deepEqual(adapter.extract(file('routers/private/tests/repos/repo1_hook_verification_dummy_gpg_key.txt'), `aws = ${AWS}\n`), []);
-  assert.deepEqual(adapter.extract(file('config/secrets.example.env'), `aws = ${AWS}\n`), []);
+  assert.deepEqual(adapter.extract(file('config/fake_credentials.json'), `{ "aws": "${AWS}" }\n`), []);
+  // An example or sample file is no stand-in: a real key copied into `.env.example` is the classic leak.
+  assert.equal(adapter.extract(file('config/secrets.example.env'), `aws = ${AWS}\n`).length, 1);
   assert.equal(adapter.extract(file('config/secrets.env'), `aws = ${AWS}\n`).length, 1);
   assert.equal(adapter.extract(file('src/counterexample/sampler.js'), `const k = '${AWS}';\n`).length, 1, 'a word inside a longer name is not a marker');
   for (const path of ['examples/aws/main.tf', 'src/sample_app/settings.py', 'test/fakes/stripe.go']) {
