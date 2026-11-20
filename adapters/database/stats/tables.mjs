@@ -220,7 +220,8 @@ export function extractTables(sql) {
       case 'where': hasWhere = true; break;
       case 'from':
         if (FUNCTION_PARENS.has(stack[stack.length - 1]) || isKw(prev, 'distinct')) break;
-        if (kind === 'delete' && stack.length === 0 && isKw(prev, 'delete')) { tableRefs(p + 1, writes, { list: false }); break; }
+        // `DELETE FROM t` writes t wherever it stands: after a WITH clause, or inside one (`WITH gone AS (DELETE FROM q ...)`).
+        if (isKw(prev, 'delete')) { tableRefs(p + 1, writes, { list: false }); break; }
         if (kind === 'delete' && stack.length === 0 && isName(prev) && isKw(tokens[p - 2], 'delete')) fail('multi-table DELETE');
         tableRefs(p + 1, reads, { list: true });
         break;

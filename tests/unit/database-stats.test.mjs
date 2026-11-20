@@ -32,6 +32,8 @@ describe('shared SQL table extractor', () => {
     ['SELECT a INTO archive FROM orders', { reads: ['orders'], writes: ['archive'] }],
     ['TRUNCATE TABLE ledger', { reads: [], writes: ['ledger'] }],
     ['SELECT payload #>> $1, doc #- $2 FROM events WHERE id = $3', { reads: ['events'], writes: [] }],
+    ['WITH x AS (SELECT id FROM stale) DELETE FROM audit_log WHERE id IN (SELECT id FROM x)', { reads: ['stale'], writes: ['audit_log'] }],
+    ['WITH gone AS (DELETE FROM queue WHERE id = $1 RETURNING *) INSERT INTO done SELECT * FROM gone', { reads: [], writes: ['done', 'queue'] }],
   ];
   for (const [sql, want] of cases) {
     test(sql.slice(0, 60), () => {
