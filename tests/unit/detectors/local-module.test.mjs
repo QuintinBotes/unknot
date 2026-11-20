@@ -236,8 +236,10 @@ test('dead-code: a module that defines nothing to import but runs code is a scri
     mod('scripts/helpers.py', { language: 'python', top_level_calls: 1 }),
     fn('scripts/helpers.py', 'helper', { exported: true }),
     edge('CONTAINS', 'module:scripts/helpers.py', 'function:scripts/helpers.py#helper'),
+    // `<script setup>`: no exports, top-level calls, and still a component nothing mounts.
+    mod('src/components/Orphan.vue', { language: 'typescript', exports: [], calls: [{ name: 'defineProps', line: 2 }] }),
   ];
-  assert.deepEqual(keys(run('local.dead-code', facts)), ['module:scripts/helpers.py', 'module:src/decl.js', 'module:src/lib.js']);
+  assert.deepEqual(keys(run('local.dead-code', facts)), ['module:scripts/helpers.py', 'module:src/components/Orphan.vue', 'module:src/decl.js', 'module:src/lib.js']);
 });
 
 test('dead-code: without any IMPORTS edges modules are not judged', () => {

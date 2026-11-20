@@ -477,6 +477,8 @@ function isScript(graph, m) {
   // A Meteor app with a main module runs only what that module imports.
   const path = m.path ?? '';
   if (meteorApps(graph).some((a) => !a.eager && (!a.dir || path.startsWith(`${a.dir}/`)))) return false;
+  // A single-file component is mounted, never run: `<script setup>` exports nothing and calls `defineProps()`.
+  if ([LANGUAGE_IDS.VUE, LANGUAGE_IDS.SVELTE].includes(languageForPath(path)?.id)) return false;
   if (Array.isArray(m.attrs?.exports)) return m.attrs.exports.length === 0;
   return !graph.children(m.id).some((c) => ['function', 'class', 'interface'].includes(c.type));
 }
