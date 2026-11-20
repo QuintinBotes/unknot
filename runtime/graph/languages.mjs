@@ -292,6 +292,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       packagePattern: /^[ \t]*package\s+([\w.]+)\s*;/m,
       importStyle: 'dotted_static',
       exported: 'public',
+      nonPublic: 'package', // where a type that is not exported can be seen (build-graph.mjs)
       resolver: 'qualified_type',
       sourceConvention: /(?:^|\/)src\/(?:main|test)\/java\/(.+)\.java$/,
     },
@@ -325,6 +326,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       packagePattern: /^[ \t]*package\s+([\w.]+)/m,
       importStyle: 'dotted',
       exported: 'not_private_internal',
+      nonPublic: 'unit',
       resolver: 'qualified_type',
       sourceConvention: /(?:^|\/)src\/(?:main|test)\/kotlin\/(.+)\.kt$/,
       functionExpressionBodies: true,
@@ -377,6 +379,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       importStyle: 'using_directives',
       annotationStyle: 'bracket',
       exported: 'public',
+      nonPublic: 'unit',
       resolver: 'namespace',
       memberLinker: 'namespace',
     },

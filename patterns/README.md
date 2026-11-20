@@ -39,7 +39,7 @@ Only these metric names may appear in predicates. Values are numbers; booleans a
 | `symbol.references` | Inbound references (0 = unreferenced) |
 | `interface.implementations`, `factory.products`, `wrapper.passthrough_ratio`, `abstraction.layers` | Indirection measures |
 | `duplication.similarity`, `duplication.instances` | Clone similarity (0–1) and count |
-| `cycle.size`, `layer.violations` | Dependency cycle size; layer rule violations |
+| `cycle.size`, `cycle.boundary_edges`, `layer.violations` | Dependency cycle size; a decomposition candidate's boundary edges that lie on a cycle once the candidate is collapsed to one node (its own part in a cycle, measured by `boundaryMetrics` in `runtime/decompose/candidates.mjs`); layer rule violations |
 | `owners.count`, `ownership.alignment` | Distinct owning teams; max single-team share (0–1) |
 | `tests.present`, `tests.characterization` | Tests covering scope (count); characterization tests exist (0/1) |
 | `contracts.present` | API/event/schema contracts exist for the boundary (0/1) |

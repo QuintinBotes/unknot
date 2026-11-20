@@ -12,7 +12,7 @@ forces:
 applicability_signals:
   - id: cycles
     description: Modules form dependency cycles.
-    predicate: { metric: cycle.size, op: '>', value: 1 }
+    predicate: { metric: cycle.boundary_edges, op: '>', value: 0 }
   - id: layer-violations
     description: Layer or boundary rule violations exist.
     predicate: { metric: layer.violations, op: '>', value: 0 }
