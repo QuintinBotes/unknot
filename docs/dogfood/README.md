@@ -155,7 +155,7 @@ end through live sessions on a uv workspace (FB18), a Rust crate (FB19) and, wit
 live-session suite that installs the plugin as a user would, on three pinned public
 repositories in Python, JavaScript and Rust (FB20, FB21). The final suite run before 0.1.10:
 fifteen read-only sessions and three change workflows, all passing, every slice ACCEPTED with
-only its planned file staged, for $3.45 of model usage. The suite now runs nightly in CI.
+only its planned file staged, for $3.45 of model usage. The suite now runs in CI, by hand before each release.
 
 **Round 10, first-run usability and .NET** — a first-run review, done the way a new user would
 (an agent asked to use Unknot, the person doing only the human steps), covered everything from
