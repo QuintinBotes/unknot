@@ -2,12 +2,11 @@ name: Live sessions
 
 # Unknot installed as a user installs it, driven by real headless Claude Code sessions on
 # pinned public repositories (scripts/live-suite.json). Needs the ANTHROPIC_API_KEY secret;
-# without it the job says so and skips. Roughly $3 a night: every read-only step on every
-# repository, plus the change workflow on one repository in rotation.
+# without it the job says so and skips. Roughly $3 a run: every read-only step on every
+# repository, plus the change workflow on one repository in rotation. It runs by hand
+# before each release (owner decision on #82), never on a schedule, so it costs nothing between releases.
 
 on:
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       change:
