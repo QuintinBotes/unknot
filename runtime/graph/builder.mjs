@@ -400,6 +400,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     analysis,
     ...(checkout && { checkout }),
     ...(stats.scip && { scip: stats.scip }),
+    ...(stats.build_graph && { build_graph: stats.build_graph }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,

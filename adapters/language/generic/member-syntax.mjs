@@ -57,7 +57,7 @@ export const MEMBER_SYNTAX = {
     blank: /^[ \t]*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?[\w.]+\s*;|\bnamespace\s+[\w.]+/gm,
     nameof: /\bnameof\s*\(\s*[\w.]+\s*\)/g,
     nameofBefore: /\bnameof\s*\(\s*(?:[\w]+\s*\.\s*)*$/,
-    heads: /(?<![\w.@$])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
+    heads: /(?<![\w@$])(?<!\.\s*)([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: [
       {
         kind: 'member',
@@ -95,7 +95,7 @@ export const MEMBER_SYNTAX = {
   [LANGUAGE_IDS.JAVA]: {
     lang: LANGUAGE_IDS.JAVA,
     blank: /^[ \t]*(?:package|import(?:\s+static)?)\s+[\w.*]+\s*;/gm,
-    heads: /(?<![\w.@$])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
+    heads: /(?<![\w@$])(?<!\.\s*)([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: [
       {
         kind: 'member',
@@ -133,7 +133,7 @@ export const MEMBER_SYNTAX = {
   [LANGUAGE_IDS.KOTLIN]: {
     lang: LANGUAGE_IDS.KOTLIN,
     blank: /^[ \t]*(?:package|import)\s+[\w.*]+(?:\s+as\s+\w+)?[ \t]*$/gm,
-    heads: /(?<![\w.@$])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
+    heads: /(?<![\w@$])(?<!\.\s*)([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: (() => {
       const mods = '(?<mods>(?:@[\\w.:]+(?:\\([^)]*\\))?\\s+|(?:public|private|protected|internal|lateinit|override|open|final|const|abstract)\\s+)*)';
       const after = '^(?:\\s*<[^;{}()=]*>)?\\??(?=[ \\t]*(?:[,)=;\\n]|$|by\\b))';
@@ -171,7 +171,7 @@ export const MEMBER_SYNTAX = {
   [LANGUAGE_IDS.TYPESCRIPT]: {
     lang: LANGUAGE_IDS.TYPESCRIPT,
     blank: /^[ \t]*(?:import|export)\b[^;'"`]*?\bfrom\s*['"][^'"]*['"][ \t]*;?|^[ \t]*import\s*['"][^'"]*['"][ \t]*;?|^[ \t]*import\s+\w+\s*=\s*require\([^)]*\)[ \t]*;?/gm,
-    heads: /(?<![\w.@$])([A-Z][\w$]*(?:\s*\.\s*[A-Z][\w$]*)*)/g,
+    heads: /(?<![\w@$])(?<!\.\s*)([A-Z][\w$]*(?:\s*\.\s*[A-Z][\w$]*)*)/g,
     forms: (() => {
       const deco = '(?:@[\\w.]+(?:\\([^)]*\\))?\\s*)*';
       const after = new RegExp(`^${TS_AFTER}(?=\\s*[,)=])`);
@@ -213,7 +213,7 @@ export const MEMBER_SYNTAX = {
   [LANGUAGE_IDS.PYTHON]: {
     lang: LANGUAGE_IDS.PYTHON,
     blank: /^[ \t]*from\s+[\w.]+\s+import\s*(?:\([^)]*\)|[^\n]*)|^[ \t]*import\s+[^\n]*/gm,
-    heads: /(?<![\w.@])([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
+    heads: /(?<![\w@])(?<!\.\s*)([A-Z]\w*(?:\s*\.\s*[A-Z]\w*)*)/g,
     forms: [
       { kind: 'member', before: /(?:^|\n)[ \t]*(?<name>__?[A-Za-z0-9]\w*)\s*:\s*(?:(?:Optional|ClassVar|Final)\[\s*)?$/, after: new RegExp(`^${PY_AFTER}(?=[ \\t]*(?:=|\\n|$|#))`), pubName: /^(?!__)/ },
       { kind: 'member', before: /\bself\s*\.\s*(?<name>__?[A-Za-z0-9]\w*)\s*:\s*(?:Optional\[\s*)?$/, after: new RegExp(`^${PY_AFTER}(?=\\s*=)`), pubName: /^(?!__)/ },
@@ -243,7 +243,7 @@ export const MEMBER_SYNTAX = {
   [LANGUAGE_IDS.GO]: {
     lang: LANGUAGE_IDS.GO,
     blank: /^[ \t]*package\s+\w+|^[ \t]*import\s*(?:\w+\s+)?"[^"\n]*"|^[ \t]*import\s*\([^)]*\)/gm,
-    heads: /(?<![\w.@$])([A-Z]\w*)/g,
+    heads: /(?<![\w@$])(?<!\.\s*)([A-Z]\w*)/g,
     forms: [
       {
         kind: 'member',

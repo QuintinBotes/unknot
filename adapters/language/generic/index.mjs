@@ -13,13 +13,14 @@ import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
 import { ormAccess, tableFacts } from '../orm-maps.mjs';
 import { clientFacts, routeGroupAttrs, routeGroups, serverInterfaces } from '../http-ops.mjs';
-import { csharpLinker, csharpRefs } from './csharp.mjs';
+import { csharpLinker, csharpRefs, friendAssemblies } from './csharp.mjs';
+import { buildGraph } from './build-graph.mjs';
 import { MEMBER_SYNTAX, FAMILY } from './member-syntax.mjs';
 import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, memberTypes, withSemantic } from './members.mjs';
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.14';
+const VERSION = '0.1.15';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -142,6 +143,10 @@ function extract(file, text, ctx) {
   if (MEMBER_SYNTAX[lang]) {
     const refs = syntax.memberLinker === 'namespace' ? csharpRefs(lx, an) : memberRefs(lx, memberTypes(an.types), MEMBER_SYNTAX[lang]);
     Object.assign(attrs, memberAttrs(refs));
+  }
+  if (syntax.memberLinker === 'namespace') {
+    const friends = friendAssemblies(lx);
+    if (friends.length) attrs.internals_visible_to = friends;
   }
   Object.assign(attrs, fw.routeLinks, fw.ormLinks);
   if (fw.sql.length) attrs.sql = fw.sql;
@@ -506,6 +511,28 @@ function link(ctx) {
     }
   };
 
+  // --- build graph: which projects each project references (build-graph.mjs) -------------
+  const nameIndex = new Map();
+  for (const p of pkgs) if (p.type === 'package') add(nameIndex, p.name, p);
+  const gradleRoot = (p) => pkgs.filter((w) => w.type === 'workspace' && w.attrs.ecosystem === 'gradle' && (w.attrs.dir === '' || p.attrs.dir === w.attrs.dir || p.attrs.dir.startsWith(`${w.attrs.dir}/`)))
+    .sort((a, b) => b.attrs.dir.length - a.attrs.dir.length)[0]?.attrs.dir ?? '';
+  /** The packages a package references: by name, by local path, or as a Gradle project. */
+  const references = (p) => {
+    const others = pkgs.filter((q) => q !== p && q.type === 'package');
+    return [
+      ...[...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])].flatMap((name) => (nameIndex.get(name) ?? []).filter((q) => q !== p)),
+      // Project files written on Windows may spell a reference's case differently from the tree.
+      ...(p.attrs.local_deps ?? []).flatMap((l) => others.filter((q) => q.attrs.dir === l || q.attrs.manifest?.toLowerCase() === l.toLowerCase())),
+      ...(p.attrs.gradle_projects ?? []).flatMap((gp) => {
+        const dir = resolvePath(gradleRoot(p), gp.replace(/:/g, '/'));
+        return others.filter((q) => q.attrs.ecosystem === 'gradle' && q.attrs.dir === dir);
+      }),
+    ];
+  };
+  const units = pkgs.filter((p) => p.type === 'package');
+  const dependsOn = new Map(units.map((p) => [p.id, references(p)]));
+  const build = buildGraph(units, dependsOn, mods, types);
+
   // --- members: a type held only through a member nothing reads (members.mjs) --------------
   // C# resolves types through namespaces (csharp.mjs). Java, Kotlin and Go resolve a mentioned
   // type name to a file in the same package or directory, or one the file imports by class name.
@@ -533,7 +560,7 @@ function link(ctx) {
     for (const ref of a.refs ?? []) {
       if (ref.includes('.')) continue;
       for (const c of types.get(ref) ?? []) {
-        if (!visibleType(path, a, c)) continue;
+        if (!visibleType(path, a, c) || !build.allowed(path, c.path, ref)) continue;
         let h = hits.get(c.path);
         if (!h) hits.set(c.path, (h = { spec: ref, decl: true, members: new Set(), pub: new Set(), line: c.attrs.start_line ?? 1 }));
         if (ref in (a.decl_only ?? {})) {
@@ -554,7 +581,7 @@ function link(ctx) {
   // built lazily, it missed the accesses of every file linked before the first file that needed it.
   for (const p of sortedMods) if (MEMBER_SYNTAX[mods.get(p).attrs.language]) reachFor(mods.get(p).attrs.language);
   const importsOf = new Map();
-  const csLink = csharpLinker(mods, sortedMods, ctx.semantic);
+  const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed);
   for (const path of sortedMods) {
     const mod = mods.get(path);
     const a = mod.attrs;
@@ -581,7 +608,7 @@ function link(ctx) {
       for (const imp of a.imports ?? []) {
         const r = resolve(path, a, imp);
         for (const p of r.paths) {
-          if (p === path) continue;
+          if (p === path || !build.allowed(path, p, imp.spec.slice(imp.spec.lastIndexOf('.') + 1))) continue;
           resolved.add(p);
           if (r.package_level || imp.kind === 'static' || !/(?:^|\.)[A-Z]\w*$/.test(imp.spec)) unplain.add(p);
           if (seenTo.has(p)) continue;
@@ -655,7 +682,7 @@ function link(ctx) {
     for (const t of list) {
       for (const [names, kind] of [[t.attrs.extends, 'extends'], [t.attrs.implements, 'implements'], [t.attrs.bases, 'bases']]) {
         for (const name of names ?? []) {
-          const cands = types.get(name) ?? [];
+          const cands = (types.get(name) ?? []).filter((c) => build.allowed(t.path, c.path, name));
           if (cands.some((c) => c.path === t.path) || cands.length !== 1 || cands[0].id === t.id) continue;
           push(edgeFact(inheritEdge(t.type, kind, cands[0].type), t.id, cands[0].id, { by: 'name' }, prov_(t.path, t.attrs.start_line ?? 1, 'low')));
         }
@@ -683,8 +710,6 @@ function link(ctx) {
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------
-  const nameIndex = new Map();
-  for (const p of pkgs) if (p.type === 'package') add(nameIndex, p.name, p);
   const compat = (p, lang) => languagesForEcosystem(p.attrs.ecosystem).includes(lang);
   const byDepth = pkgs.filter((p) => p.type === 'package').sort((a, b) => b.attrs.dir.length - a.attrs.dir.length || a.id.localeCompare(b.id));
   for (const path of sortedMods) {
@@ -692,8 +717,6 @@ function link(ctx) {
     const owner = byDepth.find((p) => compat(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`)));
     if (owner) push(edgeFact('CONTAINS', owner.id, mods.get(path).id, {}, prov_(owner.path, 1)));
   }
-  const gradleRoot = (p) => pkgs.filter((w) => w.type === 'workspace' && w.attrs.ecosystem === 'gradle' && (w.attrs.dir === '' || p.attrs.dir === w.attrs.dir || p.attrs.dir.startsWith(`${w.attrs.dir}/`)))
-    .sort((a, b) => b.attrs.dir.length - a.attrs.dir.length)[0]?.attrs.dir ?? '';
   for (const p of pkgs) {
     const src = p.path ?? p.attrs.manifest;
     const others = pkgs.filter((q) => q !== p && q.type === 'package');
@@ -707,16 +730,7 @@ function link(ctx) {
       for (const q of others) if (q.attrs.manifest === f) push(edgeFact('CONTAINS', p.id, q.id, {}, prov_(src, 1)));
     }
     if (p.type !== 'package') continue;
-    for (const name of [...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])]) {
-      for (const q of nameIndex.get(name) ?? []) if (q !== p) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
-    }
-    for (const l of p.attrs.local_deps ?? []) {
-      for (const q of others) if (q.attrs.dir === l || q.attrs.manifest === l) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
-    }
-    for (const gp of p.attrs.gradle_projects ?? []) {
-      const dir = resolvePath(gradleRoot(p), gp.replace(/:/g, '/'));
-      for (const q of others) if (q.attrs.ecosystem === 'gradle' && q.attrs.dir === dir) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
-    }
+    for (const q of dependsOn.get(p.id)) push(edgeFact('DEPENDS_ON', p.id, q.id, {}, prov_(src, 1)));
     for (const [tname, libs] of Object.entries(p.attrs.extra_links ?? {})) {
       for (const l of libs) {
         const to = targets.has(l) ? `build_target:${l}` : dependency(l, src, 1);
@@ -729,6 +743,11 @@ function link(ctx) {
       if (l !== t.name && targets.has(l) && targets.get(l).path !== t.path) push(edgeFact('DEPENDS_ON', t.id, `build_target:${l}`, {}, prov_(t.path ?? '', 1)));
     }
   }
+
+  // A refused pair another reference linked after all is no rejected edge.
+  const rejected = [...build.rejected].reduce((n, [from, tos]) => n + [...tos].filter((to) => !importsOf.get(from)?.has(to)).length, 0);
+  if (units.length && ctx.stats) ctx.stats.build_graph = { rejected };
+  for (const m of build.unread) ctx.notes?.push(`the project references of ${m} could not be read, so its files link by name as before`);
 
   for (const name of [...deps.keys()].sort()) out.push(deps.get(name));
   return out;
