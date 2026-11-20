@@ -44,7 +44,8 @@ export function buildUnits(graph, modules) {
     const unit = row?.buildUnit ? graph.in(id, 'CONTAINS').find((e) => graph.node(e.from)?.type === 'package')?.from : null;
     const u = unit ?? id;
     unitOf.set(id, u);
-    files.set(u, [...(files.get(u) ?? []), id]);
+    if (!files.has(u)) files.set(u, []);
+    files.get(u).push(id);
   }
   return [...files.keys()].filter((u) => !u.startsWith('module:')).length >= 3 ? { unitOf, files } : null;
 }
