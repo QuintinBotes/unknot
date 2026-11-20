@@ -289,6 +289,7 @@ function structuralImplements(types, receivers, mods, importsOf) {
       if (!sub) return null;
       set.push(...sub);
     }
+    seen.delete(iface.id); // `seen` is the embedding path: two embeds sharing an interface is no cycle
     return set;
   };
   const methodsOf = (t, seen = new Set()) => {

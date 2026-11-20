@@ -404,6 +404,14 @@ test('Go: a type implements an interface by having its methods, and only then', 
   assert.ok(p.all.filter((f) => f.type === 'IMPLEMENTS').every((f) => f.attrs.by === 'structural' && f.provenance.confidence === 'low' && f.provenance.source_type === 'inference'));
 });
 
+test('Go: an interface embedding two interfaces that share an embed is still met', () => {
+  const p = project({
+    'io/io.go': 'package io\ntype Base interface { Close() error }\ntype L interface {\n\tBase\n\tRead() error\n}\ntype R interface {\n\tBase\n\tWrite() error\n}\ntype Both interface {\n\tL\n\tR\n}\n',
+    'io/f.go': 'package io\ntype F struct{}\nfunc (f F) Close() error { return nil }\nfunc (f F) Read() error { return nil }\nfunc (f F) Write() error { return nil }\n',
+  });
+  assert.ok(p.hasEdge('IMPLEMENTS', 'class:io/f.go#F', 'interface:io/io.go#Both'));
+});
+
 test('Go: an interface that very many types satisfy gets 25 structural edges, each with the full count', () => {
   const files = { 'io/closer.go': 'package io\ntype Closer interface { Close() error }\n' };
   for (let i = 0; i < 26; i++) files[`res/r${i}.go`] = `package res\ntype R${i} struct{}\nfunc (r R${i}) Close() error { return nil }\n`;
