@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/); see `COMPATIBILITY.md` for what counts as public API.
 
+## [Unreleased]
+
+### Fixed
+
+- A decomposition candidate's cycle signal is its own part in a cycle (#73, the second of the top fixes from a large-monolith run, where contact with one 1,753-file component decided half the treatments and every record cited the same files): `cycle.boundary_edges` counts the candidate's boundary import edges that lie on a cycle once the candidate is collapsed to one node, and its evidence lists exactly those edges. The modularize-in-place, extract-module and frontend modular monolith cards read it instead of `cycle.size`, which stays in the record as context (the size of the largest component crossing the boundary). Decomposition records get the new metric and may change treatment once after the upgrade.
+
 ## [0.4.0] - 2026-11-20
 
 ### Added
@@ -22,7 +28,6 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
-- A decomposition candidate's cycle signal is its own part in a cycle (#73, the second of the top fixes from a large-monolith run, where contact with one 1,753-file component decided half the treatments and every record cited the same files): `cycle.boundary_edges` counts the candidate's boundary import edges that lie on a cycle once the candidate is collapsed to one node, and its evidence lists exactly those edges. The modularize-in-place, extract-module and frontend modular monolith cards read it instead of `cycle.size`, which stays in the record as context (the size of the largest component crossing the boundary). Decomposition records get the new metric and may change treatment once after the upgrade.
 - More false findings from the labelled corpus, each fixed generally:
   - a Go field read through a type that embeds its owner is a use (embedded types count as bases for member reach; on gitea, `objectFormatCache` read through `Repository`);
   - an extensionless JavaScript import resolves to a single-file component (`./components/AkauntingDate` to `AkauntingDate.vue`) when no script matches;
