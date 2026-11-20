@@ -20,7 +20,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.15';
+const VERSION = '0.1.16';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -272,16 +272,15 @@ const MAX_STRUCTURAL = 25;
  * type's methods include those of the repository's types it embeds, which the language promotes;
  * an embedded type from elsewhere adds none, since its methods are not visible here.
  */
-function structuralImplements(types, receivers, mods, importsOf) {
+function structuralImplements(types, receivers, mods, qualified) {
   const all = [...types.values()].flat().filter((t) => genericSyntax(t.attrs.language).structuralInterfaces).sort((a, b) => (a.id < b.id ? -1 : 1));
-  // The one type of `type` an embedded name means: in the embedder's directory, or, qualified, in
-  // a package the embedder's file imports (by alias or name, so the qualifier only breaks a tie).
+  // The one type of `type` an embedded name means: in the embedder's directory or a package it
+  // dot-imports, or, qualified, in the package that qualifier names in the embedder's file.
   const embedded = (from, e, type) => {
     const i = e.lastIndexOf('.');
     const [q, n] = i < 0 ? [null, e] : [e.slice(0, i), e.slice(i + 1)];
-    const named = (types.get(n) ?? []).filter((x) => x.type === type);
-    let c = named.filter((x) => (q ? importsOf.get(from.path)?.has(x.path) : dirname(x.path) === dirname(from.path)));
-    if (q && c.length > 1) c = c.filter((x) => mods.get(x.path)?.attrs.package === q);
+    const under = (k, x) => qualified.get(from.path)?.get(k)?.has(x.path);
+    const c = (types.get(n) ?? []).filter((x) => x.type === type && (q ? under(q, x) : dirname(x.path) === dirname(from.path) || under('', x)));
     return c.length === 1 ? c[0] : null;
   };
   const methodSet = (iface, seen = new Set()) => {
@@ -581,6 +580,8 @@ function link(ctx) {
   // built lazily, it missed the accesses of every file linked before the first file that needed it.
   for (const p of sortedMods) if (MEMBER_SYNTAX[mods.get(p).attrs.language]) reachFor(mods.get(p).attrs.language);
   const importsOf = new Map();
+  // path → qualifier → files of the package it names there: the alias, else the package clause; '' for a dot import.
+  const qualified = new Map();
   const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed);
   for (const path of sortedMods) {
     const mod = mods.get(path);
@@ -607,6 +608,11 @@ function link(ctx) {
       const unplain = new Set(); // targets an import reaches other than by a class name
       for (const imp of a.imports ?? []) {
         const r = resolve(path, a, imp);
+        if (r.paths.length && imp.alias !== '_') {
+          const q = imp.alias === '.' ? '' : imp.alias ?? mods.get(r.paths[0]).attrs.package ?? basename(imp.spec);
+          if (!qualified.has(path)) qualified.set(path, new Map());
+          qualified.get(path).set(q, new Set([...(qualified.get(path).get(q) ?? []), ...r.paths]));
+        }
         for (const p of r.paths) {
           // The type an import names is its first capitalised segment (`y.Helper.CONSTANT` names `Helper`).
           if (p === path || !build.allowed(path, p, imp.spec.split('.').find((s) => /^[A-Z]/.test(s)))) continue;
@@ -694,19 +700,19 @@ function link(ctx) {
   }
   for (const path of sortedMods) {
     const m = mods.get(path);
-    // A qualified name (an assertion's `pkg.T`) is a type of a package this file imports.
-    const imported = (c) => importsOf.get(path)?.has(c.path);
+    // A qualified name (an assertion's `pkg.T`) is a type of the package that qualifier names in this file.
+    const under = (q, c) => !q || qualified.get(path)?.get(q)?.has(c.path);
     for (const im of m.attrs.impls ?? []) {
-      const concrete = (types.get(im.type) ?? []).filter((c) => c.type !== 'interface' && (!im.type_qualified || imported(c)));
+      const concrete = (types.get(im.type) ?? []).filter((c) => c.type !== 'interface' && under(im.type_qualifier, c));
       const own = concrete.filter((c) => c.path === path);
       const srcs = own.length ? own : concrete;
-      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface' && (!im.trait_qualified || imported(c)));
+      const trs = (types.get(im.trait) ?? []).filter((c) => c.type === 'interface' && under(im.trait_qualifier, c));
       const near = trs.filter((c) => c.path === path);
       const tr = near.length ? near : trs;
       if (srcs.length === 1 && tr.length === 1) push(edgeFact('IMPLEMENTS', srcs[0].id, tr[0].id, { by: 'impl' }, prov_(path, im.line, 'low')));
     }
   }
-  for (const f of structuralImplements(types, receivers, mods, importsOf)) push(f);
+  for (const f of structuralImplements(types, receivers, mods, qualified)) push(f);
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
   for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
