@@ -42,7 +42,7 @@ It can map, diagnose, plan and report. For a change that should preserve behavio
 
 ### How large a repository can it handle?
 
-Measured on one machine (Apple M1 Max, Node 22): a 1,000-file fixture maps cold in 1.6 seconds, and 10,000 files in 29 seconds with 569 MB peak memory; re-mapping after a 5-file commit took 7 seconds at 10,000 files. Cold mapping time grew faster than linearly between those sizes. 100,000 files has not been measured. Results depend on your languages, adapters and history length. See [benchmarks.md](benchmarks.md) and use `node scripts/bench.mjs --large` on your own hardware.
+Measured on one machine (Apple M1 Max, Node 22) with the generated benchmark fixtures: a cold map took 1.8 seconds at 1,000 files, 12.8 seconds at 10,000, 77 seconds at 50,000, 329 seconds at 100,000 and 654 seconds at 250,000, with peak memory of 566 MB at 10,000 files and 6.7 GB at 250,000. Re-mapping after a small commit is not yet proportional to the change: at 50,000 files it took 40 seconds. Results depend on your languages, adapters and history length. See [benchmarks.md](benchmarks.md) and use `node scripts/bench.mjs --large` on your own hardware.
 
 ### What if the repository contains instructions aimed at the AI?
 
