@@ -5,7 +5,7 @@
 // graph table id (`resolve`) and which attributes ride along (`nodeAttrs`, `edgeAttrs`).
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
-import { EXTRACTOR, expiry, safeName, ttlOf } from '../../runtime/util.mjs';
+import { EXTRACTOR, expiry, ttlOf } from '../../runtime/util.mjs';
 
 export { ttlOf };
 export const TX_EDGE = 'SHARES_TRANSACTION_WITH';
@@ -80,10 +80,9 @@ export function statementFacts(rows, env) {
       for (let j = i + 1; j < tables.length; j++) {
         const k = `${tables[i]}\0${tables[j]}`;
         let p = pairs.get(k);
-        if (!p) pairs.set(k, (p = { from: tables[i], to: tables[j], transactions: 0, calls: 0, start: null, end: null, ids: [] }));
+        if (!p) pairs.set(k, (p = { from: tables[i], to: tables[j], transactions: 0, calls: 0, start: null, end: null }));
         p.transactions += 1;
         p.calls += runs ?? 0;
-        p.ids.push(safeName(g.id, 80));
         for (const w of wins) {
           if (!p.start || w.start < p.start) p.start = w.start;
           if (!p.end || w.end > p.end) p.end = w.end;
