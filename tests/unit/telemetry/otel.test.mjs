@@ -64,6 +64,11 @@ test('file exporter writes OTLP/JSON lines with the section 27 hierarchy', async
   assert.equal(lines.length, 3);
   const [traces, metrics, logs] = [lines.find((l) => l.resourceSpans), lines.find((l) => l.resourceMetrics), lines.find((l) => l.resourceLogs)];
 
+  // The release that emitted the data, not a constant left from 0.1.0.
+  const { version } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+  assert.ok(traces.resourceSpans[0].resource.attributes.some((a) => a.key === 'service.version' && a.value.stringValue === version));
+  assert.equal(traces.resourceSpans[0].scopeSpans[0].scope.version, version);
+
   const spans = traces.resourceSpans[0].scopeSpans[0].spans;
   const byName = Object.fromEntries(spans.map((s) => [s.name, s]));
   assert.deepEqual(Object.keys(byName).sort(), ['adapter.language', 'map', 'unknot.run']);
