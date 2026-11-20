@@ -18,7 +18,7 @@ applicability_signals:
     predicate: { metric: layer.violations, op: '>', value: 0 }
   - id: cycles
     description: Import cycles exist.
-    predicate: { metric: cycle.size, op: '>', value: 1 }
+    predicate: { metric: cycle.boundary_edges, op: '>', value: 0 }
 required_evidence:
   - Import graph per layer and cycle list
   - Feature ownership and shared-state stores

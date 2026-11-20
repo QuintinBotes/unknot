@@ -29,7 +29,7 @@ preconditions:
 contraindications:
   - id: cycle-with-remainder
     description: The candidate is in a dependency cycle with the rest of the code.
-    predicate: { metric: cycle.size, op: '>', value: 1 }
+    predicate: { metric: cycle.boundary_edges, op: '>', value: 0 }
     hard: true
   - id: shared-table-writers
     description: Another boundary writes the same tables.
