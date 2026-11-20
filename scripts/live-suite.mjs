@@ -2,8 +2,8 @@
 // Live-session suite: Unknot installed the way a user installs it, driven by real headless
 // Claude Code sessions on public repositories pinned in scripts/live-suite.json. It catches
 // what unit tests cannot: skills that steer the model wrong, hooks that deny a legitimate step,
-// sandbox breakage in the installed layout, silent fallbacks, crashes in the CLI. Runs nightly
-// in CI (.github/workflows/live.yml) and before a release.
+// sandbox breakage in the installed layout, silent fallbacks, crashes in the CLI. Runs in CI by hand
+// before a release (.github/workflows/live.yml); it has no schedule.
 //
 // Usage: node scripts/live-suite.mjs [--install fresh|local|installed] [--repos a,b]
 //   [--steps init,map,...] [--change rotate|all|none|<name>] [--model sonnet] [--out <dir>]
