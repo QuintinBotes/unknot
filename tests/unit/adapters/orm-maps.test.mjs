@@ -296,3 +296,14 @@ for (const w of WRITERS) {
     assert.equal(DB_DETECTOR.detect({ graph: Graph.fromFacts(reads), options: {}, config: {}, scope: [] }).length, 0);
   });
 }
+
+test('activerecord: a subclass of a concrete model shares its table, so none is invented', async () => {
+  const facts = await factsFor(L.RUBY, {
+    'app/models/application_record.rb': 'class ApplicationRecord < ActiveRecord::Base\n  self.abstract_class = true\nend\n',
+    'app/models/user.rb': 'class User < ApplicationRecord\nend\n',
+    'app/models/admin.rb': 'class Admin < User\nend\n',
+    'app/models/guest.rb': "class Guest < User\n  self.table_name = 'guests'\nend\n",
+  });
+  const tables = facts.filter((f) => f.kind === 'node' && f.type === 'table').map((f) => f.name).sort();
+  assert.deepEqual(tables, ['guests', 'users'], 'single-table inheritance: Admin lives in users; a named table still counts');
+});

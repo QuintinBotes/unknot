@@ -13,7 +13,9 @@
 //              (`assigns` that are true, `markers`); a type that is abstract passes the ORM on to
 //              the types that inherit from it. `inherits: true` makes a concrete type an entity
 //              when its inheritance chain, resolved by name across the repository, reaches an
-//              entity of the ORM or an abstract type of it
+//              entity of the ORM or an abstract type of it; `sharedTable: true` says a subclass of
+//              a concrete entity is stored in that entity's table (single-table inheritance), so
+//              unless it names a table of its own it gets none here
 //   name       where an explicit table name is written: `markers` ({ names, args }, an argument
 //              being a position or a keyword), `assigns`
 //   convention the key into CONVENTIONS that names the table when the code does not
@@ -89,7 +91,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'sqlalchemy', languages: [L.PYTHON],
-    entity: { assigns: ['__tablename__'], bases: ['db.Model'], abstract: { assigns: ['__abstract__'] }, inherits: true },
+    entity: { assigns: ['__tablename__'], bases: ['db.Model'], abstract: { assigns: ['__abstract__'] }, inherits: true, sharedTable: true },
     name: { assigns: ['__tablename__'] },
     convention: 'snake',
     texts: [{
@@ -187,7 +189,7 @@ export const ORM_SYNTAX = [
   },
   {
     orm: 'activerecord', languages: [L.RUBY],
-    entity: { bases: ['ApplicationRecord', 'ActiveRecord.Base'], abstract: { assigns: ['self.abstract_class'] }, inherits: true },
+    entity: { bases: ['ApplicationRecord', 'ActiveRecord.Base'], abstract: { assigns: ['self.abstract_class'] }, inherits: true, sharedTable: true },
     name: { assigns: ['self.table_name'] },
     convention: 'snake_plural',
     access: {
@@ -547,21 +549,30 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
       delete a.orm_access;
     }
   }
-  // Inheritance: which ORM a class reaches through its bases (an entity of it, or a mapped superclass of it).
-  const reaches = (orm, bases, seen) => bases.some((b) => {
-    if ((entities.get(b) ?? []).some((e) => e.orm === orm)) return true;
-    if (seen.has(b)) return false;
-    seen.add(b);
-    const recs = classes.get(b) ?? [];
-    return recs.some((r) => r.ab.includes(orm)) || recs.some((r) => !r.ab.length && reaches(orm, r.b, seen));
-  });
+  // Inheritance: how a class reaches an ORM through its bases: 'entity' through a concrete entity
+  // (mapped, or a class that is one by inheritance), 'abstract' through mapped superclasses only, or null.
+  const reaches = (orm, bases, seen) => {
+    let via = null;
+    for (const b of bases) {
+      if ((entities.get(b) ?? []).some((e) => e.orm === orm)) return 'entity';
+      if (seen.has(b)) continue;
+      seen.add(b);
+      const recs = classes.get(b) ?? [];
+      if (recs.some((r) => r.ab.includes(orm))) via = 'abstract';
+      else if (recs.some((r) => !r.ab.length && reaches(orm, r.b, seen))) return 'entity';
+    }
+    return via;
+  };
   const inherited = [];
   for (const [name, recs] of classes) {
     for (const r of recs) {
       for (const row of ormRowsFor(r.lang)) {
         if (!row.entity?.inherits || r.ab.includes(row.orm) || !r.b.length) continue;
         if ((entities.get(name) ?? []).some((e) => e.path === r.path && e.orm === row.orm)) continue;
-        if (reaches(row.orm, r.b, new Set([name]))) inherited.push({ name, r, row });
+        const via = reaches(row.orm, r.b, new Set([name]));
+        // Rails `class Admin < User` is stored in `users`: no `admins` table to invent.
+        if (via === 'entity' && row.entity.sharedTable && !r.nm?.[row.orm]) continue;
+        if (via) inherited.push({ name, r, row });
       }
     }
   }
