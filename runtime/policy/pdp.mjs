@@ -143,7 +143,7 @@ function ghApproves(words, fromStdin) {
   // A body from a file or stdin (`--input`, `-F key=@file`) or a computed word cannot be seen.
   const unseen = computed || args.some((a) => /^--input(=|$)/.test(a) || /=@/.test(a));
   const endpoint = rest.find((w, k) => !w.value.startsWith('-') && !GH_API_VALUE_FLAGS.has(rest[k - 1]?.value));
-  if (unseen && (!endpoint || endpoint.dynamic || endpoint.value === 'graphql')) return true;
+  if (unseen && (!endpoint || endpoint.dynamic || /^graphql$/.test(endpoint.value))) return true;
   return args.some((a) => REVIEW_ENDPOINT.test(a)) && (unseen || args.some((a) => /APPROVE/i.test(a)));
 }
 
