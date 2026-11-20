@@ -122,7 +122,8 @@ export default {
   extract(file, text) {
     if (!file?.path || typeof text !== 'string') return [];
     if (SKIP_KINDS.has(file.kind) || (file.size ?? 0) > MAX_BYTES || text.length > MAX_BYTES || LOCKFILE.test(file.path)) return [];
-    const hits = PLACEHOLDER_FILE.test(file.path) ? [] : findSecrets(text, { precise: true, assignments: !LOCALE_FILE.test(file.path) });
+    // The file's own name only: an `examples/` or `samples/` directory holds real files, and real keys.
+    const hits = PLACEHOLDER_FILE.test(file.path.slice(file.path.lastIndexOf('/') + 1)) ? [] : findSecrets(text, { precise: true, assignments: !LOCALE_FILE.test(file.path) });
     const authz = CODE_FILE.test(file.path) ? authorizationChecks(text) : [];
     if (!hits.length && !authz.length) return [];
     // Kind and line only: the offset is used to compute the line and then discarded.

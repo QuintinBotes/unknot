@@ -123,4 +123,7 @@ test('a file named as a stand-in holds no real secret', () => {
   assert.deepEqual(adapter.extract(file('config/secrets.example.env'), `aws = ${AWS}\n`), []);
   assert.equal(adapter.extract(file('config/secrets.env'), `aws = ${AWS}\n`).length, 1);
   assert.equal(adapter.extract(file('src/counterexample/sampler.js'), `const k = '${AWS}';\n`).length, 1, 'a word inside a longer name is not a marker');
+  for (const path of ['examples/aws/main.tf', 'src/sample_app/settings.py', 'test/fakes/stripe.go']) {
+    assert.equal(adapter.extract(file(path), `aws = ${AWS}\n`).length, 1, `${path}: a directory's name says nothing about its files`);
+  }
 });
