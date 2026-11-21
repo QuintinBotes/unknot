@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The tests run git without the developer's global or system configuration (#86): `tests/helpers/git-env.mjs` sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and every test file that runs git imports it, so a global hook, commit signing or template cannot slow or fail a test, in the full suite or in a single file.
+
 ### Fixed
 
 - A lexical reference follows the declared build graph (#71, the top fix from a large-monolith run, where 0.33% of cross-project edges were impossible and created a 1,753-file cycle across 39 projects): a file of a .NET project links only to declarations in its project or in projects it reaches through `ProjectReference`s, never to a C# or Kotlin type another project keeps `internal` unless it names the project in `InternalsVisibleTo`, and never to a Java package-private type from another package. A name after a member access (`order. Status`) is no type reference, a linked source file belongs to every project that compiles it, and a file in no project or in a project whose file cannot be read keeps name matching. `map` reports how many candidate edges were refused (`build_graph.rejected`). Maven and Gradle module dependencies do not cut edges yet. The `generic` adapter is bumped to 0.1.15, so the files it reads are extracted again once.

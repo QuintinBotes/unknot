@@ -1,5 +1,6 @@
 // Repository guidance through plan, apply and verify: it can forbid, never grant.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';

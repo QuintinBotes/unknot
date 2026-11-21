@@ -36,7 +36,7 @@ npm run bench            # scripts/bench.mjs; add --quick for the CI smoke size
 npm run validate         # claude plugin validate --strict .   (needs the claude CLI)
 ```
 
-CI runs `npm test` and the benchmark smoke on Ubuntu and macOS with Node 22 and 24, and validates the plugin manifest. Tests create their own temporary repositories and `UNKNOT_HOME`; see `tests/helpers/kernel.mjs` for the kernel fixtures. Use fixtures under `tests/fixtures/` for adapter and detector tests, and keep them small.
+CI runs `npm test` and the benchmark smoke on Ubuntu and macOS with Node 22 and 24, and validates the plugin manifest. Tests create their own temporary repositories and `UNKNOT_HOME`; see `tests/helpers/kernel.mjs` for the kernel fixtures. A test file that runs git imports `tests/helpers/git-env.mjs` (the kernel helper does), so git ignores your global and system configuration; a test about repository hooks sets the configuration it needs itself. Use fixtures under `tests/fixtures/` for adapter and detector tests, and keep them small.
 
 Conventions:
 

@@ -4,6 +4,7 @@
 // Each row is a client interface with a base path and a matching server in another repository;
 // a workspace map must link every client operation to the endpoint that serves it.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';

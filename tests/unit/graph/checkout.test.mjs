@@ -1,6 +1,7 @@
 // A map of a branch that is behind says so: against its upstream and the remote's default
 // branch, from the refs git already has.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
