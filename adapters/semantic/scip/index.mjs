@@ -321,7 +321,8 @@ async function link(ctx) {
         semantic: { definitions: info.definitions, types: info.types, members: info.members.length, unreferenced: unref.slice(0, MAX_LISTED), unreferenced_count: unref.length, ...(tool && { indexer: tool }) },
       },
     }, pv(path, 1)));
-    ctx.semantic?.set(path, { declared: new Map((res.deps.get(path) ?? []).map((dependency) => [dependency.to, dependency])) });
+    // `linked`: the files this one references in the index, so a lexical edge it confirms is no guess (#77).
+    ctx.semantic?.set(path, { declared: new Map((res.deps.get(path) ?? []).map((dependency) => [dependency.to, dependency])), linked: new Set(res.links.filter((l) => l.from === path).map((l) => l.to)) });
   }
 
   // A row can cover several source languages. Only call it semantic when this map actually
