@@ -34,3 +34,9 @@ test('verbs agree with the count', () => {
   assert.doesNotMatch(all, /\b1 (pipeline|workload) (release|have)\b/);
   assert.doesNotMatch(all, /\b[02-9]\d* (pipelines|workloads) (releases|has)\b/);
 });
+
+test('a single aggregated container or table takes "is"', () => {
+  const mods = Array.from({ length: 70 }, (_, i) => mod(`src/u${i}/x.ts`));
+  const text = prose(mods).map((x) => x.text).join('\n');
+  assert.doesNotMatch(text, /\b1 lower-(weight|traffic) \w+ are\b/);
+});

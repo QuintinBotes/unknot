@@ -246,7 +246,7 @@ function containers(graph, maxNodes) {
   for (const u of shown) {
     const tech = plain(unitTech(graph, sys.set, u), 30);
     lines.push(`    Container(${c.get(u.id)}, "${plain(u.name, 40)}", "${tech}", "${pl(u.moduleCount, 'module')}")`);
-    dsl.push({ id: c.get(u.id), name: u.name, tech, desc: `${u.moduleCount} modules` });
+    dsl.push({ id: c.get(u.id), name: u.name, tech, desc: pl(u.moduleCount, 'module') });
     used.push(...u.nodeIds.map((id) => graph.node(id)));
   }
   if (hidden.length) lines.push(`    Container(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${pl(hidden.reduce((s, u) => s + u.moduleCount, 0), 'module')}")`);
@@ -274,7 +274,7 @@ function containers(graph, maxNodes) {
   const structurizr = shown.length ? structurizrDsl(graph, dsl, c, rels, hasUsers, storeCap.shown) : undefined;
   notes.push(`${pl(shown.length + (hidden.length ? 1 : 0), 'container')}, ${pl(storeCap.shown.length, 'data/messaging element')}, ${pl(rels.length, 'relationship')}.`);
   if (sys.kind !== 'deployables') notes.push(`Containers are ${sys.kind} (no deployable units observed): inferred, not deployment-verified.`);
-  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-weight container')} are aggregated as "+${hidden.length} more"; raise --max-nodes to see them.`);
+  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-weight container')} ${hidden.length === 1 ? 'is' : 'are'} aggregated as "+${hidden.length} more"; raise --max-nodes to see them.`);
   return view(lines.join('\n'), notes, used, structurizr ? { structurizr } : {});
 }
 
@@ -322,7 +322,7 @@ function components(graph, maxNodes, container) {
   const c = new IdMap('c');
   const lines = ['C4Component', `  title Components of ${plain(pick.name, 40)}`, `  Container_Boundary(${c.get('boundary')}, "${plain(pick.name, 40)}") {`];
   for (const g of shown) lines.push(`    Component(${c.get(g.id)}, "${plain(g.id, 40)}", "directory", "${pl(g.modules.length, 'module')}")`);
-  if (hidden.length) lines.push(`    Component(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${pl(hidden.reduce((s, g) => s + g.modules.length, 0), 'module')} in ${hidden.length} directories")`);
+  if (hidden.length) lines.push(`    Component(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${pl(hidden.reduce((s, g) => s + g.modules.length, 0), 'module')} in ${pl(hidden.length, 'directory', 'directories')}")`);
   lines.push('  }');
   const agg = new Map();
   const used = [...mods];
@@ -361,7 +361,7 @@ function deployment(graph, maxNodes) {
     lines.push(`  Deployment_Node(${c.get(`ns:${ns}`)}, "${plain(ns, 40)}", "Kubernetes namespace") {`);
     for (const w of take) {
       const replicas = w.attrs?.replicas;
-      lines.push(`    Container(${c.get(w.id)}, "${plain(w.name, 40)}", "${plain(w.attrs?.kind ?? 'workload', 20)}", "${replicas ? `${pl(replicas, 'replica')}` : 'replicas unspecified'}")`);
+      lines.push(`    Container(${c.get(w.id)}, "${plain(w.name, 40)}", "${plain(w.attrs?.kind ?? 'workload', 20)}", "${replicas ? `${pl(Number(replicas), 'replica')}` : 'replicas unspecified'}")`);
       used.push(w);
       shownKeys.add(w.id);
     }
@@ -488,7 +488,7 @@ function dataOwnership(graph, maxNodes) {
   for (const t of shared.slice(0, 10)) notes.push(`Shared writers: ${plain(t.node.name, 40)} is written by ${[...writersOf(t)].map((k) => plain(nameOf(k), 30)).join(', ')}.`);
   const unowned = list.filter((t) => !t.owners.size);
   notes.unshift(`${pl(list.length, 'table')}; ${shared.length} with more than one writer (highlighted); ${unowned.length} with no declared owner (OWNS_DATA).`);
-  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-traffic table')} are aggregated as "+${hidden.length} more tables".`);
+  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-traffic table')} ${hidden.length === 1 ? 'is' : 'are'} aggregated as "+${hidden.length} more tables".`);
   return view(f.toString(), notes, used);
 }
 
