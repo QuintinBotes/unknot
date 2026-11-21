@@ -3,13 +3,14 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { claimsFor, jwks, makeJwt, makeKey, request } from './_helpers.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-remote-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-remote-home-'));
 
 const hasOpenssl = spawnSync('openssl', ['version']).status === 0;
 const opts = { skip: hasOpenssl ? false : 'openssl not available' };
@@ -41,7 +42,7 @@ const call = (method, path, headers, body) => request(daemon.url, method, path, 
 
 before(async () => {
   if (!hasOpenssl) return;
-  tmp = mkdtempSync(join(tmpdir(), 'uk-remote-'));
+  tmp = mkTmp(join(tmpdir(), 'uk-remote-'));
   ssl('ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', 'ca.key');
   ssl('req', '-x509', '-new', '-key', 'ca.key', '-subj', '/CN=unknot-test-ca', '-days', '2', '-out', 'ca.crt');
   issue('server', 'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n', 'ca');

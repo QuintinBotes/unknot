@@ -4,13 +4,14 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 // Isolate user-level state before any runtime module is imported.
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'unknot-dbi-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'unknot-dbi-home-'));
 
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
 const { nodeFact, edgeFact, prov, assertFact } = await import('../../../runtime/graph/facts.mjs');
@@ -716,7 +717,7 @@ test('backups-without-protection: unguarded stateful databases flagged; protecte
 // ------------------------------------------------------------------ engine integration
 
 async function runDiagnose() {
-  const dir = mkdtempSync(join(tmpdir(), 'unknot-dbi-proj-'));
+  const dir = mkTmp(join(tmpdir(), 'unknot-dbi-proj-'));
   const ctx = openProject(dir, { create: true });
   const { config } = loadConfig(ctx);
   const graph = Graph.fromFacts([...dbFacts, ...infraFacts]);

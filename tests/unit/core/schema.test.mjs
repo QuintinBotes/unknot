@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compile, loadSchemas, validateArtifact, assertArtifact, schemaId } from '../../../runtime/core/schema.mjs';
 import { UnknotError } from '../../../runtime/core/errors.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const ok = (schema, value, opts) => {
   const r = compile(schema, opts)(value);
@@ -300,7 +301,7 @@ test('errors are collected (not first-fail) and capped at 100', () => {
 });
 
 test('loadSchemas / validateArtifact / assertArtifact', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-schema-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-schema-'));
   try {
     writeFileSync(join(dir, 'a.schema.json'), JSON.stringify({ $id: schemaId('a'), type: 'object', required: ['n'], properties: { n: { $ref: 'b.schema.json#/$defs/n' } } }));
     writeFileSync(join(dir, 'b.schema.json'), JSON.stringify({ $id: schemaId('b'), $defs: { n: { type: 'integer' } } }));
@@ -326,7 +327,7 @@ test('loadSchemas / validateArtifact / assertArtifact', () => {
 });
 
 test('loadSchemas rejects a schema without $id and duplicates', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-schema-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-schema-'));
   try {
     writeFileSync(join(dir, 'a.schema.json'), '{"type":"object"}');
     assert.throws(() => loadSchemas(dir), /no \$id/);

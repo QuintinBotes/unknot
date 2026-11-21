@@ -3,14 +3,15 @@
 // and the hook handlers capture the plugin root at import time).
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from './tmp.mjs';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 process.env.CLAUDE_PLUGIN_ROOT = REPO_ROOT;
-const HOME = realpathSync(mkdtempSync(join(tmpdir(), 'uk-home-')));
+const HOME = realpathSync(mkTmp(join(tmpdir(), 'uk-home-')));
 process.env.UNKNOT_HOME = HOME;
 
 const m = async (p) => import(new URL(`../../runtime/${p}`, import.meta.url).href);
@@ -66,7 +67,7 @@ const made = [];
 export function makeProject({ files = {}, config = null } = {}) {
   // One UNKNOT_HOME per test process (project ids are unique, so keys never collide).
   process.env.UNKNOT_HOME = HOME;
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-proj-')));
+  const dir = realpathSync(mkTmp(join(tmpdir(), 'uk-proj-')));
   git(dir, 'init', '-q', '-b', 'main');
   const all = { 'README.md': '# t\n', 'src/a.js': 'export const a = 1;\n', 'src/b.js': 'export const b = 2;\n', ...files };
   for (const [p, body] of Object.entries(all)) {

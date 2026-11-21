@@ -5,13 +5,14 @@
 // a workspace map must link every client operation to the endpoint that serves it.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -211,7 +212,7 @@ function repo(parent, name, files) {
 
 for (const row of ROWS) {
   test(`${row.lang}: a client interface and a server endpoint declare the same route and a workspace map links them`, { timeout: 120_000 }, async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'uk-ops-'));
+    const parent = mkTmp(join(tmpdir(), 'uk-ops-'));
     repo(parent, 'app', row.client);
     repo(parent, 'svc', row.server);
     const root = join(parent, 'platform');
@@ -305,7 +306,7 @@ const routesOf = (g) => ({
 
 for (const row of IMPLEMENTED) {
   test(`${row.lang}: an interface with an implementer in the repository serves endpoints; without one it is a client`, { timeout: 120_000 }, async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'uk-impl-'));
+    const parent = mkTmp(join(tmpdir(), 'uk-impl-'));
     repo(parent, 'alone', row.api);
     const client = routesOf(await mapped(join(parent, 'alone')));
     assert.deepEqual(client.clients, CLIENT_ROUTES);

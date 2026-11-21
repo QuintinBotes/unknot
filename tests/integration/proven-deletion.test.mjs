@@ -5,12 +5,13 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 delete process.env.CLAUDE_CODE_ENTRYPOINT;
 
@@ -39,7 +40,7 @@ export class Orders {
 `;
 const g = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' });
 
-const dir = mkdtempSync(join(tmpdir(), 'uk-proven-'));
+const dir = mkTmp(join(tmpdir(), 'uk-proven-'));
 for (const d of ['src', 'src/auth', 'test']) mkdirSync(join(dir, d), { recursive: true });
 writeFileSync(join(dir, 'src/util.mjs'), UTIL);
 writeFileSync(join(dir, 'src/other.mjs'), 'export const other = 1;\n');

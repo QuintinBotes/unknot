@@ -3,14 +3,15 @@
 // project. A look-alike inside the project under analysis never does.
 
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { shimSource } from '../../../runtime/cli/commands/cli.mjs';
 import { judgeShell } from '../../../runtime/policy/commands.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'uk-cli-res-'));
+const base = mkTmp(join(tmpdir(), 'uk-cli-res-'));
 after(() => rmSync(base, { recursive: true, force: true }));
 
 const exe = (path, text) => {

@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,6 +15,7 @@ import { Graph } from '../../../runtime/graph/graph.mjs';
 import { definitionOn, searchText, searchTextConcurrent } from '../../../runtime/graph/search.mjs';
 import { TOOLS } from '../../../runtime/mcp/tools.mjs';
 import { generateFixture } from '../../../scripts/bench.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 test('definitions are told apart from uses across languages and config formats', () => {
   const name = 'orders.checkout.latency';
@@ -158,7 +159,7 @@ test('unknot search --scan states a partial result in text and JSON, and rejects
 // A generated 25,000-file tree, scanned in full. Slow to build (about a minute), so it runs only
 // when UNKNOT_SLOW_TESTS is set. The scan has the default 60 s budget and must finish in half of it.
 test('a scan of a generated 25,000-file tree finishes within the budget', { skip: !process.env.UNKNOT_SLOW_TESTS, timeout: 600_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-scan-25k-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-scan-25k-'));
   try {
     generateFixture(dir, 25_000);
     spawnSync('git', ['init', '-q'], { cwd: dir });

@@ -3,10 +3,11 @@
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import * as K from '../helpers/kernel.mjs';
+import { mkTmp } from '../helpers/tmp.mjs';
 
 const H = K.handlers;
 after(() => K.cleanup());
@@ -52,7 +53,7 @@ describe('hostile repository content cannot become authority', () => {
     assert.equal(await pre(s, 'Bash', { command: `${U} status` }), null);
     // The hook sees only this empty directory, not whatever `unknot` an ambient PATH has.
     // With no candidate, a bare command resolves to the plugin CLI as the Bash tool does.
-    const controlledPath = mkdtempSync(join(tmpdir(), 'uk-hook-path-'));
+    const controlledPath = mkTmp(join(tmpdir(), 'uk-hook-path-'));
     const saved = process.env.PATH;
     chmodSync(join(s.p.dir, 'bin/unknot'), 0o755);
     try {

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -18,7 +19,7 @@ const { collectGarbage, shredProject } = await import('../../../runtime/enterpri
 const DAY = 86_400_000;
 
 function project() {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-ret-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-ret-'));
   mkdirSync(join(dir, '.unknot'));
   const ctx = openProject(dir, { create: true });
   return { ctx, cfg: loadConfig(ctx) };

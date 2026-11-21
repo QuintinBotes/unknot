@@ -1,9 +1,10 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const { applyOrgPolicy, overlay } = K.merge;
 const { loadPolicyBundle, loadConfig } = K.policyConfig;
@@ -17,7 +18,7 @@ after(() => {
 
 const merged = (repo, org) => applyOrgPolicy(repo, org).config;
 const tmp = () => {
-  const d = mkdtempSync(join(tmpdir(), 'uk-pol-'));
+  const d = mkTmp(join(tmpdir(), 'uk-pol-'));
   dirs.push(d);
   return d;
 };

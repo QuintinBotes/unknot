@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import * as K from '../helpers/kernel.mjs';
+import { mkTmp } from '../helpers/tmp.mjs';
 
 const bin = new URL('../../bin/unknot', import.meta.url).pathname;
 after(() => K.cleanup());
@@ -12,7 +13,7 @@ after(() => K.cleanup());
 // A hostile repository can commit .unknot/config.yaml. Running SCIP indexers can execute the
 // repository's build, so a file nobody accepted must not be able to turn it on.
 test('an unaccepted config cannot enable adapters.scip.run', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-scip-unaccepted-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-scip-unaccepted-'));
   try {
     const config = join(dir, 'config.yaml');
     writeFileSync(config, 'version: 1\nadapters:\n  scip:\n    run: true\n    languages: [csharp]\n');

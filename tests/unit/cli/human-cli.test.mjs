@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { cliPath, humanCommand, requireHumanTTY } from '../../../runtime/cli/util.mjs';
 import { run as runCli, shimSource, SHIM_MARK } from '../../../runtime/cli/commands/cli.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = cliPath();
-const tmp = () => mkdtempSync(join(tmpdir(), 'uk-cli-'));
+const tmp = () => mkTmp(join(tmpdir(), 'uk-cli-'));
 
 function withEnv(env, tty, fn) {
   const saved = { env: { ...process.env }, in: process.stdin.isTTY, out: process.stdout.isTTY };

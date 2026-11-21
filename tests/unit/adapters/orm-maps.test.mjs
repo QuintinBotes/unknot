@@ -5,12 +5,11 @@
 // multiple-writers detector.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'unknot-orm-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'unknot-orm-home-'));
 
 import databaseAdapter from '../../../adapters/database/index.mjs';
 import genericAdapter from '../../../adapters/language/generic/index.mjs';
@@ -22,6 +21,7 @@ import { assertFact } from '../../../runtime/graph/facts.mjs';
 import { LANGUAGE_IDS } from '../../../runtime/graph/languages.mjs';
 import DB from '../../../runtime/diagnose/detectors/database.mjs';
 import { hasPython, realExec, unsupportedExec } from './python/helpers.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const entryOf = (path, text) => ({ path, size: text.length, language: null, kind: 'source', blob: path });
 

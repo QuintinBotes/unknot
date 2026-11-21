@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { COMMANDS } from '../../../runtime/cli/main.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = new URL('../../../bin/unknot', import.meta.url).pathname;
 
@@ -13,8 +14,8 @@ function testHelp(cmd, subcommands = []) {
   for (const args of variants) {
     const cmdStr = args.join(' ');
     test(`--help on unknot ${cmdStr}`, () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'unknot-help-'));
-      const unknotHome = mkdtempSync(join(tmpdir(), 'unknot-home-'));
+      const tmpDir = mkTmp(join(tmpdir(), 'unknot-help-'));
+      const unknotHome = mkTmp(join(tmpdir(), 'unknot-home-'));
       try {
         const result = spawnSync(process.execPath, [BIN, ...args, '--help'], {
           cwd: tmpDir,
@@ -31,8 +32,8 @@ function testHelp(cmd, subcommands = []) {
       }
     });
     test(`-h on unknot ${cmdStr}`, () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'unknot-help-'));
-      const unknotHome = mkdtempSync(join(tmpdir(), 'unknot-home-'));
+      const tmpDir = mkTmp(join(tmpdir(), 'unknot-help-'));
+      const unknotHome = mkTmp(join(tmpdir(), 'unknot-home-'));
       try {
         const result = spawnSync(process.execPath, [BIN, ...args, '-h'], {
           cwd: tmpDir,
@@ -142,6 +143,6 @@ testHelp('slice', [
 ]);
 
 test('--help or -h after -- belongs to the command being run, not to Unknot', () => {
-  const r = spawnSync(process.execPath, [BIN, 'exec', '--', 'grep', '-h', 'x'], { encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'uk-help-')), env: { ...process.env, UNKNOT_HOME: mkdtempSync(join(tmpdir(), 'uk-help-home-')) } });
+  const r = spawnSync(process.execPath, [BIN, 'exec', '--', 'grep', '-h', 'x'], { encoding: 'utf8', cwd: mkTmp(join(tmpdir(), 'uk-help-')), env: { ...process.env, UNKNOT_HOME: mkTmp(join(tmpdir(), 'uk-help-home-')) } });
   assert.doesNotMatch(r.stdout, /^usage: unknot exec/m);
 });

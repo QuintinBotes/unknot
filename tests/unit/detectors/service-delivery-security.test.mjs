@@ -1,12 +1,13 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 // The engine reads $UNKNOT_HOME for keys, so point it at a temp dir before importing.
-const HOME = mkdtempSync(join(tmpdir(), 'unknot-home-'));
-const PROJECT = mkdtempSync(join(tmpdir(), 'unknot-proj-'));
+const HOME = mkTmp(join(tmpdir(), 'unknot-home-'));
+const PROJECT = mkTmp(join(tmpdir(), 'unknot-proj-'));
 process.env.UNKNOT_HOME = HOME;
 after(() => {
   rmSync(HOME, { recursive: true, force: true });

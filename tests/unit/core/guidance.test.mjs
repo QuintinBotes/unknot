@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { detect } from '../../../runtime/cli/commands/init.mjs';
 import { discover, forbiddenCommand, guidanceFor, guidanceForScope, loadGuidance, parseGuidance, protectedByGuidance, scopeHits } from '../../../runtime/core/guidance.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 function repo(files, fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-guid-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-guid-'));
   try {
     for (const [p, c] of Object.entries(files)) {
       mkdirSync(join(dir, dirname(p)), { recursive: true });
