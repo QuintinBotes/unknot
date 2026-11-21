@@ -268,6 +268,9 @@ Each is a map from an id to an options object. `adapters.<id>.enabled: false` st
 | `local.large-class` | `methods` (20), `lines` (500) |
 | `local.large-module` | `sloc` (1000) |
 | `local.duplicated-code` | `min_lines` (20), `min_similarity` (0.4) |
+| `decomposition.misplaced-module` | `min_edges` (4), `min_ratio` (2), `min_consumers` (3), `consumed_names` ([]) |
+
+`decomposition.misplaced-module` skips a package whose role is to be consumed: its last name segment is `Contracts`, `Shared`, `Common`, `Abstractions`, `Interfaces`, `Models`, `Entities`, `Dto`, `Core`, `Kernel`, `Messages` or `Events` (or a name in `consumed_names`), or the production code of `min_consumers` other packages imports the module (tests do not count). `local.long-parameter-list` skips the constructor of a data carrier: a record or struct (also `record struct`), or a class named like one (`Dto`, `Request`, `Response`, `Command`, `Query`, `Event`, `Message`, `Options`, `Settings`). `local.one-implementation-interface` counts a test double as a second implementation when a test that names the interface's module imports a mocking library, matched on the import as written (Moq, NSubstitute, FakeItEasy, Rhino Mocks, JustMock, Mockito, MockK, gomock, testify's `mock`, sinon and the like; testify's `assert` is not one).
 
 `component_min_cyclomatic` skips long components whose cyclomatic complexity is below it (0 keeps every long component). Lines of pure data (literal tables, seed data, mock builders) are discounted from a function's or class's `lines` and a module's `sloc` before comparing with the threshold; the title and measurements report both.
 
