@@ -81,7 +81,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     max_changeset: 50,
     history_days: 365,
     history_min_commits: 1000,
-    size_band: [5, 20],
+    size_band: null, // derived from the number of modules (sizeBandFor in runtime/decompose/candidates.mjs)
     thresholds: { ownership_alignment: 0.8, co_change_leak: 0.2, chatty_calls_p95: 5, robustness: 0.9 },
     drivers: [],
   },
