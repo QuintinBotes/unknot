@@ -10,6 +10,7 @@ All notable changes are documented here. The format follows
 
 - Test temporary directories are removed when the test process ends, pass or fail (#85): every test creates them through `mkTmp` in `tests/helpers/tmp.mjs`, a test fails on a direct `mkdtemp` call, and `UNKNOT_KEEP_TMP=1` keeps them and prints their paths.
 - The tests run git without the developer's global or system configuration (#86): `tests/helpers/git-env.mjs` sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and every test file that runs git imports it, so a global hook, commit signing or template cannot slow or fail a test, in the full suite or in a single file.
+- CI tests every Node.js line the support policy promises, and the engines floor (#87): the test job adds Node 26 and a Node 22.13.0 job on Ubuntu, COMPATIBILITY lists each line with the date its window ends, and a workflow test ties the matrix to `engines.node` and to that list, and names a line for removal once its window has ended. The new floor job found a real defect, fixed here: on Node 22.13 a statement streamed with `iterate()` was finalized mid-loop ("statement has been finalized", or a crash on Linux), so the store now streams through `Store.iterate`, which keeps the statement alive.
 
 ### Fixed
 

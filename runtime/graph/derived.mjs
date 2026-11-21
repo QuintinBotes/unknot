@@ -206,7 +206,7 @@ export function readDerived(ctx, kind, { graph }) {
   if (!d || d.generation !== generation) {
     if (derivedDone(ctx, generation)) {
       d = Object.fromEntries(DERIVED_KINDS.map((k) => [k, []]));
-      for (const r of ctx.store.db.prepare("SELECT kind, key, body FROM derived WHERE generation = ? AND kind != '_done' ORDER BY rowid").iterate(generation)) d[r.kind].push({ key: r.key, body: JSON.parse(r.body) });
+      for (const r of ctx.store.iterate("SELECT kind, key, body FROM derived WHERE generation = ? AND kind != '_done' ORDER BY rowid", generation)) d[r.kind].push({ key: r.key, body: JSON.parse(r.body) });
       cache.set(graph, tag(d, generation));
     } else {
       try {
