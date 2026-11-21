@@ -70,7 +70,16 @@ priority = benefit x evidence x reversibility
            blast radius x cost x uncertainty
 ```
 
-Benefit, blast, cost and uncertainty are each scored 1 to 5 by the detector; evidence and reversibility are 0 to 1. The score orders the list. It does not override policy, owners, approvals or failed guardrails. If you pass `--objective`, findings in categories the objective mentions are boosted by 1.5. Per-detector calibration from your accept and reject decisions multiplies the rank within bounds (see [learning.md](learning.md)); the underlying priority is unchanged so it stays comparable between runs.
+Benefit, blast, cost and uncertainty are each scored 1 to 5 by the detector; evidence and reversibility are 0 to 1. The list is ordered by impact: the priority times the square root of 1 + the finding's impact measure, so a large subject outranks a cheap small one. Each kind has its measure (`IMPACT` in `runtime/diagnose/impact.mjs`):
+
+| Kind | Impact |
+|---|---|
+| `module.dependency-cycle` | files in the cycle + edges that must be cut |
+| `module.package-cycle` | packages in the cycle |
+| `module.hub-module` | fan-in × size in hundreds of lines |
+| any other kind | distinct files in its scope |
+
+Ties go to the larger impact, then to the finding id, so the order is the same on every run. Findings about one subject seen from two angles (a file cycle and a package cycle over the same files) are one finding, whose `related_kinds` names the folded kind. The default listing then puts at most `diagnose.max_per_kind` findings of one kind (default 10) before the others; the rest follow in the same order, so nothing is hidden. It does not override policy, owners, approvals or failed guardrails. If you pass `--objective`, findings in categories the objective mentions are boosted by 1.5. Per-detector calibration from your accept and reject decisions multiplies the rank within bounds (see [learning.md](learning.md)); the underlying priority is unchanged so it stays comparable between runs.
 
 ### Accept and reject
 

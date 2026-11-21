@@ -366,7 +366,7 @@ const hubModule = define({
         scope: [m.path],
         key: m.id,
         evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}`, source_ref: `${m.path}:1` }],
-        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'tests.present': tests, ...(m.attrs.churn_commits != null && { 'module.churn': m.attrs.churn_commits }) },
+        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'module.loc': m.attrs.loc ?? 0, 'tests.present': tests, ...(m.attrs.churn_commits != null && { 'module.churn': m.attrs.churn_commits }) },
         thresholds: { fan_in: o.fan_in, fan_out: o.fan_out, note: 'heuristic: both directions high means changes ripple in and out' },
         why_accidental: 'A module both widely used and widely dependent is a coupling junction: any change to it or its dependencies touches many unrelated modules.',
         essential_considerations: ['An application composition root or an index/barrel file is expected to import widely.'],

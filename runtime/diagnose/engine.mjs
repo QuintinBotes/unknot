@@ -12,6 +12,7 @@ import { pathInScope, scopePredicate } from '../core/scope.mjs';
 import { readDerived } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { evaluateAll } from '../patterns/engine.mjs';
+import { capPerKind, impactOf, impactRank, mergeSameSubject } from './impact.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { DETECTORS } from './detectors/index.mjs';
@@ -221,6 +222,7 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
     findings.push(f);
   }
   mergeFunctionFindings(findings);
+  mergeSameSubject(findings);
   // De-duplicate by fingerprint (two detectors may see the same thing): keep the stronger.
   const byFp = new Map();
   for (const f of findings) if (!byFp.has(f.fingerprint) || byFp.get(f.fingerprint).priority.score < f.priority.score) byFp.set(f.fingerprint, f);
@@ -258,8 +260,9 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const { calibrate, detectorFeedback } = await import('../learn/calibration.mjs');
   const feedback = detectorFeedback(ctx);
   const open = calibrate(persisted.filter((f) => f.status === 'open'), feedback);
-  const rank = (f) => f.priority.score * (cats && cats.has(f.category) ? 1.5 : 1) * (f.calibration?.multiplier ?? 1);
-  const ranked = open.sort((a, b) => rank(b) - rank(a) || a.id.localeCompare(b.id));
+  // Impact first (impact.mjs), then the objective and calibration weights; ties go to the larger impact, then the id.
+  const rank = (f) => impactRank(f) * (cats && cats.has(f.category) ? 1.5 : 1) * (f.calibration?.multiplier ?? 1);
+  const ranked = capPerKind(open.sort((a, b) => rank(b) - rank(a) || impactOf(b) - impactOf(a) || a.id.localeCompare(b.id)), config.diagnose?.max_per_kind ?? 10);
   const stats = {
     detectors: detectors.length,
     drafts: drafts.length,

@@ -582,6 +582,13 @@
         "type": "object"
       }
     },
+    "diagnose": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_per_kind": { "type": "integer", "minimum": 0 }
+      }
+    },
     "decomposition": {
       "type": "object",
       "additionalProperties": false,

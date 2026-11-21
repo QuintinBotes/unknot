@@ -14,6 +14,7 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
+- Findings are ranked by impact (#76, from a large-monolith run where the most important coupling point ranked 2,366th): each kind has a documented impact measure (cycles by their files and cut edges, hubs by fan-in times size, any other kind by the files in its scope), the rank is the priority times the square root of 1 + impact, ties go to impact then id, one subject reported by two detectors (a file cycle and a package cycle over the same files) is one finding that names the other in `related_kinds`, and the default listing puts at most `diagnose.max_per_kind` (10) findings of one kind first.
 - The build unit is the default module for compiled languages (#74, from a large-monolith run where 29,086 file modules gave candidates of 2 to 2,477 files with uninformative names): for C#, Java, Kotlin and Rust (`buildUnit` in the language table) a .NET project, Maven or Gradle module or crate is one module of the decomposition, candidates are named after the units they contain and list each unit's files, and other languages keep one module per file. The default `decomposition.size_band` now scales with the number of modules (5 to 20 at 100) and a configured band wins. Decomposition records of compiled-language repositories change once after the upgrade.
 
 ## [0.4.0] - 2026-11-20
