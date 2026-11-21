@@ -277,6 +277,7 @@ const longParameterList = define({
         const cls = graph.parent(n.id);
         if ((cls?.attrs?.decorators ?? []).some((d) => DI_DECORATORS.test(String(d)))) continue;
       }
+      if (dataConstructor(graph, n)) continue;
       const required = Number.isInteger(n.attrs.params_required) ? n.attrs.params_required : total;
       if (typeof total !== 'number' || (required <= o.params && total < 2 * o.params + 1)) continue;
       const p = required > o.params ? required : total;
@@ -746,6 +747,16 @@ const unusedInjectedMember = define({
 // Indirection that serves nothing
 // ---------------------------------------------------------------------------------------
 
+// A data carrier's fields arrive through its constructor: their number is the shape of the data, not an argument order to get wrong (#81).
+const DATA_NAME = /(Dto|DTO|Request|Response|Command|Query|Event|Message|Model|Options|Settings)$/;
+function dataConstructor(graph, n) {
+  const short = nameOf(n).split('.').pop();
+  if (short !== 'constructor' && short !== n.attrs.owner) return false;
+  const cls = graph.parent(n.id);
+  if (!cls || cls.type !== 'class') return false;
+  return ['record', 'struct'].includes(cls.attrs?.type_kind) || DATA_NAME.test(cls.name ?? '') || cls.attrs?.methods === 1;
+}
+
 const ABSTRACT_BASES = new Set(['ABC', 'Protocol', 'ABCMeta', 'abc.ABC', 'typing.Protocol']);
 
 function isInterfaceLike(n) {
@@ -760,6 +771,14 @@ function importersOf(graph, moduleId) {
   return new Set(graph.in(moduleId, 'IMPORTS').map((e) => e.from).filter((f) => f !== moduleId));
 }
 
+// Test doubles a mocking library makes at run time declare no implementation (#81).
+const MOCKING = /^(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Telerik\.JustMock|org\.mockito|io\.mockk|mockk|gomock|go\.uber\.org\/mock|github\.com\/golang\/mock|github\.com\/stretchr\/testify|sinon|testdouble|jest-mock|ts-mockito|mockito|unittest\.mock|mock|pytest-mock)$/;
+/** Whether a test that uses a mocking library names the interface's module: its double is a second implementation. */
+const mockedInTests = (graph, mod) => Boolean(mod) && graph.in(mod.id, 'IMPORTS').some((e) => {
+  const t = graph.node(e.from);
+  return t?.attrs?.is_test && graph.out(t.id, 'IMPORTS').some((d) => d.to.startsWith('dependency:') && MOCKING.test(d.to.slice(11)));
+});
+
 const oneImplementationInterface = define({
   name: 'one-implementation-interface',
   kinds: ['code.one-implementation-interface'],
@@ -772,6 +791,7 @@ const oneImplementationInterface = define({
       // A test double as the only implementation: the real one is a dependency's, generated or a framework proxy.
       if (moduleOf(graph, graph.node(impls[0]))?.attrs?.is_test) continue;
       const mod = moduleOf(graph, n);
+      if (mockedInTests(graph, mod)) continue;
       const consumers = mod ? importersOf(graph, mod.id).size : 0;
       const structural = Boolean(language(n.attrs?.language)?.genericSyntax?.structuralInterfaces);
       const d = base(graph, n, {

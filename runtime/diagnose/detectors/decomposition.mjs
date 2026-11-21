@@ -118,6 +118,13 @@ const coChangeLeak = {
   },
 };
 
+// Packages whose role is to be consumed: imported from elsewhere by design, not misplaced (#81).
+const CONSUMED = /^(contracts?|shared|common|abstractions?|interfaces?|models?|entities|dtos?|core|kernel|sharedkernel|messages|events)$/i;
+const consumedRole = (name, extra) => {
+  const last = name.split(/[./]/).pop();
+  return CONSUMED.test(last) || extra.some((x) => String(x).toLowerCase() === last.toLowerCase());
+};
+
 const misplacedModule = {
   id: 'decomposition.misplaced-module',
   version: '1.0.0',
@@ -142,6 +149,8 @@ const misplacedModule = {
       const home = counts.get(own) ?? 0;
       const [best, n] = [...counts.entries()].filter(([g]) => g !== own).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
       if (!best || n < minEdges || n < minRatio * Math.max(1, home)) continue;
+      // heuristic: named for a consumed role, or imported from several packages, it is a shared library.
+      if (consumedRole(label(own ?? ''), options.consumed_names ?? []) || counts.size - (counts.has(own) ? 1 : 0) >= (options.min_consumers ?? 3)) continue;
       const vocab = new Set(terms(label(best)));
       const shares = terms(m.path ?? m.id).some((t) => vocab.has(t));
       out.push(base({

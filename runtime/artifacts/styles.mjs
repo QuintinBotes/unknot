@@ -116,7 +116,8 @@ function mvc(graph, mods) {
 }
 
 function microkernel(graph, mods) {
-  const plugins = mods.filter((m) => segs(m).some((s) => /^(plugins?|extensions?|addons?)$/.test(s)));
+  // A C#, Kotlin or Swift `Extensions` folder holds extension methods, not plugins (#81).
+  const plugins = mods.filter((m) => segs(m).some((s) => /^(plugins?|addons?)$/.test(s) || (/^extensions?$/.test(s) && !['csharp', 'kotlin', 'swift'].includes(m.attrs?.language))));
   if (plugins.length < 2) return null;
   const isPlugin = new Set(plugins.map((m) => m.id));
   const registryRe = /(registry|plugin[-_]?(manager|loader|host)|extension[-_]?host)/i;
@@ -190,7 +191,8 @@ function serverless(graph) {
 }
 
 function pipelines(graph) {
-  const jobs = graph.nodes('job');
+  // A CI workflow's jobs build and test the code; they are no batch pipeline (#81).
+  const jobs = graph.nodes('job').filter((j) => !j.attrs?.workflow);
   if (!jobs.length) return null;
   const isJob = new Set(jobs.map((j) => j.id));
   const next = new Map(jobs.map((j) => [j.id, new Set()]));
