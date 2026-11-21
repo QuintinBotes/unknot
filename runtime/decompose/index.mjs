@@ -149,6 +149,8 @@ function seamGaps(cand, signals) {
  */
 export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false }) {
   const graph = Graph.fromStore(ctx.store);
+  // Co-change the map could not measure (shallow, too short or no history) is unmeasured, never 0 (#78).
+  const historyGap = ((h) => (h ? `co-change history unmeasured: ${h}` : null))(JSON.parse(ctx.store.meta('mapped_history') ?? 'null')?.unmeasured);
   if (!graph.size.nodes) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
   readDerived(ctx, 'scc', { graph }); // seeds the stored facts candidates read
   const tests = testSet(graph);
@@ -183,7 +185,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
-    analyses[t] = { modules: affinity.nodes.length, ...(units && { units: affinity.nodes, files: modules.length }), affinity_edges: affinity.edges.length, components: affinity.components, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
+    analyses[t] = { modules: affinity.nodes.length, ...(units && { units: affinity.nodes, files: modules.length }), affinity_edges: affinity.edges.length, components: { ...affinity.components, ...(historyGap && { evolutionary: 'unmeasured' }) }, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
     const candidates = t === 'frontend' && fe?.groups.length >= 2
       ? fe.groups.map((g, i) => ({ id: `R-${i + 1}`, name: `routes:/${g.name}`, name_basis: 'route', modules: g.modules, size: g.modules.length, robust: true, stability: 1, cohesion: null, metrics: { 'boundary.size': g.modules.length, gaps: [] }, teams: g.teams }))
       : found.candidates;
@@ -260,8 +262,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
       readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
-      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : [])])],
+      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : []), ...(historyGap ? [historyGap] : [])])],
       confidence: cand.robust ? cap.confidence : 'low',
+      ...(historyGap && { unmeasured: ['evolutionary'] }),
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
       ...(cand.details?.transactions ? { transaction_evidence: cand.details.transactions } : {}),
       ...(cand.details?.delivery?.window ? { delivery_evidence: cand.details.delivery } : {}),

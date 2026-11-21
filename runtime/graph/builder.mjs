@@ -329,7 +329,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   if (history && cen.repo) {
     try {
       const sources = new Set(cen.files.filter((f) => f.kind === 'source' || f.kind === 'test').map((f) => f.path));
-      const hkey = digest({ commit, days: config.decomposition.history_days, floor: config.decomposition.history_min_commits, max: config.decomposition.max_changeset, min: config.decomposition.min_shared_commits, sources: [...sources].sort() });
+      // A clone deepened since the last map has the same HEAD: shallowness is part of the key.
+      const shallow = git(ctx.root, ['rev-parse', '--is-shallow-repository'], { check: false }).stdout.trim() === 'true';
+      const hkey = digest({ commit, shallow, days: config.decomposition.history_days, floor: config.decomposition.history_min_commits, max: config.decomposition.max_changeset, min: config.decomposition.min_shared_commits, sources: [...sources].sort() });
       const hc = ctx.store.meta('history:cache');
       let h = null;
       if (hc) {
@@ -343,7 +345,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         }
       }
       if (!h) {
-        h = historyFacts(ctx.root, config, sources);
+        h = historyFacts(ctx.root, config, sources, shallow);
         const { casPut } = await import('../state/cas.mjs');
         ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref: casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' }), stats: h.stats }));
       }
@@ -352,7 +354,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     } catch (err) {
       failures.push({ path: '<history>', adapter: 'history', error: String(err?.message ?? err) });
     }
-  }
+  } else if (history) historyStats = { commits: 0, co_change_pairs: 0, ignored_large_commits: 0, unmeasured: 'there is no history: the directory is not a git repository' };
+  // Decompose reads it: co-change that could not be measured is unmeasured, not zero (#78).
+  ctx.store.meta('mapped_history', JSON.stringify(historyStats ?? { unmeasured: 'history was not read (map --no-history)' }));
 
   lap('history_ms');
   notes.push(...scopes.notes);
@@ -440,7 +444,7 @@ export function languageCoverage(files, perFile, moduleBy) {
   return [...by.values()].sort((a, b) => b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals), ...((g.quals.size > 1 || g.quals.has('semantic')) && { qualities: Object.fromEntries([...g.quals].sort(([x], [y]) => (x < y ? -1 : 1))) }) }));
 }
 
-function historyFacts(root, config, sourcePaths) {
+function historyFacts(root, config, sourcePaths, shallow = false) {
   const d = config.decomposition;
   const log = (args) => parseGitLog(git(root, [...GIT_LOG_ARGS, ...args], { check: false, maxBuffer: 512 * 1024 * 1024 }).stdout);
   let commits = log([`--since=${d.history_days} days ago`]);
@@ -458,8 +462,13 @@ function historyFacts(root, config, sourcePaths) {
   }
   const pv = prov({ source_type: 'vcs', source_ref: 'git log', extractor: 'history@0.1.0', confidence: 'high' });
   const facts = [];
+  // A shallow or too short history measures nothing: its pairs would read as no coupling (#78).
+  const need = d.min_shared_commits ?? 0;
+  const since = new Date(Date.now() - d.history_days * 86_400_000).toISOString().slice(0, 10);
+  const unmeasured = shallow ? `the history is shallow (${commits.length} commit(s) read), so co-change is unmeasured; fetch it with \`git fetch --shallow-since=${since}\` or \`git fetch --unshallow\``
+    : commits.length < need ? `the history is too short: ${commits.length} commits, fewer than the ${need} two files must share to co-change (decomposition.min_shared_commits), so co-change is unmeasured` : null;
   const cc = coChange(commits, { maxChangeset: d.max_changeset, minSharedCommits: d.min_shared_commits, pathFilter: (p) => sourcePaths.has(p) });
-  for (const p of cc.pairs) {
+  for (const p of unmeasured ? [] : cc.pairs) {
     facts.push(edgeFact('CO_CHANGES', `module:${p.a}`, `module:${p.b}`, { shared: p.shared, degree: +p.degree.toFixed(3) }, pv));
   }
   for (const [path, c] of churn(commits)) {
@@ -467,7 +476,7 @@ function historyFacts(root, config, sourcePaths) {
     facts.push(nodeFact('module', path, { path, attrs: { churn_commits: c.commits, churn_lines: c.added + c.deleted, last_change: new Date(c.last_time * 1000).toISOString() } }, pv));
   }
   const oldest = commits.reduce((m, c) => Math.min(m, c.time ?? Infinity), Infinity);
-  return { facts, stats: { commits: commits.length, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: cc.pairs.length, window: extended ? `extended to the latest ${commits.length} commits (fewer than ${floor} in ${d.history_days} days)` : `${d.history_days} days`, ...(Number.isFinite(oldest) && { oldest_commit_at: new Date(oldest * 1000).toISOString() }) } };
+  return { facts, stats: { commits: commits.length, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: unmeasured ? 0 : cc.pairs.length, ...(unmeasured && { unmeasured }), window: extended ? `extended to the latest ${commits.length} commits (fewer than ${floor} in ${d.history_days} days)` : `${d.history_days} days`, ...(Number.isFinite(oldest) && { oldest_commit_at: new Date(oldest * 1000).toISOString() }) } };
 }
 
 const PLACEHOLDER_TYPE = (id) => {

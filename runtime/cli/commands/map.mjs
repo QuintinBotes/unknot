@@ -20,6 +20,7 @@ export async function run({ positional, flags }) {
     const body = JSON.parse(r.body);
     if (body.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(body)}\n`);
   }
+  if (summary.history?.unmeasured) process.stderr.write(`unknot: notice: ${summary.history.unmeasured}\n`);
   if (flags.json) return output(summary, { json: true });
   const lines = [
     `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,
