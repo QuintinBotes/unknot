@@ -121,7 +121,7 @@ const coChangeLeak = {
 // Packages whose role is to be consumed: imported from elsewhere by design, not misplaced (#81).
 const CONSUMED = /^(contracts?|shared|common|abstractions?|interfaces?|models?|entities|dtos?|core|kernel|sharedkernel|messages|events)$/i;
 const consumedRole = (name, extra) => {
-  const last = name.split(/[./]/).pop();
+  const last = name.split(/[./:]/).pop();
   return CONSUMED.test(last) || extra.some((x) => String(x).toLowerCase() === last.toLowerCase());
 };
 
@@ -140,17 +140,19 @@ const misplacedModule = {
       // Who imports a module says where it belongs; what it imports does not (an app
       // module importing a library package is the normal dependency direction).
       const counts = new Map();
+      const consumers = new Set(); // other packages whose production code imports it; tests do not make a shared library
       for (const e of graph.in(m.id, 'IMPORTS')) {
         const other = e.from;
         if (graph.node(other)?.type !== 'module') continue;
         const g = groupOf(graph, other);
         counts.set(g, (counts.get(g) ?? 0) + 1);
+        if (g !== own && !graph.node(other).attrs?.is_test) consumers.add(g);
       }
       const home = counts.get(own) ?? 0;
       const [best, n] = [...counts.entries()].filter(([g]) => g !== own).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
       if (!best || n < minEdges || n < minRatio * Math.max(1, home)) continue;
       // heuristic: named for a consumed role, or imported from several packages, it is a shared library.
-      if (consumedRole(label(own ?? ''), options.consumed_names ?? []) || counts.size - (counts.has(own) ? 1 : 0) >= (options.min_consumers ?? 3)) continue;
+      if (consumedRole(label(own ?? ''), options.consumed_names ?? []) || consumers.size >= (options.min_consumers ?? 3)) continue;
       const vocab = new Set(terms(label(best)));
       const shares = terms(m.path ?? m.id).some((t) => vocab.has(t));
       out.push(base({

@@ -40,6 +40,9 @@ test('scenario 2: a package whose role is to be consumed is not a misplaced modu
   assert.deepEqual(await misplaced('Shop.Contracts'), [], 'by name');
   assert.deepEqual(await misplaced('Shop.Pricing', ['Billing', 'Shipping', 'Stock']), [], 'by fan-in from several packages');
   assert.equal((await misplaced('Shop.Pricing')).length, 1, 'a neutral package used by one other is still misplaced');
+  const tests = Object.fromEntries(['Pricing.Tests', 'Web.Tests'].flatMap((n) => [[`tests/Shop.${n}/Shop.${n}.csproj`, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup><ItemGroup><ProjectReference Include="../../src/Shop.Pricing/Shop.Pricing.csproj" /></ItemGroup></Project>\n'], [`tests/Shop.${n}/${n.replace('.', '')}.cs`, cs(`Shop.${n}`, `    public class ${n.replace('.', '')}\n    {\n        public OrderPlaced Last;\n    }`, 'using Shop.Pricing;\n')]]));
+  const withTests = ofKind((await analyse('equivalent-csharp', { extra: { ...consumed('Shop.Pricing'), ...tests } })).findings, 'decomposition.misplaced-module').filter((f) => f.scope.some((p) => p.includes('Shop.Pricing/')));
+  assert.equal(withTests.length, 1, 'test projects importing it do not make it a shared library');
 });
 
 test('scenario 3: an interface with one implementation and a mocking-library double is not reported', async () => {
@@ -65,10 +68,12 @@ test('scenario 4: records, DTOs and primary constructors with nine parameters ar
       'src/Dto/OrderDto.cs': cs('Shop.Dto', `    public class OrderDto\n    {\n        public OrderDto(${nine}) { }\n    }`),
       'src/Dto/OrderView.cs': cs('Shop.Dto', `    public class OrderView(${nine})\n    {\n        public int Sum() { return a + i; }\n    }`),
       'src/Dto/Pricing.cs': cs('Shop.Dto', `    public class Pricing\n    {\n        public int Quote(${nine}) { return a + i; }\n    }`),
+      'src/Dto/Money.cs': cs('Shop.Dto', `    public readonly record struct Money\n    {\n        public Money(${nine}) { }\n        public override string ToString() { return ""; }\n    }`),
+      'src/Dto/OrderSync.cs': cs('Shop.Dto', `    public class OrderSync\n    {\n        public OrderSync(${nine}) { }\n        public void Run() { }\n    }`),
     },
   });
   const long = ofKind(findings, 'code.long-parameter-list').filter((f) => f.scope.some((p) => p.startsWith('src/Dto/')));
-  assert.deepEqual(long.map((f) => f.scope[0]), ['src/Dto/Pricing.cs'], 'the method keeps its finding');
+  assert.deepEqual(long.map((f) => f.scope[0]).sort(), ['src/Dto/OrderSync.cs', 'src/Dto/Pricing.cs'], 'a method and a service constructor keep their findings');
 });
 
 const styles = async (files) => {
@@ -85,6 +90,12 @@ test('scenario 5: an Extensions folder of extension-method classes is no plugin 
     'src/Core/PluginRegistry.cs': cs('Shop.Core', '    public class PluginRegistry\n    {\n    }'),
   });
   assert.ok(!found.includes('microkernel/plugin'), found.join(', '));
+  const plugins = await styles({
+    'src/Extensions/Stripe/StripePlugin.cs': cs('Shop.Extensions', '    public class StripePlugin\n    {\n    }'),
+    'src/Extensions/Ups/UpsPlugin.cs': cs('Shop.Extensions', '    public class UpsPlugin\n    {\n    }'),
+    'src/Core/ExtensionHost.cs': cs('Shop.Core', '    public class ExtensionHost\n    {\n    }'),
+  });
+  assert.ok(plugins.includes('microkernel/plugin'), `plugins loaded by an extension host stay a plugin style: ${plugins.join(', ')}`);
 });
 
 test('scenario 6: three chained CI jobs are no batch pipeline', async () => {
@@ -92,4 +103,14 @@ test('scenario 6: three chained CI jobs are no batch pipeline', async () => {
     '.github/workflows/ci.yml': 'name: ci\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: dotnet build\n  test:\n    needs: build\n    runs-on: ubuntu-latest\n    steps:\n      - run: dotnet test\n  pack:\n    needs: test\n    runs-on: ubuntu-latest\n    steps:\n      - run: dotnet pack\n',
   });
   assert.ok(!found.includes('pipes-and-filters/batch'), found.join(', '));
+});
+
+test('a Go test that only asserts with testify mocks nothing', async () => {
+  const run = (imp) => analyse('equivalent-go', { extra: {
+    'store/store.go': 'package store\n\ntype Store interface {\n\tGet(id string) string\n}\n\ntype pgStore struct{}\n\nfunc (p pgStore) Get(id string) string { return id }\n\nfunc New() Store { return pgStore{} }\n',
+    'store/store_test.go': `package store\n\nimport (\n\t"testing"\n\t"${imp}"\n)\n\nfunc TestGet(t *testing.T) {\n\tvar s Store = New()\n\t_ = s\n\t_ = assert.Equal\n}\n`,
+  } });
+  const found = async (imp) => ofKind((await run(imp)).findings, 'code.one-implementation-interface').filter((f) => /Store/.test(f.title)).length;
+  assert.equal(await found('github.com/stretchr/testify/assert'), 1);
+  assert.equal(await found('github.com/stretchr/testify/mock'), 0);
 });

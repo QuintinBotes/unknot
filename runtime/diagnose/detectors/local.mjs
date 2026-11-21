@@ -748,13 +748,13 @@ const unusedInjectedMember = define({
 // ---------------------------------------------------------------------------------------
 
 // A data carrier's fields arrive through its constructor: their number is the shape of the data, not an argument order to get wrong (#81).
-const DATA_NAME = /(Dto|DTO|Request|Response|Command|Query|Event|Message|Model|Options|Settings)$/;
+const DATA_NAME = /(Dto|DTO|Request|Response|Command|Query|Event|Message|Options|Settings)$/;
 function dataConstructor(graph, n) {
   const short = nameOf(n).split('.').pop();
   if (short !== 'constructor' && short !== n.attrs.owner) return false;
   const cls = graph.parent(n.id);
   if (!cls || cls.type !== 'class') return false;
-  return ['record', 'struct'].includes(cls.attrs?.type_kind) || DATA_NAME.test(cls.name ?? '') || cls.attrs?.methods === 1;
+  return /^(record|struct)\b/.test(cls.attrs?.type_kind ?? '') || DATA_NAME.test(cls.name ?? '');
 }
 
 const ABSTRACT_BASES = new Set(['ABC', 'Protocol', 'ABCMeta', 'abc.ABC', 'typing.Protocol']);
@@ -772,11 +772,12 @@ function importersOf(graph, moduleId) {
 }
 
 // Test doubles a mocking library makes at run time declare no implementation (#81).
-const MOCKING = /^(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Telerik\.JustMock|org\.mockito|io\.mockk|mockk|gomock|go\.uber\.org\/mock|github\.com\/golang\/mock|github\.com\/stretchr\/testify|sinon|testdouble|jest-mock|ts-mockito|mockito|unittest\.mock|mock|pytest-mock)$/;
+// Matched on the import as written (`spec`), so testify's assert is no mocking library and `Rhino.Mocks` is not cut to `Rhino`.
+const MOCKING = /^(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Telerik\.JustMock|org\.mockito|io\.mockk|go\.uber\.org\/mock|github\.com\/golang\/mock|github\.com\/stretchr\/testify\/mock|sinon|testdouble|jest-mock|ts-mockito|pytest_mock)([./]|$)/;
 /** Whether a test that uses a mocking library names the interface's module: its double is a second implementation. */
 const mockedInTests = (graph, mod) => Boolean(mod) && graph.in(mod.id, 'IMPORTS').some((e) => {
   const t = graph.node(e.from);
-  return t?.attrs?.is_test && graph.out(t.id, 'IMPORTS').some((d) => d.to.startsWith('dependency:') && MOCKING.test(d.to.slice(11)));
+  return t?.attrs?.is_test && graph.out(t.id, 'IMPORTS').some((d) => d.to.startsWith('dependency:') && MOCKING.test(d.attrs?.spec ?? d.to.slice(11)));
 });
 
 const oneImplementationInterface = define({

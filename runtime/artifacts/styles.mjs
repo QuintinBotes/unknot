@@ -10,6 +10,7 @@
 
 import { stronglyConnected } from '../graph/algorithms.mjs';
 import { Graph } from '../graph/graph.mjs';
+import { LANGUAGE_IDS } from '../graph/languages.mjs';
 import { appModules, dedupe, moduleOf, unitEdges, unitModel, unitOf, WRITE_EDGES } from './model.mjs';
 
 const LAYERS = [
@@ -116,8 +117,8 @@ function mvc(graph, mods) {
 }
 
 function microkernel(graph, mods) {
-  // A C#, Kotlin or Swift `Extensions` folder holds extension methods, not plugins (#81).
-  const plugins = mods.filter((m) => segs(m).some((s) => /^(plugins?|addons?)$/.test(s) || (/^extensions?$/.test(s) && !['csharp', 'kotlin', 'swift'].includes(m.attrs?.language))));
+  // A C#, Kotlin or Swift file of extension methods (`StringExtensions.cs`, `String+Trim.swift`) is no plugin (#81).
+  const plugins = mods.filter((m) => segs(m).some((s) => /^(plugins?|addons?)$/.test(s) || (/^extensions?$/.test(s) && !([LANGUAGE_IDS.CSHARP, LANGUAGE_IDS.KOTLIN, LANGUAGE_IDS.SWIFT].includes(m.attrs?.language) && /(Extensions?\.\w+|\+\w+\.swift)$/.test(m.path ?? '')))));
   if (plugins.length < 2) return null;
   const isPlugin = new Set(plugins.map((m) => m.id));
   const registryRe = /(registry|plugin[-_]?(manager|loader|host)|extension[-_]?host)/i;
