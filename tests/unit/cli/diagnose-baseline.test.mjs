@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -16,6 +16,8 @@ process.env.UNKNOT_HOME = home;
 const { openProject } = await import('../../../runtime/context.mjs');
 const { recordAcceptedConfig } = await import('../../../runtime/policy/config.mjs');
 const { closeAllStores } = await import('../../../runtime/state/store.mjs');
+const { standsFor } = await import('../../../runtime/diagnose/baseline.mjs');
+const { digest } = await import('../../../runtime/core/canonical.mjs');
 const gitIn = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
 const cyclePair = (dir, a, b) => {
   writeFileSync(join(dir, `src/${a}.js`), `import { ${b} } from './${b}.js';\nexport const ${a} = () => ${b};\n`);
@@ -123,8 +125,11 @@ test('a base that cannot be mapped exits with its own code and says why', () => 
 test('--fail-on needs --baseline and a known severity', () => {
   const dir = addsCycle();
   assert.equal(unknot(dir, 'map').status, 0);
-  assert.equal(unknot(dir, 'diagnose', '--fail-on', 'new:high', '--json').status, 1);
-  assert.equal(unknot(dir, 'diagnose', '--baseline', 'main', '--fail-on', 'new:severe', '--json').status, 1);
+  for (const args of [['--fail-on', 'new:high'], ['--baseline', 'main', '--fail-on', 'new:severe'], ['--baseline', 'main', '--fail-on=']]) {
+    const r = unknot(dir, 'diagnose', ...args, '--json');
+    assert.equal(r.status, 1, args.join(' '));
+    assert.equal(JSON.parse(r.stdout).error.code, 'UK_SCHEMA_INVALID', args.join(' '));
+  }
 });
 
 test('the base checkout runs no Git LFS filter, which would need the network', () => {
@@ -138,4 +143,99 @@ test('the base checkout runs no Git LFS filter, which would need the network', (
   const r = spawnSync(process.execPath, [BIN, 'diagnose', '--baseline', 'HEAD', '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: home, HOME: gitHome } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(JSON.parse(r.stdout).findings, []);
+});
+
+test('a gate sees new findings a named objective folds out of view; local findings are low by default', () => {
+  const dir = fixture((d) => writeFileSync(join(d, 'src/e.js'), 'export const e = 1;\n'));
+  const plain = JSON.parse(unknot(dir, 'diagnose', '--baseline', 'main', '--json').stdout);
+  const dead = plain.findings.find((f) => f.kind === 'code.dead-code');
+  assert.equal(dead.category, 'local');
+  assert.equal(dead.severity, 'low');
+  const text = 'version: 1\nmode: plan\ndiagnose:\n  severity:\n    local: high\n';
+  writeFileSync(join(dir, '.unknot/config.yaml'), text);
+  recordAcceptedConfig(openProject(dir), text, 'human:test');
+  closeAllStores();
+  const r = unknot(dir, 'diagnose', '--baseline', 'main', '--objective', 'decompose', '--fail-on', 'new:high', '--json');
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(JSON.parse(r.stdout).findings.some((f) => f.kind === 'code.dead-code'));
+});
+
+test('an empty first commit is a base with no findings, not one that cannot be mapped', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-base-proj-')));
+  gitIn(dir, 'init', '-q', '-b', 'main');
+  gitIn(dir, 'commit', '-q', '--allow-empty', '-m', 'empty');
+  mkdirSync(join(dir, 'src'));
+  cyclePair(dir, 'a', 'b');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-qm', 'first code');
+  mkdirSync(join(dir, '.unknot'));
+  const r = unknot(dir, 'diagnose', '--baseline', 'HEAD~1', '--fail-on', 'new:high', '--json');
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.baseline.findings, 0);
+  assert.deepEqual(cycles(out.findings), ['src/a.js,src/b.js']);
+});
+
+test('a file that could not be read is reported, as a finding there may be missing', { skip: process.getuid?.() === 0 && 'root reads any file' }, () => {
+  const dir = addsCycle();
+  chmodSync(join(dir, 'src/c.js'), 0o000);
+  const r = unknot(dir, 'diagnose', '--baseline', 'main', '--json');
+  chmodSync(join(dir, 'src/c.js'), 0o644);
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.ok(out.baseline.extraction_failures.tree >= 1);
+  assert.equal(out.baseline.extraction_failures.base, 0);
+});
+
+test('--baseline with an empty value is refused, not ignored', () => {
+  const dir = addsCycle();
+  const r = unknot(dir, 'diagnose', '--baseline=', '--json');
+  assert.equal(r.status, 1);
+  assert.match(JSON.parse(r.stdout).error.message, /--baseline needs a ref/);
+});
+
+test('a base finding stands for the findings it folded in and its related kinds', () => {
+  const fp = (kind, key) => digest({ kind, key });
+  const set = standsFor([
+    { fingerprint: fp('module.dependency-cycle', 'cycle:a'), key: 'cycle:a', replaces: [fp('module.package-cycle', 'package-cycle:p')] },
+    { fingerprint: fp('code.long-function', 'function:f'), key: 'function:f', related_kinds: ['code.complex-function'] },
+  ]);
+  // A package cycle no longer folded, and a function whose leading aspect changed, are not new.
+  assert.ok(set.has(fp('module.package-cycle', 'package-cycle:p')));
+  assert.ok(set.has(fp('code.complex-function', 'function:f')));
+  assert.equal(set.size, 4);
+});
+
+test('a base checkout that fails exits 5 with the reason', () => {
+  const dir = fixture((d) => {
+    writeFileSync(join(d, '.gitattributes'), '*.bin filter=vault\n');
+    writeFileSync(join(d, 'x.bin'), 'data\n');
+  });
+  const gitHome = mkdtempSync(join(tmpdir(), 'uk-base-githome-'));
+  writeFileSync(join(gitHome, '.gitconfig'), '[filter "vault"]\n\tsmudge = false\n\trequired = true\n');
+  const r = spawnSync(process.execPath, [BIN, 'diagnose', '--baseline', 'HEAD', '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: home, HOME: gitHome } });
+  assert.equal(r.status, 5, r.stdout + r.stderr);
+  const { error } = JSON.parse(r.stdout);
+  assert.equal(error.code, 'UK_BASELINE_INVALID');
+  assert.match(error.message, /could not be mapped/);
+});
+
+test('a project below the repository root is compared at the same directory; a base without it has no findings', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-base-proj-')));
+  gitIn(dir, 'init', '-q', '-b', 'main');
+  writeFileSync(join(dir, 'README.md'), '# mono\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-qm', 'base');
+  mkdirSync(join(dir, 'svc/src'), { recursive: true });
+  cyclePair(join(dir, 'svc'), 'a', 'b');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-qm', 'service');
+  mkdirSync(join(dir, 'svc/.unknot'));
+  const svc = join(dir, 'svc');
+  const before = unknot(svc, 'diagnose', '--baseline', 'HEAD~1', '--json');
+  assert.equal(before.status, 0, before.stdout + before.stderr);
+  assert.equal(JSON.parse(before.stdout).baseline.findings, 0);
+  assert.deepEqual(cycles(JSON.parse(before.stdout).findings), ['src/a.js,src/b.js']);
+  const same = JSON.parse(unknot(svc, 'diagnose', '--baseline', 'HEAD', '--json').stdout);
+  assert.deepEqual(cycles(same.findings), []);
 });
