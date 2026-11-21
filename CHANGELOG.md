@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- CI tests every Node.js line the support policy promises, and the engines floor (#87): the test job adds Node 26 and a Node 22.13.0 job on Ubuntu, COMPATIBILITY lists each line with the date its window ends, and a workflow test ties the matrix to `engines.node` and to that list, and names a line for removal once its window has ended.
+
 ### Fixed
 
 - A lexical reference follows the declared build graph (#71, the top fix from a large-monolith run, where 0.33% of cross-project edges were impossible and created a 1,753-file cycle across 39 projects): a file of a .NET project links only to declarations in its project or in projects it reaches through `ProjectReference`s, never to a C# or Kotlin type another project keeps `internal` unless it names the project in `InternalsVisibleTo`, and never to a Java package-private type from another package. A name after a member access (`order. Status`) is no type reference, a linked source file belongs to every project that compiles it, and a file in no project or in a project whose file cannot be read keeps name matching. `map` reports how many candidate edges were refused (`build_graph.rejected`). Maven and Gradle module dependencies do not cut edges yet. The `generic` adapter is bumped to 0.1.15, so the files it reads are extracted again once.

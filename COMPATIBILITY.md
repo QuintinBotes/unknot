@@ -23,7 +23,7 @@ OTLP/JSON, and the benchmark harness.
 
 | Component | Supported | Notes |
 | --- | --- | --- |
-| Node.js | 22.13 and later; CI runs 22 and 24 | `engines.node` is `>=22.13`. No npm dependencies. |
+| Node.js | 22.13 and later; CI runs 22, 24 and 26, and the exact floor 22.13.0 | `engines.node` is `>=22.13`. No npm dependencies. |
 | Operating systems | Linux and macOS (CI: ubuntu-latest, macos-latest) | Windows is not tested; use WSL2. |
 | Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against the current release. |
 | git | Required | Worktree isolation and census depend on it. |
@@ -53,5 +53,12 @@ missing tool reduces evidence and is reported, never silently ignored.
   minor release for 90 days after the newer minor is published.
 - Each Node.js version is supported while it is in Active or Maintenance LTS, and for at least one
   minor release after it reaches end of life.
+  The lines, and the date each window ends (end of Maintenance LTS), which a test checks against the CI matrix:
+
+  | Node.js line | Window ends |
+  |---|---|
+  | 22 | 2027-04-30 |
+  | 24 | 2028-04-30 |
+  | 26 | 2029-04-30 |
 - Security advisories are published as GitHub Security Advisories and listed in `CHANGELOG.md`.
 - Each release ships a signed provenance attestation, checksums and an SBOM; see `docs/release.md`.
