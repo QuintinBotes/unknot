@@ -2,16 +2,18 @@
 // to its base, matched by fingerprint, each with id, kind, severity, location and evidence; a gate
 // exit code; the base mapped in its own worktree and store, leaving the project's findings alone.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
-const home = mkdtempSync(join(tmpdir(), 'uk-base-home-'));
+const home = mkTmp(join(tmpdir(), 'uk-base-home-'));
 process.env.UNKNOT_HOME = home;
 const { openProject } = await import('../../../runtime/context.mjs');
 const { recordAcceptedConfig } = await import('../../../runtime/policy/config.mjs');
@@ -26,7 +28,7 @@ const cyclePair = (dir, a, b) => {
 
 /** A repository whose `main` holds one import cycle (a ↔ b), checked out on a branch that `change`s it. */
 function fixture(change) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-base-proj-')));
+  const dir = realpathSync(mkTmp(join(tmpdir(), 'uk-base-proj-')));
   gitIn(dir, 'init', '-q', '-b', 'main');
   mkdirSync(join(dir, 'src'));
   cyclePair(dir, 'a', 'b');
@@ -138,7 +140,7 @@ test('the base checkout runs no Git LFS filter, which would need the network', (
     writeFileSync(join(d, 'x.bin'), 'data\n');
   });
   // A git-lfs that cannot reach its server: a required smudge filter that fails.
-  const gitHome = mkdtempSync(join(tmpdir(), 'uk-base-githome-'));
+  const gitHome = mkTmp(join(tmpdir(), 'uk-base-githome-'));
   writeFileSync(join(gitHome, '.gitconfig'), '[filter "lfs"]\n\tsmudge = false\n\tprocess = false\n\trequired = true\n');
   const r = spawnSync(process.execPath, [BIN, 'diagnose', '--baseline', 'HEAD', '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: home, HOME: gitHome } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -161,7 +163,7 @@ test('a gate sees new findings a named objective folds out of view; local findin
 });
 
 test('an empty first commit is a base with no findings, not one that cannot be mapped', () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-base-proj-')));
+  const dir = realpathSync(mkTmp(join(tmpdir(), 'uk-base-proj-')));
   gitIn(dir, 'init', '-q', '-b', 'main');
   gitIn(dir, 'commit', '-q', '--allow-empty', '-m', 'empty');
   mkdirSync(join(dir, 'src'));
@@ -211,7 +213,7 @@ test('a base checkout that fails exits 5 with the reason', () => {
     writeFileSync(join(d, '.gitattributes'), '*.bin filter=vault\n');
     writeFileSync(join(d, 'x.bin'), 'data\n');
   });
-  const gitHome = mkdtempSync(join(tmpdir(), 'uk-base-githome-'));
+  const gitHome = mkTmp(join(tmpdir(), 'uk-base-githome-'));
   writeFileSync(join(gitHome, '.gitconfig'), '[filter "vault"]\n\tsmudge = false\n\trequired = true\n');
   const r = spawnSync(process.execPath, [BIN, 'diagnose', '--baseline', 'HEAD', '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: home, HOME: gitHome } });
   assert.equal(r.status, 5, r.stdout + r.stderr);
@@ -221,7 +223,7 @@ test('a base checkout that fails exits 5 with the reason', () => {
 });
 
 test('a project below the repository root is compared at the same directory; a base without it has no findings', () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uk-base-proj-')));
+  const dir = realpathSync(mkTmp(join(tmpdir(), 'uk-base-proj-')));
   gitIn(dir, 'init', '-q', '-b', 'main');
   writeFileSync(join(dir, 'README.md'), '# mono\n');
   gitIn(dir, 'add', '-A');
