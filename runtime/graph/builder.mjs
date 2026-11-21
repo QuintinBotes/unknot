@@ -28,7 +28,7 @@ import { appendEvent } from '../state/ledger.mjs';
 import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
-import { writeDerived } from './derived.mjs';
+import { derivedDone, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
@@ -383,8 +383,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   ctx.store.meta('mapped_analysis_coverage', JSON.stringify(analysis));
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   // Derived facts are a function of the graph: an unchanged graph keeps the stored ones.
-  const derivedDone = ctx.store.get("SELECT 1 AS ok FROM derived WHERE kind = '_done' AND generation = ?", projection.generation);
-  if (projection.changed || !derivedDone) writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
+  if (projection.changed || !derivedDone(ctx, projection.generation)) writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
   lap('derived_ms');
   const summary = {
     commit,
