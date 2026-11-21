@@ -20,7 +20,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.17';
+const VERSION = '0.1.18';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -519,10 +519,15 @@ function link(ctx) {
   /** The packages a package references: by name, by local path, or as a Gradle project. */
   const references = (p) => {
     const others = pkgs.filter((q) => q !== p && q.type === 'package');
+    // Project files written on Windows may spell a reference's case differently from the tree.
+    const local = (p.attrs.local_deps ?? []).flatMap((l) => others.filter((q) => q.attrs.dir === l || q.attrs.manifest?.toLowerCase() === l.toLowerCase()));
     return [
-      ...[...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])].flatMap((name) => (nameIndex.get(name) ?? []).filter((q) => q !== p)),
-      // Project files written on Windows may spell a reference's case differently from the tree.
-      ...(p.attrs.local_deps ?? []).flatMap((l) => others.filter((q) => q.attrs.dir === l || q.attrs.manifest?.toLowerCase() === l.toLowerCase())),
+      // A name two units share resolves to the one the manifest names by path, when it names one (#109).
+      ...[...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])].flatMap((name) => {
+        const hits = (nameIndex.get(name) ?? []).filter((q) => q !== p);
+        return hits.length > 1 && hits.some((q) => local.includes(q)) ? [] : hits;
+      }),
+      ...local,
       ...(p.attrs.gradle_projects ?? []).flatMap((gp) => {
         const dir = resolvePath(gradleRoot(p), gp.replace(/:/g, '/'));
         return others.filter((q) => q.attrs.ecosystem === 'gradle' && q.attrs.dir === dir);

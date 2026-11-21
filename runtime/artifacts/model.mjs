@@ -4,6 +4,7 @@
 
 import { posix } from 'node:path';
 import { Graph } from '../graph/graph.mjs';
+import { distinctNames } from '../core/paths.mjs';
 
 export const DEPLOY_TYPES = ['service', 'deployable', 'workload'];
 export const LABELS = ['observed', 'corroborated', 'inferred', 'unknown', 'contradicted'];
@@ -118,12 +119,10 @@ function directoryUnits(mods) {
 }
 
 function packageUnits(graph, mods) {
-  const units = [];
-  for (const p of graph.nodes('package').filter((x) => !x.attrs?.placeholder)) {
-    const root = rootOf(p);
-    if (!root || root === '.') continue;
-    units.push({ id: `unit:pkg/${p.name}`, name: p.name, type: 'package', root, nodeIds: [p.id], moduleCount: 0, node: p });
-  }
+  const pkgs = graph.nodes('package').filter((x) => !x.attrs?.placeholder).map((p) => ({ p, root: rootOf(p) })).filter((x) => x.root && x.root !== '.');
+  // Two packages may share a name (#109): each keeps its own unit, under its shortest distinguishing path.
+  const names = distinctNames(pkgs.map(({ p, root }) => ({ id: p.id, name: p.name, dir: root, path: p.path })));
+  const units = pkgs.map(({ p, root }) => ({ id: `unit:pkg/${names.get(p.id)}`, name: names.get(p.id), type: 'package', root, nodeIds: [p.id], moduleCount: 0, node: p }));
   const byRoot = [...units].sort((a, b) => b.root.length - a.root.length);
   const moduleUnit = new Map();
   for (const m of mods) {

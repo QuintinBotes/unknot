@@ -15,7 +15,8 @@ async function run(name, { config = {}, extra = {} } = {}) {
   return { ...r, out: await decompose(r.ctx, { config: r.config, dryRun: true }) };
 }
 
-const UNITS = ['package:Shop.Catalog', 'package:Shop.Orders', 'package:Shop.Web'];
+const NAMES = ['Shop.Catalog', 'Shop.Orders', 'Shop.Web'];
+const UNITS = NAMES.map((n) => `package:src/${n}/${n}.csproj`);
 const shop = await run('dotnet-projects');
 
 test('scenario 1: a C# repository of three projects has exactly three modules, one per project', () => {
@@ -29,7 +30,7 @@ test('scenario 2: each candidate is named after the projects it contains', () =>
   for (const d of shop.out.details) {
     assert.equal(d.candidate.name_basis, 'build_unit');
     const names = d.candidate.units.map((u) => u.name);
-    assert.ok(names.every((n) => UNITS.includes(`package:${n}`)), JSON.stringify(d.candidate.units));
+    assert.ok(names.every((n) => NAMES.includes(n)), JSON.stringify(d.candidate.units));
     assert.equal(d.candidate.name, names.join(' + '));
   }
 });
@@ -41,7 +42,7 @@ test('scenario 3: a module lists its member files, in the record and in graph no
     assert.ok(u.files.length === 4 && u.files.every((f) => f.startsWith(`module:src/${u.name}/`)), JSON.stringify(u));
     for (const f of u.files) assert.ok(d.candidate.modules.includes(f));
   }
-  const { positional, flags } = parseArgs(['node', 'package:Shop.Orders', '--cwd', shop.dir]);
+  const { positional, flags } = parseArgs(['node', 'package:src/Shop.Orders/Shop.Orders.csproj', '--cwd', shop.dir]);
   let out = '';
   const w = process.stdout.write;
   process.stdout.write = (c) => { out += c; return true; };
@@ -106,8 +107,8 @@ test('a file-module record of a target now decomposed by build unit is reported 
 test('a project alone in its community is a candidate, and its own weight counts as cohesion', async () => {
   const admin = (i) => `namespace Shop.Admin\n{\n    public class Screen${i}\n    {\n        ${i ? `Screen${i - 1} s;` : ''}\n    }\n}\n`;
   const r = await run('dotnet-projects', { extra: { 'src/Shop.Admin/Shop.Admin.csproj': '<Project Sdk="Microsoft.NET.Sdk"></Project>\n', ...Object.fromEntries([0, 1, 2, 3].map((i) => [`src/Shop.Admin/Screen${i}.cs`, admin(i)])) } });
-  const alone = r.out.details.find((d) => d.candidate.units.some((u) => u.id === 'package:Shop.Admin'));
+  const alone = r.out.details.find((d) => d.candidate.units.some((u) => u.id === 'package:src/Shop.Admin/Shop.Admin.csproj'));
   assert.ok(alone, JSON.stringify(r.out.details.map((d) => d.candidate.name)));
-  assert.deepEqual(alone.candidate.units.map((u) => u.id), ['package:Shop.Admin']);
+  assert.deepEqual(alone.candidate.units.map((u) => u.id), ['package:src/Shop.Admin/Shop.Admin.csproj']);
   assert.equal(alone.candidate.metrics['boundary.cohesion'], 1);
 });
