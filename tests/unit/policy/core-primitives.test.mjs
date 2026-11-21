@@ -1,6 +1,6 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globToRegExp, inScope, matchAny } from '../../../runtime/core/glob.mjs';
@@ -10,8 +10,9 @@ import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../../../runtime/co
 import { canonicalJSON, digest, sha256 } from '../../../runtime/core/canonical.mjs';
 import { addMs, parseDuration, resetClock, setClock, now } from '../../../runtime/core/clock.mjs';
 import { limit } from '../../helpers/speed.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'uk-core-')));
+const root = realpathSync(mkTmp(join(tmpdir(), 'uk-core-')));
 after(() => {
   rmSync(root, { recursive: true, force: true });
   resetClock();

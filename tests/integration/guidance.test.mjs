@@ -1,13 +1,15 @@
 // Repository guidance through plan, apply and verify: it can forbid, never grant.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../runtime/context.mjs');
@@ -29,7 +31,7 @@ const PASS = 'correct horse battery';
 const PUB = generateApproverKey('alice', PASS);
 
 function project(extra = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-guid-proj-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-guid-proj-'));
   for (const d of ['src', 'generated', 'services/orders']) mkdirSync(join(dir, d), { recursive: true });
   writeFileSync(join(dir, 'src/ledger.mjs'), 'export const total = (xs) => xs.reduce((a, b) => a + b, 0);\n');
   writeFileSync(join(dir, 'generated/api.mjs'), 'export const v = 1;\n');

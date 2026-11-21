@@ -1,8 +1,9 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const { decide, alwaysOn, toOperation } = K.pdp;
 
@@ -13,7 +14,7 @@ after(() => {
 });
 
 function taskOutput(session, name = 'task-123.output') {
-  const root = mkdtempSync('/tmp/claude-');
+  const root = mkTmp('/tmp/claude-');
   taskRoots.push(root);
   const file = join(root, 'project', session, 'tasks', name);
   mkdirSync(dirname(file), { recursive: true });

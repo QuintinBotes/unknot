@@ -20,7 +20,7 @@ infer one from the code, and never pick one to make a treatment available.
 ## 2. Run it
 
 `unknot decompose [scope] --target backend|frontend|auto --driver <id> --json` (repeat
-`--driver` for several; `--full` adds details). Running with no driver is legitimate: it still
+`--driver` for several; `--full` adds details). Running with no driver is legitimate (the output then carries a notice, in `notices` with `--json`: relay it to the user before the results, with how to give a driver): it still
 yields retain, modularize in place and the frontend modular monolith, but never service
 extraction or micro-frontends.
 

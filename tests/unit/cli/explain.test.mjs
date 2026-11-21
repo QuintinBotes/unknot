@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
-const home = mkdtempSync(join(tmpdir(), 'uk-explain-home-'));
-const project = mkdtempSync(join(tmpdir(), 'uk-explain-project-'));
+const home = mkTmp(join(tmpdir(), 'uk-explain-home-'));
+const project = mkTmp(join(tmpdir(), 'uk-explain-project-'));
 process.env.UNKNOT_HOME = home;
 
 const finding = {

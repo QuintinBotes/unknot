@@ -3,15 +3,16 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../../../bin/unknot-mcp', import.meta.url));
-const home = mkdtempSync(join(tmpdir(), 'uk-mcp-home-'));
-const proj = mkdtempSync(join(tmpdir(), 'uk-mcp-proj-'));
+const home = mkTmp(join(tmpdir(), 'uk-mcp-home-'));
+const proj = mkTmp(join(tmpdir(), 'uk-mcp-proj-'));
 process.env.UNKNOT_HOME = home;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -284,7 +285,7 @@ test('submit_handoff records a valid handoff and reports invalid ones', async ()
 });
 
 test('an uninitialised project yields an isError result pointing at /unknot:init', async () => {
-  const empty = mkdtempSync(join(tmpdir(), 'uk-mcp-empty-'));
+  const empty = mkTmp(join(tmpdir(), 'uk-mcp-empty-'));
   const c2 = client(empty);
   const r = await c2.call('status');
   assert.equal(r.isError, true);

@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compareReports, renderComparison } from '../../../scripts/lib/accuracy-compare.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../../../scripts/accuracy-compare.mjs', import.meta.url));
 
@@ -57,7 +58,7 @@ test('no previous report is reported, not an error', () => {
 });
 
 test('command line: missing previous file exits 0, missing current file exits 2', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-compare-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-compare-'));
   try {
     const cur = join(dir, 'current.json');
     writeFileSync(cur, JSON.stringify(current));

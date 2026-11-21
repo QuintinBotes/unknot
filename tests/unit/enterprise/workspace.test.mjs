@@ -1,11 +1,13 @@
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -96,7 +98,7 @@ test('no inference between unrelated repositories', () => {
 });
 
 test('workspace of two real git repositories: map, store, summarise, campaign', { timeout: 120_000 }, async () => {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-ws-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-ws-'));
   repo(parent, 'lib', {
     'package.json': JSON.stringify({ name: 'shared-lib', version: '1.0.0' }),
     'src/pub.mjs': "export async function publish(producer) {\n  await producer.send({ topic: 'orders.created', messages: [] });\n}\n",
@@ -155,7 +157,7 @@ test('workspace of two real git repositories: map, store, summarise, campaign', 
 });
 
 test('repositories must be git roots, distinct and listed once', () => {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-ws2-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-ws2-'));
   repo(parent, 'a', { 'x.txt': '1\n' });
   mkdirSync(join(parent, 'plain'));
   const root = repo(parent, 'root', { 'x.txt': '1\n' });

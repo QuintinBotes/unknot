@@ -224,7 +224,7 @@ test('trust boundaries flag privileged roles and unprotected workloads', () => {
   assert.match(v.mermaid, /class n\d+ risky/);
   assert.match(v.mermaid, /class n\d+ public/);
   assert.ok(v.notes.some((n) => /Privileged role admin: cluster-admin/.test(n)));
-  assert.ok(v.notes.some((n) => /1 workload\(s\) have no network policy attached: job/.test(n)));
+  assert.ok(v.notes.some((n) => /1 workload has no network policy attached: job/.test(n)));
 });
 
 test('scope limits the views to paths under it', () => {

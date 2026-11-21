@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
@@ -10,6 +10,7 @@ import {
   LANGUAGE_IDS, LOCAL_ANALYSES, genericGlobs, languageForPath, languages, registerLanguage, unregisterLanguage,
 } from '../../../runtime/graph/languages.mjs';
 import { loadFixture } from '../adapters/generic/helpers.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -113,7 +114,7 @@ test('language ids and source extensions live in the registry', () => {
 });
 
 test('language registry guard catches comparisons, switch cases and collection checks', () => {
-  const temp = mkdtempSync(join(tmpdir(), 'unknot-language-registry-'));
+  const temp = mkTmp(join(tmpdir(), 'unknot-language-registry-'));
   const rel = 'adapters/language/generic/structure.mjs';
   const copy = join(temp, rel);
   try {

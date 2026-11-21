@@ -1,7 +1,7 @@
 // A function that is long, complex and deeply nested is one finding, not three.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -9,6 +9,7 @@ import { after, test } from 'node:test';
 import { diagnose, mergeFunctionFindings, recordDecision } from '../../../runtime/diagnose/engine.mjs';
 import { nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { Graph } from '../../../runtime/graph/graph.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const P = prov({ source_type: 'ast', source_ref: 't.js:1', extractor: 'test@0.0.1', confidence: 'high' });
 const mod = (path) => nodeFact('module', path, { name: path, path, attrs: { language: 'js', loc: 300, sloc: 200, is_test: false, parse_quality: 'ast' } }, P);
@@ -21,7 +22,7 @@ const homes = [];
 after(() => homes.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'unknot-merge-'));
+  const dir = mkTmp(join(tmpdir(), 'unknot-merge-'));
   homes.push(dir);
   process.env.UNKNOT_HOME = join(dir, 'home');
   const { openProject } = await import('../../../runtime/context.mjs');

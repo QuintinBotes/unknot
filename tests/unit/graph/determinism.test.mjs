@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,12 +8,13 @@ import * as K from '../../helpers/kernel.mjs';
 import { diagnose } from '../../../runtime/diagnose/engine.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
 import { extractParallel } from '../../../runtime/graph/pool.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 Object.assign(process.env, { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'gc.auto', GIT_CONFIG_VALUE_0: '0', GIT_CONFIG_KEY_1: 'maintenance.auto', GIT_CONFIG_VALUE_1: 'false' });
 after(() => K.cleanup());
 
 test('parallel extraction returns results in file order however the batches finish', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-pool-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-pool-'));
   mkdirSync(join(dir, 'src'));
   const files = [];
   for (let i = 0; i < 300; i++) {

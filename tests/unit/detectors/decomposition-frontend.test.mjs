@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
 const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -32,7 +32,7 @@ function fixture({ coupled = true } = {}) {
 }
 
 test('decomposition and frontend detectors fire on coupling and stay quiet without it', async () => {
-  const ctx = openProject(mkdtempSync(join(tmpdir(), 'uk-proj-')), { create: true });
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
   const config = structuredClone(DEFAULT_CONFIG);
   const hot = await diagnose(ctx, { config, graph: fixture(), only: ['decomposition', 'frontend'] });
   assert.deepEqual(hot.errors, []);
@@ -42,7 +42,7 @@ test('decomposition and frontend detectors fire on coupling and stay quiet witho
   assert.ok(kinds.includes('frontend.cross-feature-imports'), kinds.join());
   for (const f of hot.findings) assert.ok(f.alternatives.some((a) => a.id === 'retain'));
 
-  const ctx2 = openProject(mkdtempSync(join(tmpdir(), 'uk-proj-')), { create: true });
+  const ctx2 = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
   const cold = await diagnose(ctx2, { config, graph: fixture({ coupled: false }), only: ['decomposition', 'frontend'] });
   assert.deepEqual(cold.errors, []);
   assert.deepEqual(cold.findings.map((f) => f.kind), [], 'expected non-findings (spec 26.3)');

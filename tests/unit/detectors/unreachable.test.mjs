@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 const { openProject } = await import('../../../runtime/context.mjs');
 const { diagnose } = await import('../../../runtime/diagnose/engine.mjs');
 const { DEFAULT_CONFIG } = await import('../../../runtime/policy/defaults.mjs');
@@ -17,7 +17,7 @@ test('local.unreachable-code is registered', () => {
 
 test('diagnose() flags only the dead functions, from the real adapter facts, with zero engine errors', async () => {
   const { graph } = runFixture('unreachable');
-  const ctx = openProject(mkdtempSync(join(tmpdir(), 'uk-proj-')), { create: true });
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
   const config = structuredClone(DEFAULT_CONFIG);
   const det = local.find((d) => d.id === 'local.unreachable-code');
 

@@ -6,6 +6,7 @@ Start with the [top-level README](../README.md) for what Unknot is, how to insta
 
 | Page | Read it to |
 |---|---|
+| [../README.md#upgrade-and-uninstall](../README.md#upgrade-and-uninstall) | Upgrade Unknot, see what happens to your state, and remove it completely |
 | [concepts.md](concepts.md) | Understand the graph, findings, patterns, campaigns and slices, proof obligations, proof bundles and recovery |
 | [commands.md](commands.md) | Look up a command: arguments, flags, what it writes, who may run it, exit codes |
 | [configuration.md](configuration.md) | Look up a config key and its default; understand config acceptance and organization policy; copy an example |

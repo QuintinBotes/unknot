@@ -3,9 +3,10 @@
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import * as K from '../helpers/kernel.mjs';
+import { mkTmp } from '../helpers/tmp.mjs';
 
 const taskRoots = [];
 after(() => {
@@ -24,7 +25,7 @@ const caseInsensitive = (() => {
 })();
 
 function taskOutput(session, name = 'task-123.output') {
-  const root = mkdtempSync('/tmp/claude-');
+  const root = mkTmp('/tmp/claude-');
   taskRoots.push(root);
   const file = join(root, 'project', session, 'tasks', name);
   mkdirSync(dirname(file), { recursive: true });
@@ -109,7 +110,7 @@ describe('harness task-output reads stay narrowly scoped', () => {
     const output = taskOutput(session);
     const otherSessionOutput = taskOutput('other-session');
     const notOutput = taskOutput(session, 'notes.txt');
-    const escapeRoot = mkdtempSync('/tmp/escape-');
+    const escapeRoot = mkTmp('/tmp/escape-');
     taskRoots.push(escapeRoot);
     const outside = join(escapeRoot, 'outside.txt');
     writeFileSync(outside, 'outside\n');

@@ -58,7 +58,7 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
   const notes = [];
   if ((ctx.store.meta('mapped_commit') || null) !== base) notes.push(`the cached graph was mapped at ${ctx.store.meta('mapped_commit') || 'unknown'}, not the baseline ${base}; unchanged files use cached facts`);
   const cached = new Map();
-  for (const r of ctx.store.db.prepare('SELECT path, facts FROM file_index').iterate()) {
+  for (const r of ctx.store.iterate('SELECT path, facts FROM file_index')) {
     cached.set(r.path, [...(cached.get(r.path) ?? []), ...JSON.parse(r.facts)]);
   }
   const touched = changes.filter((c) => !isSecretPath(c.path));

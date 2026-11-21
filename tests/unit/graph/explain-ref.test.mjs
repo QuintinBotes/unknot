@@ -2,12 +2,12 @@
 
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const home = mkdtempSync(join(tmpdir(), 'uk-explainref-home-'));
-const proj = mkdtempSync(join(tmpdir(), 'uk-explainref-proj-'));
+const home = mkTmp(join(tmpdir(), 'uk-explainref-home-'));
+const proj = mkTmp(join(tmpdir(), 'uk-explainref-proj-'));
 
 const { openProject } = await import('../../../runtime/context.mjs');
 const { project } = await import('../../../runtime/graph/builder.mjs');

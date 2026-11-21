@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -18,7 +19,8 @@ const security = await import('../../../runtime/cli/commands/security.mjs');
 async function capture(fn) {
   const write = process.stdout.write;
   let buf = '';
-  process.stdout.write = (chunk) => { buf += chunk; return true; };
+  // Node 22.13's test runner writes its own binary events to stdout; only text is the command's output.
+  process.stdout.write = (chunk, ...rest) => (typeof chunk === 'string' ? ((buf += chunk), true) : write.call(process.stdout, chunk, ...rest));
   try {
     await fn();
   } finally {
@@ -28,7 +30,7 @@ async function capture(fn) {
 }
 
 function makeProject(facts, { mode = null } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-art-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-art-'));
   const ctx = openProject(dir, { create: true });
   project(ctx, facts, { commit: 'abc123', observedAt: '2026-10-01T00:00:00.000Z' });
   if (mode) writeFileSync(join(dir, '.unknot', 'config.yaml'), `version: 1\nmode: ${mode}\n`);
@@ -81,7 +83,7 @@ test('architecture in observe mode prints and writes nothing', async () => {
 });
 
 test('architecture on an unmapped project says to map first', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-art-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-art-'));
   openProject(dir, { create: true });
   await assert.rejects(() => architecture.run({ positional: [], flags: { cwd: dir } }), /run unknot map first/);
 });

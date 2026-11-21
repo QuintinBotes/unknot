@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { census, looksVendored } from '../../../runtime/graph/census.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 test('looksVendored: bundle banners and unchecked third-party headers, not ordinary project files', () => {
   assert.equal(looksVendored('/*! @license DOMPurify 3.4.14 | (c) Cure53 | Apache-2.0 */\n(function(){})();'), true);
@@ -17,7 +18,7 @@ test('looksVendored: bundle banners and unchecked third-party headers, not ordin
 });
 
 test('census: vendored libraries are recognised by banner, header and directory', () => {
-  const root = mkdtempSync(join(tmpdir(), 'unknot-census-'));
+  const root = mkTmp(join(tmpdir(), 'unknot-census-'));
   try {
     const put = (p, c) => {
       mkdirSync(join(root, p.split('/').slice(0, -1).join('/') || '.'), { recursive: true });
