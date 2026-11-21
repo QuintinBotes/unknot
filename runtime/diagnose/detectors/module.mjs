@@ -129,6 +129,8 @@ const dependencyCycle = define({
     // Lazy (function-body) and type-only imports do not form a runtime cycle: the derived
     // runtime components, the same ones `graph cycles` marks as reported.
     const strict = strictView(graph);
+    // A package cycle over exactly the files of a file cycle is one subject: it folds into that finding (#76).
+    const fileCycles = new Map();
     for (const comp of derivedFor(graph, 'scc_strict').map((r) => r.body.members)) {
       const members = comp.filter((id) => modIds.has(id));
       if (members.length < o.min_size) continue;
@@ -162,6 +164,7 @@ const dependencyCycle = define({
         summary: `unused link: ${pathOf(graph, e.from)} only declares ${e.attrs.unused_member ?? 'a member'} of type ${pathOf(graph, e.to)}`,
         source_ref: `${pathOf(graph, e.from)}:${e.attrs?.line ?? 1}`,
       }));
+      fileCycles.set(members.map((id) => pathOf(graph, id)).sort().join('\n'), out.length);
       out.push(draft({
         kind: 'module.dependency-cycle',
         title: unusedOnly
@@ -222,6 +225,15 @@ const dependencyCycle = define({
         return null;
       };
       const tests = testsOn(graph, members.map((m) => m.id));
+      const same = fileCycles.get(members.map((m) => m.path).sort().join('\n'));
+      if (same !== undefined) {
+        const d = out[same];
+        d.related_kinds = ['module.package-cycle'];
+        d.folds = [{ kind: 'module.package-cycle', key: `package-cycle:${comp[0]}` }];
+        d.measurements['cycle.packages'] = comp.length;
+        d.evidence.push({ ref: members[0].id, label: 'observed', summary: `the same files form a cycle of ${comp.length} packages: ${[...labels, labels[0]].join(' -> ')}`, source_ref: null });
+        continue;
+      }
       out.push(draft({
         kind: 'module.package-cycle',
         title: `${comp.length} packages depend on each other in a cycle: ${[...labels, labels[0]].join(' -> ')}`,
@@ -389,7 +401,7 @@ const hubModule = define({
         scope: g ? paths : [m.path],
         key: m.id,
         evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}${g ? `, declared in ${paths.join(', ')}${g.others.length ? `, with ${[...new Set(g.others)].sort().join(', ')}` : ''}` : ''}`, source_ref: `${m.path}:1` }],
-        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'tests.present': tests, ...(churn.length && { 'module.churn': Math.max(...churn) }) },
+        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'module.loc': [...own].reduce((n, id) => n + (graph.node(id)?.attrs?.loc ?? 0), 0), 'tests.present': tests, ...(churn.length && { 'module.churn': Math.max(...churn) }) },
         thresholds: { fan_in: o.fan_in, fan_out: o.fan_out, note: 'heuristic: both directions high means changes ripple in and out' },
         why_accidental: 'A module both widely used and widely dependent is a coupling junction: any change to it or its dependencies touches many unrelated modules.',
         essential_considerations: ['An application composition root or an index/barrel file is expected to import widely.'],

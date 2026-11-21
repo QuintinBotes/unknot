@@ -273,6 +273,12 @@ Each is a map from an id to an options object. `adapters.<id>.enabled: false` st
 
 These are heuristics and each finding says so in its `thresholds`. `unknot learn propose` writes changes to them (see [learning.md](learning.md)).
 
+### `diagnose`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `max_per_kind` | `10` | Findings of one kind listed before the other kinds get their turn; the rest follow in rank order. `0` turns the cap off. |
+
 ### `decomposition`
 
 | Key | Default | Meaning |

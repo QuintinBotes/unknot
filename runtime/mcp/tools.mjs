@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { getFinding } from '../diagnose/engine.mjs';
 import { applyObjective } from '../diagnose/objectives.mjs';
+import { DEFAULT_MAX_PER_KIND, byRank, capPerKind, impactOf, impactRank } from '../diagnose/impact.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
 import { emptyScopeWarning, scopePredicate } from '../core/scope.mjs';
 import { neighbourhood, rankHubs, resolveRef, explainRef } from '../graph/algorithms.mjs';
@@ -209,7 +210,7 @@ export const TOOLS = {
   },
 
   findings_list: {
-    description: 'Ranked finding summaries, highest priority first. objective (decompose, simplify or security) ranks the relevant kinds first and folds generic code-style findings into a hidden count; all shows them last.',
+    description: 'Ranked finding summaries, highest impact rank first, as diagnose orders them (at most 10 of one kind before the others). objective (decompose, simplify or security) ranks the relevant kinds first and folds generic code-style findings into a hidden count; all shows them last.',
     inputSchema: schema({ status: str(), category: str(), objective: str(), all: { type: 'boolean' }, limit: limit() }),
     run(ctx, a) {
       const where = [];
@@ -223,14 +224,14 @@ export const TOOLS = {
         params.push(a.category);
       }
       const named = Boolean(a.objective);
-      const rows = ctx.store.all(
-        `SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY priority DESC, id${named ? '' : ' LIMIT ?'}`,
-        ...params,
-        ...(named ? [] : [a.limit ?? 50]),
-      );
-      const summaries = rows.map((r) => {
-        const body = JSON.parse(r.body);
-        return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
+      // The same order as diagnose (runtime/diagnose/impact.mjs), so an agent and the command agree.
+      const rows = ctx.store.all(`SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`, ...params)
+        .map((r) => ({ r, body: JSON.parse(r.body) }));
+      const ordered = capPerKind(rows.map(({ r, body }) => ({ ...body, id: r.id, kind: r.kind })).sort(byRank(impactRank)), DEFAULT_MAX_PER_KIND);
+      const byId = new Map(rows.map((x) => [x.r.id, x]));
+      const summaries = (named ? ordered : ordered.slice(0, a.limit ?? 50)).map(({ id }) => {
+        const { r, body } = byId.get(id);
+        return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, impact: +impactOf(body).toFixed(2), title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
       });
       const ranked = named ? applyObjective(summaries, a.objective, { all: a.all }) : null;
       if (!ranked) return { findings: named ? summaries.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) : summaries };
