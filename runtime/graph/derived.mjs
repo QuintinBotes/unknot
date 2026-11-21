@@ -14,8 +14,14 @@
 //   ownership    module -> owners (OWNED_BY)
 
 import { cycleBreakdown, stronglyConnected } from './algorithms.mjs';
+import { language } from './languages.mjs';
 
 export const DERIVED_KINDS = ['scc', 'scc_strict', 'declared_only', 'public_surface', 'test_code', 'ownership'];
+// Bumped when a stored body changes shape, so facts an older version wrote for the same generation are recomputed.
+const DERIVED_VERSION = 2; // 2: scc carries impossible_by_build (#72)
+
+/** Whether the stored facts are complete for `generation` and written by this version. */
+export const derivedDone = (ctx, generation) => JSON.parse(ctx.store.get("SELECT body FROM derived WHERE kind = '_done' AND generation = ?", generation)?.body ?? '{}').v === DERIVED_VERSION;
 /** Cycles listed per component; consumers needing more recompute that one component. */
 export const MAX_CYCLES = 50;
 /** Smallest component the cycle detector reports (its default `min_size`). */
@@ -42,6 +48,47 @@ export function strictView(graph) {
   return strict;
 }
 
+const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+
+/**
+ * Whether a component spans build units its build refuses to have in a cycle (#72): .NET projects,
+ * Maven and Gradle modules, crates (`buildUnit`) and Go packages (`packageUnit`), for languages whose
+ * row sets `acyclicUnits`. Then at least one edge is an analysis artifact; `closing_edges` are the
+ * edges between units that go against the declared references (every edge between units when none
+ * is declared). A unit whose project file could not be read is unknown, and decides nothing.
+ * @returns {{units: string[], closing: object[]} | null}
+ */
+export function impossibleByBuild(graph, members, view = cycleView(graph)) {
+  const unitOf = new Map();
+  for (const id of members) {
+    const n = graph.node(id);
+    const row = language(n?.attrs?.language);
+    if (!row?.acyclicUnits) continue;
+    if (row.genericSyntax?.packageUnit) { unitOf.set(id, { id: `dir:${dirOf(n.path ?? '')}`, name: dirOf(n.path ?? '') || '.' }); continue; }
+    const pkg = graph.in(id, 'CONTAINS').map((e) => graph.node(e.from)).find((p) => p?.type === 'package');
+    if (!pkg) continue;
+    if (pkg.attrs?.parse_error) return null;
+    unitOf.set(id, { id: pkg.id, name: pkg.name ?? pkg.id.slice(8), pkg: true });
+  }
+  if (new Set([...unitOf.values()].map((u) => u.id)).size < 2) return null;
+  const inComp = new Set(members);
+  const cross = members.flatMap((id) => view.out(id, 'IMPORTS').filter((e) => inComp.has(e.to) && unitOf.has(id) && unitOf.has(e.to) && unitOf.get(id).id !== unitOf.get(e.to).id));
+  if (!cross.length) return null;
+  const reaches = (a, b) => {
+    const seen = new Set([a]);
+    for (const queue = [a]; queue.length;) for (const e of graph.out(queue.pop(), 'DEPENDS_ON')) if (!seen.has(e.to)) { if (e.to === b) return true; seen.add(e.to); queue.push(e.to); }
+    return false;
+  };
+  const against = cross.filter((e) => { const x = unitOf.get(e.from); const y = unitOf.get(e.to); return !(x.pkg && y.pkg && reaches(x.id, y.id)); });
+  const closing = (against.length ? against : cross)
+    .map((e) => ({ from: e.from, to: e.to, from_unit: unitOf.get(e.from).name, to_unit: unitOf.get(e.to).name }))
+    .sort((a, b) => (a.from + a.to < b.from + b.to ? -1 : 1));
+  return { units: [...new Set([...unitOf.values()].map((u) => u.name))].sort(), closing };
+}
+
+/** One warning line per component the build forbids. */
+export const impossibleWarning = (c) => `cycle across build units ${c.build_units.join(' and ')} cannot be built: at least one of its edges is an analysis artifact; check ${c.closing_edges.slice(0, 5).map((e) => `${e.from.replace(/^module:/, '')} → ${e.to.replace(/^module:/, '')} (${e.from_unit} does not reference ${e.to_unit})`).join('; ')}${c.closing_edges.length > 5 ? `; and ${c.closing_edges.length - 5} more` : ''}`;
+
 /** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key */
 export function computeDerived(graph) {
   const view = cycleView(graph);
@@ -60,7 +107,8 @@ export function computeDerived(graph) {
       : members.length === 1 ? 'a module importing itself is not a dependency cycle'
       : !strictHere.length ? 'closes only through lazy or type-only imports, which are not a runtime cycle'
       : 'fewer than two non-test modules take part';
-    return { key: members[0], body: { members, size: members.length, cycles: b.cycles, truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(b.cut_minimal === false && { cut_minimal: false }), declared_only: b.cut.filter((e) => e.declared_only).length, finding: reported, ...(reason && { reason }) } };
+    const build = impossibleByBuild(graph, members, view);
+    return { key: members[0], body: { ...(build && { impossible_by_build: true, build_units: build.units, closing_edges: build.closing }), members, size: members.length, cycles: b.cycles, truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(b.cut_minimal === false && { cut_minimal: false }), declared_only: b.cut.filter((e) => e.declared_only).length, finding: reported, ...(reason && { reason }) } };
   });
 
   const declared = graph.edges('IMPORTS').filter((e) => e.attrs?.declared_only && e.from !== e.to)
@@ -126,7 +174,7 @@ export function writeDerived(ctx, graph, generation = Number(ctx.store.meta('gen
   ctx.store.tx(() => {
     ctx.store.run('DELETE FROM derived');
     for (const kind of DERIVED_KINDS) for (const r of d[kind]) ins.run(generation, kind, r.key, JSON.stringify(r.body));
-    ctx.store.run("INSERT OR REPLACE INTO derived(generation, kind, key, body) VALUES (?, '_done', '', '{}')", generation);
+    ctx.store.run("INSERT OR REPLACE INTO derived(generation, kind, key, body) VALUES (?, '_done', '', ?)", generation, JSON.stringify({ v: DERIVED_VERSION }));
   });
   return d;
 }
@@ -140,8 +188,7 @@ export function readDerived(ctx, kind, { graph }) {
   const generation = Number(ctx.store.meta('generation') ?? 0);
   let d = cache.get(graph);
   if (!d || d.generation !== generation) {
-    const done = ctx.store.get("SELECT 1 AS ok FROM derived WHERE kind = '_done' AND generation = ?", generation);
-    if (done) {
+    if (derivedDone(ctx, generation)) {
       d = Object.fromEntries(DERIVED_KINDS.map((k) => [k, []]));
       for (const r of ctx.store.db.prepare("SELECT kind, key, body FROM derived WHERE generation = ? AND kind != '_done' ORDER BY rowid").iterate(generation)) d[r.kind].push({ key: r.key, body: JSON.parse(r.body) });
       cache.set(graph, tag(d, generation));

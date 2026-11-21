@@ -1,4 +1,6 @@
 import { mapRepository } from '../../graph/builder.mjs';
+import { impossibleWarning, readDerived } from '../../graph/derived.mjs';
+import { Graph } from '../../graph/graph.mjs';
 import { output, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 import { constantsLine } from './status.mjs';
@@ -13,6 +15,8 @@ export async function run({ positional, flags }) {
   const summary = await withRun(ctx, cfg, 'map', { actor, scope }, (r) =>
     mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null }),
   );
+  // A cycle the build forbids is an analysis artifact: say so where it is seen first (#72).
+  for (const r of readDerived(ctx, 'scc', { graph: Graph.fromStore(ctx.store) })) if (r.body.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(r.body)}\n`);
   if (flags.json) return output(summary, { json: true });
   const lines = [
     `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,

@@ -2,7 +2,7 @@ import { UnknotError } from '../../core/errors.mjs';
 import { matchAny } from '../../core/glob.mjs';
 import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
 import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, explainRef, stronglyConnected } from '../../graph/algorithms.mjs';
-import { MAX_CYCLES, cycleView, readDerived } from '../../graph/derived.mjs';
+import { MAX_CYCLES, cycleView, impossibleByBuild, impossibleWarning, readDerived } from '../../graph/derived.mjs';
 
 const ALL_CYCLES = 5000;
 import { EDGE_TYPES } from '../../graph/facts.mjs';
@@ -182,15 +182,17 @@ export async function run({ positional, flags }) {
       const share = new Map();
       for (const y of b.cycles) for (const e of y.edges) share.set(key(e), (share.get(key(e)) ?? 0) + 1);
       const cycles = b.cycles.map((y) => ({ ...y, cut_candidates: [...y.edges].sort((a, z) => share.get(key(z)) - share.get(key(a)) || key(a).localeCompare(key(z))).slice(0, 3).map((e) => ({ ...e, in_cycles: share.get(key(e)) })) }));
-      return { size: c.length, members: c, cycles, cycles_truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(stored && { finding: stored[i].finding, ...(stored[i].reason && { reason: stored[i].reason }) }) };
+      const build = stored ? (stored[i].impossible_by_build ? { units: stored[i].build_units, closing: stored[i].closing_edges } : null) : impossibleByBuild(g, c, cg);
+      return { size: c.length, members: c, ...(build && { impossible_by_build: true, build_units: build.units, closing_edges: build.closing }), cycles, cycles_truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(stored && { finding: stored[i].finding, ...(stored[i].reason && { reason: stored[i].reason }) }) };
     });
+    for (const c of comps) if (c.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(c)}\n`);
     if (flags.json) return output(comps, { json: true });
     if (!comps.length) return output('no cycles');
     const nameOf = (id) => g.node(id)?.path ?? id;
     const edgeText = (e) => `${nameOf(e.from)} → ${nameOf(e.to)}${e.declared_only ? ` (declared only: ${nameOf(e.to)} member ${e.unused_member ?? '(unnamed)'} is never used)` : ''}`;
     const lines = comps.flatMap((c, i) => [
       ...(i ? [''] : []),
-      `cycle ${i + 1}: ${c.size} ${c.size === 1 ? 'module' : 'modules'}`,
+      `cycle ${i + 1}: ${c.size} ${c.size === 1 ? 'module' : 'modules'}${c.impossible_by_build ? ` (impossible by build: spans ${c.build_units.join(', ')})` : ''}`,
       ...wrap(c.members.map(nameOf).join(', '), '  members: ', '    '),
       `  ${c.cycles.length}${c.cycles_truncated ? '+' : ''} elementary ${c.cycles.length === 1 ? 'cycle' : 'cycles'}, shortest first${c.cycles_truncated ? ` (stopped at ${c.cycles.length}; more exist${c.cycles.length >= ALL_CYCLES ? `, ${ALL_CYCLES} is the most listed` : ': raise --max-cycles, or --max-cycles all'})` : ''}:`,
       ...c.cycles.flatMap((y) => [
