@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
 import { scipChecks } from '../../../adapters/semantic/scip/locate.mjs';
 import { detectSandbox } from '../../broker/sandbox.mjs';
@@ -14,6 +14,7 @@ import { hooksSeen } from '../../state/hooks-seen.mjs';
 import { verifyLedger } from '../../state/ledger.mjs';
 import { cliPath, humanCommand, output, stableUnknot } from '../util.mjs';
 import { SHIM_MARK } from './cli.mjs';
+import { onPath as exeOnPath } from './init.mjs';
 
 function tool(name, args = ['--version']) {
   const r = spawnSync(name, args, { encoding: 'utf8', timeout: 10_000, shell: false });
@@ -75,6 +76,12 @@ export async function run({ flags }) {
       add('ledger', ledger.ok, ledger.ok ? `${ledger.count} events, chain and signatures valid` : `broken at ${ledger.broken_at}: ${ledger.reason}`);
       const approvers = Object.keys(cfg.config.approvers ?? {});
       add('approvers', approvers.length > 0, approvers.length ? approvers.join(', ') : `none registered: only needed to change code (a person runs, in a separate terminal: ${humanCommand('keys generate <name>').split('\n')[0]})`, approvers.length ? 'ok' : 'warn');
+      // The toolchain behind each configured command: a missing one fails every baseline check.
+      for (const [name, argv] of Object.entries(cfg.config.commands ?? {})) {
+        const exe = Array.isArray(argv) ? argv[0] : null;
+        if (!exe || (exe.includes('/') ? existsSync(resolve(root, exe)) : exeOnPath(exe))) continue;
+        add(`command ${name}`, false, `${exe} is not on PATH, so commands.${name} (${argv.join(' ')}) cannot run; install it, or change the command in .unknot/config.yaml`, 'warn');
+      }
       const { loaded, unavailable } = await loadAdapters(cfg.config);
       add('adapters', true, `${loaded.map((a) => `${a.id}@${a.version}`).join(', ')}`, 'info');
       for (const u of unavailable) add(`adapter ${u.id}`, false, u.reason, 'warn');

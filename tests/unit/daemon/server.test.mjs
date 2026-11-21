@@ -1,12 +1,14 @@
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { request } from './_helpers.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-daemon-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-daemon-home-'));
 
 const { createDaemon } = await import('../../../runtime/daemon/server.mjs');
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -56,7 +58,7 @@ const post = (path, body, headers = {}) => request(base, 'POST', path, { body, h
 const get = (path, headers = {}) => request(base, 'GET', path, { headers: auth(headers) });
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'uk-daemon-proj-'));
+  dir = mkTmp(join(tmpdir(), 'uk-daemon-proj-'));
   mkdirSync(join(dir, 'src'));
   writeFileSync(join(dir, 'src/classify.mjs'), BRANCHY);
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo', type: 'module' }));

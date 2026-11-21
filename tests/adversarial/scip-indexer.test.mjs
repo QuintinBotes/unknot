@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { after, test } from 'node:test';
 import * as K from '../helpers/kernel.mjs';
 import { mapRepository } from '../../runtime/graph/builder.mjs';
 import { INDEXERS, indexerArgv } from '../../adapters/semantic/scip/indexers.mjs';
+import { mkTmp } from '../helpers/tmp.mjs';
 
 const dirs = [];
 after(() => {
@@ -28,7 +29,7 @@ function withPath(dir, fn) {
 }
 
 function fakeIndexer({ marker = null, dir = null } = {}) {
-  const bin = dir ?? mkdtempSync(join(tmpdir(), 'uk-scip-adversarial-'));
+  const bin = dir ?? mkTmp(join(tmpdir(), 'uk-scip-adversarial-'));
   if (!dir) dirs.push(bin);
   mkdirSync(bin, { recursive: true });
   const file = join(bin, 'scip-typescript');
@@ -43,7 +44,7 @@ test('a tracked SCIP cache file is refused before an indexer can run', async () 
   mkdirSync(join(project.ctx.paths.state, 'adapter-cache', 'scip'), { recursive: true });
   writeFileSync(cache, 'hostile cache');
   K.git(project.dir, 'add', '-f', '.unknot/state/adapter-cache/scip/typescript.scip');
-  const markerDir = mkdtempSync(join(tmpdir(), 'uk-scip-marker-'));
+  const markerDir = mkTmp(join(tmpdir(), 'uk-scip-marker-'));
   dirs.push(markerDir);
   const marker = join(markerDir, 'ran');
   const bin = fakeIndexer({ marker });
@@ -105,7 +106,7 @@ test('the strict SCIP sandbox profile does not add a shared temporary directory'
 
 test('with run off, a marked indexer is never spawned', async () => {
   const project = K.makeProject({ files: source });
-  const markerDir = mkdtempSync(join(tmpdir(), 'uk-scip-marker-'));
+  const markerDir = mkTmp(join(tmpdir(), 'uk-scip-marker-'));
   dirs.push(markerDir);
   const marker = join(markerDir, 'ran');
   const bin = fakeIndexer({ marker });

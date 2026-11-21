@@ -1,9 +1,10 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const H = K.handlers;
 const { readEvents } = K.ledger;
@@ -45,7 +46,7 @@ function hookProject({ mode = 'plan', command = 'diagnose', run = true, patching
 const pre = (h, tool_name, tool_input, extra = {}) => H.onPreToolUse({ ...h.base, hook_event_name: 'PreToolUse', tool_name, tool_input, ...extra });
 
 function taskOutput(session, name = 'task-123.output') {
-  const root = mkdtempSync('/tmp/claude-');
+  const root = mkTmp('/tmp/claude-');
   scratch.push(root);
   const dir = join(root, 'project', session, 'tasks');
   mkdirSync(dir, { recursive: true });
@@ -56,7 +57,7 @@ function taskOutput(session, name = 'task-123.output') {
 
 describe('not initialised', () => {
   test('every handler returns null for a project without .unknot', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'uk-plain-'));
+    const dir = mkTmp(join(tmpdir(), 'uk-plain-'));
     scratch.push(dir);
     K.git(dir, 'init', '-q');
     const e = { cwd: dir, session_id: 's' };
@@ -488,7 +489,7 @@ describe('SubagentStop', () => {
   test('the handoff can come from the agent transcript file', async () => {
     const h = hookProject();
     const e = await started(h);
-    const file = join(mkdtempSync(join(tmpdir(), 'uk-tr-')), 't.jsonl');
+    const file = join(mkTmp(join(tmpdir(), 'uk-tr-')), 't.jsonl');
     scratch.push(join(file, '..'));
     writeFileSync(file, [
       JSON.stringify({ type: 'user', message: { role: 'user', content: 'go' } }),

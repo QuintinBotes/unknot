@@ -5,14 +5,16 @@
 // is one spelling; the same cases run for all of them, and a workspace map of the service with a
 // client that declares the full routes links every client route.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -406,7 +408,7 @@ function repo(parent, name, files) {
 }
 
 async function endpointsOf(files) {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-grp-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-grp-'));
   const dir = repo(parent, 'svc', files);
   const ctx = openProject(dir, { create: true });
   const cfg = loadConfig(ctx);
@@ -455,7 +457,7 @@ for (const row of ROWS) {
   }
 
   test(`${row.name}: a workspace map links every client route to the grouped endpoint`, { timeout: 180_000 }, async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'uk-grp-ws-'));
+    const parent = mkTmp(join(tmpdir(), 'uk-grp-ws-'));
     repo(parent, 'app', {
       'src/Clients/IOrdersApi.cs': `using System.Threading.Tasks;
 namespace Shop.Clients

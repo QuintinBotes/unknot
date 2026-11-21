@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { detect } from '../../../runtime/cli/commands/init.mjs';
 import { DEFAULT_CONFIG } from '../../../runtime/policy/defaults.mjs';
 import { matchAny } from '../../../runtime/core/glob.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 test('lint and typecheck are proposed from tool config plus dependency when no script exists; missing tools are noted', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-init-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-init-'));
   try {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'no-such-runner-xyz test' }, devDependencies: { eslint: '^8', typescript: '^5' } }));
     writeFileSync(join(dir, '.eslintrc'), '{}');
@@ -31,7 +32,7 @@ test('CI definitions of every parsed system and git hooks are protected by defau
 });
 
 function repo(files, fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-init-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-init-'));
   try {
     for (const [p, text] of Object.entries(files)) {
       mkdirSync(join(dir, p, '..'), { recursive: true });

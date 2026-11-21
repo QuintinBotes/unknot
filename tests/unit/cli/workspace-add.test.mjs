@@ -1,19 +1,21 @@
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { cliPath } from '../../../runtime/cli/util.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const home = mkdtempSync(join(tmpdir(), 'uk-home-'));
+const home = mkTmp(join(tmpdir(), 'uk-home-'));
 const env = { ...process.env, UNKNOT_HOME: home };
 delete env.CLAUDECODE;
 const vcs = (cwd, ...a) => spawnSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...a], { cwd, encoding: 'utf8' });
 const cli = (cwd, ...args) => spawnSync(process.execPath, [cliPath(), ...args], { cwd, env, encoding: 'utf8' });
 
 function setup() {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-ws-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-ws-'));
   const root = join(parent, 'root');
   const a = join(parent, 'a');
   for (const d of [root, a]) {

@@ -1,10 +1,12 @@
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { detectSandbox, macosProfile, wrap } from '../../../runtime/broker/sandbox.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 test('unix sockets are allowed only inside the run directories, never globally (security review)', () => {
   const prof = macosProfile({ writable: ['/w'], network: false, sockets: ['/w/run'] });
@@ -30,7 +32,7 @@ test('bubblewrap hides /run control sockets and the main checkout outside the wo
 });
 
 test('macOS: in a worktree, main-checkout files and the Docker socket are out of reach, tests still run', { skip: detectSandbox() !== 'macos-sandbox-exec' }, () => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-sbx-')));
+  const base = realpathSync(mkTmp(join(tmpdir(), 'uk-sbx-')));
   try {
     const root = join(base, 'proj');
     const wt = join(root, '.unknot/worktrees/UK-1');
@@ -93,7 +95,7 @@ const bwrapRun = (argv, opts, spawn = {}) => {
   return spawnSync(w.file, w.args, { encoding: 'utf8', timeout: 30000, ...spawn });
 };
 const withHomeDir = (fn) => {
-  const base = realpathSync(mkdtempSync(join(homedir(), '.uk-bwrap-')));
+  const base = realpathSync(mkTmp(join(homedir(), '.uk-bwrap-')));
   try {
     return fn(base);
   } finally {
@@ -236,7 +238,7 @@ test('secrets nested inside a re-exposed project stay hidden', () => {
 });
 
 test('bubblewrap mounts a project inside a hidden directory back on top of the tmpfs', () => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-cfg-')));
+  const base = realpathSync(mkTmp(join(tmpdir(), 'uk-cfg-')));
   try {
     const p = join(base, 'jobs/p');
     mkdirSync(p, { recursive: true });
@@ -261,7 +263,7 @@ const projectInHiddenDir = (base, run) => {
 };
 
 test('macOS: a project inside a hidden directory is readable and writable; the rest of that directory is not', { skip: detectSandbox() !== 'macos-sandbox-exec' }, () => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-cfg-')));
+  const base = realpathSync(mkTmp(join(tmpdir(), 'uk-cfg-')));
   try {
     const r = projectInHiddenDir(base, (argv, opts, spawn) => {
       const w = wrap(argv, opts);
@@ -314,7 +316,7 @@ const upwardSearch = async (base, run) => {
 };
 
 test('macOS: from a worktree, the main checkout\'s committed manifest is readable and its .env is not', { skip: detectSandbox() !== 'macos-sandbox-exec' }, async () => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'uk-up-')));
+  const base = realpathSync(mkTmp(join(tmpdir(), 'uk-up-')));
   try {
     const r = await upwardSearch(base, (argv, opts, spawn) => {
       const w = wrap(argv, opts);
@@ -328,7 +330,7 @@ test('macOS: from a worktree, the main checkout\'s committed manifest is readabl
 });
 
 test('Linux: from a worktree, the main checkout\'s committed manifest is readable and its .env is not', bwrapSkip, async () => {
-  const base = realpathSync(mkdtempSync(join(homedir(), '.uk-bwrap-')));
+  const base = realpathSync(mkTmp(join(homedir(), '.uk-bwrap-')));
   try {
     const r = await upwardSearch(base, bwrapRun);
     assert.match(r.stdout, /name = "x"/, r.stderr);

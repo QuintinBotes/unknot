@@ -97,7 +97,7 @@ export function transitionSlice(ctx, { slice, to, actor, reason, run_id = null, 
  */
 export function replaySliceStates(store) {
   const states = new Map();
-  for (const row of store.db.prepare("SELECT slice_id, payload FROM events WHERE type = 'state.transition' ORDER BY seq").iterate()) {
+  for (const row of store.iterate("SELECT slice_id, payload FROM events WHERE type = 'state.transition' ORDER BY seq")) {
     const p = JSON.parse(row.payload);
     if (p.entity === 'slice' && row.slice_id) states.set(row.slice_id, p.to);
   }

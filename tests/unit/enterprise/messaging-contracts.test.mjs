@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Graph } from '../../../runtime/graph/graph.mjs';
@@ -8,6 +8,7 @@ import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { casPut } from '../../../runtime/state/cas.mjs';
 import { contractEvidence } from '../../../runtime/decompose/contracts.mjs';
 import { buildWorkspaceGraph, graphToDocument, MEMBER_META, WORKSPACE_GRAPH_META, workspaceLinks } from '../../../runtime/enterprise/workspace.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 // Project state and generated keys stay inside the fixture directory.
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -18,7 +19,7 @@ function channelGraph(paths, edge) {
 }
 
 test('persisted workspace messaging links reach both repositories and count each remote consumer module', () => {
-  const temp = mkdtempSync(join(tmpdir(), 'contracts-messaging-'));
+  const temp = mkTmp(join(tmpdir(), 'contracts-messaging-'));
   const contexts = [];
   const previousHome = process.env.UNKNOT_HOME;
   process.env.UNKNOT_HOME = join(temp, 'keys');

@@ -2,7 +2,7 @@
 // does not pay for the planner. Errors leave as the structured error model (spec §25).
 
 import { toErrorJSON } from '../core/errors.mjs';
-import { parseArgs } from './util.mjs';
+import { currentActor, isHuman, parseArgs } from './util.mjs';
 
 export const COMMANDS = {
   init: 'Detect tools and propose .unknot/config.proposed.yaml',
@@ -45,6 +45,23 @@ export const COMMANDS = {
   learn: 'Feedback loop: metrics and detector calibration (report), threshold proposals (propose)',
 };
 
+/** Edit distance, for suggesting the command a mistyped one was meant to be. */
+function distance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+/** The known command closest to a mistyped one, or null when none is close (ties go to the first in help order). */
+function nearestCommand(name) {
+  const [best, d] = Object.keys(COMMANDS).map((c) => [c, distance(name, c)]).sort((x, y) => x[1] - y[1])[0];
+  return d <= Math.max(2, Math.floor(best.length / 3)) && d < name.length ? best : null;
+}
+
 export async function main(argv) {
   const [name, ...rest] = argv;
   if (!name || name === 'help' || name === '--help' || name === '-h') {
@@ -59,7 +76,8 @@ export async function main(argv) {
     return 0;
   }
   if (!COMMANDS[name]) {
-    process.stderr.write(`unknot: unknown command ${name}\n`);
+    const near = nearestCommand(name);
+    process.stderr.write(`unknot: unknown command ${name}${near ? `. Did you mean ${near}?` : ''}\n`);
     return 2;
   }
   // --help or -h prints usage without running the command or opening the store. Words after
@@ -86,6 +104,8 @@ export async function main(argv) {
     return typeof code === 'number' ? code : 0;
   } catch (err) {
     const e = toErrorJSON(err);
+    // A person at a terminal types `unknot init`; the skill form (/unknot:init) is for an agent session.
+    if (isHuman(currentActor())) e.message = e.message.replace(/\/unknot:(\w+)/g, 'unknot $1');
     if (args.flags.json) process.stdout.write(`${JSON.stringify({ error: e }, null, 2)}\n`);
     else process.stderr.write(`unknot ${name}: ${e.code}: ${e.message}\n`);
     if (process.env.UNKNOT_DEBUG && err?.stack) process.stderr.write(`${err.stack}\n`);

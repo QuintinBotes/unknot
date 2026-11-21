@@ -4,14 +4,14 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
-const home = mkdtempSync(join(tmpdir(), 'uk-cyc-home-'));
+const home = mkTmp(join(tmpdir(), 'uk-cyc-home-'));
 process.env.UNKNOT_HOME = home;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -25,7 +25,7 @@ const imp = (a, b, attrs = {}) => edgeFact('IMPORTS', `module:${a}`, `module:${b
 
 /** A project whose modules 0..n-1 import their successor in a ring, plus `chords` extra imports each. */
 function ring(n, { chords = 0, closing = {} } = {}) {
-  const proj = mkdtempSync(join(tmpdir(), 'uk-cyc-proj-'));
+  const proj = mkTmp(join(tmpdir(), 'uk-cyc-proj-'));
   const facts = [];
   for (let i = 0; i < n; i++) facts.push(mod(path(i)));
   for (let i = 0; i < n; i++) {

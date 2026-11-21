@@ -132,6 +132,11 @@ const provenanceNotice = (res) => (res.driver_provenance_missing?.length
   ? `Notice: no source or quote is recorded for driver${res.driver_provenance_missing.length > 1 ? 's' : ''} ${res.driver_provenance_missing.join(', ')}, and none could be carried from an earlier record. Evidence that a driver came from the person is the safeguard behind treatment selection: pass --driver-source <id>=<url> and --driver-quote <id>=<their words> (repeatable), or --drivers-file <json>.`
   : null);
 
+/** What no driver means, as notices; empty when a driver is given (from flags or the configuration). */
+const driverNotices = (res) => (res.drivers?.length ? [] : [
+  'No driver was given, so only treatments that need no driver can be recommended (retain T0, modularize in place T1, the frontend modular monolith). Service extraction (T3) and micro-frontends (T7) need one: add --driver <id> (independent_deploy, independent_scale, availability_isolation, security_isolation, team_autonomy, technology_divergence or build_time), in the user\'s own words.',
+]);
+
 export async function run({ positional, flags }) {
   const { ctx, cfg, config, actor } = open(flags);
   const rest = [...positional];
@@ -163,14 +168,18 @@ export async function run({ positional, flags }) {
   const opts = { config, scope: rest, target: flags.target ?? 'auto', drivers, driverProvenance, dryRun: Boolean(flags.dry_run) };
   const res = opts.dryRun ? await decompose(ctx, opts) : await withRun(ctx, cfg, 'decompose', { actor, scope: rest }, (r) => decompose(ctx, { ...opts, run: r }));
   if (res.warning) process.stderr.write(`unknot: ${res.warning}\n`);
+  const notices = driverNotices(res);
   if (flags.summary) {
     const lines = res.details.map(summaryLine);
-    if (flags.json) return output(lines, { json: true });
+    if (flags.json) {
+      for (const n of notices) process.stderr.write(`unknot: ${n}\n`);
+      return output(lines, { json: true });
+    }
     const out = lines.map((l) => `${l.id}  ${l.name}  ${l.size} modules  ${l.treatment}  ${l.confidence}${l.next_rejected ? `  | ${l.next_rejected}` : ''}`);
-    return output([...(provenanceNotice(res) ? [provenanceNotice(res)] : []), ...(res.warning ? [res.warning] : []), ...(out.length ? out : ['(no candidates)'])].join('\n'));
+    return output([...notices, ...(provenanceNotice(res) ? [provenanceNotice(res)] : []), ...(res.warning ? [res.warning] : []), ...(out.length ? out : ['(no candidates)'])].join('\n'));
   }
-  if (flags.json) return output(flags.full ? res : { ...res, details: undefined }, { json: true });
-  const lines = [];
+  if (flags.json) return output({ ...(flags.full ? res : { ...res, details: undefined }), notices }, { json: true });
+  const lines = [...notices, ...(notices.length ? [''] : [])];
   if (provenanceNotice(res)) lines.push(provenanceNotice(res), '');
   if (res.warning) lines.push(`Warning: ${res.warning}`, '');
   lines.push(`Targets: ${res.targets.join(', ') || 'none'} · drivers: ${res.drivers.join(', ') || 'none recorded (service extraction and micro-frontends will not be offered)'}${res.dry_run ? ' · dry run: nothing written' : ''}`);

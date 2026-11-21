@@ -1,3 +1,4 @@
+import '../../helpers/git-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { basenameOf, effectiveCommands, parseShell } from '../../../runtime/core/shell.mjs';

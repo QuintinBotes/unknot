@@ -2,15 +2,16 @@
 // documents streamed one at a time (also across the read window), truncation reported.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { descriptors, classify } from '../../../../adapters/semantic/scip/symbols.mjs';
 import { ROLE as R, scipRecords } from '../../../../adapters/semantic/scip/reader.mjs';
 import * as S from '../../../helpers/scip.mjs';
+import { mkTmp } from '../../../helpers/tmp.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'uk-scip-'));
+const dir = mkTmp(join(tmpdir(), 'uk-scip-'));
 after(() => rmSync(dir, { recursive: true, force: true }));
 const file = (name, buf) => {
   const p = join(dir, name);

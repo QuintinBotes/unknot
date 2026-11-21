@@ -10,6 +10,9 @@ import {
 } from './model.mjs';
 import { classifyStyles } from './styles.mjs';
 
+/** "1 container", "2 containers", "0 containers". */
+const pl = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 const EDGE_WORD = { RUNTIME_CALLS: 'calls', CALLS: 'calls', IMPORTS: 'imports', DEPENDS_ON: 'depends on', ROUTES_TO: 'routes to' };
 const UNIT_EDGES = ['IMPORTS', 'CALLS', 'DEPENDS_ON', 'RUNTIME_CALLS', 'ROUTES_TO'];
 const MORE = '__more__';
@@ -201,7 +204,7 @@ function landscape(graph, maxNodes) {
     const u = map(l.unit);
     if (u) { f.edge(u, l.store, l.rel, l.rel === 'reads' || l.rel === 'consumes' ? 'dotted' : 'arrow'); used.push(l.edge); }
   }
-  notes.push(`${sys.units.length} ${sys.kind === 'deployables' ? 'deployable unit(s)' : sys.kind === 'packages' ? 'package(s)' : 'top-level directories'}, ${sys.stores.length} data store/channel node(s).`);
+  notes.push(`${sys.kind === 'deployables' ? pl(sys.units.length, 'deployable unit') : sys.kind === 'packages' ? pl(sys.units.length, 'package') : pl(sys.units.length, 'top-level directory', 'top-level directories')}, ${pl(sys.stores.length, 'data store/channel node')}.`);
   if (sys.kind !== 'deployables') notes.push('No deployable units were observed, so containers are approximated from source structure (inferred).');
   if (!sys.units.length) notes.push('No source modules or deployable units were found in scope.');
   return view(f.toString(), notes, used);
@@ -215,16 +218,16 @@ function context(graph) {
   const notes = [];
   const sid = c.get('system');
   if (sys.entries.length) {
-    lines.push(`  Person(${c.get('users')}, "Users and external clients", "Reach the system through ${sys.entries.length} public entry point(s)")`);
+    lines.push(`  Person(${c.get('users')}, "Users and external clients", "Reach the system through ${pl(sys.entries.length, 'public entry point')}")`);
     used.push(...sys.entries.map((e) => e.node));
   }
-  lines.push(`  System(${sid}, "${systemName(graph)}", "${sys.units.length} unit(s); ${sys.stores.filter((s) => s.kind === 'db').length} data store(s)")`);
+  lines.push(`  System(${sid}, "${systemName(graph)}", "${pl(sys.units.length, 'unit')}; ${pl(sys.stores.filter((s) => s.kind === 'db').length, 'data store')}")`);
   // Externals: cloud providers and nodes explicitly flagged external; dependencies are too noisy.
   const externals = [...graph.nodes('cloud'), ...graph.nodes('net_endpoint').filter((n) => n.attrs?.external === true)].slice(0, 8);
   for (const x of externals) { lines.push(`  System_Ext(${c.get(x.id)}, "${plain(x.name, 40)}", "External dependency")`); used.push(x); }
   if (sys.entries.length) lines.push(`  Rel(${c.get('users')}, ${sid}, "Uses")`);
   for (const x of externals) lines.push(`  Rel(${sid}, ${c.get(x.id)}, "Depends on")`);
-  notes.push(sys.entries.length ? `${sys.entries.length} public entry point(s) observed.` : 'No public entry point was observed; the user relationship is omitted (unknown).');
+  notes.push(sys.entries.length ? `${pl(sys.entries.length, 'public entry point')} observed.` : 'No public entry point was observed; the user relationship is omitted (unknown).');
   if (!externals.length) notes.push('No external systems were declared in the graph.');
   return view(lines.join('\n'), notes, used);
 }
@@ -242,11 +245,11 @@ function containers(graph, maxNodes) {
   lines.push(`  System_Boundary(${c.get('boundary')}, "${systemName(graph)}") {`);
   for (const u of shown) {
     const tech = plain(unitTech(graph, sys.set, u), 30);
-    lines.push(`    Container(${c.get(u.id)}, "${plain(u.name, 40)}", "${tech}", "${u.moduleCount} module(s)")`);
-    dsl.push({ id: c.get(u.id), name: u.name, tech, desc: `${u.moduleCount} modules` });
+    lines.push(`    Container(${c.get(u.id)}, "${plain(u.name, 40)}", "${tech}", "${pl(u.moduleCount, 'module')}")`);
+    dsl.push({ id: c.get(u.id), name: u.name, tech, desc: pl(u.moduleCount, 'module') });
     used.push(...u.nodeIds.map((id) => graph.node(id)));
   }
-  if (hidden.length) lines.push(`    Container(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${hidden.reduce((s, u) => s + u.moduleCount, 0)} module(s)")`);
+  if (hidden.length) lines.push(`    Container(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${pl(hidden.reduce((s, u) => s + u.moduleCount, 0), 'module')}")`);
   const storeCap = cap(sys.stores, Math.max(4, Math.floor(maxNodes / 3)), () => 1);
   for (const s of storeCap.shown) {
     lines.push(`    ${s.kind === 'db' ? 'ContainerDb' : 'ContainerQueue'}(${c.get(s.id)}, "${plain(s.name, 40)}", "${s.kind === 'db' ? 'datastore' : s.kind}")`);
@@ -269,9 +272,9 @@ function containers(graph, maxNodes) {
   }
   for (const [a, b, l] of rels) lines.push(`  Rel(${a}, ${b}, "${plain(l, 40)}")`);
   const structurizr = shown.length ? structurizrDsl(graph, dsl, c, rels, hasUsers, storeCap.shown) : undefined;
-  notes.push(`${shown.length + (hidden.length ? 1 : 0)} container(s), ${storeCap.shown.length} data/messaging element(s), ${rels.length} relationship(s).`);
+  notes.push(`${pl(shown.length + (hidden.length ? 1 : 0), 'container')}, ${pl(storeCap.shown.length, 'data/messaging element')}, ${pl(rels.length, 'relationship')}.`);
   if (sys.kind !== 'deployables') notes.push(`Containers are ${sys.kind} (no deployable units observed): inferred, not deployment-verified.`);
-  if (hidden.length) notes.push(`${hidden.length} lower-weight container(s) are aggregated as "+${hidden.length} more"; raise --max-nodes to see them.`);
+  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-weight container')} ${hidden.length === 1 ? 'is' : 'are'} aggregated as "+${hidden.length} more"; raise --max-nodes to see them.`);
   return view(lines.join('\n'), notes, used, structurizr ? { structurizr } : {});
 }
 
@@ -318,8 +321,8 @@ function components(graph, maxNodes, container) {
   for (const g of hidden) for (const m of g.modules) groupOf.set(m.id, MORE);
   const c = new IdMap('c');
   const lines = ['C4Component', `  title Components of ${plain(pick.name, 40)}`, `  Container_Boundary(${c.get('boundary')}, "${plain(pick.name, 40)}") {`];
-  for (const g of shown) lines.push(`    Component(${c.get(g.id)}, "${plain(g.id, 40)}", "directory", "${g.modules.length} module(s)")`);
-  if (hidden.length) lines.push(`    Component(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${hidden.reduce((s, g) => s + g.modules.length, 0)} module(s) in ${hidden.length} directories")`);
+  for (const g of shown) lines.push(`    Component(${c.get(g.id)}, "${plain(g.id, 40)}", "directory", "${pl(g.modules.length, 'module')}")`);
+  if (hidden.length) lines.push(`    Component(${c.get(MORE)}, "+${hidden.length} more", "aggregate", "${pl(hidden.reduce((s, g) => s + g.modules.length, 0), 'module')} in ${pl(hidden.length, 'directory', 'directories')}")`);
   lines.push('  }');
   const agg = new Map();
   const used = [...mods];
@@ -331,8 +334,8 @@ function components(graph, maxNodes, container) {
     agg.set(k, (agg.get(k) ?? 0) + (e.attrs?.count ?? 1));
     used.push(e);
   }
-  for (const [k, n] of agg) { const [a, b] = k.split('\0'); lines.push(`  Rel(${c.get(a)}, ${c.get(b)}, "imports", "${n} import(s)")`); }
-  notes.push(`Container "${plain(pick.name, 40)}": ${mods.length} module(s) in ${all.length} director${all.length === 1 ? 'y' : 'ies'}; showing ${shown.length}.`);
+  for (const [k, n] of agg) { const [a, b] = k.split('\0'); lines.push(`  Rel(${c.get(a)}, ${c.get(b)}, "imports", "${pl(n, 'import')}")`); }
+  notes.push(`Container "${plain(pick.name, 40)}": ${pl(mods.length, 'module')} in ${all.length} director${all.length === 1 ? 'y' : 'ies'}; showing ${shown.length}.`);
   if (hidden.length) notes.push(`${hidden.length} smaller director${hidden.length === 1 ? 'y is' : 'ies are'} aggregated as "+${hidden.length} more".`);
   return view(lines.join('\n'), notes, used);
 }
@@ -358,12 +361,12 @@ function deployment(graph, maxNodes) {
     lines.push(`  Deployment_Node(${c.get(`ns:${ns}`)}, "${plain(ns, 40)}", "Kubernetes namespace") {`);
     for (const w of take) {
       const replicas = w.attrs?.replicas;
-      lines.push(`    Container(${c.get(w.id)}, "${plain(w.name, 40)}", "${plain(w.attrs?.kind ?? 'workload', 20)}", "${replicas ? `${replicas} replica(s)` : 'replicas unspecified'}")`);
+      lines.push(`    Container(${c.get(w.id)}, "${plain(w.name, 40)}", "${plain(w.attrs?.kind ?? 'workload', 20)}", "${replicas ? `${pl(Number(replicas), 'replica')}` : 'replicas unspecified'}")`);
       used.push(w);
       shownKeys.add(w.id);
     }
     lines.push('  }');
-    if (take.length < list.length) notes.push(`Namespace ${plain(ns, 40)}: ${list.length - take.length} more workload(s) not shown.`);
+    if (take.length < list.length) notes.push(`Namespace ${plain(ns, 40)}: ${pl(list.length - take.length, 'more workload')} not shown.`);
   }
   const resources = graph.nodes('resource').filter((r) => r.attrs?.type && !r.attrs.data && !r.attrs.drift);
   const byProvider = new Map();
@@ -378,7 +381,7 @@ function deployment(graph, maxNodes) {
     lines.push(`  Deployment_Node(${c.get(`cloud:${p}`)}, "${plain(p, 30)} resources", "Cloud") {`);
     for (const r of take) { lines.push(`    Container(${c.get(r.id)}, "${plain(r.attrs.address ?? r.name, 40)}", "${plain(r.attrs.type, 30)}", "declared in ${plain(r.path ?? 'IaC', 40)}")`); used.push(r); shownKeys.add(r.id); }
     lines.push('  }');
-    if (take.length < list.length) notes.push(`${plain(p, 30)}: ${list.length - take.length} more resource(s) not shown.`);
+    if (take.length < list.length) notes.push(`${plain(p, 30)}: ${pl(list.length - take.length, 'more resource')} not shown.`);
   }
   for (const e of edgesOf(graph, ['ROUTES_TO', 'DEPLOYED_TO', 'DEPLOYS_TO'])) {
     if (!shownKeys.has(e.from) || !shownKeys.has(e.to)) continue;
@@ -389,7 +392,7 @@ function deployment(graph, maxNodes) {
     lines.push(`  Deployment_Node(${c.get('none')}, "No deployment evidence", "unknown") {`, `    Container(${c.get('none-c')}, "none", "n/a", "No workloads or declared cloud resources found")`, '  }');
     notes.push('No workloads, namespaces or cloud resources were found; deployment topology is unknown.');
   } else {
-    notes.push(`${shownKeys.size} deployment element(s) shown (${byNs.size} namespace(s), ${byProvider.size} cloud provider group(s)).`);
+    notes.push(`${pl(shownKeys.size, 'deployment element')} shown (${pl(byNs.size, 'namespace')}, ${pl(byProvider.size, 'cloud provider group')}).`);
   }
   return view(lines.join('\n'), notes, used);
 }
@@ -484,8 +487,8 @@ function dataOwnership(graph, maxNodes) {
   }
   for (const t of shared.slice(0, 10)) notes.push(`Shared writers: ${plain(t.node.name, 40)} is written by ${[...writersOf(t)].map((k) => plain(nameOf(k), 30)).join(', ')}.`);
   const unowned = list.filter((t) => !t.owners.size);
-  notes.unshift(`${list.length} table(s); ${shared.length} with more than one writer (highlighted); ${unowned.length} with no declared owner (OWNS_DATA).`);
-  if (hidden.length) notes.push(`${hidden.length} lower-traffic table(s) are aggregated as "+${hidden.length} more tables".`);
+  notes.unshift(`${pl(list.length, 'table')}; ${shared.length} with more than one writer (highlighted); ${unowned.length} with no declared owner (OWNS_DATA).`);
+  if (hidden.length) notes.push(`${pl(hidden.length, 'lower-traffic table')} ${hidden.length === 1 ? 'is' : 'are'} aggregated as "+${hidden.length} more tables".`);
   return view(f.toString(), notes, used);
 }
 
@@ -530,11 +533,11 @@ function trustBoundaries(graph, maxNodes) {
     used.push(e);
   }
   if (!f.nodes.size) f.node('none', 'No trust-boundary evidence', { shape: 'stadium' });
-  notes.push(entries.length ? `${entries.length} internet-facing entry point(s): ${entries.map((e) => `${plain(e.node.name, 30)} (${e.why})`).join('; ')}.` : 'No internet-facing entry point was observed (unknown rather than none).');
+  notes.push(entries.length ? `${pl(entries.length, 'internet-facing entry point')}: ${entries.map((e) => `${plain(e.node.name, 30)} (${e.why})`).join('; ')}.` : 'No internet-facing entry point was observed (unknown rather than none).');
   for (const id of roleNodes) { const r = graph.node(id); const why = riskyRole(r); if (why.length) notes.push(`Privileged role ${plain(r.name, 40)}: ${why.join(', ')}.`); }
   if (workloads.length && policies.length) {
     const unprotected = workloads.filter((w) => !graph.out(w.id, 'PROTECTED_BY').some((e) => graph.node(e.to)?.type === 'firewall_rule'));
-    if (unprotected.length) notes.push(`${unprotected.length} workload(s) have no network policy attached: ${unprotected.slice(0, 5).map((w) => plain(w.name, 30)).join(', ')}.`);
+    if (unprotected.length) notes.push(`${pl(unprotected.length, 'workload')} ${unprotected.length === 1 ? 'has' : 'have'} no network policy attached: ${unprotected.slice(0, 5).map((w) => plain(w.name, 30)).join(', ')}.`);
   } else if (workloads.length) notes.push('No network policies were found; east-west traffic restrictions are unknown.');
   return view(f.toString(), notes, used);
 }
@@ -568,8 +571,8 @@ function cycles(graph) {
     }
     notes.push(`Cycle ${i + 1}: ${c.length} ${types[0] === 'IMPORTS' ? 'modules' : 'packages'}; shortest loop ${cyc.map((id) => plain(short(graph.node(id)), 30)).join(' -> ')}${cyc.length ? ` -> ${plain(short(graph.node(cyc[0])), 30)}` : ''}.`);
   });
-  notes.unshift(`${mod.length} module cycle(s) and ${pkg.length} package cycle(s) found; the shortest loop of each shown cycle is drawn with thick arrows.`);
-  if (comps.length > 4) notes.push(`${comps.length - 4} smaller cycle(s) not drawn.`);
+  notes.unshift(`${pl(mod.length, 'module cycle')} and ${pl(pkg.length, 'package cycle')} found; the shortest loop of each shown cycle is drawn with thick arrows.`);
+  if (comps.length > 4) notes.push(`${pl(comps.length - 4, 'smaller cycle')} not drawn.`);
   return view(f.toString(), notes, used);
 }
 
@@ -618,12 +621,12 @@ function buildDeployCoupling(graph, maxNodes) {
     f.node(a, un(a), { group: 'Deployable units' });
     f.node(b, un(b), { group: 'Deployable units' });
     f.edge(a, b, `co-change ${n}`, 'dotted');
-    notes.push(`${plain(un(a), 30)} and ${plain(un(b), 30)} changed together in ${n} commit(s).`);
+    notes.push(`${plain(un(a), 30)} and ${plain(un(b), 30)} changed together in ${pl(n, 'commit')}.`);
   }
   if (!f.nodes.size) {
     f.node('none', 'No build/deploy coupling evidence', { shape: 'stadium' });
     notes.push('No pipelines, build targets or change history link units together (unknown).');
-  } else notes.unshift(`${lockstep} pipeline(s) release multiple units together; ${hot.length} cross-unit co-change pair(s).`);
+  } else notes.unshift(`${pl(lockstep, 'pipeline')} ${lockstep === 1 ? 'releases' : 'release'} multiple units together; ${pl(hot.length, 'cross-unit co-change pair')}.`);
   return view(f.toString(), notes, used);
 }
 

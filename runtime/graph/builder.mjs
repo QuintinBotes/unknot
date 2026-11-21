@@ -505,7 +505,7 @@ export function project(ctx, facts, { commit, observedAt }) {
   const gen0 = store.meta('generation');
   const generation0 = Number(gen0 ?? 0);
   const stored = new Map(); // id + signature → whether this fact set holds it
-  for (const r of store.db.prepare("SELECT id || COALESCE(digest, '') AS k FROM facts").iterate()) stored.set(r.k, 0);
+  for (const r of store.iterate("SELECT id || COALESCE(digest, '') AS k FROM facts")) stored.set(r.k, 0);
   // Pass 1: which facts are new or changed. A matching id and signature is unchanged; stored
   // entries nothing matched are stale.
   const fresh = []; // indexes of facts to write

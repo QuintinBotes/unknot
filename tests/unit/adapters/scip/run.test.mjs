@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, test } from 'node:test';
@@ -7,6 +7,7 @@ import * as K from '../../../helpers/kernel.mjs';
 import * as S from '../../../helpers/scip.mjs';
 import { scipChecks } from '../../../../adapters/semantic/scip/locate.mjs';
 import { mapRepository } from '../../../../runtime/graph/builder.mjs';
+import { mkTmp } from '../../../helpers/tmp.mjs';
 
 const dirs = [];
 after(() => {
@@ -28,7 +29,7 @@ function withPath(dir, fn) {
 }
 
 function fakeIndexer(bytes, { marker = null } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-scip-indexer-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-scip-indexer-'));
   dirs.push(dir);
   const script = join(dir, 'scip-typescript');
   const argv = `const at=process.argv.indexOf('--output'); if(at<0) process.exit(2); require('node:fs').writeFileSync(process.argv[at+1], Buffer.from(${JSON.stringify(bytes.toString('base64'))}, 'base64'));`;
@@ -60,7 +61,7 @@ test('a person-supplied index for the same language wins over an enabled runner'
   const project = K.makeProject({ files: source });
   const supplied = join(project.dir, 'semantic.scip');
   S.writeIndex(supplied, { documents: [S.document({ path: 'src/a.ts', language: 'typescript' })] });
-  const marker = join(mkdtempSync(join(tmpdir(), 'uk-scip-marker-')), 'ran');
+  const marker = join(mkTmp(join(tmpdir(), 'uk-scip-marker-')), 'ran');
   dirs.push(dirname(marker));
   const bin = fakeIndexer(indexBytes(), { marker });
   const result = await withPath(bin, () => mapRepository(project.ctx, { config: config({ run: true, languages: ['typescript'], index: 'semantic.scip' }), configDigest: 'd', history: false }));

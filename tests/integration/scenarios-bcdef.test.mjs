@@ -3,11 +3,12 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse, git, kinds, materialize, ofKind } from '../golden/_harness.mjs';
+import { mkTmp } from '../helpers/tmp.mjs';
 
 process.env.CLAUDE_PLUGIN_ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
