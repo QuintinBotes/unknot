@@ -70,7 +70,7 @@ claude plugin update unknot@quintinbotes          # stable
 claude plugin update unknot@unknot                # beta (installed from this repository)
 ```
 
-Then restart your Claude Code session: the update applies on restart, and a session started before it keeps the older hooks until then. Your state is kept. The first command run after the upgrade migrates each project's store (`.unknot/state/unknot.db`) in place, and saved records upgrade as they are read; a store written by a newer release than the one running is refused, not changed. The first `unknot map` after an upgrade may re-extract every file once. If you installed the launcher, run `unknot cli install` once more so it follows the new version. `unknot doctor` reports a session whose hooks and CLI differ.
+Then restart your Claude Code session: the update applies on restart, and a session started before it keeps the older hooks until then. Your state is kept. The first command that writes to a project's store after the upgrade migrates it (`.unknot/state/unknot.db`) in place, and saved records upgrade as they are read; a store written by a newer release than the one running is refused, not changed. The first `unknot map` after an upgrade may re-extract every file once. The launcher needs no reinstall: it runs the version your session loaded, else the newest installed. `unknot doctor` reports a session whose hooks and CLI differ.
 
 ### Uninstall
 
