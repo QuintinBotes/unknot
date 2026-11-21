@@ -126,3 +126,14 @@ describe('decompose CLI', () => {
     assert.deepEqual(JSON.parse((await cli('shop/**', '--dry-run', '--json', '--driver', 'security_isolation', '--driver', 'independent_scale')).out).driver_provenance_missing, ['security_isolation', 'independent_scale']);
   });
 });
+
+describe('decompose JSON names its candidates (issue #93)', () => {
+  test('3. each recommendation carries the candidate name', async () => {
+    const res = JSON.parse((await cli('shop/**', '--json')).out);
+    assert.ok(res.recommendations.length >= 1);
+    for (const rec of res.recommendations) {
+      assert.equal(typeof rec.name, 'string');
+      assert.ok(rec.name.length > 0);
+    }
+  });
+});

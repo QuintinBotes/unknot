@@ -289,7 +289,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   // Every driver whose saved provenance has neither: empty only when each record holds words for each driver.
   const hasWords = (list, id) => (list ?? []).some((p) => p.driver === id && (p.source || p.quote));
   const unrecorded = allDrivers.filter((id) => (recommendations.length ? recommendations.some((r) => !hasWords(r.driver_provenance, id)) : !hasWords(provenance, id)));
-  const summary = { targets, drivers: allDrivers, driver_provenance_missing: unrecorded, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
+  const summary = { targets, drivers: allDrivers, driver_provenance_missing: unrecorded, scope: scopeInfo, warning, dry_run: dryRun, analyses, recommendations: recommendations.map((r) => ({ id: r.id, target: r.target, name: r.candidate.name, candidate: r.candidate.name, size: r.candidate.modules.length, treatment: r.treatment, sequence: r.sequence, confidence: r.confidence, reused: r.reused })) };
   if (!dryRun) appendEvent(ctx, { type: 'decomposition.recommended', run_id: run?.id, actor: 'runtime:decompose', payload: summary });
   return { ...summary, details: recommendations };
 }
