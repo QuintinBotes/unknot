@@ -15,6 +15,7 @@
 
 import { cycleBreakdown, stronglyConnected } from './algorithms.mjs';
 import { language } from './languages.mjs';
+import { packageName } from '../core/paths.mjs';
 
 export const DERIVED_KINDS = ['scc', 'scc_strict', 'declared_only', 'public_surface', 'test_code', 'ownership'];
 // Bumped when a stored body changes shape, so facts an older version wrote for the same generation are recomputed.
@@ -72,7 +73,7 @@ export function impossibleByBuild(graph, members, view = cycleView(graph)) {
     if (!pkg) continue;
     if (pkg.attrs?.parse_error) continue;
     // Only .NET and Cargo references are read completely (see adapters/language/generic/build-graph.mjs).
-    unitOf.set(id, { id: pkg.id, name: pkg.name ?? pkg.id.slice(8), known: ['dotnet', 'cargo'].includes(pkg.attrs?.ecosystem) && !pkg.attrs?.references_unresolved });
+    unitOf.set(id, { id: pkg.id, name: packageName(graph, pkg.id), known: ['dotnet', 'cargo'].includes(pkg.attrs?.ecosystem) && !pkg.attrs?.references_unresolved });
   }
   if (new Set([...unitOf.values()].map((u) => u.id)).size < 2) return null;
   const inComp = new Set(members);

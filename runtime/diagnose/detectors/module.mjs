@@ -4,6 +4,7 @@
 // config.detectors['module.<name>'] and every one in effect is echoed in the draft.
 
 import { globToRegExp } from '../../core/glob.mjs';
+import { packageName } from '../../core/paths.mjs';
 import { pathInScope, scopePredicate } from '../../core/scope.mjs';
 import { condense, cycleBreakdown, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
 import { MAX_CYCLES, derivedFor, impossibleByBuild, strictView } from '../../graph/derived.mjs';
@@ -51,7 +52,7 @@ function packageGrouping(graph, mods) {
     cache.set(id, g);
     return g;
   };
-  return { groupOf, label: (g) => (g.startsWith('package:') ? (graph.node(g)?.name ?? g) : g) };
+  return { groupOf, label: (g) => (g.startsWith('package:') ? packageName(graph, g) : g) };
 }
 
 const pathOf = (graph, id) => graph.node(id)?.path ?? id.replace(/^module:/, '');

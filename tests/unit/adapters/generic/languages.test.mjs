@@ -324,14 +324,14 @@ test('manifests: Gradle, settings.gradle, Maven modules, sln, Gemfile, composer 
   });
   const ws = p.node('workspace:mono');
   assert.deepEqual(ws.attrs.members, ['app', 'libs/core']);
-  assert.ok(p.hasEdge('CONTAINS', 'workspace:mono', 'package:app'));
-  assert.ok(p.hasEdge('CONTAINS', 'workspace:mono', 'package:core'));
-  assert.deepEqual(p.node('package:app').attrs.deps, ['org.slf4j:slf4j-api']);
-  assert.deepEqual(p.node('package:app').attrs.dev_deps, ['junit:junit']);
-  assert.ok(p.hasEdge('DEPENDS_ON', 'package:app', 'package:core'), "project(':libs:core')");
-  assert.ok(p.hasEdge('CONTAINS', 'package:g:parent', 'package:g:child'), '<modules>');
-  assert.ok(p.hasEdge('DEPENDS_ON', 'package:g:child', 'package:g:parent'), 'in-repo maven dependency');
-  assert.ok(p.hasEdge('CONTAINS', 'workspace:Shop', 'package:Web'), 'solution lists the project');
+  assert.ok(p.hasEdge('CONTAINS', 'workspace:mono', 'package:app/build.gradle'));
+  assert.ok(p.hasEdge('CONTAINS', 'workspace:mono', 'package:libs/core/build.gradle.kts'));
+  assert.deepEqual(p.node('package:app/build.gradle').attrs.deps, ['org.slf4j:slf4j-api']);
+  assert.deepEqual(p.node('package:app/build.gradle').attrs.dev_deps, ['junit:junit']);
+  assert.ok(p.hasEdge('DEPENDS_ON', 'package:app/build.gradle', 'package:libs/core/build.gradle.kts'), "project(':libs:core')");
+  assert.ok(p.hasEdge('CONTAINS', 'package:pom.xml', 'package:child/pom.xml'), '<modules>');
+  assert.ok(p.hasEdge('DEPENDS_ON', 'package:child/pom.xml', 'package:pom.xml'), 'in-repo maven dependency');
+  assert.ok(p.hasEdge('CONTAINS', 'workspace:Shop', 'package:src/Web/Web.csproj'), 'solution lists the project');
   assert.equal(p.nodes('package').filter((n) => n.attrs.ecosystem === 'composer')[0].attrs.parse_error, true);
 });
 
