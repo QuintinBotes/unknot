@@ -28,6 +28,7 @@ All notable changes are documented here. The format follows
 - Graph selectors and CLI errors are consistent (#93): `graph edges --from` and `--to` take a glob, a path, a namespace or a declared type, as the other commands do, and say so when nothing matches or when the row cap cut the list; `decompose --json` names each recommendation (`name`, beside `candidate`); in a terminal an error names `unknot init` rather than the skill `/unknot:init` (an agent session still sees the skill); an unknown command suggests the nearest one.
 - Decompose says up front what it can recommend without a driver (#94): the first lines of the output, `notices` in `--json` and stderr for `--summary --json` name the treatments that need no driver, say that T3 and T7 need one, and show `--driver <id>`; the decompose skill relays the notice before the results.
 - Architecture notes and diagram labels use correct singular and plural forms and agreement (#95): "1 container", "2 containers", "1 pipeline releases", with no "(s)".
+- The README explains how to upgrade and uninstall Unknot (#96): the plugin update command, what happens to `.unknot/` and `~/.config/unknot` on upgrade, restarting the session, and every directory and key to remove, with `unknot backup create` first for anyone keeping the ledger.
 
 ## [0.4.0] - 2026-11-20
 
