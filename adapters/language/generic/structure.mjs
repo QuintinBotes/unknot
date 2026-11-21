@@ -528,19 +528,26 @@ function findImports(lx, lang, pm, types) {
         if (m[3]) last.alias = m[3];
       }
       break;
-    case 'quoted_block':
+    case 'quoted_block': {
+      // `st "path"`, `. "path"` and `_ "path"` name the package (or nothing) the way the file uses it.
+      const named = (spec, at, alias) => {
+        if (!spec) return;
+        add(spec, 'import', at);
+        if (alias) out[out.length - 1].alias = alias;
+      };
       for (const m of re(/^[ \t]*import\b[ \t]*/gm)) {
         const p = m.index + m[0].length;
         if (code[p] === '(') {
           const close = pm[p];
-          for (const l of litsIn(lx, p, close < 0 ? p + 4000 : close)) add(l.value, 'import', l.start);
+          for (const l of litsIn(lx, p, close < 0 ? p + 4000 : close)) named(l.value, l.start, /([\w.]+)[ \t]*$/.exec(code.slice(code.lastIndexOf('\n', l.start - 1) + 1, l.start))?.[1]);
         } else {
-          const skip = /^[\w.]+\s*/.exec(code.slice(p, p + 40));
+          const skip = /^([\w.]+)\s*/.exec(code.slice(p, p + 40));
           const l = lx.litAt(p + (skip ? skip[0].length : 0));
-          if (l) add(l.value, 'import', l.start);
+          if (l) named(l.value, l.start, skip?.[1]);
         }
       }
       break;
+    }
     case 'module_tree':
       for (const m of re(/^[ \t]*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/gm)) {
         for (const p of expandGroups(m[1], '::')) add(p, 'use', m.index);
@@ -714,7 +721,8 @@ export function analyze(lx, lang) {
     for (const m of syntax.implementsAssertion ? code.matchAll(syntax.implementsAssertion) : []) {
       const type = simpleName(m[2] ?? m[3]);
       const trait = simpleName(m[1]);
-      if (type && trait) impls.push({ type, trait, line: lx.lineOf(m.index), ...((m[2] ?? m[3]).includes('.') && { type_qualified: true }), ...(m[1].includes('.') && { trait_qualified: true }) });
+      const qualifier = (q) => (q.includes('.') ? q.slice(0, q.lastIndexOf('.')) : null);
+      if (type && trait) impls.push({ type, trait, line: lx.lineOf(m.index), ...(qualifier(m[2] ?? m[3]) && { type_qualifier: qualifier(m[2] ?? m[3]) }), ...(qualifier(m[1]) && { trait_qualifier: qualifier(m[1]) }) });
     }
     if (syntax.extensionBlocks) {
       for (const m of code.matchAll(/(?<![\w.])extension\s+([A-Za-z_][\w.]*)/g)) {

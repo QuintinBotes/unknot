@@ -488,3 +488,58 @@ test('Go: a field read through a type that embeds its owner is used', () => {
   const edge = project(files).all.find((f) => f.type === 'IMPORTS' && f.from === 'module:git/base.go' && f.to === 'module:git/format.go');
   assert.ok(edge && !edge.attrs.declared_only && !edge.attrs.use_evidence, JSON.stringify(edge?.attrs));
 });
+
+// #99: a qualified Go name means the package its qualifier names.
+const goStore = {
+  'go.mod': 'module example.com/shop\n',
+  'store/store.go': 'package store\ntype Reader interface {\n\tGet(id string) error\n}\ntype Store interface {\n\tSave(id string) error\n}\n',
+};
+const goImpls = (ext) => project({ ...goStore, 'ext/ext.go': ext }).all.filter((f) => f.kind === 'edge' && f.type === 'IMPLEMENTS' && f.from.startsWith('class:ext/')).map((f) => `${f.from.split('#')[1]}->${f.to}`);
+
+test('Go #99 scenario 1: io.Reader is not the repository Reader of an imported package', () => {
+  const ext = 'package ext\nimport (\n\t"io"\n\t"example.com/shop/store"\n)\ntype Buf struct{}\nvar _ io.Reader = (*Buf)(nil)\nvar _ = store.Reader(nil)\n';
+  assert.deepEqual(goImpls(ext).filter((e) => e.startsWith('Buf->') && e.includes('#Reader')), []);
+});
+
+test('Go #99 scenario 2: store.Reader names the store package', () => {
+  const ext = 'package ext\nimport (\n\t"io"\n\t"example.com/shop/store"\n)\ntype Buf struct{}\nvar _ store.Reader = (*Buf)(nil)\nvar _ = io.EOF\n';
+  assert.deepEqual(goImpls(ext), ['Buf->interface:store/store.go#Reader']);
+});
+
+test('Go #99 scenario 3: an alias names the package it imports', () => {
+  const ext = 'package ext\nimport st "example.com/shop/store"\ntype Buf struct{}\nvar _ st.Reader = (*Buf)(nil)\n';
+  assert.deepEqual(goImpls(ext), ['Buf->interface:store/store.go#Reader']);
+  const block = 'package ext\nimport (\n\tst "example.com/shop/store"\n)\ntype Buf struct{}\ntype Other struct{}\nvar _ st.Reader = (*Buf)(nil)\nvar _ store.Reader = (*Other)(nil)\n';
+  assert.deepEqual(goImpls(block), ['Buf->interface:store/store.go#Reader'], 'only the alias names the package');
+});
+
+test('Go #99 scenario 4: an embed of io.Reader promotes nothing from store; an aliased embed does', () => {
+  const files = (ext) => ({ ...goStore, 'store/impl.go': 'package store\ntype Impl struct{}\nfunc (Impl) Get(id string) error { return nil }\nfunc (Impl) Save(id string) error { return nil }\n', 'ext/ext.go': ext });
+  const viaIo = project(files('package ext\nimport (\n\t"io"\n\t"example.com/shop/store"\n)\ntype Wrap struct {\n\tio.Reader\n}\nvar _ = store.Reader(nil)\n'));
+  assert.ok(!viaIo.all.some((f) => f.type === 'IMPLEMENTS' && f.from === 'class:ext/ext.go#Wrap'), 'io.Reader promotes no store methods');
+  const viaAlias = project(files('package ext\nimport st "example.com/shop/store"\ntype Wrap struct {\n\tst.Store\n}\n'));
+  assert.ok(viaAlias.all.some((f) => f.type === 'IMPLEMENTS' && f.from === 'class:ext/ext.go#Wrap' && f.to === 'interface:store/store.go#Store'), 'st.Store promotes Save');
+});
+
+test('Go #99: imports record their alias, a dot import names nothing, and a blank import names nothing', () => {
+  const p = project({ ...goStore, 'ext/ext.go': 'package ext\nimport (\n\tst "example.com/shop/store"\n\t. "example.com/shop/dot"\n\t_ "example.com/shop/side"\n\t"io"\n)\nimport one "example.com/shop/one"\n' });
+  const imps = p.all.find((f) => f.id === 'module:ext/ext.go').attrs.imports.map((i) => [i.spec, i.alias ?? null]);
+  assert.deepEqual(imps, [['example.com/shop/store', 'st'], ['example.com/shop/dot', '.'], ['example.com/shop/side', '_'], ['io', null], ['example.com/shop/one', 'one']]);
+});
+
+test('Go #99: a package whose name differs from its directory is named by its package clause', () => {
+  const ext = 'package ext\nimport "example.com/shop/v2"\ntype Buf struct{}\nvar _ shop.Reader = (*Buf)(nil)\n';
+  const p = project({ 'go.mod': 'module example.com/shop\n', 'v2/store.go': 'package shop\ntype Reader interface {\n\tGet(id string) error\n}\n', 'ext/ext.go': ext });
+  assert.deepEqual(p.all.filter((f) => f.type === 'IMPLEMENTS' && f.from.startsWith('class:ext/')).map((f) => f.to), ['interface:v2/store.go#Reader']);
+});
+
+test('Go #99: a dot import makes the package names usable unqualified in an embed', () => {
+  const p = project({ ...goStore, 'ext/ext.go': 'package ext\nimport . "example.com/shop/store"\ntype Wrap struct {\n\tStore\n}\n' });
+  assert.ok(p.all.some((f) => f.type === 'IMPLEMENTS' && f.from === 'class:ext/ext.go#Wrap' && f.to === 'interface:store/store.go#Store'));
+});
+
+test('Go #99: a build-ignored generator with package main does not rename the package', () => {
+  const ext = 'package ext\nimport "example.com/shop/store"\ntype Buf struct{}\nvar _ store.Reader = (*Buf)(nil)\n';
+  const p = project({ ...goStore, 'store/a_gen.go': '//go:build ignore\n\npackage main\nfunc main() {}\n', 'ext/ext.go': ext });
+  assert.deepEqual(p.all.filter((f) => f.type === 'IMPLEMENTS' && f.from.startsWith('class:ext/')).map((f) => f.to), ['interface:store/store.go#Reader']);
+});
