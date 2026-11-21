@@ -384,6 +384,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       annotationStyle: 'bracket',
       exported: 'public',
       nonPublic: 'unit',
+      partialTypes: true, // `partial class T` in several files is one type (#75)
       resolver: 'namespace',
       memberLinker: 'namespace',
     },
