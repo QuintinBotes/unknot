@@ -22,6 +22,12 @@ import { globalSignals, scopeSignals } from './signals.mjs';
 
 export const FINDING_SCHEMA_VERSION = '1.0';
 
+export const SEVERITIES = ['low', 'medium', 'high'];
+/** A finding's severity for `diagnose --fail-on` (#101): `diagnose.severity` by kind, then by category, else medium. */
+export const severityOf = (f, config) => config.diagnose?.severity?.[f.kind] ?? config.diagnose?.severity?.[f.category] ?? 'medium';
+/** Where to look first: the first evidence `source_ref`, else the first path in scope. */
+export const locationOf = (f) => f.evidence.find((e) => e.source_ref)?.source_ref ?? f.scope[0] ?? null;
+
 const clamp = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 
 /** Spec §12: benefit × evidence × reversibility ÷ (blast radius × cost × uncertainty). */

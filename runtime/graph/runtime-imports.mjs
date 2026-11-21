@@ -44,6 +44,8 @@ export function saveStatsImport(store, entry) {
 
 // Imported delivery history (`unknot import deliveries`) is kept the same way.
 const DELIVERY_KEY = 'delivery_imports';
+/** The meta keys every import is kept under, for a store that must see the same evidence (diagnose --baseline). */
+export const IMPORT_KEYS = [KEY, STATS_KEY, DELIVERY_KEY];
 
 /** @returns {{source: string, file: string, digest: string, imported_at: string, environment: string, rows: object[], window: object}[]} */
 export function loadDeliveryImports(store) {

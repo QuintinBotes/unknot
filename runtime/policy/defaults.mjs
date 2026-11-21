@@ -75,7 +75,8 @@ export const DEFAULT_CONFIG = Object.freeze({
     scip: { run: false, languages: [], timeout_ms: 300000, memory_mb: 2048 },
   },
   detectors: {},
-  diagnose: { max_per_kind: 10 },
+  // Severity for `diagnose --fail-on new:<severity>`: by kind, then by category, else medium.
+  diagnose: { max_per_kind: 10, severity: { local: 'low', security: 'high', 'module.dependency-cycle': 'high', 'module.package-cycle': 'high', 'module.hub-module': 'high' } },
   decomposition: {
     weights: { structural: 0.35, data: 0.3, evolutionary: 0.25, semantic: 0.1, runtime: 0.25 },
     min_shared_commits: 10,

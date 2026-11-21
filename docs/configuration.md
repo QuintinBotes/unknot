@@ -278,6 +278,7 @@ These are heuristics and each finding says so in its `thresholds`. `unknot learn
 | Key | Default | Meaning |
 |---|---|---|
 | `max_per_kind` | `10` | Findings of one kind listed before the other kinds get their turn; the rest follow in rank order. `0` turns the cap off. |
+| `severity` | `local: low`, `security: high`, `module.dependency-cycle`, `module.package-cycle`, `module.hub-module: high` | Severity of a finding for `diagnose --fail-on new:<severity>`, keyed by finding kind or by category (kind wins); any other finding is `medium`. Values `low`, `medium`, `high`. |
 
 ### `decomposition`
 
