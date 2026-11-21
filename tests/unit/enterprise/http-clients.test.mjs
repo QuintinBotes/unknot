@@ -2,6 +2,7 @@
 // facts, decompose treats them as contract evidence, and a workspace map links a client
 // operation in one repository to the endpoint that serves it in another.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';

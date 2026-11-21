@@ -2,6 +2,7 @@
 // CLAUDE_PLUGIN_ROOT and UNKNOT_HOME *before* any runtime module loads (keys are memoised
 // and the hook handlers capture the plugin root at import time).
 
+import './git-env.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

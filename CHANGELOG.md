@@ -9,6 +9,7 @@ All notable changes are documented here. The format follows
 ### Changed
 
 - Test temporary directories are removed when the test process ends, pass or fail (#85): every test creates them through `mkTmp` in `tests/helpers/tmp.mjs`, a test fails on a direct `mkdtemp` call, and `UNKNOT_KEEP_TMP=1` keeps them and prints their paths.
+- The tests run git without the developer's global or system configuration (#86): `tests/helpers/git-env.mjs` sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and every test file that runs git imports it, so a global hook, commit signing or template cannot slow or fail a test, in the full suite or in a single file.
 
 ### Fixed
 

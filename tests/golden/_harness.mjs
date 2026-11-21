@@ -1,6 +1,7 @@
 // Shared harness for golden-repository and acceptance-scenario tests. Importing this
 // module pins UNKNOT_HOME to a temp dir BEFORE any runtime module loads.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';

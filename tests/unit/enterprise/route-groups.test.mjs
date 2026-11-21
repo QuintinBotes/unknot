@@ -5,6 +5,7 @@
 // is one spelling; the same cases run for all of them, and a workspace map of the service with a
 // client that declares the full routes links every client route.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';

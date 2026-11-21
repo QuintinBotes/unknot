@@ -2,6 +2,7 @@
 // surface the dangerous command, with its real arguments, in `effectiveCommands`. A parse
 // that quietly hides a command is the failure this suite exists to catch.
 
+import '../helpers/git-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { basenameOf, effectiveCommands, parseShell } from '../../runtime/core/shell.mjs';

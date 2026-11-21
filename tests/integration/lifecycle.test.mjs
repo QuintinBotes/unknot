@@ -2,6 +2,7 @@
 // patched in a worktree, verified with executed evidence, bundled and accepted — and the
 // main checkout is never touched.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

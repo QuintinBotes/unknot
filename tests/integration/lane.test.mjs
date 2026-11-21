@@ -2,6 +2,7 @@
 // then applies and verifies a fitting slice without a per-slice plan approval; a patch that
 // leaves the lane is refused; the change is still accepted only with a person's signature.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

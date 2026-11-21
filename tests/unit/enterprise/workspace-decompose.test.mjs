@@ -1,6 +1,7 @@
 // Cross-repository clients and endpoints count for a decomposition run inside one repository:
 // a workspace map records the workspace in each member's store, and decompose reads its links.
 
+import '../../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';

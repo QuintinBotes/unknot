@@ -1,6 +1,7 @@
 // A slice planned from a finding keeps its state and approvals when a re-map no longer produces
 // that finding, and says its evidence is stale: in `status`, in `slice` and in the MCP tools.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

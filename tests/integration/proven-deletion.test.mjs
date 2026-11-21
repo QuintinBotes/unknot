@@ -3,6 +3,7 @@
 // comes only from stored data; a patch that is not a deletion in that file loses the status; an
 // agent still cannot approve; nothing high or critical is ever lowered.
 
+import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
