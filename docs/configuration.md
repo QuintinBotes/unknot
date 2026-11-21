@@ -286,7 +286,7 @@ These are heuristics and each finding says so in its `thresholds`. `unknot learn
 | `max_changeset` | 50 | Commits touching more files than this are ignored for co-change. |
 | `history_days` | 365 | Git history window. |
 | `history_min_commits` | 1000 | Read at least this many recent commits when `history_days` holds fewer, so a quiet repository still has co-change evidence. |
-| `size_band` | `[5, 20]` | Modules per candidate considered neither nano nor mega. |
+| `size_band` | derived | Modules per candidate considered neither nano nor mega. Unset, it scales with the number of modules (5 to 20 at 100 modules; see [decomposition](decomposition.md#candidates)); a value set here is used unchanged. |
 | `thresholds.ownership_alignment` | 0.8 | Share of a candidate owned by one team. Overrides the value the pattern cards compare against (cards default to 0.8). |
 | `thresholds.co_change_leak` | 0.2 | Maximum share of commits crossing the boundary. Used by the `decomposition.co-change-leak` detector and overrides the pattern-card value (default 0.2). |
 | `thresholds.chatty_calls_p95` | 5 | Maximum cross-boundary calls per request. Overrides the pattern-card value (default 5). |

@@ -175,7 +175,7 @@ export async function run({ positional, flags }) {
   if (res.warning) lines.push(`Warning: ${res.warning}`, '');
   lines.push(`Targets: ${res.targets.join(', ') || 'none'} · drivers: ${res.drivers.join(', ') || 'none recorded (service extraction and micro-frontends will not be offered)'}${res.dry_run ? ' · dry run: nothing written' : ''}`);
   for (const [t, a] of Object.entries(res.analyses)) {
-    lines.push(`${t}: ${a.modules} modules, modularity Q=${a.modularity}, ${a.robustness.robust}/${a.robustness.communities} candidates robust (weights are heuristics)`);
+    lines.push(`${t}: ${a.modules} modules${a.units ? ` (build units, ${a.files} files; candidate sizes count files)` : ''}, modularity Q=${a.modularity}, ${a.robustness.robust}/${a.robustness.communities} candidates robust (weights are heuristics)`);
   }
   lines.push('', table(res.recommendations.map((r) => ({ ...r, sequence: r.sequence.join('→') })), ['id', 'target', 'candidate', 'size', 'treatment', 'sequence', 'confidence']));
   lines.push('', res.dry_run ? 'Dry run: ids shown are the records a real run would overwrite; "new" gets an id when written.' : 'Details: unknot decompose show <DEC-id> · .unknot/decompositions/<DEC-id>.json · Next: /unknot:plan "<objective>" to turn a recommendation into a campaign.');

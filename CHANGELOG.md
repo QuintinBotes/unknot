@@ -12,6 +12,10 @@ All notable changes are documented here. The format follows
 - A decomposition candidate's cycle signal is its own part in a cycle (#73, the second of the top fixes from a large-monolith run, where contact with one 1,753-file component decided half the treatments and every record cited the same files): `cycle.boundary_edges` counts the candidate's boundary import edges that lie on a cycle once the candidate is collapsed to one node, and its evidence lists exactly those edges. The modularize-in-place, extract-module and frontend modular monolith cards read it instead of `cycle.size`, which stays in the record as context (the size of the largest component crossing the boundary). Decomposition records get the new metric and may change treatment once after the upgrade.
 - A qualified Go name resolves only in the package its qualifier names (#99): `var _ io.Reader = (*Buf)(nil)` no longer implements a repository `Reader` of another imported package, an embedded `io.Reader` promotes no repository methods, and an alias (`st.Reader`) or a package clause that differs from the directory name is followed. Go imports record their alias. The `generic` adapter is bumped to 0.1.16.
 
+### Changed
+
+- The build unit is the default module for compiled languages (#74, from a large-monolith run where 29,086 file modules gave candidates of 2 to 2,477 files with uninformative names): for C#, Java, Kotlin and Rust (`buildUnit` in the language table) a .NET project, Maven or Gradle module or crate is one module of the decomposition, candidates are named after the units they contain and list each unit's files, and other languages keep one module per file. The default `decomposition.size_band` now scales with the number of modules (5 to 20 at 100) and a configured band wins. Decomposition records of compiled-language repositories change once after the upgrade.
+
 ## [0.4.0] - 2026-11-20
 
 ### Added

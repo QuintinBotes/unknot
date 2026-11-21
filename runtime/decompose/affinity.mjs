@@ -3,7 +3,7 @@
 // over source modules. Each component is normalised to [0, 1] before weighting, so the
 // weights mean what they say. The default weights are heuristics and are reported as such.
 
-import { affinityTerms } from '../graph/languages.mjs';
+import { affinityTerms, language } from '../graph/languages.mjs';
 
 const STOP = new Set(['src', 'lib', 'app', 'apps', 'packages', 'internal', 'pkg', 'cmd', 'main', 'index', 'utils', 'util', 'common', 'shared', 'core', 'helpers', 'helper', 'base', 'impl', 'types', 'type', 'model', 'models', 'service', 'services', 'controller', 'controllers', 'handler', 'handlers', 'module', 'modules', 'test', 'tests', 'spec', ...affinityTerms(), 'default', 'get', 'set', 'new', 'init']);
 
@@ -26,6 +26,39 @@ export function moduleOf(graph, id, cache = new Map()) {
   const out = cur?.type === 'module' ? cur.id : null;
   cache.set(id, out);
   return out;
+}
+
+/**
+ * Build units (#74): a file of a language whose table row declares `buildUnit` belongs to the
+ * project, Maven or Gradle module or crate that contains it (the package the language adapter
+ * assigns it to, the nearest manifest); any other file is its own unit. Null with fewer than three
+ * build units: one or two projects leave no groups of projects to choose between, so their files
+ * stay the modules.
+ * @returns {{unitOf: Map<string, string>, files: Map<string, string[]>} | null}
+ */
+export function buildUnits(graph, modules) {
+  const unitOf = new Map();
+  const files = new Map();
+  for (const id of modules) {
+    const row = language(graph.node(id)?.attrs?.language);
+    const unit = row?.buildUnit ? graph.in(id, 'CONTAINS').find((e) => graph.node(e.from)?.type === 'package')?.from : null;
+    const u = unit ?? id;
+    unitOf.set(id, u);
+    if (!files.has(u)) files.set(u, []);
+    files.get(u).push(id);
+  }
+  return [...files.keys()].filter((u) => !u.startsWith('module:')).length >= 3 ? { unitOf, files } : null;
+}
+
+/** The affinity graph between units: the weights between their files, summed; a unit's own weight is a self-loop, as when the community code aggregates. */
+export function unitAffinity(affinity, unitOf) {
+  const pairs = new Map();
+  for (const { a, b, w } of affinity.edges) {
+    const [x, y] = [unitOf.get(a), unitOf.get(b)].sort();
+    const k = pairKey(x, y);
+    pairs.set(k, { a: x, b: y, w: (pairs.get(k)?.w ?? 0) + w });
+  }
+  return { ...affinity, nodes: [...new Set(affinity.nodes.map((n) => unitOf.get(n)))].sort(), edges: [...pairs.values()].sort((p, q) => pairKey(p.a, p.b).localeCompare(pairKey(q.a, q.b))) };
 }
 
 /**

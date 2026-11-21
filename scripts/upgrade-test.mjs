@@ -71,7 +71,11 @@ function fixtureFiles() {
     for (const [n, others] of group(names)) f[`src/${ns}/${n}.cs`] = cs(ns, n, others.slice(0, 2), others.slice(2, 3).concat(n === names[0] ? ['Unused'] : []));
   }
   f['src/Shared/Unused.cs'] = 'namespace Shop.Orders\n{\n    public class Unused { }\n}\n';
-  f['src/Shop.csproj'] = '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n';
+  // Three projects, so the current checkout decomposes by build unit (#74) where earlier releases used files.
+  const csproj = (refs = '') => `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>${refs}</Project>\n`;
+  f['src/Orders/Orders.csproj'] = csproj('<ItemGroup><ProjectReference Include="../Shared/Shared.csproj" /></ItemGroup>');
+  f['src/Stock/Stock.csproj'] = csproj();
+  f['src/Shared/Shared.csproj'] = csproj();
   f['qa/Shop.Checks/Shop.Checks.csproj'] = '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><IsTestProject>true</IsTestProject></PropertyGroup></Project>\n';
   const helpers = ['Helpers', 'Builders', 'Fakes', 'Clock', 'Seeds'];
   for (const [n, others] of group(helpers)) f[`qa/Shop.Checks/${n}.cs`] = cs('Checks', n, others.slice(0, 2), others.slice(2, 3));
