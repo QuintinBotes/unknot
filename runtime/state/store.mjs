@@ -21,6 +21,7 @@ process.emitWarning = function filtered(warning, ...rest) {
   return originalEmitWarning.call(this, warning, ...rest);
 };
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+const streaming = new Set();
 
 export const STORE_SCHEMA_VERSION = LATEST_SCHEMA_VERSION;
 
@@ -173,11 +174,17 @@ export class Store {
     return this.db.prepare(sql).run(...params);
   }
 
-  // A generator keeps the statement referenced while rows stream; Node 22.13 finalizes an
-  // unreferenced statement mid-iteration ("statement has been finalized", or a crash).
+  // Node 22.13 finalizes a statement nothing references while its rows stream ("statement has
+  // been finalized", or a crash), and a generator local can be optimised away, so a module-level
+  // Set holds it until the loop ends.
   *iterate(sql, ...params) {
     const statement = this.db.prepare(sql);
-    yield* statement.iterate(...params);
+    streaming.add(statement);
+    try {
+      yield* statement.iterate(...params);
+    } finally {
+      streaming.delete(statement);
+    }
   }
 
   /** Run `fn` in a transaction (IMMEDIATE, so writers serialise up front). Nests by savepoint. */
