@@ -78,5 +78,20 @@ test('scenario 5: ties order by impact, then id, and every kind has a documented
     assert.deepEqual(r.findings.map((f) => f.id), res.findings.map((f) => f.id));
     for (const k of ['module.dependency-cycle', 'module.package-cycle', 'module.hub-module']) assert.ok(IMPACT[k].measure);
     assert.equal(impactOf({ kind: 'local.long-function', scope: ['a.js', 'a.js', 'b.js'], measurements: {} }), 2, 'default: distinct files in scope');
+    assert.ok(impactOf({ kind: 'module.hub-module', measurements: { 'module.fan_in': 3, 'module.loc': 10 } }) < impactOf({ kind: 'module.hub-module', measurements: { 'module.fan_in': 4, 'module.loc': 20 } }), 'small hubs are not clamped into a tie');
   });
+});
+
+test('a package cycle folds into a file cycle only over exactly the same files', async () => {
+  const { default: module_ } = await import('../../../runtime/diagnose/detectors/module.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
+  const P = prov({ source_type: 'ast', source_ref: 't.js:1', extractor: 'test@0.0.1', confidence: 'high' });
+  const mod = (path) => nodeFact('module', path, { name: path, path, attrs: { language: 'js', loc: 10, is_test: false } }, P);
+  const imp = (a, b) => edgeFact('IMPORTS', `module:${a}`, `module:${b}`, {}, P);
+  const run = (facts) => module_.find((d) => d.id === 'module.dependency-cycle').detect({ graph: Graph.fromFacts(facts), options: {} }).map((d) => [d.kind, d.related_kinds ?? []]);
+  // right/z.js keeps the package cycle alive without the file cycle: two subjects.
+  assert.deepEqual(run([mod('left/x.js'), mod('right/y.js'), mod('right/z.js'), imp('left/x.js', 'right/y.js'), imp('right/y.js', 'left/x.js'), imp('left/x.js', 'right/z.js')]).map(([k]) => k).sort(), ['module.dependency-cycle', 'module.package-cycle']);
+  // Three packages of one file each, A importing and imported by B and C: one subject.
+  assert.deepEqual(run([mod('a/a.js'), mod('b/b.js'), mod('c/c.js'), imp('a/a.js', 'b/b.js'), imp('b/b.js', 'a/a.js'), imp('a/a.js', 'c/c.js'), imp('c/c.js', 'a/a.js')]), [['module.dependency-cycle', ['module.package-cycle']]]);
 });

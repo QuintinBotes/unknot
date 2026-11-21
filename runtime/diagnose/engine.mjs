@@ -12,7 +12,7 @@ import { pathInScope, scopePredicate } from '../core/scope.mjs';
 import { readDerived } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { evaluateAll } from '../patterns/engine.mjs';
-import { capPerKind, impactOf, impactRank, mergeSameSubject } from './impact.mjs';
+import { capPerKind, impactOf, impactRank } from './impact.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { DETECTORS } from './detectors/index.mjs';
@@ -91,6 +91,7 @@ function finalize(draft, detector, signals, config) {
     evidence: (draft.evidence ?? []).map((e) => ({ ref: e.ref, label: e.label ?? 'observed', summary: e.summary ?? '', source_ref: e.source_ref ?? null })),
     ...(['low', 'medium', 'high'].includes(draft.confidence) && { confidence: draft.confidence }),
     measurements: draft.measurements ?? {},
+    ...(draft.related_kinds?.length && { related_kinds: draft.related_kinds }),
     thresholds: draft.thresholds ?? {},
     why_accidental: draft.why_accidental ?? '',
     essential_considerations: draft.essential_considerations ?? [],
@@ -222,7 +223,6 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
     findings.push(f);
   }
   mergeFunctionFindings(findings);
-  mergeSameSubject(findings);
   // De-duplicate by fingerprint (two detectors may see the same thing): keep the stronger.
   const byFp = new Map();
   for (const f of findings) if (!byFp.has(f.fingerprint) || byFp.get(f.fingerprint).priority.score < f.priority.score) byFp.set(f.fingerprint, f);
