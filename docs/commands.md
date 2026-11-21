@@ -32,10 +32,11 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | Error, or a command whose job is to report a verdict found a bad one: `verify` not reaching `REVIEW_READY`, `exec` not passing, `doctor` with a failed check, `policy verify` on an invalid policy. |
+| 1 | Error, or a command whose job is to report a verdict found a bad one: `verify` not reaching `REVIEW_READY`, `exec` not passing, `diagnose --fail-on` with a new finding at that severity, `doctor` with a failed check, `policy verify` on an invalid policy. |
 | 2 | Unknown command, or missing or unknown subcommand for `audit`, `backup`, `graph`, `learn`, `pattern`, `policy`, `workspace`. |
 | 3 | `UK_POLICY_DENIED` or `UK_APPROVAL_REQUIRED`: policy refused the operation, or approvals are missing. |
 | 4 | Integrity failure: `audit verify` found a broken ledger, or `backup verify` found an invalid archive. |
+| 5 | `diagnose --baseline`: the base could not be mapped. |
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
 
@@ -140,9 +141,15 @@ Runs the detectors, ranks open findings, and reconciles them with earlier runs (
 | `--objective "text"` | Boosts findings in categories the objective mentions (for example "database", "deployment coupling", "monolith"). |
 | `--only a,b` | Run only these detectors. |
 | `--limit N` | Rows to show (default 25). |
-| `--json` | Stats, detector errors and findings. |
+| `--json` | Stats, detector errors and findings (the document below). |
+| `--baseline <ref>` | Report only the findings the tree adds to that base: maps the tree, checks the base commit out in a detached worktree outside the project, maps it into `.unknot/state/baseline.db` (reused, so a later base extracts only what changed) and lists the tree's open findings whose fingerprint (kind and subject) the base does not have. The project's findings and decisions are not touched by the base; a finding suppressed or accepted in the project is never new. No model and no network. |
+| `--fail-on new:<severity>` | With `--baseline`: exit 1 when a new finding has this severity or higher (`low` < `medium` < `high`). |
 
 Detector problems are listed, not hidden.
+
+A finding's severity is `diagnose.severity` of its kind, else of its category, else `medium` (see [configuration.md](configuration.md#diagnose)): by default cycles and hubs are `high`, security findings `high`, code-style findings `low`. A base that cannot be mapped (not a commit of the repository, or its map fails) exits 5 with `UK_BASELINE_INVALID` and the reason, so a gate tells it from new findings.
+
+`--json` prints, at `schema_version` `1.0` (a field removed or changed in meaning bumps it): `stats`, `errors` and `analysis` as before; `baseline` with `--baseline` (`ref`, `commit`, `findings` in the base, `new`); `fail_on` and `failed` with `--fail-on`; and `findings`, at most `--limit`, each a finding record ([schemas/finding.schema.json](../schemas/finding.schema.json): `id`, `kind`, `evidence`, ...) plus `severity` and `location` (its first evidence `source_ref`, else the first path in its scope). Without `--baseline` the findings are every open finding of the scope, in rank order.
 
 ### `unknot explain <F-id>`
 

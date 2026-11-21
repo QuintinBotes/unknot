@@ -586,7 +586,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "max_per_kind": { "type": "integer", "minimum": 0 }
+        "max_per_kind": { "type": "integer", "minimum": 0 },
+        "severity": {
+          "type": "object",
+          "additionalProperties": { "enum": ["low", "medium", "high"] }
+        }
       }
     },
     "decomposition": {
