@@ -353,19 +353,32 @@ const hubModule = define({
     const out = [];
     const mods = sourceModules(graph);
     const ids = new Set(mods.map((m) => m.id));
+    // The files of one partial type are one hub (#75): their fan-in and fan-out are counted once, outside them.
+    const groupOf = new Map();
+    for (const t of [...graph.nodes('class'), ...graph.nodes('interface')]) {
+      if (!t.attrs?.partial || !(t.attrs.files?.length > 1)) continue;
+      const g = { name: t.name, files: t.attrs.files.map((p) => `module:${p}`).filter((id) => ids.has(id)) };
+      if (g.files.length > 1) for (const id of g.files) groupOf.set(id, groupOf.get(id) ?? g);
+    }
+    const done = new Set();
     for (const m of mods) {
+      const g = groupOf.get(m.id);
+      if (g && done.has(g)) continue;
+      if (g) done.add(g);
+      const own = new Set(g ? g.files : [m.id]);
       // An import of a whole package targets every file in it, so it says nothing about this file.
       // A reference inside one package (where the package is the unit) is not an import of the file.
-      const fi = sortedUnique(graph.in(m.id, IMPORT).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
-      const fo = sortedUnique(graph.out(m.id, IMPORT).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => t !== m.id && ids.has(t)));
+      const fi = sortedUnique([...own].flatMap((id) => graph.in(id, IMPORT)).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => !own.has(f) && ids.has(f)));
+      const fo = sortedUnique([...own].flatMap((id) => graph.out(id, IMPORT)).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => !own.has(t) && ids.has(t)));
       if (fi.length < o.fan_in || fo.length < o.fan_out) continue;
-      const tests = graph.in(m.id, 'TESTS').length;
+      const tests = [...own].reduce((n, id) => n + graph.in(id, 'TESTS').length, 0);
+      const paths = [...own].map((id) => graph.node(id)?.path ?? id.slice(7)).sort();
       out.push(draft({
         kind: 'module.hub-module',
-        title: `${m.path} is a hub: ${fi.length} modules import it and it imports ${fo.length}`,
-        scope: [m.path],
+        title: g ? `${g.name}, a partial type in ${paths.length} files, is a hub: ${fi.length} modules import it and it imports ${fo.length}` : `${m.path} is a hub: ${fi.length} modules import it and it imports ${fo.length}`,
+        scope: g ? paths : [m.path],
         key: m.id,
-        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}`, source_ref: `${m.path}:1` }],
+        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}${g ? `, declared in ${paths.join(', ')}` : ''}`, source_ref: `${m.path}:1` }],
         measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'tests.present': tests, ...(m.attrs.churn_commits != null && { 'module.churn': m.attrs.churn_commits }) },
         thresholds: { fan_in: o.fan_in, fan_out: o.fan_out, note: 'heuristic: both directions high means changes ripple in and out' },
         why_accidental: 'A module both widely used and widely dependent is a coupling junction: any change to it or its dependencies touches many unrelated modules.',

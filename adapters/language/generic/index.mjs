@@ -20,7 +20,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.16';
+const VERSION = '0.1.17';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -167,6 +167,7 @@ function extract(file, text, ctx) {
         language: lang, type_kind: t.typeKind, start_line: t.startLine, end_line: t.endLine, lines: t.endLine - t.startLine + 1,
         exported: t.exported, extends: t.extends, implements: t.implements, bases: t.bases, methods: methodCounts.get(t.name) ?? 0,
         ...(t.methodSet && { method_set: t.methodSet }),
+        ...(t.partial && { partial: true }),
         ...(t.embeds?.length && { embeds: t.embeds }),
       },
     }, prov_(path, t.startLine)));
@@ -714,6 +715,33 @@ function link(ctx) {
     }
   }
   for (const f of structuralImplements(types, receivers, qualified)) push(f);
+
+  // A partial type declared in several files of one project and namespace is one logical type (#75):
+  // a node naming its files and the members of every part, containing each part.
+  const partials = new Map();
+  const methodsOf = new Map();
+  for (const f of factIndex.values()) if (f.type === 'method' && f.attrs.owner) methodsOf.set(f.attrs.owner, [...(methodsOf.get(f.attrs.owner) ?? []), f]);
+  const typesIn = new Map();
+  for (const t of [...types.values()].flat()) typesIn.set(t.path, [...(typesIn.get(t.path) ?? []), t]);
+  for (const t of [...types.values()].flat()) {
+    if (!t.attrs.partial) continue;
+    const unit = build.ownerOf(t.path);
+    // A nested partial type is merged under its containing type: `Order.Builder`, not every `Builder`.
+    const outer = (typesIn.get(t.path) ?? []).filter((o) => o !== t && o.attrs.start_line <= t.attrs.start_line && o.attrs.end_line >= t.attrs.end_line)
+      .sort((a, b) => a.attrs.start_line - b.attrs.start_line).map((o) => o.name);
+    const ns = [mods.get(t.path)?.attrs.namespace, ...outer].filter(Boolean).join('.');
+    const k = `${unit?.id ?? ''}|${ns}|${t.name}`;
+    if (!partials.has(k)) partials.set(k, { unit, ns, name: t.name, parts: [] });
+    partials.get(k).parts.push(t);
+  }
+  for (const { unit, ns, name, parts } of [...partials.values()].sort((a, b) => (a.parts[0].id < b.parts[0].id ? -1 : 1))) {
+    const files = [...new Set(parts.map((t) => t.path))].sort();
+    if (files.length < 2) continue;
+    const members = [...new Set((methodsOf.get(name) ?? []).filter((f) => files.includes(f.path)).map((f) => f.name))].sort();
+    const key = `${ns ? `${ns}.` : ''}${name}${unit ? `@${unit.name}` : ''}`;
+    push(nodeFact(parts[0].type, key, { name, attrs: { language: parts[0].attrs.language, partial: true, files, members } }, prov_(files[0], parts[0].attrs.start_line ?? 1)));
+    for (const t of parts) push(edgeFact('CONTAINS', `${parts[0].type}:${key}`, t.id, {}, prov_(t.path, t.attrs.start_line ?? 1)));
+  }
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
   for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
