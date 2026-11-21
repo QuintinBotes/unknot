@@ -20,6 +20,7 @@ export async function run({ positional, flags }) {
     const body = JSON.parse(r.body);
     if (body.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(body)}\n`);
   }
+  if (summary.history?.unmeasured) process.stderr.write(`unknot: notice: ${summary.history.unmeasured}\n`);
   if (flags.json) return output(summary, { json: true });
   const lines = [
     `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,
@@ -29,7 +30,7 @@ export async function run({ positional, flags }) {
   ];
   if (summary.coverage?.length) lines.push(`Language coverage: ${summary.coverage.map((c) => `${c.language} ${c.files} files, ${c.adapter}, ${c.qualities ? Object.entries(c.qualities).map(([q, n]) => `${q} ${n}`).join(' + ') : c.quality}`).join('; ')}.`);
   if (summary.constants) lines.push(`${constantsLine(summary.constants)}.`);
-  if (summary.history) lines.push(`History: ${summary.history.commits} commits, ${summary.history.co_change_pairs} co-change pairs (${summary.history.ignored_large_commits} oversized commits ignored).`);
+  if (summary.history) lines.push(`History: ${summary.history.commits} commits, ${summary.history.unmeasured ? 'co-change unmeasured' : `${summary.history.co_change_pairs} co-change pairs`} (${summary.history.ignored_large_commits} oversized commits ignored).`);
   if (summary.status === 'partial' && !summary.failure_count && summary.unavailable.every((u) => String(u.id ?? u.adapter).startsWith('language:'))) lines.push('Status partial: the dominant language was read lexically (see below); the graph is usable, but its dependency and call edges for that language are approximate.');
   if (summary.unavailable.length) lines.push(`Adapters unavailable: ${summary.unavailable.map((u) => `${u.id ?? u.adapter} (${u.reason})`).join(', ')}.`);
   if (summary.build_graph?.rejected) lines.push(`Build graph: ${summary.build_graph.rejected} name-matched edge(s) between files of projects that cannot see each other were not drawn.`);

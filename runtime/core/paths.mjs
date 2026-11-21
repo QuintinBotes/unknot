@@ -28,6 +28,38 @@ export function underRoot(path, root) {
   return r === '.' || r === '' || path === r || path.startsWith(`${r}/`);
 }
 
+/**
+ * Display names for units that may share one (#109): the name alone when it is unique, otherwise
+ * the fewest trailing folders of the unit's directory that tell it apart (`billing/Api`), and the
+ * unit's path when even its directory does not.
+ * @param {{id: string, name: string, dir: string, path?: string}[]} units
+ * @returns {Map<string, string>} id -> display name
+ */
+export function distinctNames(units) {
+  const groups = new Map();
+  for (const u of units) groups.set(u.name, [...(groups.get(u.name) ?? []), u]);
+  const out = new Map();
+  for (const group of groups.values()) {
+    const segs = group.map((u) => u.dir.split('/').filter((s) => s && s !== '.'));
+    const label = (i, k) => {
+      const tail = segs[i].slice(Math.max(0, segs[i].length - k));
+      return (tail.at(-1) === group[i].name ? tail : [...tail, group[i].name]).join('/');
+    };
+    let k = 0;
+    while (k <= Math.max(...segs.map((s) => s.length)) && new Set(group.map((_, i) => label(i, k))).size < group.length) k++;
+    const unique = new Set(group.map((_, i) => label(i, k))).size === group.length;
+    group.forEach((u, i) => out.set(u.id, unique ? label(i, k) : u.path ?? u.id));
+  }
+  return out;
+}
+
+const pkgNames = new WeakMap();
+/** A package node's display name: its name, with the shortest distinguishing path when another package shares it (#109). */
+export function packageName(graph, id) {
+  if (!pkgNames.has(graph)) pkgNames.set(graph, distinctNames(graph.nodes('package').map((p) => ({ id: p.id, name: p.name ?? p.id.slice(8), dir: p.attrs?.dir ?? '', path: p.path }))));
+  return pkgNames.get(graph).get(id) ?? id.replace(/^package:/, '');
+}
+
 /** realpath of the deepest existing ancestor, with the missing tail re-appended. */
 export function realpathLenient(abs) {
   const tail = [];

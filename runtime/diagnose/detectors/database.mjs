@@ -4,6 +4,8 @@
 // which spec §14.5 invariants apply, what §14.11 verification is needed, and what recovery
 // is honest: anything destructive is roll_forward or restore, never a casual revert.
 
+import { packageName } from '../../core/paths.mjs';
+
 /** Tables at or above this many estimated rows are "large" (heuristic, spec leaves it open). */
 const LARGE_TABLE_ROWS = 100_000;
 const HOT_QUERY_CALLS = 1_000; // heuristic: pg_stat_statements calls that make a scan "hot"
@@ -44,7 +46,8 @@ const tableId = (key) => `table:${key}`;
 function ownerOf(graph, id) {
   let cur = graph.node(id);
   for (let i = 0; cur && i < 8; i++) {
-    if (['package', 'service', 'workspace'].includes(cur.type)) return `${cur.type}:${cur.name}`;
+    if (cur.type === 'package') return `package:${packageName(graph, cur.id)}`; // two same-named build units are two owners (#109)
+    if (['service', 'workspace'].includes(cur.type)) return `${cur.type}:${cur.name}`;
     cur = graph.parent(cur.id);
   }
   const path = graph.node(id)?.path ?? id.replace(/^[a-z_]+:/, '');

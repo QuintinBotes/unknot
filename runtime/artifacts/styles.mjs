@@ -29,7 +29,13 @@ const HEX = {
 const segs = (m) => (m.path ?? '').toLowerCase().split('/').slice(0, -1);
 const rank = { corroborated: 0, observed: 1, inferred: 2, contradicted: 3, unknown: 4 };
 const refs = (list, n = 5) => list.slice(0, n).map((x) => x.id ?? x);
-const entry = (style, label, summary, evidence) => ({ style, label, summary, evidence });
+const LOWER = { corroborated: 'observed', observed: 'inferred' };
+/** `imports`: the edges the label rests on; when at least half were matched by name, the label is one step lower (#77). */
+const entry = (style, label, summary, evidence, imports = []) => {
+  const inferred = imports.filter((e) => e.label === 'inferred').length;
+  if (!LOWER[label] || !imports.length || inferred * 2 < imports.length) return { style, label, summary, evidence };
+  return { style, label: LOWER[label], summary: `${summary} ${Math.round((inferred / imports.length) * 100)}% of the ${imports.length} imports it rests on were matched by name (inferred), so the label is one step lower.`, evidence };
+};
 const ev = (summary, list = []) => ({ summary, refs: refs(list) });
 
 /** Group app modules by the last directory segment matching one of the named patterns. */
@@ -64,7 +70,8 @@ function layered(graph, mods) {
   let down = 0;
   let up = 0;
   const upEdges = [];
-  for (const { a, b, e } of importPairs(graph, of)) {
+  const pairs = importPairs(graph, of);
+  for (const { a, b, e } of pairs) {
     const d = order.indexOf(b) - order.indexOf(a);
     if (d > 0) down++;
     else if (d < 0) { up++; upEdges.push(e); }
@@ -72,8 +79,9 @@ function layered(graph, mods) {
   const evidence = [ev(`layer directories present: ${present.map((n) => `${n} (${out.get(n).length} modules)`).join(', ')}`, present.flatMap((n) => out.get(n)))];
   if (down + up === 0) return entry('layered', 'inferred', 'Layer-named directories exist, but no imports between layers were observed.', evidence);
   evidence.push(ev(`${down} imports point down the layers, ${up} point up`, upEdges));
-  if (up === 0) return entry('layered', 'corroborated', 'Layer-named directories and strictly one-directional imports agree.', evidence);
-  if (up / (up + down) <= 0.1) return entry('layered', 'observed', 'Layer-named directories with mostly one-directional imports; a few upward imports violate the layering.', evidence);
+  const used = pairs.filter((p) => p.a !== p.b).map((p) => p.e); // the imports between layers, which the label rests on
+  if (up === 0) return entry('layered', 'corroborated', 'Layer-named directories and strictly one-directional imports agree.', evidence, used);
+  if (up / (up + down) <= 0.1) return entry('layered', 'observed', 'Layer-named directories with mostly one-directional imports; a few upward imports violate the layering.', evidence, used);
   return entry('layered', 'contradicted', 'Layer-named directories exist but imports run both ways between layers.', evidence);
 }
 
@@ -91,7 +99,7 @@ function hexagonal(graph, mods) {
   }
   if (inward.length) {
     evidence.push(ev(`${inward.length} adapter import(s) point inward and none point from domain outward`, inward.map((v) => v.e)));
-    return entry('hexagonal/clean', 'corroborated', 'Directory structure and the inward-only dependency rule agree.', evidence);
+    return entry('hexagonal/clean', 'corroborated', 'Directory structure and the inward-only dependency rule agree.', evidence, inward.map((v) => v.e));
   }
   return entry('hexagonal/clean', 'inferred', 'Hexagonal/clean directory names are present; dependency direction could not be confirmed from imports.', evidence);
 }
@@ -111,7 +119,7 @@ function mvc(graph, mods) {
   const viewToModel = pairs.filter((p) => p.a === 'views' && p.b === 'models');
   if (midToModel.length) {
     evidence.push(ev(`${midToModel.length} import(s) from ${mid} to models${viewToModel.length ? `; ${viewToModel.length} view(s) also import models directly` : ''}`, midToModel.map((p) => p.e)));
-    return entry(kind, viewToModel.length && kind === 'MVVM' ? 'contradicted' : 'corroborated', `${kind} directories and ${mid}-to-model imports agree.`, evidence);
+    return entry(kind, viewToModel.length && kind === 'MVVM' ? 'contradicted' : 'corroborated', `${kind} directories and ${mid}-to-model imports agree.`, evidence, midToModel.map((p) => p.e));
   }
   return entry(kind, 'inferred', `${kind}-style directory names are present; no confirming imports.`, evidence);
 }
@@ -130,7 +138,7 @@ function microkernel(graph, mods) {
   const toCore = graph.edges('IMPORTS').filter((e) => isPlugin.has(e.from) && (registryMods.has(e.to) || (!isPlugin.has(e.to) && graph.node(e.to)?.type === 'module')));
   if (toCore.length) {
     evidence.push(ev(`${toCore.length} plugin import(s) of the core/registry`, toCore));
-    return entry('microkernel/plugin', 'corroborated', 'Plugins register against a core; directory structure and imports agree.', evidence);
+    return entry('microkernel/plugin', 'corroborated', 'Plugins register against a core; directory structure and imports agree.', evidence, toCore);
   }
   return entry('microkernel/plugin', 'observed', 'A plugin directory and a registry/loader both exist.', evidence);
 }
@@ -308,7 +316,7 @@ function modularMonolith(graph, mods, model) {
   if (deployUnits.length === 1) evidence.push(ev(`a single deployable unit: ${deployUnits[0].name}`, deployUnits[0].nodeIds));
   const label = deployUnits.length === 1 ? (declared ? 'corroborated' : 'observed') : 'inferred';
   const summary = deployUnits.length === 1 ? 'One deployable with low coupling between internal boundaries.' : 'Low coupling between internal boundaries; no deployment topology was observed, so single-deployable is assumed.';
-  return entry('modular monolith', label, summary, evidence);
+  return entry('modular monolith', label, summary, evidence, imports);
 }
 
 /**

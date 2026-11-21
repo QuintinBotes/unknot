@@ -20,12 +20,14 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.17';
+const VERSION = '0.1.19';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
 const prov_ = (path, line, confidence = 'medium', source_type = 'ast') =>
   prov({ source_type, source_ref: `${path}:${line}`, extractor: EXTRACTOR, confidence });
+/** An edge found by matching names is inferred, unless the index links the two files (#77). */
+const byName = (sem, e, path, confidence = 'medium') => (e.semantic || sem?.linked?.has(e.to) ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line, confidence, 'inference'));
 
 /** Language from the registry; a header is C++ when it plainly uses C++ constructs. */
 export function languageOf(path, text = '') {
@@ -470,8 +472,10 @@ function link(ctx) {
           const p = resolvePath(dir, spec);
           return { paths: [`${p}${extension}`, p].filter(has).slice(0, 1) };
         }
-        const hit = loadPathFind(spec.replace(new RegExp(`${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), ''), extension);
-        return { paths: hit, external: hit.length || imp.kind === 'load' ? null : spec.split('/')[0] };
+        const bare = spec.replace(new RegExp(`${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '');
+        const hit = loadPathFind(bare, extension);
+        // A file found by the tail of its path is a guess among same-named files (#77).
+        return { paths: hit, external: hit.length || imp.kind === 'load' ? null : spec.split('/')[0], low: hit.length > 0 && hit[0] !== `${bare}${extension}` };
       }
       case 'psr4': {
         const extension = language(lang)?.extensions[0] ?? '';
@@ -499,7 +503,7 @@ function link(ctx) {
           const hit = cands.find(has);
           if (hit) return { paths: [hit] };
           const tail = sortedMods.filter((p) => p.endsWith(`/${spec}`));
-          return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec };
+          return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec, low: tail.length === 1 };
         }
         const std = !spec.includes('/') && (!/\./.test(spec) || syntax.systemIncludePattern?.test(spec));
         return { paths: [], external: std ? null : spec.split('/')[0] };
@@ -519,10 +523,15 @@ function link(ctx) {
   /** The packages a package references: by name, by local path, or as a Gradle project. */
   const references = (p) => {
     const others = pkgs.filter((q) => q !== p && q.type === 'package');
+    // Project files written on Windows may spell a reference's case differently from the tree.
+    const local = (p.attrs.local_deps ?? []).flatMap((l) => others.filter((q) => q.attrs.dir === l || q.attrs.manifest?.toLowerCase() === l.toLowerCase()));
     return [
-      ...[...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])].flatMap((name) => (nameIndex.get(name) ?? []).filter((q) => q !== p)),
-      // Project files written on Windows may spell a reference's case differently from the tree.
-      ...(p.attrs.local_deps ?? []).flatMap((l) => others.filter((q) => q.attrs.dir === l || q.attrs.manifest?.toLowerCase() === l.toLowerCase())),
+      // A name two units share resolves to the one the manifest names by path, when it names one (#109).
+      ...[...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])].flatMap((name) => {
+        const hits = (nameIndex.get(name) ?? []).filter((q) => q !== p);
+        return hits.length > 1 && hits.some((q) => local.includes(q)) ? [] : hits;
+      }),
+      ...local,
       ...(p.attrs.gradle_projects ?? []).flatMap((gp) => {
         const dir = resolvePath(gradleRoot(p), gp.replace(/:/g, '/'));
         return others.filter((q) => q.attrs.ecosystem === 'gradle' && q.attrs.dir === dir);
@@ -593,9 +602,10 @@ function link(ctx) {
       const cs = csLink(path);
       for (const e of withSemantic(sem, cs.edges)) {
         resolved.add(e.to);
-        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line)));
+        // C# links by type name through namespaces: every such edge is name-matched.
+        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, byName(sem, e, path)));
       }
-      for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium')));
+      for (const c of cs.calls) push(edgeFact('CALLS', mod.id, mods.get(c.to).id, { via: 'member-call', count: c.count }, prov_(path, c.line, c.weak ? 'low' : 'medium', 'inference')));
       for (const imp of cs.externals) {
         const first = imp.spec.split('.');
         const ext = first[0] === 'System' ? null : first[0] === 'Microsoft' ? first.slice(0, 2).join('.') : first[0];
@@ -642,7 +652,8 @@ function link(ctx) {
       let k = 0;
       const emit = (e) => {
         resolved.add(e.to);
-        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line, e.low ? 'low' : 'medium')));
+        // A type named without an import, or a sibling guessed from a bare name, is name-matched; an import's resolved path is read.
+        push(edgeFact('IMPORTS', mod.id, mods.get(e.to).id, e.attrs, e.attrs.via === 'type' || e.low ? byName(sem, e, path, e.low ? 'low' : 'medium') : e.semantic ? prov_(path, e.line, 'high', 'lsp') : prov_(path, e.line)));
       };
       for (const i of items) {
         if (i.fact) push(i.fact);

@@ -70,6 +70,7 @@
               "id": { "type": "string" },
               "name": { "type": "string" },
               "kind": { "enum": ["build_unit", "file"] },
+              "manifest": { "type": "string", "description": "The build unit's manifest (repository-relative), which keys its package node" },
               "files": { "type": "array", "items": { "type": "string" } }
             },
             "required": ["id", "name", "kind", "files"],
@@ -619,9 +620,18 @@
       "required": ["label", "window", "sources", "units"],
       "additionalProperties": false
     },
+    "unmeasured": {
+      "type": "array",
+      "items": { "enum": ["evolutionary"] },
+      "description": "Affinity components the map could not measure (co-change from a shallow, too short or missing history): missing evidence, never a measured zero"
+    },
     "confidence_cap": {
       "type": "string",
       "description": "Present when static evidence alone lowered the confidence to medium: why."
+    },
+    "confidence_lowered": {
+      "type": "string",
+      "description": "Present when the confidence was lowered one step because at least half of the import and call edges the boundary rests on were matched by name (inferred): why."
     },
     "first_slice": {
       "type": "object"
