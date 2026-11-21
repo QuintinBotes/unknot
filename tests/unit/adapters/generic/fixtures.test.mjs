@@ -106,7 +106,7 @@ test('Java: Spring controller, JPA entity, pom.xml, resolution by package', () =
   const fx = loadFixture('java');
   const ctl = 'src/main/java/com/acme/shop/OrderController.java';
   const text = fx.text(ctl);
-  const pom = fx.node('package:com.acme:shop');
+  const pom = fx.node('package:pom.xml');
   assert.deepEqual(pom.attrs.deps, ['org.springframework.boot:spring-boot-starter-web']);
   assert.deepEqual(pom.attrs.dev_deps, ['org.junit.jupiter:junit-jupiter']);
   assert.ok(!fx.node('dependency:commented-out'));
@@ -151,7 +151,7 @@ test('C#: ASP.NET controller, EF DbSet, csproj, type-level imports', () => {
   const fx = loadFixture('dotnet');
   const ctl = 'Controllers/OrdersController.cs';
   const text = fx.text(ctl);
-  const proj = fx.node('package:Shop');
+  const proj = fx.node('package:Shop.csproj');
   assert.deepEqual(proj.attrs.deps, ['Microsoft.EntityFrameworkCore']);
   assert.deepEqual(proj.attrs.local_deps, ['Common/Common.csproj']);
 
@@ -184,12 +184,12 @@ test('C#: ASP.NET controller, EF DbSet, csproj, type-level imports', () => {
 
 test('Rust: crate, mod tree, axum routes, impl Trait for Type', () => {
   const fx = loadFixture('rust');
-  const crate = fx.node('package:shop');
+  const crate = fx.node('package:Cargo.toml');
   assert.deepEqual(crate.attrs.deps, ['axum', 'serde', 'shop-core']);
   assert.deepEqual(crate.attrs.dev_deps, ['tokio']);
   assert.deepEqual(crate.attrs.members, ['core']);
-  assert.ok(fx.hasEdge('CONTAINS', 'package:shop', 'package:shop-core'));
-  assert.ok(fx.hasEdge('DEPENDS_ON', 'package:shop', 'package:shop-core'), 'path dependency resolves to the in-repo crate');
+  assert.ok(fx.hasEdge('CONTAINS', 'package:Cargo.toml', 'package:core/Cargo.toml'));
+  assert.ok(fx.hasEdge('DEPENDS_ON', 'package:Cargo.toml', 'package:core/Cargo.toml'), 'path dependency resolves to the in-repo crate');
 
   // Hand-computed: 4 match arms (=>) + `&&` + guard `if` => 1 + 6 = 7; one control block (match); 2 params.
   const classify = fx.node('function:src/routes/orders.rs#classify');

@@ -218,8 +218,9 @@ test('two project files with one name keep their own references', () => {
     'shared/model/build.gradle': '\n',
     'shared/util/build.gradle': '\n',
   });
-  const deps = gradle.all.filter((f) => f.kind === 'edge' && f.type === 'DEPENDS_ON' && f.from === 'package:api').map((e) => e.to).sort();
-  assert.deepEqual(deps, ['package:model', 'package:util']);
+  const deps = (from) => gradle.all.filter((f) => f.kind === 'edge' && f.type === 'DEPENDS_ON' && f.from === from).map((e) => e.to);
+  assert.deepEqual(deps('package:feature-a/api/build.gradle'), ['package:shared/model/build.gradle']);
+  assert.deepEqual(deps('package:feature-b/api/build.gradle'), ['package:shared/util/build.gradle']);
 });
 
 test('a reference attribute in single quotes counts', () => {
@@ -288,4 +289,15 @@ test('the projects whose references cannot be read are named in one notice', () 
   const notes = g.notes.filter((n) => n.includes('could not be read'));
   assert.equal(notes.length, 1);
   assert.match(notes[0], /3 \.NET project\(s\).*A\/A\.csproj, B\/B\.csproj, C\/C\.csproj/);
+});
+
+test('a dependency name two crates share resolves to the crate the manifest names by path (#109)', () => {
+  const crate = (name, deps = '') => `[package]\nname = "${name}"\n\n[dependencies]\n${deps}`;
+  const g = build({
+    'ws1/app/Cargo.toml': crate('app', 'common = { path = "../common" }\n'),
+    'ws1/common/Cargo.toml': crate('common'),
+    'ws2/common/Cargo.toml': crate('common'),
+  });
+  const deps = g.all.filter((f) => f.kind === 'edge' && f.type === 'DEPENDS_ON' && f.from === 'package:ws1/app/Cargo.toml' && f.to.startsWith('package:')).map((f) => f.to);
+  assert.deepEqual(deps, ['package:ws1/common/Cargo.toml']);
 });
