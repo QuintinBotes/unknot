@@ -34,7 +34,7 @@ const mapped = cli(csDir, 'map', '--no-history');
 test('scenario 1: map warns on stderr, naming both projects and the edge against the declared reference', () => {
   assert.equal(mapped.code, 0, mapped.err);
   assert.match(mapped.err, /cycle across build units A and B cannot be built/);
-  assert.match(mapped.err, /A\/Ledger\.cs → B\/Invoice\.cs \(A does not reference B\)/);
+  assert.match(mapped.err, /A\/Ledger\.cs → B\/Invoice\.cs \(B references A\)/);
   assert.doesNotMatch(mapped.err, /B\/Invoice\.cs → A\/Ledger\.cs/);
 });
 
@@ -43,7 +43,7 @@ test('scenario 2: graph cycles marks the cycle impossible_by_build with the same
   const [c] = JSON.parse(r.out);
   assert.equal(c.impossible_by_build, true);
   assert.deepEqual(c.build_units, ['A', 'B']);
-  assert.deepEqual(c.closing_edges, [{ from: 'module:A/Ledger.cs', to: 'module:B/Invoice.cs', from_unit: 'A', to_unit: 'B', undeclared: true }]);
+  assert.deepEqual(c.closing_edges, [{ from: 'module:A/Ledger.cs', to: 'module:B/Invoice.cs', from_unit: 'A', to_unit: 'B', reason: 'B references A' }]);
   assert.match(cli(csDir, 'graph', 'cycles').err, /cycle across build units A and B cannot be built/);
 });
 
@@ -136,4 +136,16 @@ test('a file of an unreadable project decides nothing, and the other units are s
     edgeFact('IMPORTS', 'module:b/b.go', 'module:a/a.go', {}, p),
   ]);
   assert.deepEqual(impossibleByBuild(g, ['module:C/X.cs', 'module:a/a.go', 'module:b/b.go']).units, ['a', 'b']);
+});
+
+test('an edge of a unit whose references are not read completely is listed without a claim about them', async () => {
+  const dir = repo({
+    'core/pom.xml': '<project><groupId>com.acme</groupId><artifactId>core</artifactId></project>\n',
+    'core/src/main/java/com/acme/core/Store.java': 'package com.acme.core;\nimport com.acme.app.Page;\npublic class Store { Page p; }\n',
+    'app/pom.xml': '<project><groupId>com.acme</groupId><artifactId>app</artifactId><dependencies><dependency><groupId>${project.groupId}</groupId><artifactId>core</artifactId></dependency></dependencies></project>\n',
+    'app/src/main/java/com/acme/app/Page.java': 'package com.acme.app;\nimport com.acme.core.Store;\npublic class Page { Store s; }\n',
+  });
+  const r = cli(dir, 'map', '--no-history');
+  assert.match(r.err, /cycle across build units/);
+  assert.doesNotMatch(r.err, /does not reference|references/);
 });

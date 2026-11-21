@@ -54,9 +54,10 @@ const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
  * Whether a component spans build units its build refuses to have in a cycle (#72): .NET projects,
  * Maven and Gradle modules, crates (`buildUnit`) and Go packages (`packageUnit`), for languages whose
  * row sets `acyclicUnits`. Then an edge is an analysis artifact or the code does not build;
- * `closing_edges` are the edges between units that go against the declared references (`undeclared`),
- * or every edge between units when the units declare none (Go packages). When the declared
- * references themselves run both ways (a Cargo dev-dependency), the build allows it: no mark.
+ * `closing_edges` are the edges between units that go against the declared references, each with
+ * its `reason`, else every edge whose units' references are not known (Go packages, Maven and Gradle
+ * modules, a project with an unresolved reference). When every edge follows a declared reference
+ * (a Cargo dev-dependency runs both ways), the build allows it: no mark.
  * A file of a unit whose project file could not be read is unknown, and decides nothing.
  * @returns {{units: string[], closing: object[]} | null}
  */
@@ -70,7 +71,8 @@ export function impossibleByBuild(graph, members, view = cycleView(graph)) {
     const pkg = graph.in(id, 'CONTAINS').map((e) => graph.node(e.from)).find((p) => p?.type === 'package');
     if (!pkg) continue;
     if (pkg.attrs?.parse_error) continue;
-    unitOf.set(id, { id: pkg.id, name: pkg.name ?? pkg.id.slice(8), pkg: true });
+    // Only .NET and Cargo references are read completely (see adapters/language/generic/build-graph.mjs).
+    unitOf.set(id, { id: pkg.id, name: pkg.name ?? pkg.id.slice(8), known: ['dotnet', 'cargo'].includes(pkg.attrs?.ecosystem) && !pkg.attrs?.references_unresolved });
   }
   if (new Set([...unitOf.values()].map((u) => u.id)).size < 2) return null;
   const inComp = new Set(members);
@@ -81,17 +83,27 @@ export function impossibleByBuild(graph, members, view = cycleView(graph)) {
     for (const queue = [a]; queue.length;) for (const e of graph.out(queue.pop(), 'DEPENDS_ON')) if (!seen.has(e.to)) { if (e.to === b) return true; seen.add(e.to); queue.push(e.to); }
     return false;
   };
-  const declared = (e) => unitOf.get(e.from).pkg && unitOf.get(e.to).pkg;
-  const against = cross.filter((e) => !(declared(e) && reaches(unitOf.get(e.from).id, unitOf.get(e.to).id)));
-  if (!against.length) return null;
-  const closing = against
-    .map((e) => ({ from: e.from, to: e.to, from_unit: unitOf.get(e.from).name, to_unit: unitOf.get(e.to).name, ...(declared(e) && { undeclared: true }) }))
+  // An edge follows a reference its source declares; it goes against the build when its target
+  // declares the reverse (the edge would close a cycle) or its source declares no path to it.
+  const verdict = (e) => {
+    const x = unitOf.get(e.from);
+    const y = unitOf.get(e.to);
+    if (x.known && reaches(x.id, y.id)) return 'declared';
+    if (y.known && reaches(y.id, x.id)) return `${y.name} references ${x.name}`;
+    return x.known ? `${x.name} does not reference ${y.name}` : 'unknown';
+  };
+  const judged = cross.map((e) => ({ e, v: verdict(e) }));
+  const against = judged.filter((j) => j.v !== 'declared' && j.v !== 'unknown');
+  const closingEdges = against.length ? against : judged.filter((j) => j.v === 'unknown');
+  if (!closingEdges.length) return null;
+  const closing = closingEdges
+    .map(({ e, v }) => ({ from: e.from, to: e.to, from_unit: unitOf.get(e.from).name, to_unit: unitOf.get(e.to).name, ...(v !== 'unknown' && { reason: v }) }))
     .sort((a, b) => (a.from + a.to < b.from + b.to ? -1 : 1));
   return { units: [...new Set([...unitOf.values()].map((u) => u.name))].sort(), closing };
 }
 
 /** One warning line per component the build forbids. */
-export const impossibleWarning = (c) => `cycle across build units ${c.build_units.join(' and ')} cannot be built: one of its edges is an analysis artifact, or the code does not build; check ${c.closing_edges.slice(0, 5).map((e) => `${e.from.replace(/^module:/, '')} → ${e.to.replace(/^module:/, '')}${e.undeclared ? ` (${e.from_unit} does not reference ${e.to_unit})` : ''}`).join('; ')}${c.closing_edges.length > 5 ? `; and ${c.closing_edges.length - 5} more` : ''}`;
+export const impossibleWarning = (c) => `cycle across build units ${c.build_units.join(' and ')} cannot be built: one of its edges is an analysis artifact, or the code does not build; check ${c.closing_edges.slice(0, 5).map((e) => `${e.from.replace(/^module:/, '')} → ${e.to.replace(/^module:/, '')}${e.reason ? ` (${e.reason})` : ''}`).join('; ')}${c.closing_edges.length > 5 ? `; and ${c.closing_edges.length - 5} more` : ''}`;
 
 /** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key */
 export function computeDerived(graph) {
