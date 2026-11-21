@@ -59,12 +59,17 @@ test('scenario 4: the merged type lists the members of every part and every decl
   assert.ok(t, 'one logical type');
   assert.deepEqual(t.attrs.files, ['A/Orders/Order.Audit.cs', 'A/Orders/Order.Billing.cs', 'A/Orders/Order.cs']);
   assert.deepEqual(t.attrs.members, ['Audit', 'Bill', 'Ship']);
-  const parts = build(shop()).filter((f) => f.kind === 'edge' && f.type === 'CONTAINS' && f.from === t.id).map((e) => e.to).sort();
-  assert.deepEqual(parts, ['class:A/Orders/Order.Audit.cs#Order', 'class:A/Orders/Order.Billing.cs#Order', 'class:A/Orders/Order.cs#Order']);
+  // Each part keeps its module as its only container, so walking up from a method still reaches the file.
+  assert.ok(!build(shop()).some((f) => f.kind === 'edge' && f.type === 'CONTAINS' && f.from === t.id));
 });
 
 test('a use from inside one of its own parts does not count towards fan-in', () => {
-  const facts = build(shop({ 'A/Orders/Order.Audit.cs': part('Shop.Orders', 'Audit').replace('public void Audit() { }', 'public void Audit() { }\n        Order Copy() { return null; }') }));
+  // Order.Billing.cs uses a type only Order.cs declares: an edge between two parts of one type.
+  const facts = build(shop({
+    'A/Orders/Order.cs': part('Shop.Orders', 'Ship').replace('namespace Shop.Orders\n{', 'namespace Shop.Orders\n{\n    public enum OrderState { Open }'),
+    'A/Orders/Order.Billing.cs': part('Shop.Orders', 'Bill', 'partial ').replace('public void Bill() { }', 'public void Bill() { }\n        OrderState state;'),
+  }));
+  assert.ok(facts.some((f) => f.kind === 'edge' && f.type === 'IMPORTS' && f.from === 'module:A/Orders/Order.Billing.cs' && f.to === 'module:A/Orders/Order.cs'), 'the part-to-part edge exists');
   const found = hubs(facts);
   assert.equal(found.length, 1);
   assert.equal(found[0].measurements['module.fan_in'], 10);
@@ -75,4 +80,17 @@ test('a nested partial type is merged under its containing type, not with every 
   const facts = build({ 'A/A.csproj': proj, 'A/Order1.cs': nested('Order', 'One'), 'A/Order2.cs': nested('Order', 'Two'), 'A/Invoice1.cs': nested('Invoice', 'Three') });
   const keys = logical(facts).map((t) => t.id).sort();
   assert.deepEqual(keys, ['class:Shop.Order.Builder@A', 'class:Shop.Order@A']);
+});
+
+test('a nested partial type and its outer type are one hub, named after the outer type', () => {
+  const nested = (method) => `namespace Shop\n{\n    public partial class Order\n    {\n        public partial class Builder\n        {\n            public void ${method}() { }\n        }\n    }\n}\n`;
+  const users = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`A/Web/U${i}.cs`, `namespace Shop\n{\n    public class U${i}\n    {\n        public void F(Order o) { }\n    }\n}\n`]));
+  const found = hubs(build({ 'A/A.csproj': proj, 'A/Order1.cs': nested('One'), 'A/Order2.cs': nested('Two'), ...users }));
+  assert.equal(found.length, 1);
+  assert.match(found[0].title, /^Order, a partial type in 2 files/);
+});
+
+test('two projects with the same name keep their partial types apart', () => {
+  const facts = build({ 'v1/Api/Api.csproj': proj, 'v1/Api/Order.cs': part('Shop.Orders', 'Ship'), 'v2/Api/Api.csproj': proj, 'v2/Api/Order.cs': part('Shop.Orders', 'Bill') });
+  assert.deepEqual(logical(facts), []);
 });

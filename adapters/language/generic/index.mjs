@@ -717,7 +717,8 @@ function link(ctx) {
   for (const f of structuralImplements(types, receivers, qualified)) push(f);
 
   // A partial type declared in several files of one project and namespace is one logical type (#75):
-  // a node naming its files and the members of every part, containing each part.
+  // a node naming its files and the members of every part. It contains nothing, so each part keeps its
+  // module as its only container. Projects are told apart by manifest: two can share a name.
   const partials = new Map();
   const methodsOf = new Map();
   for (const f of factIndex.values()) if (f.type === 'method' && f.attrs.owner) methodsOf.set(f.attrs.owner, [...(methodsOf.get(f.attrs.owner) ?? []), f]);
@@ -730,7 +731,7 @@ function link(ctx) {
     const outer = (typesIn.get(t.path) ?? []).filter((o) => o !== t && o.attrs.start_line <= t.attrs.start_line && o.attrs.end_line >= t.attrs.end_line)
       .sort((a, b) => a.attrs.start_line - b.attrs.start_line).map((o) => o.name);
     const ns = [mods.get(t.path)?.attrs.namespace, ...outer].filter(Boolean).join('.');
-    const k = `${unit?.id ?? ''}|${ns}|${t.name}`;
+    const k = `${unit?.attrs.manifest ?? ''}|${ns}|${t.name}`;
     if (!partials.has(k)) partials.set(k, { unit, ns, name: t.name, parts: [] });
     partials.get(k).parts.push(t);
   }
@@ -738,9 +739,9 @@ function link(ctx) {
     const files = [...new Set(parts.map((t) => t.path))].sort();
     if (files.length < 2) continue;
     const members = [...new Set((methodsOf.get(name) ?? []).filter((f) => files.includes(f.path)).map((f) => f.name))].sort();
-    const key = `${ns ? `${ns}.` : ''}${name}${unit ? `@${unit.name}` : ''}`;
+    const shared = unit && units.filter((u) => u.name === unit.name).length > 1;
+    const key = `${ns ? `${ns}.` : ''}${name}${unit ? `@${shared ? unit.attrs.manifest : unit.name}` : ''}`;
     push(nodeFact(parts[0].type, key, { name, attrs: { language: parts[0].attrs.language, partial: true, files, members } }, prov_(files[0], parts[0].attrs.start_line ?? 1)));
-    for (const t of parts) push(edgeFact('CONTAINS', `${parts[0].type}:${key}`, t.id, {}, prov_(t.path, t.attrs.start_line ?? 1)));
   }
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);

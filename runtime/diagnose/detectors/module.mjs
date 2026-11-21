@@ -354,11 +354,19 @@ const hubModule = define({
     const mods = sourceModules(graph);
     const ids = new Set(mods.map((m) => m.id));
     // The files of one partial type are one hub (#75): their fan-in and fan-out are counted once, outside them.
+    // Types sharing a file (a nested partial type, one designer file for several) are one group, named after the outermost.
     const groupOf = new Map();
-    for (const t of [...graph.nodes('class'), ...graph.nodes('interface')]) {
-      if (!t.attrs?.partial || !(t.attrs.files?.length > 1)) continue;
-      const g = { name: t.name, files: t.attrs.files.map((p) => `module:${p}`).filter((id) => ids.has(id)) };
-      if (g.files.length > 1) for (const id of g.files) groupOf.set(id, groupOf.get(id) ?? g);
+    const partials = [...graph.nodes('class'), ...graph.nodes('interface')].filter((t) => t.attrs?.partial && t.attrs.files?.length > 1)
+      .sort((a, b) => a.id.length - b.id.length || (a.id < b.id ? -1 : 1));
+    for (const t of partials) {
+      const files = t.attrs.files.map((p) => `module:${p}`).filter((id) => ids.has(id));
+      if (files.length < 2) continue;
+      const met = [...new Set(files.map((id) => groupOf.get(id)).filter(Boolean))];
+      const g = met[0] ?? { name: t.name, others: [], files: [] };
+      for (const o of met.slice(1)) { g.others.push(o.name, ...o.others); g.files.push(...o.files); }
+      if (met.length && !g.others.includes(t.name) && g.name !== t.name) g.others.push(t.name);
+      g.files = [...new Set([...g.files, ...files])].sort();
+      for (const id of g.files) groupOf.set(id, g);
     }
     const done = new Set();
     for (const m of mods) {
@@ -371,19 +379,20 @@ const hubModule = define({
       const fi = sortedUnique([...own].flatMap((id) => graph.in(id, IMPORT)).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => !own.has(f) && ids.has(f)));
       const fo = sortedUnique([...own].flatMap((id) => graph.out(id, IMPORT)).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => !own.has(t) && ids.has(t)));
       if (fi.length < o.fan_in || fo.length < o.fan_out) continue;
-      const tests = [...own].reduce((n, id) => n + graph.in(id, 'TESTS').length, 0);
+      const tests = testsOn(graph, [...own]);
       const paths = [...own].map((id) => graph.node(id)?.path ?? id.slice(7)).sort();
+      const churn = [...own].map((id) => graph.node(id)?.attrs?.churn_commits).filter((c) => c != null);
       out.push(draft({
         kind: 'module.hub-module',
         title: g ? `${g.name}, a partial type in ${paths.length} files, is a hub: ${fi.length} modules import it and it imports ${fo.length}` : `${m.path} is a hub: ${fi.length} modules import it and it imports ${fo.length}`,
         scope: g ? paths : [m.path],
         key: m.id,
-        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}${g ? `, declared in ${paths.join(', ')}` : ''}`, source_ref: `${m.path}:1` }],
-        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'tests.present': tests, ...(m.attrs.churn_commits != null && { 'module.churn': m.attrs.churn_commits }) },
+        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}${g ? `, declared in ${paths.join(', ')}${g.others.length ? `, with ${[...new Set(g.others)].sort().join(', ')}` : ''}` : ''}`, source_ref: `${m.path}:1` }],
+        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'tests.present': tests, ...(churn.length && { 'module.churn': Math.max(...churn) }) },
         thresholds: { fan_in: o.fan_in, fan_out: o.fan_out, note: 'heuristic: both directions high means changes ripple in and out' },
         why_accidental: 'A module both widely used and widely dependent is a coupling junction: any change to it or its dependencies touches many unrelated modules.',
         essential_considerations: ['An application composition root or an index/barrel file is expected to import widely.'],
-        smallest_simplification: `Split ${m.path} so the part many modules use (stable types) is separate from the part that orchestrates many collaborators.`,
+        smallest_simplification: `Split ${g ? `the type ${g.name} (${paths.join(', ')})` : m.path} so the part many modules use (stable types) is separate from the part that orchestrates many collaborators.`,
         invariants: ['Public exports remain importable from the original path (re-export).', 'Behaviour is unchanged.'],
         risks: ['Re-exports can hide new cycles.', 'Importers must be re-pointed in a coordinated change if re-exports are dropped.'],
         verification: verifyStructural(tests),
