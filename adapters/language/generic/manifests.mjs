@@ -5,7 +5,7 @@
 // dependency nodes and DEPENDS_ON/CONTAINS edges.
 
 import { edgeFact, nodeFact } from '../../../runtime/graph/facts.mjs';
-import { LANGUAGE_IDS, language } from '../../../runtime/graph/languages.mjs';
+import { LANGUAGE_IDS, language, languages } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 
 export const dirname = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
@@ -346,10 +346,12 @@ export function manifestFacts(path, text, P) {
   const d = READERS[kind](path, text);
   const facts = [];
   const type = d.type;
-  const id = `${type}:${d.name}`;
+  // A build unit is keyed by its manifest, so two projects of one name stay two nodes (#109).
+  const key = type === 'package' && languages().some((l) => l.buildUnit && l.ecosystems.includes(d.ecosystem)) ? path : d.name;
+  const id = `${type}:${key}`;
   const deps = uniq(d.deps.filter((x) => !x.dev).map((x) => x.name));
   const devDeps = uniq(d.deps.filter((x) => x.dev).map((x) => x.name));
-  facts.push(nodeFact(type, d.name, {
+  facts.push(nodeFact(type, key, {
     name: d.name,
     path,
     attrs: {

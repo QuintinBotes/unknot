@@ -96,6 +96,10 @@ export function supersededBy(r, all, gen) {
   // Build units became the modules of compiled languages (#74): a file-module record of a target now decomposed by unit is replaced.
   const byUnit = !r.candidate?.units && all.find((o) => o.target === r.target && o.candidate?.units && o.graph_generation === gen);
   if (byUnit) return `written with one module per file; this target is now decomposed by build unit (as in ${byUnit.id})`;
+  // Build units are keyed by manifest path since #109: a record of name-keyed units may hold two same-named projects as one.
+  const named = (x) => x.candidate?.units?.some((u) => u.kind === 'build_unit' && !u.manifest);
+  const byPath = named(r) && all.find((o) => o.target === r.target && o.graph_generation === gen && o.candidate?.units?.some((u) => u.manifest));
+  if (byPath) return `written when build units were keyed by name, so two projects of one name were one module; units are now keyed by manifest path (as in ${byPath.id})`;
   if (r.graph_generation !== undefined && r.graph_generation < gen && all.some((o) => o.graph_generation === gen)) {
     return `older graph generation (${r.graph_generation}, now ${gen}) and not produced again since`;
   }

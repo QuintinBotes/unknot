@@ -70,6 +70,7 @@
               "id": { "type": "string" },
               "name": { "type": "string" },
               "kind": { "enum": ["build_unit", "file"] },
+              "manifest": { "type": "string", "description": "The build unit's manifest (repository-relative), which keys its package node" },
               "files": { "type": "array", "items": { "type": "string" } }
             },
             "required": ["id", "name", "kind", "files"],
