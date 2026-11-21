@@ -78,7 +78,7 @@ function layered(graph, mods) {
   const evidence = [ev(`layer directories present: ${present.map((n) => `${n} (${out.get(n).length} modules)`).join(', ')}`, present.flatMap((n) => out.get(n)))];
   if (down + up === 0) return entry('layered', 'inferred', 'Layer-named directories exist, but no imports between layers were observed.', evidence);
   evidence.push(ev(`${down} imports point down the layers, ${up} point up`, upEdges));
-  const used = pairs.map((p) => p.e);
+  const used = pairs.filter((p) => p.a !== p.b).map((p) => p.e); // the imports between layers, which the label rests on
   if (up === 0) return entry('layered', 'corroborated', 'Layer-named directories and strictly one-directional imports agree.', evidence, used);
   if (up / (up + down) <= 0.1) return entry('layered', 'observed', 'Layer-named directories with mostly one-directional imports; a few upward imports violate the layering.', evidence, used);
   return entry('layered', 'contradicted', 'Layer-named directories exist but imports run both ways between layers.', evidence);
@@ -98,7 +98,7 @@ function hexagonal(graph, mods) {
   }
   if (inward.length) {
     evidence.push(ev(`${inward.length} adapter import(s) point inward and none point from domain outward`, inward.map((v) => v.e)));
-    return entry('hexagonal/clean', 'corroborated', 'Directory structure and the inward-only dependency rule agree.', evidence, pairs.map((p) => p.e));
+    return entry('hexagonal/clean', 'corroborated', 'Directory structure and the inward-only dependency rule agree.', evidence, inward.map((v) => v.e));
   }
   return entry('hexagonal/clean', 'inferred', 'Hexagonal/clean directory names are present; dependency direction could not be confirmed from imports.', evidence);
 }

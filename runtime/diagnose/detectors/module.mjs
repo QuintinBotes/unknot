@@ -143,7 +143,8 @@ const dependencyCycle = define({
       const build = impossibleByBuild(graph, members, strict);
       const cutEvidence = breakdown.cut.slice(0, MAX_CUT_EVIDENCE).map((e) => ({
         ref: e.from,
-        label: breakdown.cut_heuristic ? 'inferred' : 'observed',
+        // A cut edge matched by name is inferred, as the graph labels it (#77).
+        label: breakdown.cut_heuristic || strict.out(e.from, IMPORT).find((x) => x.to === e.to)?.label === 'inferred' ? 'inferred' : 'observed',
         summary: `cut: ${pathOf(graph, e.from)} -> ${pathOf(graph, e.to)}${e.declared_only ? ` (declared-only: unused member ${e.unused_member ?? 'of that type'})` : ''}${e.closes ? `, closes ${e.closes} listed cycle${e.closes === 1 ? '' : 's'}` : ''}`,
         source_ref: `${pathOf(graph, e.from)}:${e.line ?? 1}`,
       }));
@@ -160,7 +161,7 @@ const dependencyCycle = define({
       const unusedOnly = cycleLink ? { file: pathOf(graph, cycleLink.from), member: cycleLink.attrs.unused_member } : null;
       const unusedEvidence = unusedLinks.slice(0, 10).map((e) => ({
         ref: e.from,
-        label: 'observed',
+        label: e.label === 'inferred' ? 'inferred' : 'observed',
         summary: `unused link: ${pathOf(graph, e.from)} only declares ${e.attrs.unused_member ?? 'a member'} of type ${pathOf(graph, e.to)}`,
         source_ref: `${pathOf(graph, e.from)}:${e.attrs?.line ?? 1}`,
       }));

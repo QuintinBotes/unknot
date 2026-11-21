@@ -53,11 +53,14 @@ test('scenario 3: a JavaScript relative import resolved to a file path stays obs
 });
 
 const inferAll = (ctx) => ctx.store.run("UPDATE edges SET label = 'inferred' WHERE type IN ('IMPORTS', 'CALLS')");
+// Only the module-to-module edges: an import of an external package stays observed and must not dilute the share.
+const inferModules = (ctx) => ctx.store.run("UPDATE edges SET label = 'inferred' WHERE type IN ('IMPORTS', 'CALLS') AND src LIKE 'module:%' AND dst LIKE 'module:%'");
 
 test('scenario 4: the same boundary on inferred edges has the lower confidence and says why', async () => {
   const r = await analyse('modular-monolith', { skipDiagnose: true });
   const observed = await decompose(r.ctx, { config: r.config, dryRun: true });
-  inferAll(r.ctx);
+  assert.ok(r.ctx.store.get("SELECT COUNT(*) AS n FROM edges WHERE type = 'IMPORTS' AND dst LIKE 'dependency:%' AND label = 'observed'").n > 0, 'the fixture imports external packages');
+  inferModules(r.ctx);
   const inferred = await decompose(r.ctx, { config: r.config, dryRun: true });
   const order = ['low', 'medium', 'high'];
   const pairs = observed.details.map((o) => [o, inferred.details.find((i) => i.fingerprint === o.fingerprint)]);
@@ -99,4 +102,56 @@ test('scenario 5: finding fingerprints do not depend on labels', async () => {
   r.ctx.store.run("UPDATE edges SET label = 'observed'");
   const again = await diagnose(r.ctx, { config: r.config });
   assert.deepEqual(fps(again.findings), fps(r.findings));
+});
+
+test('a style keeps its label when only imports inside one layer are inferred', async () => {
+  const p = K.makeProject({ files: {
+    'src/controllers/orders.js': "import { place } from '../services/orders.js';\nexport const post = () => place();\n",
+    'src/services/orders.js': "import { save } from '../repositories/orders.js';\nimport { check } from './rules.js';\nimport { price } from './pricing.js';\nexport const place = () => save() + check() + price();\n",
+    'src/services/rules.js': 'export const check = () => 1;\n',
+    'src/services/pricing.js': 'export const price = () => 1;\n',
+    'src/repositories/orders.js': 'export const save = () => 1;\n',
+  } });
+  await map(p);
+  const label = () => architectureViews(Graph.fromStore(p.ctx.store)).styles.find((s) => s.style === 'layered').label;
+  const before = label();
+  p.ctx.store.run("UPDATE edges SET label = 'inferred' WHERE type = 'IMPORTS' AND src = 'module:src/services/orders.js' AND dst LIKE 'module:src/services/%'");
+  assert.equal(label(), before);
+});
+
+test('a Ruby require or C include found by the tail of its path is inferred; a path read is observed', async () => {
+  const p = K.makeProject({ files: {
+    'app/models/order.rb': "require 'json_codec'\nrequire 'lib/money'\nclass Order; end\n",
+    'engines/codec/json_codec.rb': 'module JsonCodec; end\n',
+    'lib/money.rb': 'module Money; end\n',
+    'src/main.c': '#include "util/config.h"\n#include "list.h"\nint main(void) { return 0; }\n',
+    'third/x/util/config.h': 'int config(void);\n',
+    'src/list.h': 'int count(void);\n',
+  } });
+  await map(p);
+  assert.equal(edge(p, 'IMPORTS', 'app/models/order.rb', 'engines/codec/json_codec.rb'), 'inferred');
+  assert.equal(edge(p, 'IMPORTS', 'app/models/order.rb', 'lib/money.rb'), 'observed');
+  assert.equal(edge(p, 'IMPORTS', 'src/main.c', 'third/x/util/config.h'), 'inferred');
+  assert.equal(edge(p, 'IMPORTS', 'src/main.c', 'src/list.h'), 'observed');
+});
+
+test('a Go import path the generic adapter resolves stays observed', async () => {
+  const p = K.makeProject({ files: {
+    'go.mod': 'module example.com/shop\n\ngo 1.22\n',
+    'main.go': 'package main\n\nimport "example.com/shop/store"\n\nfunc main() { store.Open() }\n',
+    'store/store.go': 'package store\n\nfunc Open() {}\n',
+  } });
+  await map(p);
+  assert.equal(edge(p, 'IMPORTS', 'main.go', 'store/store.go'), 'observed');
+});
+
+test('a dependency-cycle finding on name-matched edges labels its cut edges inferred', async () => {
+  const { findings } = await analyse('equivalent-csharp', { extra: {
+    'src/Loop/Ledger.cs': 'namespace Shop.Loop\n{\n    public class Ledger\n    {\n        Invoice i;\n    }\n}\n',
+    'src/Loop/Invoice.cs': 'namespace Shop.Loop\n{\n    public class Invoice\n    {\n        Ledger l;\n    }\n}\n',
+  } });
+  const cycle = findings.find((f) => f.kind === 'module.dependency-cycle' && f.scope.includes('src/Loop/Ledger.cs'));
+  assert.ok(cycle, findings.map((f) => f.kind).join(', '));
+  const cuts = cycle.evidence.filter((e) => /^cut: /.test(e.summary));
+  assert.ok(cuts.length && cuts.every((e) => e.label === 'inferred'), JSON.stringify(cuts));
 });

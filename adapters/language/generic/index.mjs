@@ -472,8 +472,10 @@ function link(ctx) {
           const p = resolvePath(dir, spec);
           return { paths: [`${p}${extension}`, p].filter(has).slice(0, 1) };
         }
-        const hit = loadPathFind(spec.replace(new RegExp(`${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), ''), extension);
-        return { paths: hit, external: hit.length || imp.kind === 'load' ? null : spec.split('/')[0] };
+        const bare = spec.replace(new RegExp(`${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '');
+        const hit = loadPathFind(bare, extension);
+        // A file found by the tail of its path is a guess among same-named files (#77).
+        return { paths: hit, external: hit.length || imp.kind === 'load' ? null : spec.split('/')[0], low: hit.length > 0 && hit[0] !== `${bare}${extension}` };
       }
       case 'psr4': {
         const extension = language(lang)?.extensions[0] ?? '';
@@ -501,7 +503,7 @@ function link(ctx) {
           const hit = cands.find(has);
           if (hit) return { paths: [hit] };
           const tail = sortedMods.filter((p) => p.endsWith(`/${spec}`));
-          return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec };
+          return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec, low: tail.length === 1 };
         }
         const std = !spec.includes('/') && (!/\./.test(spec) || syntax.systemIncludePattern?.test(spec));
         return { paths: [], external: std ? null : spec.split('/')[0] };

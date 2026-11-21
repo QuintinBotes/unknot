@@ -134,14 +134,15 @@ function carryProvenance(base, earlier, self) {
   });
 }
 
-/** Client routes are a routable seam seen from the client side: served elsewhere until a workspace map names the repository. */
-/** Share of the import and call edges touching the members that only name matching found (#77). */
+/** Share of the import and call edges between modules, touching the members, that only name matching found (#77). */
 function inferredShare(graph, modules) {
   const seen = new Set();
   let inferred = 0;
   for (const m of modules) {
     for (const e of [...graph.out(m), ...graph.in(m)]) {
       if ((e.type !== 'IMPORTS' && e.type !== 'CALLS') || seen.has(e.id)) continue;
+      // A boundary rests on module-to-module edges; an import of an external package is no part of it.
+      if (graph.node(e.from)?.type !== 'module' || graph.node(e.to)?.type !== 'module') continue;
       seen.add(e.id);
       if (e.label === 'inferred') inferred++;
     }
@@ -151,6 +152,7 @@ function inferredShare(graph, modules) {
 
 const LOWER = { high: 'medium', medium: 'low', low: 'low' };
 
+/** Client routes are a routable seam seen from the client side: served elsewhere until a workspace map names the repository. */
 function seamGaps(cand, signals) {
   const calls = (cand.details?.contracts ?? []).filter((r) => r.source === 'client' && !r.client_repositories);
   if (!calls.length || signals['requests.interceptable'] === 1) return [];
