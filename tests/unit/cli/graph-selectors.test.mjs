@@ -2,15 +2,15 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
-const home = mkdtempSync(join(tmpdir(), 'uk-selector-home-'));
-const proj = mkdtempSync(join(tmpdir(), 'uk-selector-proj-'));
+const home = mkTmp(join(tmpdir(), 'uk-selector-home-'));
+const proj = mkTmp(join(tmpdir(), 'uk-selector-proj-'));
 process.env.UNKNOT_HOME = home;
 
 const { openProject } = await import('../../../runtime/context.mjs');

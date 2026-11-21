@@ -2,14 +2,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { REPO_ROOT } from '../../helpers/kernel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 // A developer machine: a global hook that leaves a marker, and signing with no key.
 function hostile() {
-  const d = mkdtempSync(join(tmpdir(), 'uk-gitenv-'));
+  const d = mkTmp(join(tmpdir(), 'uk-gitenv-'));
   const hooks = join(d, 'hooks');
   mkdirSync(hooks);
   const marker = join(d, 'hook-ran');
@@ -22,10 +23,11 @@ function hostile() {
 
 const COMMIT = `
 import { git } from ${JSON.stringify(resolve(REPO_ROOT, 'tests/helpers/kernel.mjs'))};
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { mkTmp } from ${JSON.stringify(resolve(REPO_ROOT, 'tests/helpers/tmp.mjs'))};
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const dir = mkdtempSync(join(tmpdir(), 'uk-gitenv-repo-'));
+const dir = mkTmp(join(tmpdir(), 'uk-gitenv-repo-'));
 git(dir, 'init', '-q', '-b', 'main');
 writeFileSync(join(dir, 'a'), 'a');
 git(dir, 'add', '-A');
@@ -46,7 +48,7 @@ function commitUnder(env) {
 test('control: the hostile configuration does break a plain git commit', () => {
   // Without the helper's isolation the global hook runs and signing fails.
   const h = hostile();
-  const dir = mkdtempSync(join(tmpdir(), 'uk-gitenv-ctl-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-gitenv-ctl-'));
   const env = { ...process.env, GIT_CONFIG_GLOBAL: h.gitconfig, GIT_CONFIG_NOSYSTEM: '1' };
   const run = (...a) => spawnSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...a], { cwd: dir, env, encoding: 'utf8' });
   run('init', '-q');

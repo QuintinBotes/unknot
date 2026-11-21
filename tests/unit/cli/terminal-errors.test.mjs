@@ -3,10 +3,11 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import '../../helpers/git-env.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const { main } = await import('../../../runtime/cli/main.mjs');
 
@@ -33,7 +34,7 @@ async function runMain(argv, { tty }) {
 }
 
 const bare = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-term-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-term-'));
   execFileSync('git', ['init', '-q', dir]);
   return dir;
 };
