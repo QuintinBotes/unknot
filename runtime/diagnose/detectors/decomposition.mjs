@@ -3,6 +3,7 @@
 // detectors; these look at package boundaries within one deployable.
 
 import { moduleOf, terms } from '../../decompose/affinity.mjs';
+import { packageName } from '../../core/paths.mjs';
 
 const groupOf = (graph, id) => {
   const pkg = graph.in(id, 'CONTAINS').map((e) => graph.node(e.from)).find((n) => n?.type === 'package');
@@ -10,7 +11,8 @@ const groupOf = (graph, id) => {
   const p = (graph.node(id)?.path ?? id.replace(/^module:/, '')).split('/');
   return p.length > 2 ? `dir:${p.slice(0, 2).join('/')}` : `dir:${p[0]}`;
 };
-const label = (g) => g.replace(/^(dir|package):/, '');
+// A build unit's id is its manifest path (#109): it is named, not shown as a path.
+const label = (graph, g) => (g.startsWith('package:') ? packageName(graph, g) : g.replace(/^dir:/, ''));
 const isMonolith = (graph) => graph.nodes('service').filter((s) => s.attrs.code_root || s.attrs.deployable).length < 2;
 
 const base = (extra) => ({
@@ -45,7 +47,7 @@ const sharedTableWriters = {
       const modules = [...new Set([...writers.values()].flat())].sort();
       out.push(base({
         kind: 'decomposition.shared-table-writers',
-        title: `${t.name} is written by ${groups.length} packages (${groups.map(label).join(', ')})`,
+        title: `${t.name} is written by ${groups.length} packages (${groups.map((g) => label(graph, g)).join(', ')})`,
         scope: modules.map((m) => m.slice(7)),
         key: t.id,
         evidence: [{ ref: t.id, label: 'observed', summary: `writers: ${modules.map((m) => m.slice(7)).join(', ')}`, source_ref: null }, ...modules.slice(0, 5).map((m) => ({ ref: m, label: 'observed', summary: `writes ${t.name}` }))],
@@ -97,15 +99,15 @@ const coChangeLeak = {
       const partners = [...s.partners.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
       out.push(base({
         kind: 'decomposition.co-change-leak',
-        title: `${label(g)} changes together with other packages ${(leak * 100).toFixed(0)}% of the time`,
-        scope: [label(g)],
+        title: `${label(graph, g)} changes together with other packages ${(leak * 100).toFixed(0)}% of the time`,
+        scope: [label(graph, g)],
         key: `co-change:${g}`,
-        evidence: [{ ref: g.startsWith('package:') ? g : `module:${label(g)}`, label: 'observed', summary: `co-change partners: ${partners.map(([p, w]) => `${label(p)} (${w.toFixed(1)})`).join(', ')}`, source_ref: 'git log' }],
+        evidence: [{ ref: g.startsWith('package:') ? g : `module:${label(graph, g)}`, label: 'observed', summary: `co-change partners: ${partners.map(([p, w]) => `${label(graph, p)} (${w.toFixed(1)})`).join(', ')}`, source_ref: 'git log' }],
         measurements: { 'module.co_change_leak': +leak.toFixed(3) },
         thresholds: { co_change_leak: threshold, note: 'heuristic (spec 15A.4)' },
         why_accidental: 'When a package rarely changes alone, its boundary is not where the work happens: features cut across it, so each change needs coordinated edits and reviews.',
         essential_considerations: ['Co-change is neither good nor bad in itself; compare it with the intended architecture', 'Large mechanical commits inflate co-change (they are filtered by max_changeset)'],
-        smallest_simplification: `Look at the top partner (${partners[0] ? label(partners[0][0]) : 'n/a'}): move the concept they share into one package, or record why the coupling is intended.`,
+        smallest_simplification: `Look at the top partner (${partners[0] ? label(graph, partners[0][0]) : 'n/a'}): move the concept they share into one package, or record why the coupling is intended.`,
         invariants: ['Behaviour unchanged; only code location and imports move'],
         risks: ['Moving code changes import paths for consumers'],
         factors: { benefit: 3, evidence: 0.6, reversibility: 0.9, blast: 2, cost: 2, uncertainty: 3 },
@@ -142,20 +144,20 @@ const misplacedModule = {
       const home = counts.get(own) ?? 0;
       const [best, n] = [...counts.entries()].filter(([g]) => g !== own).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
       if (!best || n < minEdges || n < minRatio * Math.max(1, home)) continue;
-      const vocab = new Set(terms(label(best)));
+      const vocab = new Set(terms(label(graph, best)));
       const shares = terms(m.path ?? m.id).some((t) => vocab.has(t));
       out.push(base({
         kind: 'decomposition.misplaced-module',
-        title: `${m.path ?? m.id.slice(7)} is imported ${n}× from ${label(best)} but ${home}× from its own package`,
+        title: `${m.path ?? m.id.slice(7)} is imported ${n}× from ${label(graph, best)} but ${home}× from its own package`,
         scope: [m.path ?? m.id.slice(7)],
         key: m.id,
-        evidence: [{ ref: m.id, label: 'observed', summary: `importers: ${label(best)} ${n}, ${label(own)} ${home}`, source_ref: m.path }],
+        evidence: [{ ref: m.id, label: 'observed', summary: `importers: ${label(graph, best)} ${n}, ${label(graph, own)} ${home}`, source_ref: m.path }],
         measurements: { 'module.fan_in': graph.in(m.id, 'IMPORTS').length, 'module.fan_out': graph.out(m.id, 'IMPORTS').length },
         thresholds: { min_ratio: minRatio, min_edges: minEdges, note: 'heuristic' },
         blast_radius: 'bounded',
         why_accidental: 'A module used mostly by another package is living in the wrong place: its package exposes it only so that someone else can depend on it, and changes to it are changes for the other package.',
         essential_considerations: ['It may be a deliberate adapter or anti-corruption layer that belongs at the edge of its package', shares ? 'Its name shares vocabulary with the other package, which supports moving it' : 'Its name does not share vocabulary with the other package; check the domain fit before moving it'],
-        smallest_simplification: `Move ${m.path ?? m.id.slice(7)} into ${label(best)}, leaving a re-export so its few remaining importers keep working.`,
+        smallest_simplification: `Move ${m.path ?? m.id.slice(7)} into ${label(graph, best)}, leaving a re-export so its few remaining importers keep working.`,
         invariants: ['Public exports unchanged (re-exported from the old path for one release)'],
         risks: ['Import paths change for consumers once the re-export is removed'],
         factors: { benefit: 2, evidence: 0.7, reversibility: 0.9, blast: 1, cost: 1, uncertainty: shares ? 2 : 3 },
@@ -204,7 +206,7 @@ const entityService = {
       if (!crud || tables.size !== 1 || !fns || cyclo / fns > 2) continue;
       out.push(base({
         kind: 'decomposition.entity-service',
-        title: `${label(g)} is CRUD over ${[...tables][0].slice(6)} with little behaviour (avg cyclomatic ${(cyclo / fns).toFixed(1)})`,
+        title: `${label(graph, g)} is CRUD over ${[...tables][0].slice(6)} with little behaviour (avg cyclomatic ${(cyclo / fns).toFixed(1)})`,
         scope: [...v.modules].map((m) => m.slice(7)),
         key: `entity:${g}`,
         evidence: [{ ref: [...v.modules][0], label: 'inferred', summary: `${v.endpoints.length} endpoints, ${tables.size} table, ${fns} functions` }],
@@ -245,8 +247,8 @@ const crossBoundaryTransaction = {
       if (!a || !b || a === b) continue;
       out.push(base({
         kind: 'decomposition.cross-boundary-transaction',
-        title: `One transaction spans ${e.from.slice(6)} (${label(a)}) and ${e.to.slice(6)} (${label(b)})`,
-        scope: [label(a), label(b)],
+        title: `One transaction spans ${e.from.slice(6)} (${label(graph, a)}) and ${e.to.slice(6)} (${label(graph, b)})`,
+        scope: [label(graph, a), label(graph, b)],
         key: e.id,
         evidence: [{ ref: e.from, label: 'observed', summary: `shares a transaction with ${e.to}${e.attrs?.observed_window ? ` (${e.attrs.transactions ?? '?'} transaction(s), observed ${e.attrs.observed_window.start} to ${e.attrs.observed_window.end})` : ''}` }],
         measurements: { 'boundary.cross_transactions': 1 },

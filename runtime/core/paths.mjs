@@ -53,6 +53,13 @@ export function distinctNames(units) {
   return out;
 }
 
+const pkgNames = new WeakMap();
+/** A package node's display name: its name, with the shortest distinguishing path when another package shares it (#109). */
+export function packageName(graph, id) {
+  if (!pkgNames.has(graph)) pkgNames.set(graph, distinctNames(graph.nodes('package').map((p) => ({ id: p.id, name: p.name ?? p.id.slice(8), dir: p.attrs?.dir ?? '', path: p.path }))));
+  return pkgNames.get(graph).get(id) ?? id.replace(/^package:/, '');
+}
+
 /** realpath of the deepest existing ancestor, with the missing tail re-appended. */
 export function realpathLenient(abs) {
   const tail = [];
