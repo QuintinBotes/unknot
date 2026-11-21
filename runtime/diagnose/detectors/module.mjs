@@ -190,7 +190,7 @@ const dependencyCycle = define({
         factors: unusedOnly
           ? { benefit: 1, evidence: 0.7, reversibility: 0.95, blast: 1, cost: 1, uncertainty: 1 }
           : { benefit: clamp(Math.round(2 + Math.log2(members.length)), 1, 5), evidence: 0.9, reversibility: 0.9, blast: members.length > 5 ? 3 : 2, cost: clamp(Math.ceil(members.length / 3) + 1, 2, 5), uncertainty: 1 },
-        uncertainties: ['Type-only imports are counted as edges when the adapter does not label them, which may overstate a cycle.', ...(build ? [`impossible_by_build: the cycle spans build units ${build.units.join(', ')} that the build cannot have in a cycle, so at least one of its edges is an analysis artifact; check ${build.closing.slice(0, 5).map((e) => `${pathOf(graph, e.from)} -> ${pathOf(graph, e.to)}`).join(', ')}.`] : [])],
+        uncertainties: ['Type-only imports are counted as edges when the adapter does not label them, which may overstate a cycle.', ...(build ? [`impossible_by_build: the cycle spans build units ${build.units.join(', ')} that the build cannot have in a cycle, so one of its edges is an analysis artifact or the code does not build; check ${build.closing.slice(0, 5).map((e) => `${pathOf(graph, e.from)} -> ${pathOf(graph, e.to)}`).join(', ')}.`] : [])],
         alternatives: [
           { id: 'retain', summary: 'Keep the cycle if the modules are one conceptual unit; then merge them or document the grouping so it is treated as a single component.' },
           { id: 'extract-shared', summary: 'Move the shared definitions to a third module that both depend on.' },

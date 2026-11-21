@@ -43,7 +43,7 @@ test('scenario 2: graph cycles marks the cycle impossible_by_build with the same
   const [c] = JSON.parse(r.out);
   assert.equal(c.impossible_by_build, true);
   assert.deepEqual(c.build_units, ['A', 'B']);
-  assert.deepEqual(c.closing_edges, [{ from: 'module:A/Ledger.cs', to: 'module:B/Invoice.cs', from_unit: 'A', to_unit: 'B' }]);
+  assert.deepEqual(c.closing_edges, [{ from: 'module:A/Ledger.cs', to: 'module:B/Invoice.cs', from_unit: 'A', to_unit: 'B', undeclared: true }]);
   assert.match(cli(csDir, 'graph', 'cycles').err, /cycle across build units A and B cannot be built/);
 });
 
@@ -105,4 +105,35 @@ test('facts an older version stored for the same generation are recomputed with 
   ctx.store.close();
   const [c] = JSON.parse(cli(csDir, 'graph', 'cycles', '--json').out);
   assert.equal(c.impossible_by_build, true);
+});
+
+test('declared references that run both ways (a Cargo dev-dependency) are no impossible cycle', async () => {
+  const { impossibleByBuild } = await import('../../../runtime/graph/derived.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
+  const p = prov({ source_type: 'ast', source_ref: 'x:1', extractor: 'test' });
+  const mod = (path) => nodeFact('module', path, { path, attrs: { language: 'rust' } }, p);
+  const pkg = (name) => nodeFact('package', name, { name, attrs: { ecosystem: 'cargo' } }, p);
+  const facts = [mod('a/src/lib.rs'), mod('b/src/lib.rs'), pkg('a'), pkg('b'),
+    edgeFact('CONTAINS', 'package:a', 'module:a/src/lib.rs', {}, p), edgeFact('CONTAINS', 'package:b', 'module:b/src/lib.rs', {}, p),
+    edgeFact('IMPORTS', 'module:a/src/lib.rs', 'module:b/src/lib.rs', {}, p), edgeFact('IMPORTS', 'module:b/src/lib.rs', 'module:a/src/lib.rs', {}, p),
+    edgeFact('DEPENDS_ON', 'package:b', 'package:a', {}, p)];
+  const members = ['module:a/src/lib.rs', 'module:b/src/lib.rs'];
+  assert.deepEqual(impossibleByBuild(Graph.fromFacts(facts), members).units, ['a', 'b']);
+  assert.equal(impossibleByBuild(Graph.fromFacts([...facts, edgeFact('DEPENDS_ON', 'package:a', 'package:b', { dev: true }, p)]), members), null);
+});
+
+test('a file of an unreadable project decides nothing, and the other units are still judged', async () => {
+  const { impossibleByBuild } = await import('../../../runtime/graph/derived.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
+  const p = prov({ source_type: 'ast', source_ref: 'x:1', extractor: 'test' });
+  const g = Graph.fromFacts([
+    nodeFact('module', 'a/a.go', { path: 'a/a.go', attrs: { language: 'go' } }, p), nodeFact('module', 'b/b.go', { path: 'b/b.go', attrs: { language: 'go' } }, p),
+    nodeFact('module', 'C/X.cs', { path: 'C/X.cs', attrs: { language: 'csharp' } }, p), nodeFact('package', 'C', { name: 'C', attrs: { ecosystem: 'dotnet', parse_error: true } }, p),
+    edgeFact('CONTAINS', 'package:C', 'module:C/X.cs', {}, p),
+    edgeFact('IMPORTS', 'module:a/a.go', 'module:b/b.go', {}, p), edgeFact('IMPORTS', 'module:b/b.go', 'module:C/X.cs', {}, p), edgeFact('IMPORTS', 'module:C/X.cs', 'module:a/a.go', {}, p),
+    edgeFact('IMPORTS', 'module:b/b.go', 'module:a/a.go', {}, p),
+  ]);
+  assert.deepEqual(impossibleByBuild(g, ['module:C/X.cs', 'module:a/a.go', 'module:b/b.go']).units, ['a', 'b']);
 });

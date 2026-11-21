@@ -182,7 +182,8 @@ export async function run({ positional, flags }) {
       const share = new Map();
       for (const y of b.cycles) for (const e of y.edges) share.set(key(e), (share.get(key(e)) ?? 0) + 1);
       const cycles = b.cycles.map((y) => ({ ...y, cut_candidates: [...y.edges].sort((a, z) => share.get(key(z)) - share.get(key(a)) || key(a).localeCompare(key(z))).slice(0, 3).map((e) => ({ ...e, in_cycles: share.get(key(e)) })) }));
-      const build = stored ? (stored[i].impossible_by_build ? { units: stored[i].build_units, closing: stored[i].closing_edges } : null) : impossibleByBuild(g, c, cg);
+      // The check reads import edges: a component over other edge types is not judged by it.
+      const build = stored ? (stored[i].impossible_by_build ? { units: stored[i].build_units, closing: stored[i].closing_edges } : null) : edgeTypes.length === 1 && edgeTypes[0] === 'IMPORTS' ? impossibleByBuild(g, c, cg) : null;
       return { size: c.length, members: c, ...(build && { impossible_by_build: true, build_units: build.units, closing_edges: build.closing }), cycles, cycles_truncated: b.truncated, cut: b.cut, ...(b.cut_heuristic && { cut_heuristic: true }), ...(stored && { finding: stored[i].finding, ...(stored[i].reason && { reason: stored[i].reason }) }) };
     });
     for (const c of comps) if (c.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(c)}\n`);
