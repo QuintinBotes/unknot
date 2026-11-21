@@ -167,14 +167,15 @@ function trackedSource(root, dir) {
 
 /**
  * The scope excludes to propose: the defaults plus the ecosystem's build outputs, but never
- * a folder that holds tracked source, whatever it is named. An ignored folder is untracked, so it stays excluded.
+ * build/ when git tracks source files under it. An ignored build/ is untracked, so it stays excluded.
  */
 function scopeExcludes(root, files, dotnet, notes) {
   const outputs = [];
   if (dotnet) outputs.push('**/bin/**', '**/obj/**');
   if (files.some((f) => /(^|\/)(pom\.xml|build\.gradle(\.kts)?|Cargo\.toml)$/.test(f))) outputs.push('target/**', '**/target/**');
   return [...new Set([...DEFAULT_CONFIG.scope.exclude, ...outputs])].filter((g) => {
-    const dir = /^(?:\*\*\/)?([\w.-]+)\/\*\*$/.exec(g)?.[1];
+    // Only build/ is ambiguous: committed dist/, vendor/ and the like are generated or third-party code.
+    const dir = g === 'build/**' ? 'build' : null;
     if (!dir || !trackedSource(root, dir)) return true;
     notes.push(`${g} is not excluded: git tracks source files under ${dir}/`);
     return false;

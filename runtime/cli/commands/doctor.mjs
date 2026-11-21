@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
 import { scipChecks } from '../../../adapters/semantic/scip/locate.mjs';
 import { detectSandbox } from '../../broker/sandbox.mjs';
@@ -79,7 +79,7 @@ export async function run({ flags }) {
       // The toolchain behind each configured command: a missing one fails every baseline check.
       for (const [name, argv] of Object.entries(cfg.config.commands ?? {})) {
         const exe = Array.isArray(argv) ? argv[0] : null;
-        if (!exe || (exe.includes('/') ? existsSync(join(root, exe)) : exeOnPath(exe))) continue;
+        if (!exe || (exe.includes('/') ? existsSync(resolve(root, exe)) : exeOnPath(exe))) continue;
         add(`command ${name}`, false, `${exe} is not on PATH, so commands.${name} (${argv.join(' ')}) cannot run; install it, or change the command in .unknot/config.yaml`, 'warn');
       }
       const { loaded, unavailable } = await loadAdapters(cfg.config);
