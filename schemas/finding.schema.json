@@ -24,6 +24,20 @@
       "type": "string",
       "minLength": 1
     },
+    "impact": {
+      "description": "The impact measure the ranking read (runtime/diagnose/impact.mjs), on findings diagnose returns.",
+      "type": "number",
+      "minimum": 0
+    },
+    "replaces": {
+      "description": "Fingerprints of findings folded into this one (a package cycle over the files of this file cycle); their stored rows are resolved with replaced_by naming this finding.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "replaced_by": {
+      "description": "On a resolved finding: the id of the finding it was folded into.",
+      "type": "string"
+    },
     "related_kinds": {
       "description": "Kinds of findings about the same subject folded into this one: same-function findings (long, complex, deeply nested) and same-files cycle findings (a file cycle and a package cycle); the finding's own kind and fingerprint are those of the primary.",
       "type": "array",

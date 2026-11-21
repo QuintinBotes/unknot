@@ -95,3 +95,33 @@ test('a package cycle folds into a file cycle only over exactly the same files',
   // Three packages of one file each, A importing and imported by B and C: one subject.
   assert.deepEqual(run([mod('a/a.js'), mod('b/b.js'), mod('c/c.js'), imp('a/a.js', 'b/b.js'), imp('b/b.js', 'a/a.js'), imp('a/a.js', 'c/c.js'), imp('c/c.js', 'a/a.js')]), [['module.dependency-cycle', ['module.package-cycle']]]);
 });
+
+test('a tie in rank goes to the larger impact, then to the id', async () => {
+  const { byRank, impactRank } = await import('../../../runtime/diagnose/impact.mjs');
+  // Equal rank: 0.5 × sqrt(1 + 3) = 1 × sqrt(1 + 0) = 1.
+  const big = { id: 'F-0002', kind: 'local.x', scope: ['a', 'b', 'c'], priority: { score: 0.5 }, measurements: {} };
+  const small = { id: 'F-0001', kind: 'local.x', scope: [], priority: { score: 1 }, measurements: {} };
+  const twin = { id: 'F-0000', kind: 'local.x', scope: [], priority: { score: 1 }, measurements: {} };
+  assert.equal(impactRank(big), impactRank(small));
+  assert.deepEqual([small, twin, big].sort(byRank(impactRank)).map((f) => f.id), ['F-0002', 'F-0000', 'F-0001']);
+});
+
+test('the MCP finding list uses the same order as diagnose', async () => {
+  const { TOOLS } = await import('../../../runtime/mcp/tools.mjs');
+  const listed = TOOLS.findings_list.run(p.ctx, { status: 'open', limit: 5 }).findings ?? TOOLS.findings_list.run(p.ctx, { status: 'open', limit: 5 });
+  assert.deepEqual(listed.map((f) => f.id), res.findings.slice(0, 5).map((f) => f.id));
+});
+
+test('a stored package-cycle finding folded into a file cycle is resolved as replaced by it', async () => {
+  const q = K.makeProject({ files: { 'left/x.js': js(['../right/y'], 'x'), 'right/y.js': js(['../left/x'], 'y') } });
+  await mapRepository(q.ctx, { config: config(), configDigest: 'd', scope: [], history: false });
+  const keyed = await diagnose(q.ctx, { config: config(), only: ['module'] });
+  const kept = keyed.findings.find((f) => f.kind === 'module.dependency-cycle');
+  assert.ok(kept?.replaces?.length === 1, JSON.stringify(kept?.replaces));
+  // As an earlier version stored it: an open package-cycle finding of its own.
+  q.ctx.store.insert('findings', { id: 'F-0900', fingerprint: kept.replaces[0], schema_version: kept.schema_version, kind: 'module.package-cycle', category: 'module', status: 'open', priority: 0.1, body: { ...kept, id: 'F-0900', kind: 'module.package-cycle', fingerprint: kept.replaces[0], status: 'open' }, first_seen_commit: 'x', last_seen_commit: 'x', last_run_id: null, created_at: 'x', updated_at: 'x' });
+  await diagnose(q.ctx, { config: config() });
+  const row = JSON.parse(q.ctx.store.get("SELECT body FROM findings WHERE id = 'F-0900'").body);
+  assert.equal(row.status, 'resolved');
+  assert.equal(row.replaced_by, kept.id);
+});

@@ -228,6 +228,7 @@ const dependencyCycle = define({
       if (same !== undefined) {
         const d = out[same];
         d.related_kinds = ['module.package-cycle'];
+        d.folds = [{ kind: 'module.package-cycle', key: `package-cycle:${comp[0]}` }];
         d.measurements['cycle.packages'] = comp.length;
         d.evidence.push({ ref: members[0].id, label: 'observed', summary: `the same files form a cycle of ${comp.length} packages: ${[...labels, labels[0]].join(' -> ')}`, source_ref: null });
         continue;

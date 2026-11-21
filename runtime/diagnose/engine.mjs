@@ -12,7 +12,7 @@ import { pathInScope, scopePredicate } from '../core/scope.mjs';
 import { readDerived } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { evaluateAll } from '../patterns/engine.mjs';
-import { capPerKind, impactOf, impactRank } from './impact.mjs';
+import { DEFAULT_MAX_PER_KIND, byRank, capPerKind, impactOf, impactRank } from './impact.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { DETECTORS } from './detectors/index.mjs';
@@ -92,6 +92,8 @@ function finalize(draft, detector, signals, config) {
     ...(['low', 'medium', 'high'].includes(draft.confidence) && { confidence: draft.confidence }),
     measurements: draft.measurements ?? {},
     ...(draft.related_kinds?.length && { related_kinds: draft.related_kinds }),
+    // Findings folded into this one, by fingerprint: their stored rows are reported as replaced by it.
+    ...(draft.folds?.length && { replaces: draft.folds.map((x) => digest({ kind: x.kind, key: x.key })) }),
     thresholds: draft.thresholds ?? {},
     why_accidental: draft.why_accidental ?? '',
     essential_considerations: draft.essential_considerations ?? [],
@@ -244,12 +246,15 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
       }
       out.push(body);
     }
-    // Findings that were open in this scope and are no longer detected are resolved.
+    // Findings that were open in this scope and are no longer detected are resolved; one folded into
+    // another finding says which.
+    const replacedBy = new Map(out.flatMap((b) => (b.replaces ?? []).map((fp) => [fp, b.id])));
     if (!only) {
       for (const row of ctx.store.all("SELECT id, version, body FROM findings WHERE status = 'open'")) {
         const body = JSON.parse(row.body);
         if (seen.has(body.fingerprint) || !inScope(body)) continue;
-        ctx.store.update('findings', row.id, row.version, { status: 'resolved', body: { ...body, status: 'resolved' }, updated_at: at });
+        const by = replacedBy.get(body.fingerprint);
+        ctx.store.update('findings', row.id, row.version, { status: 'resolved', body: { ...body, status: 'resolved', ...(by && { replaced_by: by }) }, updated_at: at });
       }
     }
     return out;
@@ -262,7 +267,8 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const open = calibrate(persisted.filter((f) => f.status === 'open'), feedback);
   // Impact first (impact.mjs), then the objective and calibration weights; ties go to the larger impact, then the id.
   const rank = (f) => impactRank(f) * (cats && cats.has(f.category) ? 1.5 : 1) * (f.calibration?.multiplier ?? 1);
-  const ranked = capPerKind(open.sort((a, b) => rank(b) - rank(a) || impactOf(b) - impactOf(a) || a.id.localeCompare(b.id)), config.diagnose?.max_per_kind ?? 10);
+  const ranked = capPerKind(open.sort(byRank(rank)), config.diagnose?.max_per_kind ?? DEFAULT_MAX_PER_KIND);
+  for (const f of ranked) f.impact = +impactOf(f).toFixed(2);
   const stats = {
     detectors: detectors.length,
     drafts: drafts.length,
