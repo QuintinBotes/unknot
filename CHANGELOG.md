@@ -8,7 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
-- CI tests every Node.js line the support policy promises, and the engines floor (#87): the test job adds Node 26 and a Node 22.13.0 job on Ubuntu, COMPATIBILITY lists each line with the date its window ends, and a workflow test ties the matrix to `engines.node` and to that list, and names a line for removal once its window has ended.
+- CI tests every Node.js line the support policy promises, and the engines floor (#87): the test job adds Node 26 and a Node 22.13.0 job on Ubuntu, COMPATIBILITY lists each line with the date its window ends, and a workflow test ties the matrix to `engines.node` and to that list, and names a line for removal once its window has ended. The new floor job found a real defect, fixed here: on Node 22.13 a statement streamed with `iterate()` was finalized mid-loop ("statement has been finalized", or a crash on Linux), so the store now streams through `Store.iterate`, which keeps the statement alive.
 
 ### Fixed
 

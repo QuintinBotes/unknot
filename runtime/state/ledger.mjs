@@ -96,7 +96,7 @@ export function readEvents(store, { runId, sliceId, type, afterSeq = 0, limit = 
 export function verifyLedger(store, publicKeyPem) {
   let prev = GENESIS;
   let count = 0;
-  for (const row of store.db.prepare('SELECT * FROM events ORDER BY seq').iterate()) {
+  for (const row of store.iterate('SELECT * FROM events ORDER BY seq')) {
     const body = rowToBody(row);
     if (body.prev_hash !== prev) return { ok: false, count, broken_at: row.seq, reason: 'prev_hash does not link' };
     const hash = digest(body);

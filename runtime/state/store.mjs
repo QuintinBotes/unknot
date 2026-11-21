@@ -173,6 +173,13 @@ export class Store {
     return this.db.prepare(sql).run(...params);
   }
 
+  // A generator keeps the statement referenced while rows stream; Node 22.13 finalizes an
+  // unreferenced statement mid-iteration ("statement has been finalized", or a crash).
+  *iterate(sql, ...params) {
+    const statement = this.db.prepare(sql);
+    yield* statement.iterate(...params);
+  }
+
   /** Run `fn` in a transaction (IMMEDIATE, so writers serialise up front). Nests by savepoint. */
   tx(fn) {
     const outer = this.depth === 0;
