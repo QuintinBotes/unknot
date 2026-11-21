@@ -18,7 +18,8 @@ const security = await import('../../../runtime/cli/commands/security.mjs');
 async function capture(fn) {
   const write = process.stdout.write;
   let buf = '';
-  process.stdout.write = (chunk) => { buf += chunk; return true; };
+  // Node 22.13's test runner writes its own binary events to stdout; only text is the command's output.
+  process.stdout.write = (chunk, ...rest) => (typeof chunk === 'string' ? ((buf += chunk), true) : write.call(process.stdout, chunk, ...rest));
   try {
     await fn();
   } finally {
