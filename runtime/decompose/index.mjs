@@ -134,6 +134,24 @@ function carryProvenance(base, earlier, self) {
   });
 }
 
+/** Share of the import and call edges between modules, touching the members, that only name matching found (#77). */
+function inferredShare(graph, modules) {
+  const seen = new Set();
+  let inferred = 0;
+  for (const m of modules) {
+    for (const e of [...graph.out(m), ...graph.in(m)]) {
+      if ((e.type !== 'IMPORTS' && e.type !== 'CALLS') || seen.has(e.id)) continue;
+      // A boundary rests on module-to-module edges; an import of an external package is no part of it.
+      if (graph.node(e.from)?.type !== 'module' || graph.node(e.to)?.type !== 'module') continue;
+      seen.add(e.id);
+      if (e.label === 'inferred') inferred++;
+    }
+  }
+  return { share: seen.size ? +(inferred / seen.size).toFixed(3) : 0, edges: seen.size };
+}
+
+const LOWER = { high: 'medium', medium: 'low', low: 'low' };
+
 /** Client routes are a routable seam seen from the client side: served elsewhere until a workspace map names the repository. */
 function seamGaps(cand, signals) {
   const calls = (cand.details?.contracts ?? []).filter((r) => r.source === 'client' && !r.client_repositories);
@@ -201,11 +219,16 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   const claimed = new Set(work.map((w) => known.get(fingerprintOf({ target: w.t, drivers: allDrivers, modules: w.cand.modules }))).filter(Boolean));
   const recommendations = [];
   for (const { t, cand, fe } of work) {
-    const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, ...(fe?.signals ?? {}) };
+    const inf = inferredShare(graph, cand.modules);
+    const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, 'boundary.inferred_share': inf.share, ...(fe?.signals ?? {}) };
     if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
     delete signals.gaps;
     const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
     const cap = capConfidence(cand.robust ? sel.confidence : 'low', sel.treatment, cand.details?.runtime);
+    // heuristic: a boundary resting mostly on name-matched edges is one step less sure.
+    const byName = cand.robust && cap.confidence !== 'low' && inf.share >= 0.5;
+    const confidence = cand.robust ? (byName ? LOWER[cap.confidence] : cap.confidence) : 'low';
+    const lowered = byName ? `confidence lowered from ${cap.confidence} to ${confidence}: ${Math.round(inf.share * 100)}% of the ${inf.edges} import and call edges it rests on were matched by name (inferred), not resolved by a compiler or index` : null;
     const fingerprint = fingerprintOf({ target: t, drivers: allDrivers, modules: cand.modules });
     const existing = known.get(fingerprint) ?? null;
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
@@ -262,13 +285,14 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
       readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
-      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : []), ...(historyGap ? [historyGap] : [])])],
-      confidence: cand.robust ? cap.confidence : 'low',
+      evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : []), ...(lowered ? [lowered] : []), ...(historyGap ? [historyGap] : [])])],
+      confidence,
       ...(historyGap && { unmeasured: ['evolutionary'] }),
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
       ...(cand.details?.transactions ? { transaction_evidence: cand.details.transactions } : {}),
       ...(cand.details?.delivery?.window ? { delivery_evidence: cand.details.delivery } : {}),
       ...(cap.capped ? { confidence_cap: cap.reason } : {}),
+      ...(lowered ? { confidence_lowered: lowered } : {}),
       ...(sel.treatment === 'T0' ? { retain_reason: sel.retain_reason } : { selection_reason: sel.selection_reason }),
       first_slice: firstSlice(sel.treatment, cand, sel),
       proof_obligations: obligationsFor(sel),

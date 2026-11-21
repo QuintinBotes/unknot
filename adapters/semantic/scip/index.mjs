@@ -309,6 +309,8 @@ async function link(ctx) {
   const tool = res.tools.join(', ');
   const out = [];
 
+  const linksFrom = new Map();
+  for (const l of res.links) linksFrom.set(l.from, (linksFrom.get(l.from) ?? new Set()).add(l.to));
   for (const [path, info] of [...res.files].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const mod = mods.get(path);
     mod.attrs.parse_quality = 'semantic'; // the coverage report reads the module fact as extracted
@@ -321,7 +323,8 @@ async function link(ctx) {
         semantic: { definitions: info.definitions, types: info.types, members: info.members.length, unreferenced: unref.slice(0, MAX_LISTED), unreferenced_count: unref.length, ...(tool && { indexer: tool }) },
       },
     }, pv(path, 1)));
-    ctx.semantic?.set(path, { declared: new Map((res.deps.get(path) ?? []).map((dependency) => [dependency.to, dependency])) });
+    // `linked`: the files this one references in the index, so a lexical edge it confirms is no guess (#77).
+    ctx.semantic?.set(path, { declared: new Map((res.deps.get(path) ?? []).map((dependency) => [dependency.to, dependency])), linked: linksFrom.get(path) ?? new Set() });
   }
 
   // A row can cover several source languages. Only call it semantic when this map actually
