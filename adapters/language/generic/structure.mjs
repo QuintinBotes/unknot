@@ -623,6 +623,7 @@ export function analyze(lx, lang) {
       end,
       hasBody: body >= 0,
       exported: exportedFor(lang, name, prefix),
+      ...(syntax.partialTypes && /\bpartial\b/.test(prefix) && { partial: true }),
       ...parseBases(lang, typeKind.split(' ')[0], hdr),
     };
     if (syntax.structuralInterfaces && body >= 0) Object.assign(t, isIface ? interfaceMethods(code.slice(body + 1, end), lang) : { embeds: embeddedFields(code.slice(body + 1, end)) });

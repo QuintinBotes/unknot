@@ -245,6 +245,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/_test\.go$/],
     generatedGlobs: ['**/*.pb.go'],
     ecosystems: ['go'],
+    acyclicUnits: true, // Go refuses an import cycle between packages (#72)
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['go'],
     genericSyntax: {
@@ -286,6 +287,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/(?:^|\/)src\/test\//, /(?:Tests?|IT|Spec|Suite)\.java$/],
     ecosystems: ['maven', 'gradle'],
     buildUnit: true, // decompose treats its project, module or crate as one module (#74)
+    acyclicUnits: true, // its build refuses a cycle between those units (#72)
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['java'],
     genericSyntax: {
@@ -320,6 +322,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/(?:^|\/)src\/test\//, /(?:Tests?|IT|Spec|Suite)\.(?:kt|kts)$/],
     ecosystems: ['maven', 'gradle'],
     buildUnit: true,
+    acyclicUnits: true,
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['kt'],
     genericSyntax: {
@@ -372,6 +375,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     generatedGlobs: ['**/*.g.cs'],
     ecosystems: ['dotnet'],
     buildUnit: true,
+    acyclicUnits: true,
     qualityFamily: QUALITY_FAMILIES.C,
     affinityTerms: ['cs'],
     genericSyntax: {
@@ -380,6 +384,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
       annotationStyle: 'bracket',
       exported: 'public',
       nonPublic: 'unit',
+      partialTypes: true, // `partial class T` in several files is one type (#75)
       resolver: 'namespace',
       memberLinker: 'namespace',
     },
@@ -406,6 +411,7 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
     testPathPatterns: [/(?:^|\/)tests\//],
     ecosystems: ['cargo'],
     buildUnit: true,
+    acyclicUnits: true,
     qualityFamily: QUALITY_FAMILIES.RUST,
     affinityTerms: ['rs'],
     genericSyntax: {

@@ -6,7 +6,7 @@
 import { globToRegExp } from '../../core/glob.mjs';
 import { pathInScope, scopePredicate } from '../../core/scope.mjs';
 import { condense, cycleBreakdown, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
-import { MAX_CYCLES, derivedFor, strictView } from '../../graph/derived.mjs';
+import { MAX_CYCLES, derivedFor, impossibleByBuild, strictView } from '../../graph/derived.mjs';
 import { clamp, isTestModule, opt } from './local.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
@@ -140,6 +140,7 @@ const dependencyCycle = define({
       // The edges whose removal leaves the component acyclic, declared-only ones first; an ordering
       // heuristic past the size where the exact search stops being affordable.
       const breakdown = cycleBreakdown(strict, members, { edgeTypes: IMPORT, maxCycles: MAX_CYCLES });
+      const build = impossibleByBuild(graph, members, strict);
       const cutEvidence = breakdown.cut.slice(0, MAX_CUT_EVIDENCE).map((e) => ({
         ref: e.from,
         label: breakdown.cut_heuristic ? 'inferred' : 'observed',
@@ -192,7 +193,7 @@ const dependencyCycle = define({
         factors: unusedOnly
           ? { benefit: 1, evidence: 0.7, reversibility: 0.95, blast: 1, cost: 1, uncertainty: 1 }
           : { benefit: clamp(Math.round(2 + Math.log2(members.length)), 1, 5), evidence: 0.9, reversibility: 0.9, blast: members.length > 5 ? 3 : 2, cost: clamp(Math.ceil(members.length / 3) + 1, 2, 5), uncertainty: 1 },
-        uncertainties: ['Type-only imports are counted as edges when the adapter does not label them, which may overstate a cycle.'],
+        uncertainties: ['Type-only imports are counted as edges when the adapter does not label them, which may overstate a cycle.', ...(build ? [`impossible_by_build: the cycle spans build units ${build.units.join(', ')} that the build cannot have in a cycle, so one of its edges is an analysis artifact or the code does not build; check ${build.closing.slice(0, 5).map((e) => `${pathOf(graph, e.from)} -> ${pathOf(graph, e.to)}`).join(', ')}.`] : [])],
         alternatives: [
           { id: 'retain', summary: 'Keep the cycle if the modules are one conceptual unit; then merge them or document the grouping so it is treated as a single component.' },
           { id: 'extract-shared', summary: 'Move the shared definitions to a third module that both depend on.' },
@@ -365,24 +366,46 @@ const hubModule = define({
     const out = [];
     const mods = sourceModules(graph);
     const ids = new Set(mods.map((m) => m.id));
+    // The files of one partial type are one hub (#75): their fan-in and fan-out are counted once, outside them.
+    // Types sharing a file (a nested partial type, one designer file for several) are one group, named after the outermost.
+    const groupOf = new Map();
+    const partials = [...graph.nodes('class'), ...graph.nodes('interface')].filter((t) => t.attrs?.partial && t.attrs.files?.length > 1)
+      .sort((a, b) => a.id.length - b.id.length || (a.id < b.id ? -1 : 1));
+    for (const t of partials) {
+      const files = t.attrs.files.map((p) => `module:${p}`).filter((id) => ids.has(id));
+      if (files.length < 2) continue;
+      const met = [...new Set(files.map((id) => groupOf.get(id)).filter(Boolean))];
+      const g = met[0] ?? { name: t.name, others: [], files: [] };
+      for (const o of met.slice(1)) { g.others.push(o.name, ...o.others); g.files.push(...o.files); }
+      if (met.length && !g.others.includes(t.name) && g.name !== t.name) g.others.push(t.name);
+      g.files = [...new Set([...g.files, ...files])].sort();
+      for (const id of g.files) groupOf.set(id, g);
+    }
+    const done = new Set();
     for (const m of mods) {
+      const g = groupOf.get(m.id);
+      if (g && done.has(g)) continue;
+      if (g) done.add(g);
+      const own = new Set(g ? g.files : [m.id]);
       // An import of a whole package targets every file in it, so it says nothing about this file.
       // A reference inside one package (where the package is the unit) is not an import of the file.
-      const fi = sortedUnique(graph.in(m.id, IMPORT).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => f !== m.id && ids.has(f)));
-      const fo = sortedUnique(graph.out(m.id, IMPORT).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => t !== m.id && ids.has(t)));
+      const fi = sortedUnique([...own].flatMap((id) => graph.in(id, IMPORT)).filter((e) => !e.attrs?.package_level && !e.attrs?.intra_package).map((e) => e.from).filter((f) => !own.has(f) && ids.has(f)));
+      const fo = sortedUnique([...own].flatMap((id) => graph.out(id, IMPORT)).filter((e) => !e.attrs?.intra_package).map((e) => e.to).filter((t) => !own.has(t) && ids.has(t)));
       if (fi.length < o.fan_in || fo.length < o.fan_out) continue;
-      const tests = graph.in(m.id, 'TESTS').length;
+      const tests = testsOn(graph, [...own]);
+      const paths = [...own].map((id) => graph.node(id)?.path ?? id.slice(7)).sort();
+      const churn = [...own].map((id) => graph.node(id)?.attrs?.churn_commits).filter((c) => c != null);
       out.push(draft({
         kind: 'module.hub-module',
-        title: `${m.path} is a hub: ${fi.length} modules import it and it imports ${fo.length}`,
-        scope: [m.path],
+        title: g ? `${g.name}, a partial type in ${paths.length} files, is a hub: ${fi.length} modules import it and it imports ${fo.length}` : `${m.path} is a hub: ${fi.length} modules import it and it imports ${fo.length}`,
+        scope: g ? paths : [m.path],
         key: m.id,
-        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}`, source_ref: `${m.path}:1` }],
-        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'module.loc': m.attrs.loc ?? 0, 'tests.present': tests, ...(m.attrs.churn_commits != null && { 'module.churn': m.attrs.churn_commits }) },
+        evidence: [{ ref: m.id, label: 'observed', summary: `fan-in ${fi.length}, fan-out ${fo.length}${g ? `, declared in ${paths.join(', ')}${g.others.length ? `, with ${[...new Set(g.others)].sort().join(', ')}` : ''}` : ''}`, source_ref: `${m.path}:1` }],
+        measurements: { 'module.fan_in': fi.length, 'module.fan_out': fo.length, 'module.consumers': fi.length, 'module.loc': [...own].reduce((n, id) => n + (graph.node(id)?.attrs?.loc ?? 0), 0), 'tests.present': tests, ...(churn.length && { 'module.churn': Math.max(...churn) }) },
         thresholds: { fan_in: o.fan_in, fan_out: o.fan_out, note: 'heuristic: both directions high means changes ripple in and out' },
         why_accidental: 'A module both widely used and widely dependent is a coupling junction: any change to it or its dependencies touches many unrelated modules.',
         essential_considerations: ['An application composition root or an index/barrel file is expected to import widely.'],
-        smallest_simplification: `Split ${m.path} so the part many modules use (stable types) is separate from the part that orchestrates many collaborators.`,
+        smallest_simplification: `Split ${g ? `the type ${g.name} (${paths.join(', ')})` : m.path} so the part many modules use (stable types) is separate from the part that orchestrates many collaborators.`,
         invariants: ['Public exports remain importable from the original path (re-export).', 'Behaviour is unchanged.'],
         risks: ['Re-exports can hide new cycles.', 'Importers must be re-pointed in a coordinated change if re-exports are dropped.'],
         verification: verifyStructural(tests),
