@@ -126,3 +126,46 @@ describe('decompose CLI', () => {
     assert.deepEqual(JSON.parse((await cli('shop/**', '--dry-run', '--json', '--driver', 'security_isolation', '--driver', 'independent_scale')).out).driver_provenance_missing, ['security_isolation', 'independent_scale']);
   });
 });
+
+describe('the no-driver notice (issue #94)', () => {
+  const NOTICE = /only treatments that need no driver can be recommended/;
+
+  test('1. without a driver the first lines say what is possible and how to give one', async () => {
+    const { out } = await cli('shop/**');
+    const first = out.split('\n').slice(0, 3).join('\n');
+    assert.match(first, NOTICE);
+    assert.match(first, /T3/);
+    assert.match(first, /T7/);
+    assert.match(first, /--driver <id>/);
+  });
+
+  test('1b. the notice also leads --summary text', async () => {
+    const { out } = await cli('--summary', '--dry-run', 'shop/**');
+    assert.match(out.split('\n')[0], NOTICE);
+  });
+
+  test('2. with a driver the notice is absent', async () => {
+    const { out } = await cli('shop/**', '--driver', 'independent_deploy', '--dry-run');
+    assert.doesNotMatch(out, NOTICE);
+  });
+
+  test('3. --json carries the notice in `notices`, and stdout stays valid JSON', async () => {
+    const res = JSON.parse((await cli('shop/**', '--json', '--dry-run')).out);
+    assert.equal(res.notices.length, 1);
+    assert.match(res.notices[0], NOTICE);
+    const withDriver = JSON.parse((await cli('shop/**', '--json', '--dry-run', '--driver', 'independent_deploy')).out);
+    assert.deepEqual(withDriver.notices ?? [], []);
+  });
+
+  test('3b. --summary --json keeps its array and puts the notice on stderr', async () => {
+    const { out, err } = await cli('--summary', '--json', '--dry-run', 'shop/**');
+    assert.ok(Array.isArray(JSON.parse(out)));
+    assert.match(err, NOTICE);
+  });
+
+  test('4. the decompose skill tells the agent to relay the notice before the results', () => {
+    const skill = readFileSync(new URL('../../../skills/decompose/SKILL.md', import.meta.url), 'utf8');
+    assert.match(skill, /notices/);
+    assert.match(skill, /relay[^.]*before the (results|records)/i);
+  });
+});
