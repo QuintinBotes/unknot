@@ -624,6 +624,10 @@
       "type": "string",
       "description": "Present when static evidence alone lowered the confidence to medium: why."
     },
+    "confidence_lowered": {
+      "type": "string",
+      "description": "Present when the confidence was lowered one step because at least half of the import and call edges the boundary rests on were matched by name (inferred): why."
+    },
     "first_slice": {
       "type": "object"
     },

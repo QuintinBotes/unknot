@@ -90,7 +90,13 @@ function cap(items, max, weight) {
   return { shown: sorted.slice(0, Math.max(1, max - 1)), hidden: sorted.slice(Math.max(1, max - 1)) };
 }
 
-const view = (mermaid, notes, used, extra = {}) => ({ mermaid, ...extra, notes, evidence: tally(used) });
+const view = (mermaid, notes, used, extra = {}) => ({ mermaid, ...extra, notes: [...notes, ...byName(used)], evidence: tally(used) });
+/** The share of the edges a view rests on that were matched by name (#77). */
+function byName(used) {
+  const edges = used.filter((x) => x?.from && x.to);
+  const inferred = edges.filter((e) => e.label === 'inferred').length;
+  return inferred ? [`${inferred} of the ${edges.length} edges this view rests on (${Math.round((inferred / edges.length) * 100)}%) were matched by name (inferred), not resolved by a compiler or index.`] : [];
+}
 const systemName = (g) => plain(g.nodes('repository')[0]?.name ?? 'System', 40);
 const short = (n) => (n.path ? n.path.split('/').slice(-2).join('/') : n.name ?? n.id);
 
