@@ -272,7 +272,7 @@ const MAX_STRUCTURAL = 25;
  * type's methods include those of the repository's types it embeds, which the language promotes;
  * an embedded type from elsewhere adds none, since its methods are not visible here.
  */
-function structuralImplements(types, receivers, mods, qualified) {
+function structuralImplements(types, receivers, qualified) {
   const all = [...types.values()].flat().filter((t) => genericSyntax(t.attrs.language).structuralInterfaces).sort((a, b) => (a.id < b.id ? -1 : 1));
   // The one type of `type` an embedded name means: in the embedder's directory or a package it
   // dot-imports, or, qualified, in the package that qualifier names in the embedder's file.
@@ -608,10 +608,11 @@ function link(ctx) {
       const unplain = new Set(); // targets an import reaches other than by a class name
       for (const imp of a.imports ?? []) {
         const r = resolve(path, a, imp);
-        if (r.paths.length && imp.alias !== '_') {
-          const q = imp.alias === '.' ? '' : imp.alias ?? mods.get(r.paths[0]).attrs.package ?? basename(imp.spec);
+        if (r.paths.length && imp.alias !== '_' && genericSyntax(a.language).structuralInterfaces) {
+          // Every package clause in the directory names it: a build-ignored `package main` generator does not decide.
+          const names = imp.alias === '.' ? [''] : imp.alias ? [imp.alias] : [...new Set(r.paths.map((p) => mods.get(p).attrs.package ?? basename(imp.spec)))];
           if (!qualified.has(path)) qualified.set(path, new Map());
-          qualified.get(path).set(q, new Set([...(qualified.get(path).get(q) ?? []), ...r.paths]));
+          for (const q of names) qualified.get(path).set(q, new Set([...(qualified.get(path).get(q) ?? []), ...r.paths]));
         }
         for (const p of r.paths) {
           // The type an import names is its first capitalised segment (`y.Helper.CONSTANT` names `Helper`).
@@ -712,7 +713,7 @@ function link(ctx) {
       if (srcs.length === 1 && tr.length === 1) push(edgeFact('IMPLEMENTS', srcs[0].id, tr[0].id, { by: 'impl' }, prov_(path, im.line, 'low')));
     }
   }
-  for (const f of structuralImplements(types, receivers, mods, qualified)) push(f);
+  for (const f of structuralImplements(types, receivers, qualified)) push(f);
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
   for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);

@@ -537,3 +537,9 @@ test('Go #99: a dot import makes the package names usable unqualified in an embe
   const p = project({ ...goStore, 'ext/ext.go': 'package ext\nimport . "example.com/shop/store"\ntype Wrap struct {\n\tStore\n}\n' });
   assert.ok(p.all.some((f) => f.type === 'IMPLEMENTS' && f.from === 'class:ext/ext.go#Wrap' && f.to === 'interface:store/store.go#Store'));
 });
+
+test('Go #99: a build-ignored generator with package main does not rename the package', () => {
+  const ext = 'package ext\nimport "example.com/shop/store"\ntype Buf struct{}\nvar _ store.Reader = (*Buf)(nil)\n';
+  const p = project({ ...goStore, 'store/a_gen.go': '//go:build ignore\n\npackage main\nfunc main() {}\n', 'ext/ext.go': ext });
+  assert.deepEqual(p.all.filter((f) => f.type === 'IMPLEMENTS' && f.from.startsWith('class:ext/')).map((f) => f.to), ['interface:store/store.go#Reader']);
+});
