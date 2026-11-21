@@ -62,7 +62,7 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     proven_deletion: proven,
     stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
-    for_you: humanSteps(ctx, cfg, unknotOnPath === undefined ? {} : { unknotOnPath }),
+    for_you: humanSteps(ctx, cfg, { checkCli: true, ...(unknotOnPath === undefined ? {} : { unknotOnPath }) }),
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
