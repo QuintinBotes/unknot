@@ -4,7 +4,7 @@
 // whole set through diagnose() so every draft is validated against the finding schema.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -16,6 +16,7 @@ import { validateArtifact } from '../../../runtime/core/schema.mjs';
 import { evaluateAll } from '../../../runtime/patterns/engine.mjs';
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
 import { Graph } from '../../../runtime/graph/graph.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const P = prov({ source_type: 'ast', source_ref: 't.js:1', extractor: 'test@0.0.1', confidence: 'high' });
 const mod = (path, attrs = {}) => nodeFact('module', path, { name: path, path, attrs: { language: 'js', loc: 50, sloc: 40, is_test: false, parse_quality: 'ast', ...attrs } }, P);
@@ -582,7 +583,7 @@ const homes = [];
 after(() => homes.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 test('diagnose() accepts every draft: findings validate against the schema', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'unknot-det-'));
+  const dir = mkTmp(join(tmpdir(), 'unknot-det-'));
   homes.push(dir);
   process.env.UNKNOT_HOME = join(dir, 'home');
   const { openProject } = await import('../../../runtime/context.mjs');

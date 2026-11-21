@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const home = mkdtempSync(join(tmpdir(), 'uk-home-'));
+const home = mkTmp(join(tmpdir(), 'uk-home-'));
 process.env.UNKNOT_HOME = home;
 delete process.env.CLAUDECODE;
 
@@ -23,7 +24,7 @@ retention:
 `;
 
 function bundle(text = POLICY, name = 'org') {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-pol-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-pol-'));
   const file = join(dir, 'org-policy.yaml');
   writeFileSync(file, text);
   generatePolicyKey(name, 'correct horse battery');
@@ -80,7 +81,7 @@ test('validation rejects unknown keys and bad organization-only fields', () => {
 });
 
 test('effective policy: organization policy tightens the repository config', () => {
-  const project = mkdtempSync(join(tmpdir(), 'uk-proj-'));
+  const project = mkTmp(join(tmpdir(), 'uk-proj-'));
   mkdirSync(join(project, '.unknot'));
   writeFileSync(join(project, '.unknot/config.yaml'), 'version: 1\nmode: governed\nlimits:\n  max_changed_files: 50\nretention:\n  runs: 90d\n');
   const ctx = openProject(project, { create: true });

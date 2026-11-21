@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { MIGRATIONS, LATEST_SCHEMA_VERSION, runMigrations } from '../../../runtime/state/migrations.mjs';
 import { Store } from '../../../runtime/state/store.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
-const tmp = () => mkdtempSync(join(tmpdir(), 'uk-mig-'));
+const tmp = () => mkTmp(join(tmpdir(), 'uk-mig-'));
 const meta = (db, k) => db.prepare('SELECT value FROM meta WHERE key = ?').get(k)?.value;
 
 test('a fresh store records the schema version and applied names', () => {

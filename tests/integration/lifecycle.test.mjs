@@ -4,12 +4,13 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../runtime/context.mjs');
@@ -76,7 +77,7 @@ test('classify', () => {
 const g = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' });
 
 test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-proj-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-proj-'));
   mkdirSync(join(dir, 'src'));
   mkdirSync(join(dir, 'test'));
   writeFileSync(join(dir, 'src/classify.mjs'), BRANCHY);

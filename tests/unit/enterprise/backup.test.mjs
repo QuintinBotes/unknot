@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -18,7 +19,7 @@ const PASS = 'a long enough passphrase';
 const KDF = { kdfN: 1 << 14 }; // the minimum the reader accepts; keeps the tests quick
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-bak-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-bak-'));
   const base = join(dir, '.unknot');
   mkdirSync(join(base, 'campaigns'), { recursive: true });
   mkdirSync(join(base, 'slices'));
@@ -36,7 +37,7 @@ function fixture() {
   return { dir, ctx, digest };
 }
 
-const tmpFile = (name) => join(mkdtempSync(join(tmpdir(), 'uk-bakout-')), name);
+const tmpFile = (name) => join(mkTmp(join(tmpdir(), 'uk-bakout-')), name);
 
 test('create, verify, restore: the restored project opens and its ledger verifies', () => {
   const { ctx, digest } = fixture();
@@ -50,7 +51,7 @@ test('create, verify, restore: the restored project opens and its ledger verifie
   assert.equal(v.ok, true, v.reason);
   assert.equal(v.ledger.count, made.ledger.count);
 
-  const target = join(mkdtempSync(join(tmpdir(), 'uk-restore-')), 'restored');
+  const target = join(mkTmp(join(tmpdir(), 'uk-restore-')), 'restored');
   const r = restoreBackup(file, PASS, target);
   assert.equal(r.project_id, ctx.projectId);
   assert.equal(r.keys_present, true, 'same machine: the key directory is still there');
@@ -109,7 +110,7 @@ test('tampering, truncation and a wrong passphrase all fail verification', () =>
   assert.equal(verifyBackup(file, PASS).ok, true, 'the untouched archive still verifies');
 
   // Restoring a bad archive leaves nothing behind.
-  const target = join(mkdtempSync(join(tmpdir(), 'uk-restore-')), 'r');
+  const target = join(mkTmp(join(tmpdir(), 'uk-restore-')), 'r');
   assert.throws(() => restoreBackup(tampered, PASS, target), (e) => e.code === 'UK_INTEGRITY');
   assert.ok(!existsSync(join(target, '.unknot')) || readdirSync(join(target, '.unknot')).length === 0);
 });
@@ -118,18 +119,18 @@ test('restore refuses a non-empty target and never overwrites', () => {
   const { ctx } = fixture();
   const file = tmpFile('r.ukb');
   createBackup(ctx, file, PASS, KDF);
-  const target = mkdtempSync(join(tmpdir(), 'uk-restore-'));
+  const target = mkTmp(join(tmpdir(), 'uk-restore-'));
   writeFileSync(join(target, 'precious.txt'), 'keep me');
   assert.throws(() => restoreBackup(file, PASS, target), (e) => e.code === 'UK_STATE_CONFLICT');
   assert.equal(readFileSync(join(target, 'precious.txt'), 'utf8'), 'keep me');
-  const empty = mkdtempSync(join(tmpdir(), 'uk-restore-'));
+  const empty = mkTmp(join(tmpdir(), 'uk-restore-'));
   restoreBackup(file, PASS, empty);
   assert.throws(() => restoreBackup(file, PASS, empty), (e) => e.code === 'UK_STATE_CONFLICT', 'a second restore into the same place is refused');
   assert.throws(() => createBackup(ctx, file, PASS, KDF), (e) => e.code === 'UK_STATE_CONFLICT', 'backups are not overwritten');
 });
 
 test('passphrase files must be private and long enough', { skip: process.platform === 'win32' }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-pf-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-pf-'));
   const f = join(dir, 'pass');
   writeFileSync(f, `${PASS}\n`, { mode: 0o644 });
   chmodSync(f, 0o644);

@@ -3,13 +3,14 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../helpers/tmp.mjs';
 
-const home = mkdtempSync(join(tmpdir(), 'uk-home-'));
+const home = mkTmp(join(tmpdir(), 'uk-home-'));
 process.env.UNKNOT_HOME = home;
 delete process.env.CLAUDECODE;
 
@@ -49,7 +50,7 @@ const g = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e', '-c', '
 const cli = (dir, ...args) => JSON.parse(spawnSync(process.execPath, [BIN, ...args, '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: home } }).stdout);
 
 test('a slice whose finding disappears after a re-map is flagged stale, and nothing else changes', { timeout: 120_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'uk-proj-'));
+  const dir = mkTmp(join(tmpdir(), 'uk-proj-'));
   mkdirSync(join(dir, 'src'));
   writeFileSync(join(dir, 'src/classify.mjs'), BRANCHY);
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo', type: 'module' }));

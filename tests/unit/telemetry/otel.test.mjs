@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTelemetry, hostAllowed, sanitizeAttributes } from '../../../runtime/telemetry/otel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'uk-tel-'));
+const tmp = () => mkTmp(join(tmpdir(), 'uk-tel-'));
 const quiet = () => {};
 
 test('disabled telemetry is a complete no-op', async () => {

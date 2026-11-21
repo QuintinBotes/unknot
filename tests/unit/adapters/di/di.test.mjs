@@ -5,12 +5,11 @@
 // ambiguous names give no edge, and a registered implementation is not dead code.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'unknot-di-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'unknot-di-home-'));
 
 import diAdapter from '../../../../adapters/language/di/index.mjs';
 import genericAdapter from '../../../../adapters/language/generic/index.mjs';
@@ -23,6 +22,7 @@ import { assertFact } from '../../../../runtime/graph/facts.mjs';
 import { Graph } from '../../../../runtime/graph/graph.mjs';
 import { LANGUAGE_IDS } from '../../../../runtime/graph/languages.mjs';
 import { hasPython, realExec, unsupportedExec } from '../python/helpers.mjs';
+import { mkTmp } from '../../../helpers/tmp.mjs';
 
 const L = LANGUAGE_IDS;
 const entryOf = (path, text) => ({ path, size: text.length, language: null, kind: 'source', blob: path });

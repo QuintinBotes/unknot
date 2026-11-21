@@ -2,13 +2,14 @@
 // a workspace map records the workspace in each member's store, and decompose reads its links.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -58,7 +59,7 @@ function repo(parent, name, files) {
 }
 
 async function fixture() {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-wsd-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-wsd-'));
   const appDir = repo(parent, 'app', { ...group(['orders-client']), 'src/orders/orders-client.ts': `${NAMES.map((m) => `import { f_${m} } from './${m}';`).join('\n')}\n${CLIENT}`, ...OTHER });
   const svcDir = repo(parent, 'svc', { ...group(['orders-controller']), 'src/orders/orders-controller.ts': `${NAMES.map((m) => `import { f_${m} } from './${m}';`).join('\n')}\n${SERVER}`, ...OTHER });
   const alone = repo(parent, 'alone', { ...group(['orders-controller']), 'src/orders/orders-controller.ts': `${NAMES.map((m) => `import { f_${m} } from './${m}';`).join('\n')}\n${SERVER}`, ...OTHER });

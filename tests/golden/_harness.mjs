@@ -3,12 +3,13 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkTmp } from '../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = realpathSync(mkdtempSync(join(tmpdir(), 'uk-golden-home-')));
+process.env.UNKNOT_HOME = realpathSync(mkTmp(join(tmpdir(), 'uk-golden-home-')));
 delete process.env.CLAUDECODE;
 
 export const FIXTURES = fileURLToPath(new URL('../fixtures/golden/', import.meta.url));
@@ -23,7 +24,7 @@ export const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e'
 
 /** Copy a golden fixture into a fresh git repo; `extra` maps relative paths to contents. */
 export function materialize(name, extra = {}) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), `uk-golden-${name}-`)));
+  const dir = realpathSync(mkTmp(join(tmpdir(), `uk-golden-${name}-`)));
   cpSync(join(FIXTURES, name), dir, { recursive: true });
   for (const [p, text] of Object.entries(extra)) {
     mkdirSync(dirname(join(dir, p)), { recursive: true });

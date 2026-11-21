@@ -36,7 +36,7 @@ npm run bench            # scripts/bench.mjs; add --quick for the CI smoke size
 npm run validate         # claude plugin validate --strict .   (needs the claude CLI)
 ```
 
-CI runs `npm test` and the benchmark smoke on Ubuntu and macOS with Node 22 and 24, and validates the plugin manifest. Tests create their own temporary repositories and `UNKNOT_HOME`; see `tests/helpers/kernel.mjs` for the kernel fixtures. Use fixtures under `tests/fixtures/` for adapter and detector tests, and keep them small.
+CI runs `npm test` and the benchmark smoke on Ubuntu and macOS with Node 22 and 24, and validates the plugin manifest. Tests create their own temporary repositories and `UNKNOT_HOME`; see `tests/helpers/kernel.mjs` for the kernel fixtures. Create temporary directories with `mkTmp` from `tests/helpers/tmp.mjs`, never `mkdtemp`: it removes them when the test process ends (`UNKNOT_KEEP_TMP=1` keeps them for debugging). Use fixtures under `tests/fixtures/` for adapter and detector tests, and keep them small.
 
 Conventions:
 

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { buildRelease } from '../../../scripts/build-release.mjs';
 import { verifyRelease } from '../../../scripts/verify-release.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..');
@@ -17,7 +18,7 @@ let skip = false;
 before(() => {
   try {
     execFileSync('git', ['--version'], { stdio: 'ignore' });
-    clone = mkdtempSync(join(tmpdir(), 'uk-rel-'));
+    clone = mkTmp(join(tmpdir(), 'uk-rel-'));
     execFileSync('git', ['clone', '-q', '--no-hardlinks', repoRoot, clone], { stdio: 'ignore' });
     execFileSync('git', ['-C', clone, 'archive', '--format=tar', 'HEAD', 'package.json'], { stdio: 'ignore' });
   } catch {
@@ -29,7 +30,7 @@ const build = (out, epoch) => buildRelease({ repo: clone, out, env: { SOURCE_DAT
 
 test('build then verify round-trips on a clone of this repository', (t) => {
   if (skip) return t.skip(skip);
-  const out = mkdtempSync(join(tmpdir(), 'uk-out-'));
+  const out = mkTmp(join(tmpdir(), 'uk-out-'));
   const r = build(out, '1700000000');
   assert.match(r.tarball, /unknot-\d+\.\d+\.\d+\.tar\.gz$/);
   const v = verifyRelease(out);
@@ -39,7 +40,7 @@ test('build then verify round-trips on a clone of this repository', (t) => {
 
 test('SBOM is CycloneDX 1.5 shaped and records tools, runtime and file hashes', (t) => {
   if (skip) return t.skip(skip);
-  const out = mkdtempSync(join(tmpdir(), 'uk-out-'));
+  const out = mkTmp(join(tmpdir(), 'uk-out-'));
   build(out, '1700000000');
   const sbom = JSON.parse(readFileSync(join(out, 'sbom.cdx.json'), 'utf8'));
   assert.equal(sbom.bomFormat, 'CycloneDX');
@@ -58,22 +59,22 @@ test('SBOM is CycloneDX 1.5 shaped and records tools, runtime and file hashes', 
 
 test('two builds with the same SOURCE_DATE_EPOCH are byte-identical', (t) => {
   if (skip) return t.skip(skip);
-  const a = mkdtempSync(join(tmpdir(), 'uk-a-'));
-  const b = mkdtempSync(join(tmpdir(), 'uk-b-'));
+  const a = mkTmp(join(tmpdir(), 'uk-a-'));
+  const b = mkTmp(join(tmpdir(), 'uk-b-'));
   const ra = build(a, '1700000000');
   build(b, '1700000000');
   assert.equal(readFileSync(join(a, 'sbom.cdx.json'), 'utf8'), readFileSync(join(b, 'sbom.cdx.json'), 'utf8'));
   assert.equal(readFileSync(join(a, 'SHA256SUMS'), 'utf8'), readFileSync(join(b, 'SHA256SUMS'), 'utf8'));
   assert.ok(readFileSync(ra.tarball).equals(readFileSync(join(b, `unknot-${ra.version}.tar.gz`))));
   // A different epoch changes only the SBOM (and so its checksum).
-  const c = mkdtempSync(join(tmpdir(), 'uk-c-'));
+  const c = mkTmp(join(tmpdir(), 'uk-c-'));
   build(c, '1700000001');
   assert.notEqual(readFileSync(join(a, 'sbom.cdx.json'), 'utf8'), readFileSync(join(c, 'sbom.cdx.json'), 'utf8'));
 });
 
 test('verify-release fails on a tampered checksum, SBOM or tarball', (t) => {
   if (skip) return t.skip(skip);
-  const out = mkdtempSync(join(tmpdir(), 'uk-out-'));
+  const out = mkTmp(join(tmpdir(), 'uk-out-'));
   const r = build(out, '1700000000');
 
   const sums = readFileSync(r.sums, 'utf8');

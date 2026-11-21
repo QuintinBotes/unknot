@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { b64u, claimsFor, jwks, makeJwt, makeKey, nowSec } from './_helpers.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-auth-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-auth-home-'));
 
 const { bearerToken, checkTenant, constantTimeEqual, ensureTokenFile, mapRole, parseJwks, roleAtLeast, verifyJwt } = await import('../../../runtime/daemon/auth.mjs');
 

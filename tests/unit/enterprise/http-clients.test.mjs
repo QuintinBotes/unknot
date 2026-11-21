@@ -3,14 +3,15 @@
 // operation in one repository to the endpoint that serves it in another.
 
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 delete process.env.CLAUDECODE;
 
 const { default: generic } = await import('../../../adapters/language/generic/index.mjs');
@@ -102,7 +103,7 @@ async function mapped(dir) {
 }
 
 test('decompose: a candidate whose members use a typed client has contracts.present, the routes and clients per route', { timeout: 120_000 }, async () => {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-clients-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-clients-'));
   const { graph } = await mapped(materialize(parent, 'orders-client'));
   const service = 'module:src/Orders/OrderService.cs';
   const client = 'module:src/Clients/IOrdersApi.cs';
@@ -134,7 +135,7 @@ test('decompose: a candidate whose members use a typed client has contracts.pres
 });
 
 test('decompose: a candidate serving a route a typed client declares has contracts.present', { timeout: 120_000 }, async () => {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-clients-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-clients-'));
   const dir = materialize(parent, 'orders-server');
   // The server repository also holds the client interface that calls it (an in-process caller).
   const both = join(parent, 'both');
@@ -151,7 +152,7 @@ test('decompose: a candidate serving a route a typed client declares has contrac
 });
 
 test('workspace: a client operation links to the endpoint in another repository by method and path template', { timeout: 120_000 }, async () => {
-  const parent = mkdtempSync(join(tmpdir(), 'uk-clients-ws-'));
+  const parent = mkTmp(join(tmpdir(), 'uk-clients-ws-'));
   materialize(parent, 'orders-client');
   materialize(parent, 'orders-server');
   const root = join(parent, 'platform');

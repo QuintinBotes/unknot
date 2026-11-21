@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { generateFixture, touch } from '../../../scripts/bench.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const listing = (dir) => {
   const out = [];
@@ -16,8 +17,8 @@ const listing = (dir) => {
 };
 
 test('the multi-language fixture is deterministic and covers five languages with tests', () => {
-  const a = mkdtempSync(join(tmpdir(), 'uk-bench-a-'));
-  const b = mkdtempSync(join(tmpdir(), 'uk-bench-b-'));
+  const a = mkTmp(join(tmpdir(), 'uk-bench-a-'));
+  const b = mkTmp(join(tmpdir(), 'uk-bench-b-'));
   try {
     const pa = generateFixture(a, 1000);
     generateFixture(b, 1000);

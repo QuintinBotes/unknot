@@ -4,11 +4,12 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 after(() => K.cleanup());
 
@@ -57,7 +58,7 @@ describe('hook process: normal operation', () => {
   });
 
   test('uninitialised projects are never touched', () => {
-    const bare = mkdtempSync(join(tmpdir(), 'uk-bare-'));
+    const bare = mkTmp(join(tmpdir(), 'uk-bare-'));
     K.git(bare, 'init', '-q');
     const r = hook({ dir: bare, home: process.env.UNKNOT_HOME }, 'PreToolUse', { cwd: bare, tool_name: 'Bash', tool_input: { command: 'rm -rf /' } });
     assert.equal(r.out, '');

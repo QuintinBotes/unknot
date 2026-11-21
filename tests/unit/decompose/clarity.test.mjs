@@ -2,11 +2,12 @@
 // order, test code kept out of candidates, folded siblings and readiness detail.
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse } from '../../golden/_harness.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
 const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
@@ -27,7 +28,7 @@ const imp = (a, b, attrs = {}) => edgeFact('IMPORTS', `module:${a}`, `module:${b
 
 describe('census test rules', () => {
   test('directories named like test projects, and projects that reference a test framework, hold test code', () => {
-    const root = mkdtempSync(join(tmpdir(), 'unknot-census-'));
+    const root = mkTmp(join(tmpdir(), 'unknot-census-'));
     try {
       const put = (path, text = 'class A {}\n') => {
         mkdirSync(join(root, path.split('/').slice(0, -1).join('/')), { recursive: true });

@@ -3,11 +3,12 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { checkoutNotice, checkoutState } from '../../../runtime/graph/checkout.mjs';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
 const g = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf8' });
 const commit = (dir, n) => {
@@ -17,13 +18,13 @@ const commit = (dir, n) => {
 };
 
 test('a branch behind its upstream and behind the default branch is reported with both counts', () => {
-  const origin = mkdtempSync(join(tmpdir(), 'uk-origin-'));
+  const origin = mkTmp(join(tmpdir(), 'uk-origin-'));
   g(origin, 'init', '-q');
   commit(origin, 1);
   g(origin, 'switch', '-q', '-c', 'feature');
   commit(origin, 2);
   g(origin, 'switch', '-q', 'main');
-  const clone = mkdtempSync(join(tmpdir(), 'uk-clone-'));
+  const clone = mkTmp(join(tmpdir(), 'uk-clone-'));
   g(clone, 'clone', '-q', origin, '.');
   g(clone, 'switch', '-q', 'feature');
   // The remote moves on; the clone fetches but does not update its branches.
@@ -44,18 +45,18 @@ test('a branch behind its upstream and behind the default branch is reported wit
 });
 
 test('an up-to-date checkout, or a directory that is not a repository, gives no notice', () => {
-  const repo = mkdtempSync(join(tmpdir(), 'uk-plain-'));
+  const repo = mkTmp(join(tmpdir(), 'uk-plain-'));
   g(repo, 'init', '-q');
   commit(repo, 1);
   assert.equal(checkoutNotice(checkoutState(repo)), null);
-  assert.equal(checkoutState(mkdtempSync(join(tmpdir(), 'uk-norepo-'))), null);
+  assert.equal(checkoutState(mkTmp(join(tmpdir(), 'uk-norepo-'))), null);
 });
 
 test('a feature branch that is not behind still gets a notice, which --branch-ok silences; detached and dirty are reported', () => {
-  const origin = mkdtempSync(join(tmpdir(), 'uk-origin2-'));
+  const origin = mkTmp(join(tmpdir(), 'uk-origin2-'));
   g(origin, 'init', '-q');
   commit(origin, 1);
-  const clone = mkdtempSync(join(tmpdir(), 'uk-clone2-'));
+  const clone = mkTmp(join(tmpdir(), 'uk-clone2-'));
   g(clone, 'clone', '-q', origin, '.');
   g(clone, 'switch', '-q', '-c', 'topic');
   const s = checkoutState(clone);
@@ -75,7 +76,7 @@ test('a feature branch that is not behind still gets a notice, which --branch-ok
 
 test('a repository with nothing to compare with gets an explanatory note, not a warning', async () => {
   const { checkoutNote } = await import('../../../runtime/graph/checkout.mjs');
-  const repo = mkdtempSync(join(tmpdir(), 'uk-lone-'));
+  const repo = mkTmp(join(tmpdir(), 'uk-lone-'));
   g(repo, 'init', '-q');
   commit(repo, 1);
   const s = checkoutState(repo);

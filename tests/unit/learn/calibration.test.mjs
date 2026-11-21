@@ -2,12 +2,12 @@
 // threshold proposal that respects what people accepted.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { mkTmp } from '../../helpers/tmp.mjs';
 
-process.env.UNKNOT_HOME = mkdtempSync(join(tmpdir(), 'uk-home-'));
+process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
 const { nodeFact, edgeFact, prov } = await import('../../../runtime/graph/facts.mjs');
 const { openProject } = await import('../../../runtime/context.mjs');
@@ -30,7 +30,7 @@ function graph() {
 }
 
 test('decisions calibrate the detector and propose a threshold between rejected and accepted values', async () => {
-  const ctx = openProject(mkdtempSync(join(tmpdir(), 'uk-proj-')), { create: true });
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
   const config = structuredClone(DEFAULT_CONFIG);
   const first = await diagnose(ctx, { config, graph: graph(), only: ['local'] });
   const long = first.findings.filter((f) => f.kind === 'code.long-function');
@@ -59,7 +59,7 @@ test('decisions calibrate the detector and propose a threshold between rejected 
 });
 
 test('no proposal without enough consistent feedback', async () => {
-  const ctx = openProject(mkdtempSync(join(tmpdir(), 'uk-proj-')), { create: true });
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
   const config = structuredClone(DEFAULT_CONFIG);
   const res = await diagnose(ctx, { config, graph: graph(), only: ['local'] });
   const f = res.findings.find((x) => x.kind === 'code.long-function');
