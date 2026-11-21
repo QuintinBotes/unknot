@@ -58,6 +58,43 @@ node <plugin directory>/bin/unknot cli install     # writes ~/.local/bin/unknot;
 
 Linux and macOS are supported and tested in CI. Windows is not tested; use WSL2. Details in [COMPATIBILITY.md](COMPATIBILITY.md).
 
+## Upgrade and uninstall
+
+Checked with Claude Code 2.1.330.
+
+### Upgrade
+
+```sh
+claude plugin marketplace update                  # refresh the catalogs
+claude plugin update unknot@quintinbotes          # stable
+claude plugin update unknot@unknot                # beta (installed from this repository)
+```
+
+Then restart your Claude Code session: the update applies on restart, and a session started before it keeps the older hooks until then. Your state is kept. The first command run after the upgrade migrates each project's store (`.unknot/state/unknot.db`) in place, and saved records upgrade as they are read; a store written by a newer release than the one running is refused, not changed. The first `unknot map` after an upgrade may re-extract every file once. If you installed the launcher, run `unknot cli install` once more so it follows the new version. `unknot doctor` reports a session whose hooks and CLI differ.
+
+### Uninstall
+
+Back up first if you want to keep an audit ledger (`unknot backup create <file>`; the backup does not contain the keys, see [docs/operations.md](docs/operations.md#key-escrow-caveat)). Then, in a terminal:
+
+```sh
+unknot cli uninstall                              # removes the launcher ~/.local/bin/unknot (only if Unknot wrote it)
+claude plugin uninstall unknot@quintinbotes       # or unknot@unknot
+claude plugin marketplace remove quintinbotes     # optional: the catalog (unknot for the beta catalog)
+```
+
+That leaves what Unknot wrote outside the plugin. Delete it to remove everything:
+
+| Where | What it holds |
+|---|---|
+| `~/.config/unknot/` (or `$UNKNOT_HOME`, or `$XDG_CONFIG_HOME/unknot`) | All user-level state. Deleting it deletes the keys below, and with them the ability to verify or open any earlier ledger and cache. |
+| `~/.config/unknot/approvers/` | Your approver keys (passphrase-protected private keys and the public keys). |
+| `~/.config/unknot/projects/` | One directory per project with its audit signing key, cache key and capability key. |
+| `~/.config/unknot/policy-keys/` | Trusted organization-policy keys. |
+| `~/.config/unknot/daemon/` | Local API daemon state. |
+| `<repository>/.unknot/` | Per repository: `config.yaml`, saved decompositions, campaigns and slices (meant to be committed); `.unknot/state/` (the store with its ledger), `.unknot/cas/` (the encrypted artifact cache), `.unknot/runs/`, `.unknot/worktrees/` and `.unknot/telemetry/` (local state, ignored by git). |
+
+Remove each repository's `.unknot/` (delete the committed files with a normal commit if you want them out of history going forward), and run `git worktree prune` in repositories that had slices applied. Nothing else is written outside the repository and `~/.config/unknot/`.
+
 ## Quickstart
 
 ### Read-only assessment
