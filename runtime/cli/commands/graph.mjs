@@ -1,6 +1,6 @@
 import { UnknotError } from '../../core/errors.mjs';
 import { matchAny } from '../../core/glob.mjs';
-import { emptyScopeWarning, scopePredicate } from '../../core/scope.mjs';
+import { emptyScopeWarning, resolveScope, scopePredicate } from '../../core/scope.mjs';
 import { cycleBreakdown, neighbourhood, rankHubs, resolveRef, explainRef, stronglyConnected } from '../../graph/algorithms.mjs';
 import { MAX_CYCLES, cycleView, impossibleByBuild, impossibleWarning, readDerived } from '../../graph/derived.mjs';
 
@@ -38,18 +38,19 @@ function edgeTypesOf(arg, flags) {
   return [...new Set(types)];
 }
 
-/** Ids a reference names (an id, a module path or a declared type); an error when none. */
+/** Ids a reference names: an id, a module path or a declared type, else anything the scope language selects (a glob, a directory, a namespace); an error when none. */
 function refIds(g, flag, ref) {
   if (ref === true || !ref) throw usage(`--${flag} needs a node id or path`);
   const { ids, note, suggestions } = explainRef(g, ref);
   if (note) {
     process.stderr.write(`unknot: ${note}\n`);
   }
-  if (!ids.length) {
-    const msg = `--${flag} ${ref}: no such node. Accepted: a path, module:<path>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`;
-    throw usage(msg);
+  if (ids.length) return ids;
+  for (const entry of [ref, `ns:${ref}`]) {
+    const res = resolveScope(g, [entry]);
+    if (res.matched) return [...res.ids].sort();
   }
-  return ids;
+  throw usage(`--${flag} ${ref}: no node matches (no such node). Accepted: a path, module:<path>, a glob, ns:<namespace>, <type>:<path>#<Name>, or a bare type name.${suggestions.length ? ` Did you mean ${suggestions.slice(0, 2).join(', ')}?` : ''}`);
 }
 
 /** `--within` may swallow the next scope entry as its value; give it back. */
@@ -135,9 +136,10 @@ export async function run({ positional, flags }) {
     const types = edgeTypesOf(nodeArg ? null : arg, flags);
     const where = [];
     const params = [];
+    // json_each keeps one parameter per list, however many nodes a selector matches.
     const addIn = (col, values) => {
-      where.push(`${col} IN (${values.map(() => '?').join(',')})`);
-      params.push(...values);
+      where.push(`${col} IN (SELECT value FROM json_each(?))`);
+      params.push(JSON.stringify(values));
     };
     if (types.length) addIn('type', types);
     if (flags.from !== undefined || flags.to !== undefined || nodeArg) {
@@ -148,13 +150,16 @@ export async function run({ positional, flags }) {
         const ids = refIds(g, 'node', nodeArg);
         const dir = flags.direction ?? 'both';
         if (!['in', 'out', 'both'].includes(dir)) throw usage('--direction is in, out or both');
-        const list = ids.map(() => '?').join(',');
-        where.push(dir === 'out' ? `src IN (${list})` : dir === 'in' ? `dst IN (${list})` : `(src IN (${list}) OR dst IN (${list}))`);
-        params.push(...ids, ...(dir === 'both' ? ids : []));
+        const list = '(SELECT value FROM json_each(?))';
+        where.push(dir === 'out' ? `src IN ${list}` : dir === 'in' ? `dst IN ${list}` : `(src IN ${list} OR dst IN ${list})`);
+        params.push(JSON.stringify(ids), ...(dir === 'both' ? [JSON.stringify(ids)] : []));
       }
     }
-    const rows = ctx.store.all(`SELECT type, src, dst, label FROM edges ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY src, dst, type LIMIT ?`, ...params, limit);
-    return output(flags.json ? rows : table(rows, ['type', 'src', 'dst', 'label']), { json: flags.json });
+    const found = ctx.store.all(`SELECT type, src, dst, label FROM edges ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY src, dst, type LIMIT ?`, ...params, limit + 1);
+    const rows = found.slice(0, limit);
+    const capped = found.length > limit ? `(first ${limit} edges shown, more match; raise --limit or narrow the selector)` : null;
+    if (capped && flags.json) process.stderr.write(`unknot: ${capped}\n`);
+    return output(flags.json ? rows : `${table(rows, ['type', 'src', 'dst', 'label'])}${capped ? `\n${capped}` : ''}`, { json: flags.json });
   }
   if (sub === 'cycles') {
     const g = Graph.fromStore(ctx.store);
