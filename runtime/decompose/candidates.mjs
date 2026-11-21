@@ -31,7 +31,8 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   const cache = new Map();
   const tableOwners = ownersOfTables(graph, cache);
   const sccs = sccsOf(graph).map((c) => c.members);
-  const clusters = cm.clusters.filter((cl) => cl.size >= 2);
+  // A project alone in its community is still a candidate when it holds two files or more.
+  const clusters = cm.clusters.filter((cl) => (units ? cl.members.reduce((n, u) => n + units.files.get(u).length, 0) : cl.size) >= 2);
   // A build unit already holds its files; folding siblings is a file-level repair.
   const { folds, absorbed } = units ? { folds: new Map(), absorbed: new Set() } : foldSiblings(graph, clusters.map((cl) => cl.members), eligible);
   const candidates = clusters

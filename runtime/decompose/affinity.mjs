@@ -50,12 +50,11 @@ export function buildUnits(graph, modules) {
   return [...files.keys()].filter((u) => !u.startsWith('module:')).length >= 3 ? { unitOf, files } : null;
 }
 
-/** The affinity graph between units: the weights between their files, summed. */
+/** The affinity graph between units: the weights between their files, summed; a unit's own weight is a self-loop, as when the community code aggregates. */
 export function unitAffinity(affinity, unitOf) {
   const pairs = new Map();
   for (const { a, b, w } of affinity.edges) {
     const [x, y] = [unitOf.get(a), unitOf.get(b)].sort();
-    if (x === y) continue;
     const k = pairKey(x, y);
     pairs.set(k, { a: x, b: y, w: (pairs.get(k)?.w ?? 0) + w });
   }

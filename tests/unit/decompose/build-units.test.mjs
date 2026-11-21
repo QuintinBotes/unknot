@@ -82,3 +82,32 @@ test('a file in no project stays its own module, and the record says which', asy
   const loose = r.out.details.flatMap((d) => d.candidate.units).find((u) => u.id === 'module:tools/Seed.cs');
   assert.deepEqual(loose, { id: 'module:tools/Seed.cs', name: 'tools/Seed.cs', kind: 'file', files: ['module:tools/Seed.cs'] });
 });
+
+test('two projects leave no groups to choose between, so their files stay the modules', async () => {
+  const { buildUnits } = await import('../../../runtime/decompose/affinity.mjs');
+  const node = (id, attrs = {}) => ({ id, type: id.split(':')[0], attrs });
+  const nodes = new Map([['module:a/A.cs', node('module:a/A.cs', { language: 'csharp' })], ['module:b/B.cs', node('module:b/B.cs', { language: 'csharp' })], ['package:A', node('package:A')], ['package:B', node('package:B')]]);
+  const graph = { node: (id) => nodes.get(id), in: (id) => [{ from: id === 'module:a/A.cs' ? 'package:A' : 'package:B' }] };
+  assert.equal(buildUnits(graph, ['module:a/A.cs', 'module:b/B.cs']), null);
+  nodes.set('module:c/C.cs', node('module:c/C.cs', { language: 'csharp' }));
+  nodes.set('package:C', node('package:C'));
+  const three = { node: graph.node, in: (id) => [{ from: `package:${id.slice(-4, -3)}` }] };
+  assert.deepEqual([...buildUnits(three, ['module:a/A.cs', 'module:b/B.cs', 'module:c/C.cs']).files.keys()], ['package:A', 'package:B', 'package:C']);
+});
+
+test('a file-module record of a target now decomposed by build unit is reported as replaced', async () => {
+  const { supersededBy } = await import('../../../runtime/decompose/records.mjs');
+  const old = { id: 'DEC-0001', target: 'backend', fingerprint: 'f1', graph_generation: 2, candidate: { modules: ['module:src/Shop.Orders/Order0.cs'] } };
+  const now = { id: 'DEC-0002', target: 'backend', fingerprint: 'f2', graph_generation: 2, candidate: { modules: [], units: [{ id: 'package:Shop.Orders' }] } };
+  assert.match(supersededBy(old, [old, now], 2), /now decomposed by build unit \(as in DEC-0002\)/);
+  assert.equal(supersededBy(old, [old], 2), null);
+});
+
+test('a project alone in its community is a candidate, and its own weight counts as cohesion', async () => {
+  const admin = (i) => `namespace Shop.Admin\n{\n    public class Screen${i}\n    {\n        ${i ? `Screen${i - 1} s;` : ''}\n    }\n}\n`;
+  const r = await run('dotnet-projects', { extra: { 'src/Shop.Admin/Shop.Admin.csproj': '<Project Sdk="Microsoft.NET.Sdk"></Project>\n', ...Object.fromEntries([0, 1, 2, 3].map((i) => [`src/Shop.Admin/Screen${i}.cs`, admin(i)])) } });
+  const alone = r.out.details.find((d) => d.candidate.units.some((u) => u.id === 'package:Shop.Admin'));
+  assert.ok(alone, JSON.stringify(r.out.details.map((d) => d.candidate.name)));
+  assert.deepEqual(alone.candidate.units.map((u) => u.id), ['package:Shop.Admin']);
+  assert.equal(alone.candidate.metrics['boundary.cohesion'], 1);
+});

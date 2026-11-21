@@ -89,10 +89,13 @@ const staleOf = (ctx, r) => (r.graph_generation === undefined ? null : r.graph_g
  * can ever overwrite it. Older graph generation: superseded once a run since the rebuild has
  * produced records again (until then it is only stale: nothing has replaced it).
  */
-function supersededBy(r, all, gen) {
+export function supersededBy(r, all, gen) {
   const by = all.find((o) => o.supersedes === r.id);
   if (by) return `replaced by ${by.id} (${Math.round((by.supersedes_overlap ?? 0) * 100)}% of members shared; its members changed, so it has a new id)`;
   if (!r.fingerprint) return 'written by an older version (no fingerprint), so no rerun overwrites it';
+  // Build units became the modules of compiled languages (#74): a file-module record of a target now decomposed by unit is replaced.
+  const byUnit = !r.candidate?.units && all.find((o) => o.target === r.target && o.candidate?.units && o.graph_generation === gen);
+  if (byUnit) return `written with one module per file; this target is now decomposed by build unit (as in ${byUnit.id})`;
   if (r.graph_generation !== undefined && r.graph_generation < gen && all.some((o) => o.graph_generation === gen)) {
     return `older graph generation (${r.graph_generation}, now ${gen}) and not produced again since`;
   }
