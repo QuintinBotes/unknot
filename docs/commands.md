@@ -119,10 +119,10 @@ Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumul
 |---|---|
 | `--adapter a,b` | Run only these adapters. |
 | `--replace` | Map only the given scopes and forget the earlier ones. |
-| `--no-history` | Skip git history (co-change facts). |
+| `--no-history` | Skip git history (co-change facts); decompose then reports co-change as `unmeasured`. |
 | `--json` | Summary as JSON. |
 
-Prints file, node and edge counts, cache use, history size, adapters that were unavailable, and any extraction failures (a partial map says `PARTIAL`).
+Prints file, node and edge counts, cache use, history size, adapters that were unavailable, and any extraction failures (a partial map says `PARTIAL`). When the history is shallow, too short for co-change (fewer commits than `decomposition.min_shared_commits`) or absent, it says so on stderr with the fix, and `history.unmeasured` in `--json` holds the reason.
 
 ### `unknot import runtime <file> [--source <label>]`
 

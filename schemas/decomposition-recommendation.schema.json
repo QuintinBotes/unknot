@@ -620,6 +620,11 @@
       "required": ["label", "window", "sources", "units"],
       "additionalProperties": false
     },
+    "unmeasured": {
+      "type": "array",
+      "items": { "enum": ["evolutionary"] },
+      "description": "Affinity components the map could not measure (co-change from a shallow, too short or missing history): missing evidence, never a measured zero"
+    },
     "confidence_cap": {
       "type": "string",
       "description": "Present when static evidence alone lowered the confidence to medium: why."
