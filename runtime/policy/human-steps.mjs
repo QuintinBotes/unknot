@@ -40,7 +40,7 @@ function defaultName() {
 /**
  * @param {object} ctx project context
  * @param {{config: object, acceptance?: string}} cfg loaded configuration
- * @param {{unknotOnPath?: boolean|null}} [opts] `unknotOnPath` injects the PATH check (true, false, null = unknown)
+ * @param {{unknotOnPath?: boolean|null, checkCli?: boolean}} [opts] `unknotOnPath` injects the PATH check (true, false, null = unknown); `checkCli` runs it even with nothing else to do, so a missing CLI is listed (status)
  * @returns {{heading: string, steps: {step: string, commands: string[], note?: string}[], text: string|null}}
  */
 let pathCheck = null; // { at, value }: the login-shell check, kept for ten minutes in long-lived processes
@@ -53,7 +53,7 @@ function proposalListsRepositories(ctx) {
   }
 }
 
-export function humanSteps(ctx, cfg, { unknotOnPath } = {}) {
+export function humanSteps(ctx, cfg, { unknotOnPath, checkCli = false } = {}) {
   const steps = [];
   const proposal = existsSync(ctx.paths.proposedConfig);
   if (proposal || ['unaccepted', 'changed'].includes(cfg.acceptance)) {
@@ -83,7 +83,7 @@ export function humanSteps(ctx, cfg, { unknotOnPath } = {}) {
   if (run) steps.push({ step: 'end_run', run: run.id, commands: [`unknot run end ${run.id}`], note: 'only if it is stuck: a /unknot command\'s run ends with its turn' });
   // Whether `unknot` resolves in a login shell matters only when there is something to run; the
   // check starts a login shell, so it runs then, at most every ten minutes.
-  if (steps.length) {
+  if (steps.length || checkCli) {
     if (unknotOnPath === undefined) {
       if (!pathCheck || Date.now() - pathCheck.at > 600_000) pathCheck = { at: Date.now(), value: loginShellHasUnknot() };
       unknotOnPath = pathCheck.value;

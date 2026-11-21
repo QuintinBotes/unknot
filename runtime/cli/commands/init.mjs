@@ -7,7 +7,7 @@ import { delimiter, join } from 'node:path';
 import { matchAny } from '../../core/glob.mjs';
 import { commandMatches, loadGuidance } from '../../core/guidance.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
-import { LANGUAGE_IDS } from '../../graph/languages.mjs';
+import { LANGUAGE_IDS, languageForPath } from '../../graph/languages.mjs';
 import { itemKey, writeSources } from '../../policy/config-diff.mjs';
 import { DEFAULT_CONFIG } from '../../policy/defaults.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
@@ -22,7 +22,7 @@ function readJSON(p) {
   }
 }
 
-function onPath(exe) {
+export function onPath(exe) {
   return (process.env.PATH ?? '').split(delimiter).some((d) => d && existsSync(join(d, exe)));
 }
 
@@ -159,6 +159,28 @@ function commandSource(root, argv, pkg) {
   return { file: py, line: 1 };
 }
 
+/** Whether git tracks a source file under `dir` (a folder named build/ can be code, not output). */
+function trackedSource(root, dir) {
+  const r = spawnSync('git', ['ls-files', '-z', '--', dir], { cwd: root, encoding: 'utf8' });
+  return r.status === 0 && r.stdout.split('\0').some((f) => f && languageForPath(f));
+}
+
+/**
+ * The scope excludes to propose: the defaults plus the ecosystem's build outputs, but never
+ * a folder that holds tracked source, whatever it is named. An ignored folder is untracked, so it stays excluded.
+ */
+function scopeExcludes(root, files, dotnet, notes) {
+  const outputs = [];
+  if (dotnet) outputs.push('**/bin/**', '**/obj/**');
+  if (files.some((f) => /(^|\/)(pom\.xml|build\.gradle(\.kts)?|Cargo\.toml)$/.test(f))) outputs.push('target/**', '**/target/**');
+  return [...new Set([...DEFAULT_CONFIG.scope.exclude, ...outputs])].filter((g) => {
+    const dir = /^(?:\*\*\/)?([\w.-]+)\/\*\*$/.exec(g)?.[1];
+    if (!dir || !trackedSource(root, dir)) return true;
+    notes.push(`${g} is not excluded: git tracks source files under ${dir}/`);
+    return false;
+  });
+}
+
 /** Detect commands without running anything. Every entry says where it came from. */
 export function detect(root) {
   const commands = {};
@@ -225,6 +247,7 @@ export function detect(root) {
   }
   const dotnet = detectDotnet(root, files, commands, notes);
   const protectedPaths = [...DEFAULT_CONFIG.protected_paths];
+  const excludes = scopeExcludes(root, files, dotnet, notes);
   // Where each non-template line came from: commands by name, protected paths by glob.
   const sources = { commands: {}, protected: {}, omitted: [] };
   for (const [name, argv] of Object.entries(commands)) sources.commands[name] = { source: 'detected', ...commandSource(root, argv, pkg) };
@@ -285,7 +308,7 @@ export function detect(root) {
     const same = known.find(([, c]) => c === cmd);
     notes.push(`${file} (${heading}) mentions: ${cmd}${same ? `, which confirms ${same[0]}` : ' (a hint; not proposed as a command)'}`);
   }
-  return { commands, notes, protectedPaths, evidence, sources };
+  return { commands, notes, protectedPaths: [...new Set(protectedPaths)], excludes, evidence, sources };
 }
 
 /** The template proposal for a root, or its accepted configuration plus what is newly detected. */
@@ -294,7 +317,7 @@ export async function baseProposal(ctx) {
   const proposed = {
     version: 1,
     mode: 'plan',
-    scope: { include: [], exclude: DEFAULT_CONFIG.scope.exclude },
+    scope: { include: [], exclude: d.excludes },
     protected_paths: [...new Set(d.protectedPaths)],
     commands: d.commands,
     limits: { max_changed_files: 12, max_diff_lines: 500, max_runtime_minutes: 30, max_network_requests: 0 },
