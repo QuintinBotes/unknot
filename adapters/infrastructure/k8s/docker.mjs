@@ -87,6 +87,7 @@ export function extractDockerfile(path, text) {
   let addUrl = 0;
   let curlPipe = 0;
   let firstLine = 1;
+  const publishes = new Set();
 
   for (const { line, text: t } of logicalLines(text)) {
     const m = /^([A-Za-z]+)\s*([\s\S]*)$/.exec(t);
@@ -120,6 +121,7 @@ export function extractDockerfile(path, text) {
       }
     } else if (ins === 'RUN') {
       cur.run_count += 1;
+      for (const m of args.matchAll(/\bdotnet\s+(?:publish|build)\b[^&|;\n]*?["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/g)) publishes.add(posix.normalize(m[1].replace(/\\/g, '/')));
       if (CURL_PIPE_SHELL.test(args)) {
         cur.curl_pipe_shell += 1;
         curlPipe += 1;
@@ -157,6 +159,7 @@ export function extractDockerfile(path, text) {
       secret_arg_names: [...secretArg].sort(),
       expose: [...expose].sort((a, b) => Number(a) - Number(b) || (a < b ? -1 : 1)),
       healthcheck: health,
+      publishes: [...publishes].sort(),
       unpinned_bases: stages.filter((s) => !s.base_is_stage && !s.base_pinned && !s.base_variable).length,
       latest_bases: stages.filter((s) => s.base_latest).map((s) => s.base).sort(),
     },

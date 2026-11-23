@@ -190,9 +190,19 @@ function readCsproj(path, text) {
   const file = basename(path).replace(/\.csproj$/, '');
   const assembly = tag(t, 'AssemblyName') ?? file;
   const friend = (s) => s.replace(/\$\(AssemblyName\)/g, assembly).replace(/\$\(MSBuildProjectName\)/g, file).split(',')[0].trim();
+  const sdk = /<Project\b[^>]*\bSdk="([^"]+)"/i.exec(t)?.[1] ?? '';
+  const flag = (n) => new RegExp(`<${n}>\\s*true\\s*</${n}>`, 'i').test(t);
+  const isTest = flag('IsTestProject') || /Microsoft\.NET\.Test\.Sdk/.test(t);
+  const output = tag(t, 'OutputType');
+  // A project that runs: a web or worker SDK, or an executable that is not a test host.
+  const runnable = isTest ? undefined : /\.Web\b/i.test(sdk) ? 'web' : /\.Worker\b/i.test(sdk) ? 'worker' : /^(Win)?Exe$/i.test(output ?? '') ? 'exe' : undefined;
   return {
     ecosystem: 'dotnet', type: 'package', name, deps, local, members: [],
     attrs: {
+      runnable,
+      // An Aspire app host names the projects it orchestrates as references; its shared project is a library.
+      app_host: /Aspire\.AppHost\.Sdk/i.test(sdk) || flag('IsAspireHost') || undefined,
+      aspire_shared: flag('IsAspireSharedProject') || undefined,
       target_framework: tag(t, 'TargetFramework') ?? tag(t, 'TargetFrameworks'),
       assembly,
       internals_visible_to: uniq([

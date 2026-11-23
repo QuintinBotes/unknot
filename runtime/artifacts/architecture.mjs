@@ -281,7 +281,14 @@ function containers(graph, maxNodes) {
   notes.push(`${pl(shown.length + (hidden.length ? 1 : 0), 'container')}, ${pl(storeCap.shown.length, 'data/messaging element')}, ${pl(rels.length, 'relationship')}.`);
   if (sys.kind !== 'deployables') notes.push(`Containers are ${sys.kind} (no deployable units observed): inferred, not deployment-verified.`);
   if (hidden.length) notes.push(`${pl(hidden.length, 'lower-weight container')} ${hidden.length === 1 ? 'is' : 'are'} aggregated as "+${hidden.length} more"; raise --max-nodes to see them.`);
-  return view(lines.join('\n'), notes, used, structurizr ? { structurizr } : {});
+  const listed = [...shown, ...hidden].map((u) => ({
+    name: u.name,
+    kind: u.node?.attrs?.runnable ?? u.type,
+    dockerfile: u.dockerfile ?? null,
+    modules: appModules(graph).filter((m) => sys.set.moduleUnit.get(m.id) === u.id).map((m) => m.path ?? m.id.replace(/^module:/, '')).sort(),
+  }));
+  for (const u of listed) if (!u.modules.length && sys.kind === 'deployables') notes.push(`Container "${plain(u.name, 40)}" has 0 modules (gap): no source file was found under its project.`);
+  return view(lines.join('\n'), notes, used, { containers: listed, ...(structurizr ? { structurizr } : {}) });
 }
 
 function structurizrDsl(graph, units, c, rels, hasUsers, stores) {
