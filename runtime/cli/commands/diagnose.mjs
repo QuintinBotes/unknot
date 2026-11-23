@@ -71,6 +71,7 @@ export async function run({ positional, flags }) {
   if (res.hidden) lines.push('', `${res.hidden} code-style finding${res.hidden === 1 ? '' : 's'} hidden (--all to show)`);
   const gaps = analysisGapLines(res.analysis?.unavailable ?? []);
   if (gaps.length) lines.push('', 'Analysis not run:', ...gaps);
+  if (res.analysis?.held_open) lines.push('', `${res.analysis.held_open.findings.length} co-change finding(s) left open (${res.analysis.held_open.reason}).`);
   if (res.errors.length) lines.push('', `Detector problems (reported, not hidden): ${res.errors.map((e) => `${e.detector}: ${e.error}`).join('; ')}`);
   lines.push('', 'Next: unknot explain <F-id> for evidence, uncertainty, alternatives and pattern fit.');
   output(lines.join('\n'));

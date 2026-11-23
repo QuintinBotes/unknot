@@ -68,12 +68,13 @@ function draft(spec) {
   };
 }
 
-function define({ name, kinds, defaults = {}, run }) {
+function define({ name, kinds, defaults = {}, run, needsHistory = false }) {
   return {
     id: `module.${name}`,
     version: '1.0.0',
     category: 'module',
     kinds,
+    ...(needsHistory && { needs_history: true }),
     detect(ctx) {
       const options = {};
       for (const [k, v] of Object.entries(defaults)) options[k] = opt(ctx.options, k, v);
@@ -433,6 +434,7 @@ const hubModule = define({
 const shotgunSurgery = define({
   name: 'shotgun-surgery',
   kinds: ['module.shotgun-surgery'],
+  needsHistory: true,
   defaults: { min_packages: 4, min_degree: 0.5 },
   run(graph, o) {
     const out = [];
