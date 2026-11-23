@@ -27,7 +27,9 @@ import { upgradeDecomposition, upgradeSlice } from '../state/upgrade.mjs';
 
 const str = (extra = {}) => ({ type: 'string', maxLength: 512, ...extra });
 const limit = (max = 200) => ({ type: 'integer', minimum: 1, maximum: max });
-const schema = (properties = {}, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
+// Every tool takes `project`: the Unknot project below the session root, when it is not the root itself.
+const PROJECT = str({ description: 'Path of the initialised project below the session root (relative to it, or absolute inside it). Omit when the session root is the project.' });
+const schema = (properties = {}, required = []) => ({ type: 'object', properties: { ...properties, project: PROJECT }, required, additionalProperties: false });
 
 const notFound = (what, id) => new UnknotError('UK_NOT_FOUND', `no ${what} ${id}`);
 const parse = (row, key = 'body') => ({ ...row, [key]: JSON.parse(row[key]) });
