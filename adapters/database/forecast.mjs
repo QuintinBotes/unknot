@@ -33,8 +33,12 @@ export function normalizeEngine(engine) {
   if (['mysql', 'aurora-mysql'].includes(e)) return 'mysql';
   if (e === 'mariadb') return 'mariadb';
   if (['sqlite', 'sqlite3'].includes(e)) return 'sqlite';
+  if (['mssql', 'sqlserver', 'sql-server', 'sql_server', 'tsql', 'azure-sql'].includes(e)) return 'mssql';
   return 'unknown';
 }
+
+/** The SQL lexer dialect for a normalised engine. */
+export const sqlDialect = (engine) => (engine === 'unknown' ? 'generic' : engine === 'mssql' ? 'tsql' : engine);
 
 /** Parse '16', '9.6', '8.0.32', '10.6.12-MariaDB' into numeric parts; null when absent. */
 export function parseVersion(version) {
@@ -791,7 +795,7 @@ export function forecast(statement, opts = {}) {
   const engine = normalizeEngine(opts.engine);
   const version = parseVersion(opts.version);
   const table = opts.table ?? {};
-  const st = typeof statement === 'string' ? (parseSql(statement, { dialect: engine === 'unknown' ? 'generic' : engine })[0] ?? { kind: 'unknown', text: statement }) : statement;
+  const st = typeof statement === 'string' ? (parseSql(statement, { dialect: sqlDialect(engine) })[0] ?? { kind: 'unknown', text: statement }) : statement;
   const ctx = {
     engine,
     version,
@@ -802,8 +806,9 @@ export function forecast(statement, opts = {}) {
   };
 
   let res = null;
-  if (st && ['insert', 'update', 'delete', 'merge', 'select'].includes(st.kind)) res = dmlForecast(st, ctx);
-  else if (st && st.kind === 'transaction' || st?.kind === 'set') res = base(`${engine}.session`, { lock_mode: 'NONE', blocks: { reads: false, writes: false }, metadata_lock_risk: 'low', rewrite: 'none', scan: 'none', transactional: true, online: true, duration: 'constant', temporary_disk: 'none', replication_lag_risk: 'low', cancellation: 'n/a', confidence: 'high' });
+  // shortcut: no SQL Server model yet, so mssql falls through to "unmodelled" instead of borrowing another engine's rules.
+  if (st && engine !== 'mssql' && ['insert', 'update', 'delete', 'merge', 'select'].includes(st.kind)) res = dmlForecast(st, ctx);
+  else if (st && engine !== 'mssql' && (st.kind === 'transaction' || st.kind === 'set')) res = base(`${engine}.session`, { lock_mode: 'NONE', blocks: { reads: false, writes: false }, metadata_lock_risk: 'low', rewrite: 'none', scan: 'none', transactional: true, online: true, duration: 'constant', temporary_disk: 'none', replication_lag_risk: 'low', cancellation: 'n/a', confidence: 'high' });
   else if (st) {
     if (engine === 'postgresql') res = pgStatement(st, ctx);
     else if (engine === 'mysql' || engine === 'mariadb') res = mysqlStatement(st, ctx);
@@ -815,7 +820,9 @@ export function forecast(statement, opts = {}) {
       confidence: 'low',
       notes: [engine === 'unknown'
         ? 'engine not recognised: assuming the worst case (exclusive lock, rewrite, not transactional)'
-        : `statement kind "${st?.kind ?? 'unknown'}" is not modelled for ${engine}`],
+        : engine === 'mssql'
+          ? 'no forecast model exists for mssql: lock, rewrite and scan are unknown, not borrowed from another engine'
+          : `statement kind "${st?.kind ?? 'unknown'}" is not modelled for ${engine}`],
       lock_mode: 'unknown', rewrite: 'unknown', scan: 'unknown', duration: 'unknown', temporary_disk: 'unknown',
     });
   }
@@ -833,5 +840,5 @@ export function forecast(statement, opts = {}) {
 /** Forecast every statement in a SQL script. */
 export function forecastScript(sql, opts = {}) {
   const engine = normalizeEngine(opts.engine);
-  return parseSql(sql, { dialect: engine === 'unknown' ? 'generic' : engine }).map((st) => ({ statement: st, forecast: forecast(st, opts) }));
+  return parseSql(sql, { dialect: sqlDialect(engine) }).map((st) => ({ statement: st, forecast: forecast(st, opts) }));
 }
