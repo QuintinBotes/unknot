@@ -11,6 +11,7 @@ function render(inv) {
   out.push(`Engines: ${inv.engines.length ? inv.engines.map((e) => `${e.name}${e.version ? ` ${e.version}` : ''}`).join(', ') : 'none declared in the graph'}`);
   out.push(`Migrations: ${inv.migrations.total}`, kv(inv.migrations.by_framework));
   out.push('', `Tables: ${inv.tables.total} (${inv.tables.with_writers} with recorded writers)`);
+  out.push(`Table ownership: ${inv.ownership.status}${inv.ownership.sources.length ? ` (from ${inv.ownership.sources.join(', ')})` : ' (no ORM mapping, statistics import or ownership file)'}`);
   const groups = Object.entries(inv.writers_by_group);
   if (groups.length) out.push('Writers by module group:', ...groups.map(([g, t]) => `  ${g}: ${t.slice(0, 8).join(', ')}${t.length > 8 ? `, +${t.length - 8} more` : ''}`));
   out.push('', `Shared-writer tables: ${inv.shared_writer_tables.length}`);

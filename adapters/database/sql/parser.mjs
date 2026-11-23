@@ -84,9 +84,12 @@ function splitTop(tokens, sep = ',') {
 
 const isIdent = (t) => t.t === 'word' || t.t === 'qident';
 
+// An unquoted word that starts a clause is never an object name; a quoted one (`"from"`, `[from]`) is.
+const RESERVED_NAME = new Set(['FROM', 'WHERE', 'SELECT', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'NATURAL', 'ON', 'USING', 'GROUP', 'ORDER', 'HAVING', 'UNION', 'INTERSECT', 'EXCEPT', 'SET', 'VALUES', 'INTO', 'WHEN', 'THEN']);
+
 /** Parse `a.b.c` into {schema, name, db}. Unquoted parts fold to lower case. */
 function parseName(c) {
-  if (!isIdent(c.peek())) return null;
+  if (!isIdent(c.peek()) || (c.peek().t === 'word' && RESERVED_NAME.has(c.peek().u))) return null;
   const parts = [identValue(c.next())];
   while (c.isPunct('.') && (isIdent(c.peek(1)) || c.peek(1).v === '*')) {
     c.i++;

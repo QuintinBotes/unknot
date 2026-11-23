@@ -86,6 +86,13 @@ export function databaseInventory(graph, { config = {}, catalog = null } = {}) {
     })),
   }));
 
+  // Ownership is only as good as its source: with none, say so instead of showing an empty list as a finding.
+  const ownershipSources = [
+    ...(graph.edges('OWNS_DATA').length ? ['ownership'] : []),
+    ...(tables.some((t) => t.attrs?.orm || t.attrs?.model) ? ['orm'] : []),
+    ...(catalog?.facts > 0 ? ['statistics'] : []),
+  ];
+
   const declared = config.database?.invariants ?? {};
   const invariants = DB_INVARIANTS.map(([id, title, fromGraph]) => {
     const g = fromGraph(graph);
@@ -99,6 +106,7 @@ export function databaseInventory(graph, { config = {}, catalog = null } = {}) {
     engines,
     migrations: { total: migrations.length, by_framework: count(migrations, (m) => m.attrs?.framework) },
     tables: { total: tables.length, with_writers: writers.size },
+    ownership: { status: ownershipSources.length ? 'measured' : 'unmeasured', sources: ownershipSources },
     writers_by_group: Object.fromEntries(Object.entries(writersByGroup).map(([k, v]) => [k, [...v].sort()]).sort((a, b) => a[0].localeCompare(b[0]))),
     shared_writer_tables: sharedWriterTables,
     hazardous_migrations: hazardous,
