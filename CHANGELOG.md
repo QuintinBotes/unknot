@@ -9,6 +9,7 @@ All notable changes are documented here. The format follows
 ### Added
 
 - `diagnose --baseline <ref> [--fail-on new:<severity>]` judges a change only on what it adds (#101): it maps the tree, maps the base commit in a detached worktree into its own store, and lists the open findings whose fingerprint the base does not have, each with `severity` (`diagnose.severity` by kind, then category; cycles, hubs and security findings are `high` by default) and `location`. `--fail-on` exits 1 when a new finding reaches that severity; a base that cannot be mapped exits 5. `--json` output now carries `schema_version` `1.0`, and every listed finding its `severity` and `location`. No model and no network.
+
 ### Changed
 
 - CI scans the code and its tool pins are settled (#84): a CodeQL workflow analyses JavaScript on pull requests, on `main` and weekly; the blocking plugin validation runs a pinned Claude Code (2.1.289, the version `live.yml` installs) while a non-blocking job validates against the latest; a release takes its notes from the CHANGELOG section of the tag through `scripts/release-notes.mjs` and fails when the section is missing; versions 0.1.0 to 0.1.7 and 0.1.9 are marked as never tagged. A weekly workflow opens one PR that bumps both pins together (`scripts/bump-claude-pin.mjs`).
