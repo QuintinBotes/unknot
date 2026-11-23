@@ -32,7 +32,7 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
   const byName = new Map();
   const full = new Map();
   const known = new Set();
-  const globals = new Set();
+  const globals = new Map(); // global using spec → its first declaration
   const add = (m, k, v) => {
     if (!m.has(k)) m.set(k, []);
     m.get(k).push(v);
@@ -48,7 +48,7 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
         add(full, `${ns}.${t}`, path);
       }
     }
-    for (const imp of a.imports ?? []) if (imp.global && imp.kind === 'using') globals.add(imp.spec);
+    for (const imp of a.imports ?? []) if (imp.global && imp.kind === 'using' && !globals.has(imp.spec)) globals.set(imp.spec, imp);
   }
 
   const csFiles = sortedMods.filter((p) => language(mods.get(p).attrs.language)?.genericSyntax?.memberLinker === 'namespace').map((p) => ({ path: p, attrs: mods.get(p).attrs }));
@@ -62,7 +62,7 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
       for (let k = 1; k <= parts.length; k++) ownNs.add(parts.slice(0, k).join('.'));
     }
     const usings = new Map();
-    for (const g of globals) usings.set(g, 1);
+    for (const g of globals.keys()) usings.set(g, 1);
     const alias = new Map();
     const statics = [];
     const externals = [];
@@ -74,6 +74,8 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
         if (!known.has(imp.spec)) externals.push(imp);
       }
     }
+    // A global using in another file reaches this one: a test that relies on `global using Moq;` still uses Moq (#125).
+    for (const [spec, imp] of globals) if (!known.has(spec)) externals.push({ ...imp, line: 1 }); // the edge is deduplicated: a file's own `using` of it wins
     const declOnly = a.decl_only ?? {};
     const hits = new Map();
     const declPublic = a.decl_public ?? {};
@@ -81,7 +83,8 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
     const hit = (to, spec, line, decl, member, pub = []) => {
       if (to === path) return;
       let h = hits.get(to);
-      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set() }));
+      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set(), names: new Set() }));
+      h.names.add(spec.slice(spec.lastIndexOf('.') + 1));
       if (decl) {
         h.members.add(member);
         for (const m of pub) h.pub.add(m);
@@ -124,7 +127,7 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
     // A member another file reaches is an ordinary use, however the declaring file treats it. A file a
     // SCIP index covers has the index's verdict instead (see withSemantic), never name matching.
     const owners = a.public_owners ?? {};
-    const edges = [...hits].map(([to, h]) => ({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...declaredEdge(path, h, owners, reach, SYNTAX).attrs } }));
+    const edges = [...hits].map(([to, h]) => ({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...(a.is_test && { names: [...h.names].sort() }), ...declaredEdge(path, h, owners, reach, SYNTAX).attrs } }));
     // Calls: members reached through a receiver whose type is declared in another repository file.
     const callTo = new Map();
     for (const [t, [n, weak, line]] of Object.entries(a.member_calls ?? {})) {
