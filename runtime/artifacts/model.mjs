@@ -105,8 +105,10 @@ function deployUnits(graph) {
     const manifest = p.attrs?.manifest ?? p.path;
     if (!(p.attrs?.runnable || (hosted.has(manifest) && !p.attrs?.aspire_shared && !p.attrs?.app_host))) continue;
     let key = String(p.name ?? p.id).toLowerCase();
-    if (byName.has(key) && byName.get(key).manifest !== manifest) key = manifest.toLowerCase();
+    const same = byName.get(key);
+    if (same?.manifest && same.manifest !== manifest) key = manifest.toLowerCase();
     const u = add(p, key, { manifest });
+    u.manifest ??= manifest;
     u.root ??= rootOf(p);
   }
   for (const n of nodes.filter(inferred)) {
@@ -116,7 +118,7 @@ function deployUnits(graph) {
   for (const img of graph.nodes('image').filter((i) => i.attrs?.publishes?.length)) {
     const dir = dirOf(img.path ?? '');
     for (const u of byName.values()) {
-      if (u.manifest && !u.dockerfile && img.attrs.publishes.some((p) => u.manifest === p || u.manifest.endsWith(`/${p}`) || u.manifest === posix.join(dir, p))) u.dockerfile = img.path;
+      if (u.manifest && !u.dockerfile && img.attrs.publishes.some((p) => u.manifest === p || u.manifest === posix.join(dir, p))) u.dockerfile = img.path;
     }
   }
   return { units: [...byName.values()], unitOf, moduleUnit: new Map() };

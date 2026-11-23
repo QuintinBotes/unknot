@@ -99,3 +99,17 @@ test('a CI-inferred deployable named like a real project does not add a second c
   const facts = [...web(), node('deployable', 'orders.web', { name: 'orders.web', attrs: { inferred: true } })];
   assert.deepEqual(names(containersOf(facts)), ['Billing.Worker', 'Orders.Web']);
 });
+
+test('a web project and a measured deployable of the same name are one container with the module', () => {
+  const facts = [...csproj('src/Api/Api.csproj', '', 'Microsoft.NET.Sdk.Web'), mod('src/Api/P.cs'), node('deployable', 'Api', { name: 'Api', attrs: { delivery: 'ci' } })];
+  const list = containersOf(facts);
+  assert.deepEqual(names(list), ['Api']);
+  assert.deepEqual(list[0].modules, ['src/Api/P.cs']);
+});
+
+test('a bare published csproj name links the Dockerfile only to the project beside it', () => {
+  const docker = extractDockerfile('src/A/Dockerfile', 'FROM mcr.microsoft.com/dotnet/sdk:10.0\nRUN dotnet publish Api.csproj -c Release\n');
+  const facts = [...csproj('src/A/Api.csproj', '', 'Microsoft.NET.Sdk.Web'), ...csproj('src/B/Api.csproj', '', 'Microsoft.NET.Sdk.Web'), mod('src/A/P.cs'), mod('src/B/P.cs'), ...docker];
+  const linked = containersOf(facts).filter((c) => c.dockerfile).map((c) => c.dockerfile);
+  assert.deepEqual(linked, ['src/A/Dockerfile']);
+});
