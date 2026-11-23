@@ -144,6 +144,8 @@ With no sandbox, the command runs unwrapped and the evidence record says `sandbo
 
 ## Runs and slices
 
+**Slice commits skip the repository's git hooks.** Every git call the runtime makes, a slice commit included, runs with `core.hooksPath=/dev/null`: a repository's hooks are its code, and Unknot does not run untrusted code outside the sandbox. So a secret scan or linter wired as a git hook does not run on Unknot's commits. When the repository configures one (`.pre-commit-config.yaml`, `.husky/pre-commit`, or `lefthook.yml`, `.lefthook.yml` and their `.yaml`, `.json` and `.toml` forms), planning adds a proof obligation per system that runs its checks (`pre-commit run --all-files`, `sh .husky/pre-commit`, `lefthook run pre-commit`) through the command broker: in the slice worktree, in the OS sandbox, with no network. They run as evidence at `verify`, and a failing check leaves the slice unproven, with the tool's output naming it. A hook that needs the network fails in the sandbox, or times out, and says so; it is never left hanging. The tool must be installed (a missing one fails the obligation).
+
 A run is bound to at most one slice at a time. Only a run started for slice work (`apply`, `verify`, `rollback`) can take on a slice, and when the person typed slice ids the run may take on only those. A command's write ceiling bounds every actor in its run, subagents included: source changes need an `apply` or `rollback` run, and documentation writes need a planning command. A slice that is ready for review goes back to patching only when a person names it (`/unknot:apply UK-…`). In `mode: campaign` a run may move to the next slice of the same campaign once the current one is settled.
 
 ## Approvals

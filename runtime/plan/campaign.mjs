@@ -97,7 +97,7 @@ export function createSlice(ctx, { config, campaignId, draft, actor }) {
   const needed = requiredApprovals(risk, config);
   body.approvals = needed.roles;
   // A command the guidance forbids is not run: its obligation is for a person, citing the sentence.
-  const obligations = generateObligations(body, { config, risk }).map((o) => {
+  const obligations = generateObligations(body, { config, risk, root: ctx.root }).map((o) => {
     const rule = o.command && forbiddenCommand(guide, o.command);
     return rule ? { ...o, command: null, requires_human: true, description: `${o.description} (not run: ${rule.file}:${rule.line} says "${rule.sentence}"; a person confirms)` } : o;
   });

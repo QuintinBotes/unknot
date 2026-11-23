@@ -247,7 +247,7 @@ A lane is one signed plan approval for the low-risk slices of a campaign: low ri
 ### `unknot apply <slice> [start | finish | replan | abandon] [--reason "..."]`
 
 - `start` (default): needs mode `assist` or higher, no uncommitted changes to tracked files in the main checkout (untracked files and `.unknot/` are ignored), satisfied preconditions, and a fully approved plan. A plan approval is bound to the commit at `HEAD` when you approved, so a new commit between `approve` and `apply` makes it stale and you approve again. Creates the worktree and branch from the approved commit, runs `commands.test_unit` there as a baseline (it must pass; with none configured, behaviour preservation will need human attestation), and moves the slice to `PATCHING`. Edits are then confined to that worktree and the slice scope by the hooks.
-- `finish`: stages the patch, enforces the diff budget, binds the diff hash, moves to `VERIFYING`.
+- `finish`: stages the patch, enforces the diff budget, binds the diff hash, moves to `VERIFYING`. Commits made for a slice skip the repository's git hooks; its pre-commit, husky and lefthook checks are proof obligations instead ([security-model.md](security-model.md#runs-and-slices)).
 - `replan --reason`: an assumption was wrong; back to planning, approvals invalidated.
 - `abandon`: discards the worktree and branch.
 
