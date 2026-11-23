@@ -4,7 +4,7 @@
 
 import { nodeFact, edgeFact, prov } from '../../runtime/graph/facts.mjs';
 import { parseSql } from './sql/parser.mjs';
-import { analyzeMigration, detectFramework, alembicOrder, readSchemaRb, padVersion } from './migrations.mjs';
+import { analyzeMigration, detectFramework, alembicOrder, inferEngine, readSchemaRb, padVersion } from './migrations.mjs';
 import { normalizeEngine } from './forecast.mjs';
 import { readStats } from './stats/format.mjs';
 import { statementFacts, freshness, TX_EDGE } from './stats/facts.mjs';
@@ -13,7 +13,7 @@ import { LANGUAGE_IDS } from '../../runtime/graph/languages.mjs';
 import { entityQuery, mapEntities, tableFacts } from '../language/orm-maps.mjs';
 
 const ID = 'database';
-const VERSION = '0.1.4';
+const VERSION = '0.1.5';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
@@ -21,6 +21,9 @@ const NO_SCHEMA_ENGINES = new Set(['mysql', 'mariadb', 'sqlite']);
 const posix = (p) => String(p).replace(/\\/g, '/');
 const baseName = (p) => posix(p).split('/').pop();
 const dirName = (p) => posix(p).split('/').slice(0, -1).join('/');
+
+/** The SQL lexer dialect for an engine name; SQL Server is read as T-SQL (GO, bracket identifiers). */
+const dialectOf = (engine) => (normalizeEngine(engine) === 'mssql' ? 'tsql' : engine ?? 'postgresql');
 
 // ---------------------------------------------------------------- dialect variants
 
@@ -46,9 +49,10 @@ export function dialectVariant(path) {
 
 // ---------------------------------------------------------------- naming
 
-/** Schema used when a name is unqualified: `public` for PostgreSQL, none for MySQL/SQLite. */
+/** Schema used when a name is unqualified: `public` for PostgreSQL, `dbo` for SQL Server, none for MySQL/SQLite. */
 export function defaultSchema(engine) {
-  return NO_SCHEMA_ENGINES.has(normalizeEngine(engine)) ? null : 'public';
+  const e = normalizeEngine(engine);
+  return NO_SCHEMA_ENGINES.has(e) ? null : e === 'mssql' ? 'dbo' : 'public';
 }
 
 /**
@@ -438,14 +442,39 @@ function extract(file, text, ctx) {
   }
 
   if (/\.sql$/i.test(name)) {
-    const engine = options.engine ?? null;
-    emitDdl(F, parseSql(text, { dialect: engine ?? 'postgresql' }), { engine, p: (l) => p(l), migrationId: null, path });
+    const engine = options.engine ?? (inferEngine(text) === 'mssql' ? 'mssql' : null);
+    emitDdl(F, parseSql(text, { dialect: dialectOf(engine) }), { engine, p: (l) => p(l), migrationId: null, path });
     return F.list();
   }
   return [];
 }
 
 // ---------------------------------------------------------------- link
+
+/**
+ * Files a Liquibase `include`, `includeAll` or `sqlFile` names. `relativeToChangelogFile` resolves
+ * from the including file's directory; otherwise the path is a classpath path, so it matches from the
+ * repository root or under any source root (`src/main/resources/...`). `includeAll` takes every file
+ * under the directory, in path order.
+ */
+function wantedPath(changelog, inc) {
+  const parts = [];
+  for (const seg of (inc.relative ? `${dirName(changelog)}/${inc.path}` : inc.path.replace(/^classpath:\/?/, '')).split('/')) {
+    if (seg === '..') parts.pop();
+    else if (seg && seg !== '.') parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+function resolveInclude(changelog, inc, paths) {
+  const want = wantedPath(changelog, inc);
+  if (inc.kind === 'includeAll') {
+    const dir = `${want}/`;
+    return paths.filter((p) => p.startsWith(dir) || (!inc.relative && p.includes(`/${dir}`)));
+  }
+  if (paths.includes(want)) return [want];
+  return inc.relative ? [] : paths.filter((p) => p.endsWith(`/${want}`));
+}
 
 function link(ctx) {
   const out = new Map();
@@ -482,7 +511,7 @@ function link(ctx) {
           const line = typeof entry === 'object' ? entry.line ?? null : null;
           if (!text) continue;
           const q = entityQuery(text);
-          for (const st of parseSql(text, { dialect: engine })) {
+          for (const st of parseSql(text, { dialect: dialectOf(engine) })) {
             // An entity query (JPQL, HQL, DQL) names classes: a mapped entity resolves to its
             // table and anything else written that way is not a table at all.
             const ref = (t) => {
@@ -559,6 +588,7 @@ function link(ctx) {
   const atlasDirs = new Set(paths.filter((x) => baseName(x) === 'atlas.sum').map(dirName));
   const restate = (n, over, line) => add({ ...n, attrs: { ...n.attrs, ...over }, provenance: prov({ source_type: 'inference', source_ref: `${n.path}:${line ?? 1}`, extractor: EXTRACTOR, confidence: n.provenance.confidence }) });
 
+  const migPaths = new Set(migNodes.map((n) => n.path));
   for (const n of migNodes) {
     const a = n.attrs;
     if (a.framework === 'flyway' && a.kind !== 'R') {
@@ -576,6 +606,13 @@ function link(ctx) {
       if (depth !== undefined) restate(n, { order_key: String(depth).padStart(6, '0') });
     } else if (a.framework === 'sql' && atlasDirs.has(dirName(n.path))) {
       restate(n, { framework: 'atlas', order_key: baseName(n.path) });
+    } else if (a.framework === 'liquibase' && a.includes?.length) {
+      const includes = a.includes.map((inc) => ({ ...inc, resolved: resolveInclude(n.path, inc, paths) }));
+      for (const inc of includes) {
+        if (!inc.resolved.length) ctx.notes?.push(`${n.path}: ${inc.kind} "${inc.path}" matches no file in the repository (looked for ${wantedPath(n.path, inc)}); its tables are not mapped`);
+        for (const target of inc.resolved) if (migPaths.has(target)) add(edgeFact('DEPENDS_ON', n.id, `migration:${target}`, { via: inc.kind }, prov({ source_type: 'inference', source_ref: `${n.path}:1`, extractor: EXTRACTOR, confidence: 'medium' })));
+      }
+      restate(n, { includes });
     }
   }
   return [...out.values()];
@@ -631,7 +668,7 @@ function catalogFacts(doc, path, F) {
     }
     // Index analysis: unused, invalid, duplicate and redundant-prefix candidates.
     const idx = (t.indexes ?? []).map((ix) => {
-      const st = parseSql(ix.definition ?? '', { dialect: engine })[0];
+      const st = parseSql(ix.definition ?? '', { dialect: dialectOf(engine) })[0];
       const cols = st?.kind === 'create_index' ? st.columns.map((c) => c.expr.replace(/\s+/g, ' ').trim()) : [];
       return { ix, cols, method: st?.method ?? 'btree', where: st?.where ?? null, include: st?.include ?? [], unique: Boolean(ix.unique ?? st?.unique) };
     });
@@ -673,7 +710,7 @@ function catalogFacts(doc, path, F) {
     for (const c of t.constraints ?? []) {
       let k = { kind: c.kind ?? CONSTRAINT_KIND[c.type] ?? 'unknown', columns: c.columns ?? [], ref_table: null, ref_columns: [], on_delete: null, on_update: null, expr: null };
       if (c.definition) {
-        const st = parseSql(`ALTER TABLE ${t.name} ADD CONSTRAINT ${c.name} ${c.definition}`, { dialect: engine })[0];
+        const st = parseSql(`ALTER TABLE ${t.name} ADD CONSTRAINT ${c.name} ${c.definition}`, { dialect: dialectOf(engine) })[0];
         const parsed = st?.actions?.[0]?.constraint;
         if (parsed) k = parsed;
       }
@@ -789,6 +826,8 @@ export default {
   kind: 'database',
   capabilities: {
     files: ['**/*.sql', '**/migrations/**', '**/migrate/**', '**/schema.prisma', '**/changelog*.{xml,yaml,yml,json}', '**/db/schema.rb', '**/alembic/versions/*.py', '**/Migrations/**'],
+    // A changelog may have any name; files like these are read when their content says so.
+    sniff: { files: ['**/*.{xml,yaml,yml,json}'], pattern: 'databaseChangeLog' },
     executes: [],
     network: false,
   },

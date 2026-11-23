@@ -111,7 +111,13 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     const keyOf = (f) => `${od}|${f?.kind ?? ''}${f?.is_test ? '|test' : ''}${f?.context ? '|context' : ''}`;
     const options = config.adapters?.[adapter.id] ?? {};
     // Repository-level context files (kept outside the scope) go only to adapters that declare them.
-    const files = cen.files.filter((f) => analysable(f) && matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []));
+    // `capabilities.sniff`: files of a glob that an adapter also reads when their first 4000 characters match.
+    const sniff = adapter.capabilities?.sniff;
+    const sniffed = (f) => {
+      if (!sniff || f.context || !matchAny(f.path, sniff.files)) return false;
+      try { return new RegExp(sniff.pattern).test(readEntry(ctx.root, f)?.slice(0, 4000) ?? ''); } catch { return false; }
+    };
+    const files = cen.files.filter((f) => analysable(f) && (matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []) || sniffed(f)));
     const misses = [];
     for (const f of files) {
       if (!f.blob) {

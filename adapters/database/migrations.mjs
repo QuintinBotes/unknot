@@ -8,7 +8,7 @@
 // invisible. Callers mark such facts `confidence: medium`.
 
 import { parseSql } from './sql/parser.mjs';
-import { forecast } from './forecast.mjs';
+import { forecast, normalizeEngine, sqlDialect } from './forecast.mjs';
 
 const posix = (p) => String(p).replace(/\\/g, '/');
 const baseName = (p) => posix(p).split('/').pop();
@@ -1102,6 +1102,28 @@ export function readLiquibase(path, text) {
   return sets;
 }
 
+const lbTrue = (v) => v === true || String(v).toLowerCase() === 'true';
+
+/** `include`, `includeAll` and `sqlFile` references of a changelog, in file order. */
+export function readLiquibaseIncludes(path, text) {
+  const ext = baseName(path).split('.').pop().toLowerCase();
+  const out = [];
+  const add = (kind, p, rel) => { if (typeof p === 'string' && p) out.push({ kind, path: p, relative: lbTrue(rel) }); };
+  if (ext === 'xml') {
+    for (const m of text.matchAll(/<(include|includeAll|sqlFile)\b([^>]*?)\/?>/g)) add(m[1], lbAttr(m[2], m[1] === 'includeAll' ? 'path' : m[1] === 'include' ? 'file' : 'path'), lbAttr(m[2], 'relativeToChangelogFile'));
+    return out;
+  }
+  let doc = null;
+  try { doc = ext === 'json' ? JSON.parse(text) : parseMiniYaml(text); } catch { return out; }
+  const log = doc?.databaseChangeLog;
+  for (const item of Array.isArray(log) ? log : []) {
+    if (item?.include) add('include', item.include.file, item.include.relativeToChangelogFile);
+    if (item?.includeAll) add('includeAll', item.includeAll.path, item.includeAll.relativeToChangelogFile);
+    for (const ch of item?.changeSet?.changes ?? []) if (ch?.sqlFile) add('sqlFile', ch.sqlFile.path, ch.sqlFile.relativeToChangelogFile);
+  }
+  return out;
+}
+
 function liquibaseToSql(set, dialect, out) {
   for (const ch of set.changes) {
     const a = ch.attrs;
@@ -1138,13 +1160,19 @@ function liquibaseToSql(set, dialect, out) {
 
 /** Guess the SQL dialect from syntax hints when the caller does not say. */
 export function inferEngine(text) {
+  if (/\[dbo\]|^\s*GO\s*$|\bIDENTITY\s*\(\s*\d+\s*,\s*\d+\s*\)|\b(?:N?VARCHAR\(MAX\)|NVARCHAR|UNIQUEIDENTIFIER|DATETIME2)\b|\bSET\s+NOCOUNT\b|\bsp_rename\b/im.test(text)) return 'mssql';
   if (/`[A-Za-z_]+`|\bENGINE\s*=|\bAUTO_INCREMENT\b|\bALGORITHM\s*=|\bDELIMITER\b/i.test(text)) return 'mysql';
   if (/\bAUTOINCREMENT\b|\bPRAGMA\b/i.test(text)) return 'sqlite';
   if (/\bCONCURRENTLY\b|[)'\w]\s*::\s*(?:text|int|integer|bigint|smallint|varchar|uuid|jsonb?|timestamptz?|date|numeric|boolean|regclass)\b|\$\$|\bUSING\s+(gin|gist|btree|brin|hash)\b|\bNOT VALID\b|\bplpgsql\b|\bserial\b|\bSET\s+LOGGED\b/i.test(text)) return 'postgresql';
   return null;
 }
 
-const tableKeyOf = (t, engine) => (t ? `${t.schema ?? (engine === 'mysql' || engine === 'mariadb' || engine === 'sqlite' ? '' : 'public')}${t.schema || !(engine === 'mysql' || engine === 'mariadb' || engine === 'sqlite') ? '.' : ''}${t.name}` : null);
+const tableKeyOf = (t, engine) => {
+  if (!t) return null;
+  const bare = engine === 'mysql' || engine === 'mariadb' || engine === 'sqlite';
+  const schema = t.schema ?? (bare ? '' : normalizeEngine(engine) === 'mssql' ? 'dbo' : 'public');
+  return `${schema}${schema ? '.' : ''}${t.name}`;
+};
 
 function describe(st) {
   if (st.kind === 'alter_table') return `alter_table.${[...new Set(st.actions.map((a) => a.action))].join('+') || 'options'}`;
@@ -1173,8 +1201,9 @@ export function analyzeMigration(path, text, opts = {}) {
   if (!info) return null;
   // Syntax sniffing is only meaningful for files that are themselves SQL.
   const sqlText = ['flyway', 'golang-migrate', 'prisma', 'sql'].includes(info.framework) || info.kind === 'formatted-sql';
-  const engineHint = opts.engine ?? (sqlText ? inferEngine(text) : null);
-  const dialect = engineHint ?? 'postgresql';
+  const given = opts.engine ?? (sqlText ? inferEngine(text) : null);
+  const engineHint = normalizeEngine(given) === 'mssql' ? 'mssql' : given;
+  const dialect = engineHint === 'mssql' ? 'tsql' : engineHint ?? 'postgresql';
   let parsed = [];
   let has_down = false;
   let extra = {};
@@ -1205,7 +1234,8 @@ export function analyzeMigration(path, text, opts = {}) {
       const sets = readLiquibase(path, text);
       for (const s of sets) liquibaseToSql(s, dialect, parsed);
       has_down = sets.length > 0 && sets.every((s) => s.rollback || s.changes.every((c) => LB_REVERSIBLE.has(c.type)));
-      extra = { change_sets: sets.map((s) => ({ id: s.id, author: s.author, types: s.changes.map((c) => c.type), rollback: s.rollback })) };
+      const includes = readLiquibaseIncludes(path, text);
+      extra = { change_sets: sets.map((s) => ({ id: s.id, author: s.author, types: s.changes.map((c) => c.type), rollback: s.rollback })), ...(includes.length ? { includes } : {}) };
       break;
     }
     case 'laravel': { const r = readLaravel(text, dialect); parsed = r.statements; has_down = r.has_down; break; }
