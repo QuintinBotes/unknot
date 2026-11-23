@@ -176,6 +176,20 @@ extra time is spread over census, extraction, link and projection rather than on
 cold 250k time therefore says more about the load during that run than about the code; a
 v0.3.3 run at 250k on an idle machine would settle it.
 
+## Real C# monolith: map, cold and warm
+
+`scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit
+(default `nopcommerce`, a public ASP.NET Core monolith) into a directory outside this checkout,
+then maps it twice in separate processes: cold (no store) and warm (unchanged tree, store kept).
+It writes wall time, peak RSS (MB), files, nodes, edges and the store size to a JSON file.
+
+```
+node scripts/bench-map.mjs [--repo nopcommerce] [--work DIR] [--out FILE.json]
+```
+
+It needs `git` and network access for the first fetch, and spends nothing else. Run it on an idle
+machine: numbers from a shared one are an upper bound.
+
 ## Reading the results against the targets
 
 - **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and

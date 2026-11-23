@@ -59,7 +59,7 @@ function evidenceReader(ctx, config) {
  * @param {object} ctx project context
  * @param {{config: object, configDigest: string, run?: object, scope?: string[], only?: string[], history?: boolean}} opts
  */
-async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope: givenScope = [], replace = false, only = null, history = true, adapters = null, branchOk = null }) {
+async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope: givenScope = [], replace = false, only = null, history = true, adapters = null, branchOk = null, onProgress = null }) {
   const t0 = Date.now();
   const scopes = resolveScopes(ctx, { scope: givenScope, replace });
   const scope = scopes.effective;
@@ -119,7 +119,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     };
     const files = cen.files.filter((f) => analysable(f) && (matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []) || sniffed(f)));
     const misses = [];
+    let scanned = 0;
     for (const f of files) {
+      onProgress?.(scanned++, files.length, `map ${adapter.id} files`);
       if (!f.blob) {
         try {
           readEntry(ctx.root, f);
@@ -187,6 +189,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           extracted++;
         }
       });
+      onProgress?.(files.length - misses.length + extracted, files.length, `map ${adapter.id} files`);
     }
     stats.adapters[adapter.id] = { files: files.length, extracted, cached: files.length - misses.length };
   }

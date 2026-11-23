@@ -9,6 +9,8 @@ All notable changes are documented here. The format follows
 ### Added
 
 - `diagnose --baseline <ref> [--fail-on new:<severity>]` judges a change only on what it adds (#101): it maps the tree, maps the base commit in a detached worktree into its own store, and lists the open findings whose fingerprint the base does not have, each with `severity` (`diagnose.severity` by kind, then category; cycles, hubs and security findings are `high` by default) and `location`. `--fail-on` exits 1 when a new finding reaches that severity; a base that cannot be mapped exits 5. `--json` output now carries `schema_version` `1.0`, and every listed finding its `severity` and `location`. No model and no network.
+- `map` and `decompose` report progress on stderr (#89): one plain line per update with the phase, done of total and elapsed seconds, after 5 s and at most every 5 s, on a terminal or with `--progress`; stdout, including `--json`, is unchanged. `scripts/bench-map.mjs` maps a pinned public C# repository (nopCommerce) cold and warm and records wall time, peak RSS and file counts as JSON (docs/benchmarks.md).
+
 ### Changed
 
 - Test temporary directories are removed when the test process ends, pass or fail (#85): every test creates them through `mkTmp` in `tests/helpers/tmp.mjs`, a test fails on a direct `mkdtemp` call, and `UNKNOT_KEEP_TMP=1` keeps them and prints their paths.

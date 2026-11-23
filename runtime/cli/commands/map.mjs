@@ -1,6 +1,7 @@
 import { mapRepository } from '../../graph/builder.mjs';
 import { impossibleWarning } from '../../graph/derived.mjs';
 import { output, withRun } from '../util.mjs';
+import { progressFor } from '../progress.mjs';
 import { open } from './_shared.mjs';
 import { constantsLine } from './status.mjs';
 
@@ -12,7 +13,7 @@ export async function run({ positional, flags }) {
   const replace = flags.replace !== undefined && flags.replace !== 'false';
   const scope = typeof flags.replace === 'string' && replace ? [flags.replace, ...positional] : positional;
   const summary = await withRun(ctx, cfg, 'map', { actor, scope }, (r) =>
-    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null }),
+    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null, onProgress: progressFor(flags) }),
   );
   // A cycle the build forbids is an analysis artifact: say so where it is seen first (#72).
   // Read straight from the stored components: mapRepository has written them for this generation.

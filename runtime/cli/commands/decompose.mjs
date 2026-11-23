@@ -12,6 +12,7 @@ import { UnknotError } from '../../core/errors.mjs';
 import { decompose } from '../../decompose/index.mjs';
 import { listRecords, pruneRecords, showRecord, summaryLine } from '../../decompose/records.mjs';
 import { output, table, withRun } from '../util.mjs';
+import { progressFor } from '../progress.mjs';
 import { open } from './_shared.mjs';
 
 export const USAGE = 'usage: unknot decompose [scope] [--target backend|frontend|auto] [--driver id]... [--driver-source id=url]... [--driver-quote id=text]... [--drivers-file json] [--summary] | list | show <DEC-id> [--json] | prune [--dry-run]';
@@ -165,7 +166,7 @@ export async function run({ positional, flags }) {
     return flags.json ? output(rec, { json: true }) : output(showText(rec));
   }
   const { drivers, driverProvenance } = driversFrom(flags, config);
-  const opts = { config, scope: rest, target: flags.target ?? 'auto', drivers, driverProvenance, dryRun: Boolean(flags.dry_run) };
+  const opts = { config, scope: rest, target: flags.target ?? 'auto', drivers, driverProvenance, dryRun: Boolean(flags.dry_run), onProgress: progressFor(flags) };
   const res = opts.dryRun ? await decompose(ctx, opts) : await withRun(ctx, cfg, 'decompose', { actor, scope: rest }, (r) => decompose(ctx, { ...opts, run: r }));
   if (res.warning) process.stderr.write(`unknot: ${res.warning}\n`);
   const notices = driverNotices(res);
