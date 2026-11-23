@@ -20,7 +20,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.19';
+const VERSION = '0.1.20';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
