@@ -1171,7 +1171,8 @@ const tableKeyOf = (t, engine) => {
   if (!t) return null;
   const bare = engine === 'mysql' || engine === 'mariadb' || engine === 'sqlite';
   const schema = t.schema ?? (bare ? '' : normalizeEngine(engine) === 'mssql' ? 'dbo' : 'public');
-  return `${schema}${schema ? '.' : ''}${t.name}`;
+  const key = `${schema}${schema ? '.' : ''}${t.name}`;
+  return normalizeEngine(engine) === 'mssql' ? key.toLowerCase() : key;
 };
 
 function describe(st) {

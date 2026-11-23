@@ -97,7 +97,7 @@ const TSQL = 'CREATE TABLE [dbo].[Orders] (\n  [Id] int NOT NULL\n)\nGO\nCREATE 
 test('scenario 3: a T-SQL script with GO and bracket identifiers maps dbo.Orders', () => {
   for (const options of [{ engine: 'sqlserver' }, {}]) {
     const facts = adapter.extract(entry('db/scripts/orders.sql'), TSQL, { options });
-    assert.deepEqual(ids(facts, 'table'), ['table:dbo.Lines', 'table:dbo.Orders'], JSON.stringify(options));
+    assert.deepEqual(ids(facts, 'table'), ['table:dbo.lines', 'table:dbo.orders'], JSON.stringify(options));
   }
 });
 
@@ -162,5 +162,21 @@ test('scenario 7: a T-SQL migration is analysed as SQL Server even when no engin
   assert.equal(m.engine, 'mssql');
   assert.ok(m.statements.length > 0);
   for (const s of m.statements) assert.ok(s.forecast.rule_id.startsWith('mssql.'), s.forecast.rule_id);
-  assert.equal(m.statements[0].table, 'dbo.Orders');
+  assert.equal(m.statements[0].table, 'dbo.orders');
+});
+
+test('T-SQL names compare case-insensitively with dbo applied to bare and bracketed names', () => {
+  const sql = 'CREATE TABLE [dbo].[Orders] (Id int)\nGO\nALTER TABLE Orders ADD Note nvarchar(10)\nGO\nALTER TABLE dbo.ORDERS ADD Qty int\nGO\n';
+  const m = analyzeMigration('db/migration/V1__x.sql', sql, { engine: 'sqlserver' });
+  assert.deepEqual([...new Set(m.statements.map((s) => s.table))], ['dbo.orders']);
+  const facts = adapter.extract(entry('db/scripts/o.sql'), sql, { options: { engine: 'sqlserver' } });
+  assert.deepEqual(ids(facts, 'table'), ['table:dbo.orders']);
+  const pg = analyzeMigration('db/migration/V1__x.sql', 'CREATE TABLE "Orders" (id int);\nALTER TABLE orders ADD x int;\n', { engine: 'postgresql' });
+  assert.deepEqual(pg.statements.map((s) => s.table), ['public.Orders', 'public.orders']);
+});
+
+test('a Prisma sqlserver provider maps to the mssql engine with schema dbo', () => {
+  const facts = adapter.extract(entry('prisma/schema.prisma'), 'datasource db {\n  provider = "sqlserver"\n  url = env("U")\n}\nmodel Order {\n  id Int @id\n}\n', { options: {} });
+  assert.ok(ids(facts, 'table').every((t) => t.startsWith('table:dbo.')), ids(facts, 'table').join());
+  assert.ok(ids(facts, 'table').length > 0);
 });

@@ -62,7 +62,9 @@ export function defaultSchema(engine) {
 export function tableKey(ref, engine) {
   if (!ref || !ref.name) return null;
   const schema = ref.schema ?? defaultSchema(engine);
-  return schema ? `${schema}.${ref.name}` : ref.name;
+  const key = schema ? `${schema}.${ref.name}` : ref.name;
+  // SQL Server identifiers are case-insensitive by default, so [dbo].[Orders] and a bare orders are one table.
+  return normalizeEngine(engine) === 'mssql' ? key.toLowerCase() : key;
 }
 
 /** Normalise an id like `table:orders` to `table:public.orders`; other ids pass through. */
@@ -293,7 +295,7 @@ const PRISMA_TYPES = { Int: 'integer', String: 'text', BigInt: 'bigint', Boolean
 
 function extractPrisma(text, path, F, optsEngine) {
   const provider = /datasource\s+\w+\s*\{[^}]*provider\s*=\s*"(\w+)"/s.exec(text)?.[1] ?? null;
-  const engine = optsEngine ?? (provider === 'sqlserver' || provider === 'cockroachdb' ? 'postgresql' : provider) ?? 'postgresql';
+  const engine = optsEngine ?? (provider === 'cockroachdb' ? 'postgresql' : provider === 'sqlserver' ? 'mssql' : provider) ?? 'postgresql';
   if (provider === 'mongodb') return;
   const enums = new Set([...text.matchAll(/^\s*enum\s+(\w+)\s*\{/gm)].map((m) => m[1]));
   const models = [];
