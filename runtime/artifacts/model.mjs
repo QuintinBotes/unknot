@@ -80,17 +80,59 @@ function rootOf(n) {
 function deployUnits(graph) {
   const byName = new Map();
   const unitOf = new Map();
-  for (const n of graph.nodes().filter((x) => DEPLOY_TYPES.includes(x.type) && !x.attrs?.placeholder)) {
-    // A Deployment, its Service and a traced service of the same name are one container.
-    const key = String(n.name ?? n.id).toLowerCase();
+  const add = (n, key, extra = {}) => {
     let u = byName.get(key);
-    if (!u) byName.set(key, (u = { id: `unit:${key}`, name: n.name ?? n.id, type: n.type, root: null, nodeIds: [], moduleCount: 0, node: n }));
+    if (!u) byName.set(key, (u = { id: `unit:${key}`, name: n.name ?? n.id, type: n.type, root: null, nodeIds: [], moduleCount: 0, node: n, ...extra }));
     u.nodeIds.push(n.id);
+    unitOf.set(n.id, u.id);
+    return u;
+  };
+  const nodes = graph.nodes().filter((x) => DEPLOY_TYPES.includes(x.type) && !x.attrs?.placeholder);
+  // A CI job is evidence of delivery, not a thing that runs: a deployable inferred from one only joins a container that exists.
+  const inferred = (n) => n.type === 'deployable' && n.attrs?.inferred === true && !n.attrs?.delivery;
+  for (const n of nodes.filter((x) => !inferred(x))) {
+    // A Deployment, its Service and a traced service of the same name are one container.
+    const u = add(n, String(n.name ?? n.id).toLowerCase());
     if (n.type === 'service' && !n.attrs?.ports) { u.type = 'service'; u.node = n; }
     // Source roots come from the node that knows the source tree (a deployable's build
     // context or a declared root), not from a Kubernetes manifest's directory.
     if (!u.root && (n.type === 'deployable' || n.attrs?.root)) u.root = rootOf(n);
-    unitOf.set(n.id, u.id);
+  }
+  // Projects that run: a web or executable project, or one an app host orchestrates (#79).
+  const pkgs = graph.nodes('package').filter((p) => !p.attrs?.placeholder);
+  const hosted = new Set(pkgs.filter((p) => p.attrs?.app_host).flatMap((p) => p.attrs.local_deps ?? []));
+  for (const p of pkgs) {
+    const manifest = p.attrs?.manifest ?? p.path;
+    if (!(p.attrs?.runnable || (hosted.has(manifest) && !p.attrs?.aspire_shared && !p.attrs?.app_host))) continue;
+    let key = String(p.name ?? p.id).toLowerCase();
+    const same = byName.get(key);
+    if (same?.manifest && same.manifest !== manifest) key = manifest.toLowerCase();
+    const u = add(p, key, { manifest });
+    u.manifest ??= manifest;
+    u.root ??= rootOf(p);
+  }
+  for (const n of nodes.filter(inferred)) {
+    const u = byName.get(String(n.name ?? n.id).toLowerCase());
+    if (u) { u.nodeIds.push(n.id); unitOf.set(n.id, u.id); }
+  }
+  for (const img of graph.nodes('image').filter((i) => i.attrs?.publishes?.length)) {
+    const dir = dirOf(img.path ?? '');
+    for (const u of byName.values()) {
+      if (u.manifest && !u.dockerfile && img.attrs.publishes.some((p) => u.manifest === p || u.manifest === posix.join(dir, p))) u.dockerfile = img.path;
+    }
+  }
+  // A compose service that builds a Dockerfile is the project that Dockerfile publishes.
+  for (const [key, c] of [...byName]) {
+    const df = c.node?.attrs?.dockerfile;
+    const target = df && !c.manifest ? [...byName.values()].find((u) => u.manifest && u.dockerfile === df) : null;
+    if (!target) continue;
+    target.nodeIds.push(...c.nodeIds);
+    for (const id of c.nodeIds) unitOf.set(id, target.id);
+    byName.delete(key);
+  }
+  for (const u of byName.values()) {
+    const a = u.node?.attrs;
+    if (a?.runtime === 'compose' && a.image && !a.build_context && !u.manifest) u.external = true;
   }
   return { units: [...byName.values()], unitOf, moduleUnit: new Map() };
 }
