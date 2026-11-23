@@ -10,8 +10,10 @@ All notable changes are documented here. The format follows
 
 - COMPATIBILITY says which commands and skills are public API (#97): every command in `unknot --help` and every skill is public under semver except `exec`, `run` and `daemon`, which are internal plumbing. A test fails when a command or skill is added, removed or left unclassified.
 - `diagnose --baseline <ref> [--fail-on new:<severity>]` judges a change only on what it adds (#101): it maps the tree, maps the base commit in a detached worktree into its own store, and lists the open findings whose fingerprint the base does not have, each with `severity` (`diagnose.severity` by kind, then category; cycles, hubs and security findings are `high` by default) and `location`. `--fail-on` exits 1 when a new finding reaches that severity; a base that cannot be mapped exits 5. `--json` output now carries `schema_version` `1.0`, and every listed finding its `severity` and `location`. No model and no network.
+
 ### Changed
 
+- CI scans the code and its tool pins are settled (#84): a CodeQL workflow analyses JavaScript on pull requests, on `main` and weekly; the blocking plugin validation runs a pinned Claude Code (2.1.289, the version `live.yml` installs) while a non-blocking job validates against the latest; a release takes its notes from the CHANGELOG section of the tag through `scripts/release-notes.mjs` and fails when the section is missing; versions 0.1.0 to 0.1.7 and 0.1.9 are marked as never tagged. A weekly workflow opens one PR that bumps both pins together (`scripts/bump-claude-pin.mjs`).
 - Test temporary directories are removed when the test process ends, pass or fail (#85): every test creates them through `mkTmp` in `tests/helpers/tmp.mjs`, a test fails on a direct `mkdtemp` call, and `UNKNOT_KEEP_TMP=1` keeps them and prints their paths.
 - The tests run git without the developer's global or system configuration (#86): `tests/helpers/git-env.mjs` sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and every test file that runs git imports it, so a global hook, commit signing or template cannot slow or fail a test, in the full suite or in a single file.
 - CI tests every Node.js line the support policy promises, and the engines floor (#87): the test job adds Node 26 and a Node 22.13.0 job on Ubuntu, COMPATIBILITY lists each line with the date its window ends, and a workflow test ties the matrix to `engines.node` and to that list, and names a line for removal once its window has ended. The new floor job found a real defect, fixed here: on Node 22.13 a statement streamed with `iterate()` was finalized mid-loop ("statement has been finalized", or a crash on Linux), so the store now streams through `Store.iterate`, which keeps the statement alive.
@@ -462,6 +464,8 @@ Repository housekeeping for open-source contributions; no runtime changes.
 
 ## [0.1.9] - 2026-10-05
 
+_Never tagged: no git tag or GitHub release exists for this version._
+
 ### Fixed
 
 - Linux sandbox, now exercised on real bubblewrap in CI: system temp paths are bound only
@@ -503,6 +507,8 @@ Repository housekeeping for open-source contributions; no runtime changes.
 
 ## [0.1.7] - 2026-10-05
 
+_Never tagged: no git tag or GitHub release exists for this version._
+
 From a second, unbiased audit: a fresh simple random sample of 110 findings across eleven
 repositories, checked against the source. 83 true (75%), 5 factually wrong (5%), 22 true but
 not worth flagging (20%). The five wrong ones are fixed here.
@@ -523,6 +529,8 @@ not worth flagging (20%). The five wrong ones are fixed here.
 
 ## [0.1.6] - 2026-10-05
 
+_Never tagged: no git tag or GitHub release exists for this version._
+
 ### Fixed
 
 - A slice worktree's linked dependency directories (`node_modules` and similar, symlinks to
@@ -536,6 +544,8 @@ not worth flagging (20%). The five wrong ones are fixed here.
   commands inside `.unknot/`.
 
 ## [0.1.5] - 2026-10-05
+
+_Never tagged: no git tag or GitHub release exists for this version._
 
 Precision release from a measured audit of five further repositories: 100 sampled findings
 checked against the source (51 true before; after, 50 of them kept and 36 of 49 false ones
@@ -573,6 +583,8 @@ gone). See docs/dogfood/README.md, round 7.
 
 ## [0.1.4] - 2026-10-05
 
+_Never tagged: no git tag or GitHub release exists for this version._
+
 ### Added
 
 - MongoDB collections in JavaScript and TypeScript: Meteor `new Mongo.Collection('x')`,
@@ -588,6 +600,8 @@ gone). See docs/dogfood/README.md, round 7.
 
 ## [0.1.3] - 2026-10-05
 
+_Never tagged: no git tag or GitHub release exists for this version._
+
 ### Fixed
 
 - A committed `.terraform.lock.hcl` is read: providers it pins are not reported as unpinned,
@@ -597,6 +611,8 @@ gone). See docs/dogfood/README.md, round 7.
   files) use the component line threshold; an anonymous default export is named by its file.
 
 ## [0.1.2] - 2026-10-05
+
+_Never tagged: no git tag or GitHub release exists for this version._
 
 More fixes from the same repository, measured on it: open findings 878 → 554, and
 "module imported by nothing" findings 246 → 15, each remaining one checked by hand.
@@ -619,6 +635,8 @@ More fixes from the same repository, measured on it: open findings 878 → 554, 
   `*.tests.*` test files.
 
 ## [0.1.1] - 2026-10-05
+
+_Never tagged: no git tag or GitHub release exists for this version._
 
 Fixes from running the installed plugin on an unfamiliar repository (a large Meteor and React
 application with GitLab CI).
@@ -643,6 +661,8 @@ application with GitLab CI).
   cartographer uses them instead of piping JSON into an interpreter, which policy denies.
 
 ## [0.1.0] - 2026-10-05
+
+_Never tagged: no git tag or GitHub release exists for this version._
 
 Initial release.
 
