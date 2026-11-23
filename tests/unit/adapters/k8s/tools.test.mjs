@@ -74,7 +74,7 @@ test('discover renders charts via helm template and tags facts as rendered', asy
   assert.equal(w.attrs.rendered_from, 'helm/api');
   assert.equal(w.attrs.containers[0].image_tag_latest, true);
   assert.equal(w.provenance.source_type, 'config');
-  assert.equal(w.provenance.extractor, 'k8s@0.1.0');
+  assert.equal(w.provenance.extractor, 'k8s@0.1.2');
   assert.ok(hasEdge(facts, 'ROUTES_TO', 'service:rel-ns/api', 'workload:rel-ns/Deployment/api'));
   const bt = node(facts, 'build_target:helm/api');
   assert.equal(bt.attrs.render, 'ok');

@@ -6,7 +6,7 @@ import { prov } from '../../../runtime/graph/facts.mjs';
 import { parseYAML, YAMLError } from '../../../runtime/core/yaml.mjs';
 
 export const ID = 'k8s';
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.2';
 export const EXTRACTOR = `${ID}@${VERSION}`;
 
 /** Per-file fact cap (adapters/README.md rules). */
