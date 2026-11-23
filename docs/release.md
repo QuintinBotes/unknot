@@ -145,3 +145,7 @@ All calls are no-ops when telemetry is disabled, so they need no guards.
 
 Pass only ids, counts, kinds and states as attributes; never pass a path, a message or a value
 read from the repository.
+
+## Claude Code pin
+
+`ci.yml` validates the plugin with a pinned Claude Code and `live.yml` installs the same version; a non-blocking CI job checks the latest. `.github/workflows/bump-claude-pin.yml` runs weekly (and on demand), and when npm has a newer version it opens one pull request on the fixed branch `automation/bump-claude-code-pin` that updates both pins; a rerun updates that PR. A pull request opened with `GITHUB_TOKEN` does not trigger CI, so the owner reruns the checks or closes and reopens it before merging.

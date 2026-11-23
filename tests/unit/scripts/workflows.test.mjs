@@ -83,3 +83,12 @@ test('release.yml: notes come from the CHANGELOG section, not generated', () => 
   assert.match(text, /--notes-file/);
   assert.doesNotMatch(text, /--generate-notes/);
 });
+
+test('bump-claude-pin.yml: weekly and manual, writes only on its job, one fixed branch', () => {
+  const text = read('bump-claude-pin.yml');
+  const wf = parseYAML(text, { filename: 'bump-claude-pin.yml' });
+  assert.ok(wf.on.schedule[0].cron && 'workflow_dispatch' in wf.on);
+  assert.deepEqual(wf.jobs.bump.permissions, { contents: 'write', 'pull-requests': 'write' });
+  assert.match(text, /scripts\/bump-claude-pin\.mjs/);
+  assert.match(text, /branch=automation\/bump-claude-code-pin/);
+});
