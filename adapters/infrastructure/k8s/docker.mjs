@@ -88,6 +88,7 @@ export function extractDockerfile(path, text) {
   let curlPipe = 0;
   let firstLine = 1;
   const publishes = new Set();
+  let wd = ''; // WORKDIR of the current stage: a relative project path in RUN is relative to it
 
   for (const { line, text: t } of logicalLines(text)) {
     const m = /^([A-Za-z]+)\s*([\s\S]*)$/.exec(t);
@@ -109,8 +110,12 @@ export function extractDockerfile(path, text) {
       };
       if (stages.length === 0) firstLine = line;
       stages.push(cur);
+      wd = '';
     } else if (!cur) {
       if (ins === 'ARG') for (const a of assignedNames(args)) globalArgs.push(a.name);
+    } else if (ins === 'WORKDIR') {
+      const d = args.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
+      if (d) wd = d.startsWith('/') ? posix.normalize(d) : posix.join(wd, d);
     } else if (ins === 'USER') {
       cur.user = args.split(/\s+/)[0] ?? null;
     } else if (ins === 'ADD') {
@@ -121,7 +126,7 @@ export function extractDockerfile(path, text) {
       }
     } else if (ins === 'RUN') {
       cur.run_count += 1;
-      for (const m of args.matchAll(/\bdotnet\s+(?:publish|build)\b[^&|;\n]*?["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/g)) publishes.add(posix.normalize(m[1].replace(/\\/g, '/')));
+      for (const m of args.matchAll(/\bdotnet\s+(?:publish|build)\b[^&|;\n]*?["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/g)) publishes.add(posix.join(wd, m[1].replace(/\\/g, '/')).replace(/^\/+/, ''));
       if (CURL_PIPE_SHELL.test(args)) {
         cur.curl_pipe_shell += 1;
         curlPipe += 1;

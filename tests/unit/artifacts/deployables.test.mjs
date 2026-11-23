@@ -113,3 +113,24 @@ test('a bare published csproj name links the Dockerfile only to the project besi
   const linked = containersOf(facts).filter((c) => c.dockerfile).map((c) => c.dockerfile);
   assert.deepEqual(linked, ['src/A/Dockerfile']);
 });
+
+const { extractCompose } = await import('../../../adapters/infrastructure/k8s/docker.mjs');
+const nopDocker = () => extractDockerfile('src/Dockerfile', 'FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build\nWORKDIR /src\nCOPY ./src ./\nWORKDIR /src/Presentation/Nop.Web\nRUN dotnet publish Nop.Web.csproj -c Release -o /app\n');
+const nopCompose = (build = 'build: .') => extractCompose('src/docker-compose.yml', `services:\n  web:\n    ${build}\n  db:\n    image: mcr.microsoft.com/mssql/server:2019\n`);
+const nopFacts = (build) => [...csproj('src/Presentation/Nop.Web/Nop.Web.csproj', '', 'Microsoft.NET.Sdk.Web'), mod('src/Presentation/Nop.Web/P.cs'), ...nopDocker(), ...nopCompose(build)];
+
+test('a compose service that builds a Dockerfile is the project that Dockerfile publishes', () => {
+  for (const build of ['build: .', 'build:\n      context: .\n      dockerfile: Dockerfile']) {
+    const list = containersOf(nopFacts(build));
+    assert.deepEqual(names(list), ['Nop.Web', 'db']);
+    assert.deepEqual(list.find((c) => c.name === 'Nop.Web').modules, ['src/Presentation/Nop.Web/P.cs']);
+    assert.equal(list.find((c) => c.name === 'Nop.Web').dockerfile, 'src/Dockerfile');
+  }
+});
+
+test('an image-only compose service is external and not a gap', () => {
+  const v = architectureViews(Graph.fromFacts(nopFacts())).views.containers;
+  assert.equal(v.containers.find((c) => c.name === 'db').external, true);
+  assert.ok(!v.containers.find((c) => c.name === 'Nop.Web').external);
+  assert.ok(!v.notes.some((n) => /db/.test(n) && /0 modules/.test(n)));
+});

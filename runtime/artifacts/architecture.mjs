@@ -285,9 +285,10 @@ function containers(graph, maxNodes) {
     name: u.name,
     kind: u.node?.attrs?.runnable ?? u.type,
     dockerfile: u.dockerfile ?? null,
+    ...(u.external ? { external: true } : {}),
     modules: appModules(graph).filter((m) => sys.set.moduleUnit.get(m.id) === u.id).map((m) => m.path ?? m.id.replace(/^module:/, '')).sort(),
   }));
-  for (const u of listed) if (!u.modules.length && sys.kind === 'deployables') notes.push(`Container "${plain(u.name, 40)}" has 0 modules (gap): no source file was found under its project.`);
+  for (const u of listed) if (!u.modules.length && !u.external && sys.kind === 'deployables') notes.push(`Container "${plain(u.name, 40)}" has 0 modules (gap): no source file was found under its project.`);
   return view(lines.join('\n'), notes, used, { containers: listed, ...(structurizr ? { structurizr } : {}) });
 }
 

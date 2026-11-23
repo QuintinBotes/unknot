@@ -121,6 +121,19 @@ function deployUnits(graph) {
       if (u.manifest && !u.dockerfile && img.attrs.publishes.some((p) => u.manifest === p || u.manifest === posix.join(dir, p))) u.dockerfile = img.path;
     }
   }
+  // A compose service that builds a Dockerfile is the project that Dockerfile publishes.
+  for (const [key, c] of [...byName]) {
+    const df = c.node?.attrs?.dockerfile;
+    const target = df && !c.manifest ? [...byName.values()].find((u) => u.manifest && u.dockerfile === df) : null;
+    if (!target) continue;
+    target.nodeIds.push(...c.nodeIds);
+    for (const id of c.nodeIds) unitOf.set(id, target.id);
+    byName.delete(key);
+  }
+  for (const u of byName.values()) {
+    const a = u.node?.attrs;
+    if (a?.runtime === 'compose' && a.image && !a.build_context && !u.manifest) u.external = true;
+  }
   return { units: [...byName.values()], unitOf, moduleUnit: new Map() };
 }
 

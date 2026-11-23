@@ -6,7 +6,7 @@ import { extractAll, extractFile, flat, linked, node, nodes, edges, hasEdge, rea
 
 test('adapter shape follows the contract', () => {
   assert.equal(adapter.id, 'k8s');
-  assert.equal(adapter.version, '0.1.1');
+  assert.equal(adapter.version, '0.1.2');
   assert.equal(adapter.kind, 'infrastructure');
   assert.deepEqual(adapter.capabilities.executes, ['helm', 'kustomize', 'kubectl']);
   assert.equal(adapter.capabilities.network, false);
@@ -139,7 +139,7 @@ test('output is deterministic and every fact has config provenance with a line',
   const b = JSON.stringify(flat(extractAll()));
   assert.equal(a, b);
   for (const f of flat(extractAll())) {
-    assert.match(f.provenance.extractor, /^k8s@0\.1\.1$/);
+    assert.match(f.provenance.extractor, /^k8s@0\.1\.2$/);
     assert.match(f.provenance.source_ref, /:\d+$/);
   }
   const web = node(extractFile('manifests/workloads.yaml'), 'workload:shop/Deployment/web');
@@ -175,7 +175,7 @@ test('rendered facts carry rendered_from and config provenance', () => {
   const pod = node(facts, 'workload:rel/Pod/p');
   assert.equal(pod.attrs.rendered_from, 'helm/api');
   assert.equal(pod.provenance.source_type, 'config');
-  assert.equal(pod.provenance.extractor, 'k8s@0.1.1');
+  assert.equal(pod.provenance.extractor, 'k8s@0.1.2');
   assert.equal(nodes(facts, 'workload').length, 1);
   assert.ok(edges(facts).length > 0);
 });
