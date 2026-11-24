@@ -63,8 +63,27 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - name: Validate plugin (strict)
-        run: npx --yes @anthropic-ai/claude-code plugin validate --strict .
+      - name: Validate plugin (strict, pinned Claude Code)
+        # The pin is the same one live.yml installs; bump both together.
+        run: npx --yes @anthropic-ai/claude-code@2.1.289 plugin validate --strict .
+
+  validate-plugin-latest:
+    name: validate plugin manifest (latest Claude Code, not blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Reports an upstream break without failing the PR. Never a required check.
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Validate plugin (strict, latest Claude Code)
+        run: npx --yes @anthropic-ai/claude-code@latest plugin validate --strict .
 
   upgrade:
     name: upgrade from previous releases

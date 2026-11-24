@@ -8,12 +8,25 @@ A change to any of these is governed by the semver policy below.
 
 | Surface | Where it is defined |
 | --- | --- |
-| CLI and skill names: `/unknot:init`, `map`, `diagnose`, `explain`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `doctor`, `decompose`, their arguments, flags and exit codes; the `bin/unknot` executable | spec §4.1, `runtime/cli/` |
+| The public commands and skills listed below, their arguments, flags and exit codes; the `bin/unknot` executable | spec §4.1, `runtime/cli/` |
 | Configuration schema (`.unknot/config.yaml`, `version: 1`) | `schemas/config.schema.json` |
 | Pattern-card schema | `schemas/pattern-card.schema.json` |
 | Adapter interfaces (`id`, `version`, `kind`, `capabilities`, `extract`, `link`, ...) | `adapters/README.md` |
 | Artifact schemas: finding, graph fact, provenance, campaign, slice, approval, decision, evidence record, proof obligation, proof-bundle manifest, handoff, event, error, migration, decomposition recommendation | `schemas/*.schema.json` |
 | Policy input/output (operation in, `allow | ask | deny` decision with reasons out) and the organisation policy bundle format | `runtime/policy/`, spec §14 |
+
+### Commands and skills
+
+Every command in `unknot --help` and every skill is public API, except `exec`, `run` and `daemon`,
+which skills and agents call as plumbing: they may change in any minor release. The human-only
+commands (`approve`, `attest`, `keys`) are public. A test keeps these lists in step with `COMMANDS`
+and `skills/`, so a new command or skill must be classified here.
+
+**Public commands**: `init`, `map`, `import`, `diagnose`, `explain`, `decompose`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `cli`, `lane`, `search`, `doctor`, `pattern`, `graph`, `slice`, `approve`, `attest`, `keys`, `config`, `audit`, `policy`, `backup`, `workspace`, `gc`, `learn`
+
+**Internal commands**: `exec`, `run`, `daemon`
+
+**Public skills**: `accept`, `apply`, `architecture`, `database`, `decompose`, `diagnose`, `doctor`, `explain`, `infrastructure`, `init`, `lane`, `learn`, `map`, `next`, `plan`, `reject`, `rollback`, `security`, `status`, `verify`
 
 Not public: anything under `runtime/` imported directly, the SQLite state layout (migrated
 automatically, see `schemas/migration.schema.json`), the `.unknot/telemetry/` file contents beyond
