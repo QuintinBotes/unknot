@@ -2,7 +2,7 @@
 // of their plaintext and stored AES-256-GCM encrypted with the project's cache key, so
 // deleting the key (crypto-shredding) makes every cached blob unrecoverable.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { sha256 } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
@@ -35,6 +35,16 @@ export function casPut(ctx, data, { mediaType = 'application/octet-stream', runI
     label,
   );
   return `sha256:${hex}`;
+}
+
+/** Remove a blob a cache replaced, only if it is still the cache's own (its label and no run). */
+export function casDrop(ctx, digestStr, label) {
+  const hex = String(digestStr).replace(/^sha256:/, '');
+  if (!/^[0-9a-f]{64}$/.test(hex)) return;
+  const row = ctx.store.get('SELECT label, run_id FROM artifacts WHERE digest = ?', `sha256:${hex}`);
+  if (!row || row.label !== label || row.run_id) return;
+  ctx.store.run('DELETE FROM artifacts WHERE digest = ?', `sha256:${hex}`);
+  rmSync(blobPath(ctx, hex), { force: true });
 }
 
 /** Read and authenticate a blob. Throws UK_INTEGRITY if it was altered. */

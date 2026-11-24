@@ -40,9 +40,50 @@ const OTHER = 'other';
 const PARALLEL_THRESHOLD = 400;
 const MAX_FACTS_PER_FILE = 5000;
 const COMMIT_CHUNK = 5000;
+// Bump when what a map result depends on changes in a way its fast-path key does not see.
+const FAST_VERSION = 1;
+const NS_SEED_NOTE = 'scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries';
 
 function optionsDigest(adapter, config) {
   return digest({ v: adapter.version, options: config.adapters?.[adapter.id] ?? {} });
+}
+
+const evidenceStampOf = (ctx, config) => Object.values(config.evidence ?? {}).flat().map((p) => {
+  try {
+    const st = statSync(resolveInside(ctx.root, p).abs);
+    return `${p}:${st.size}:${st.mtimeMs}`;
+  } catch {
+    return `${p}:missing`;
+  }
+});
+
+/**
+ * Per-file results of a whole-repository `discover`, kept in file_index (replaced in place) under
+ * `adapter` and valid for one blob and one `key` (what else the result depends on). Reads count as
+ * cached, writes as scanned; `flush` commits the writes in one transaction.
+ */
+function fileCache(ctx, adapter, version) {
+  const get = ctx.store.db.prepare('SELECT facts FROM file_index WHERE path = ? AND adapter = ? AND blob = ? AND config_digest = ? AND adapter_version = ?');
+  const put = ctx.store.db.prepare('INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, ?, ?, ?, ?)');
+  const pending = [];
+  const c = {
+    scanned: 0,
+    cached: 0,
+    get(path, blob, key) {
+      const hit = blob ? get.get(path, adapter, blob, key, version) : null;
+      if (hit) c.cached++;
+      return hit ? JSON.parse(hit.facts) : undefined;
+    },
+    put(path, blob, key, value) {
+      c.scanned++;
+      if (blob) pending.push([path, adapter, version, key, blob, JSON.stringify(value)]);
+    },
+    flush() {
+      if (pending.length) ctx.store.tx(() => { for (const row of pending) put.run(...row); });
+      pending.length = 0;
+    },
+  };
+  return c;
 }
 
 /** Read an evidence file the user listed in config.evidence, refusing escapes and secrets. */
@@ -83,6 +124,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const workers = defaultWorkers(config.limits.workers);
   const perFile = new Map(); // path → facts (all adapters)
   const failures = [];
+  let degradedAny = false; // a degraded batch is retried by the next map, so that map is not skipped
   const stats = { files: cen.files.filter((f) => !f.context).length, by_kind: cen.byKind, cached: 0, extracted: 0, adapters: {} };
   const filesByPath = new Map(cen.files.map((f) => [f.path, f]));
   const getIndex = ctx.store.db.prepare('SELECT blob, adapter_version, config_digest, facts FROM file_index WHERE path = ? AND adapter = ?');
@@ -103,6 +145,43 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     const analysed = cen.files.filter((f) => analysable(f) && !f.context).length;
     if (Number.isFinite(budget) && analysed > budget) {
       throw new UnknotError('UK_BUDGET_EXCEEDED', `${analysed} files to analyse is above limits.max_files_read (${budget}): raise it in .unknot/config.yaml (a person accepts the change), or map a scope`, { details: { files: analysed, limit: budget } });
+    }
+  }
+  // Nothing a map reads has changed since the last complete one (same commit, same bytes in every
+  // file, same adapters, options, evidence and imports): its result stands. Only the checkout
+  // notice, which depends on the branch now, is worked out again.
+  const evidenceStamp = evidenceStampOf(ctx, config);
+  const fastKey = cen.files.every((f) => f.blob || !analysable(f)) ? digest({
+    v: FAST_VERSION, commit, history, scope: scopes.record, given: givenScope, configDigest,
+    files: cen.files.map((f) => [f.path, f.blob, f.size, f.kind, f.is_test, f.context, f.too_large, f.language]),
+    adapters: loaded.map((a) => [a.id, a.version, config.adapters?.[a.id] ?? {}, a.inputs?.(ctx, config.adapters?.[a.id] ?? {}) ?? null]), unavailable, evidenceStamp,
+    imports: [loadImports(ctx.store), loadStatsImports(ctx.store), loadDeliveryImports(ctx.store)],
+    shallow: cen.repo && git(ctx.root, ['rev-parse', '--is-shallow-repository'], { check: false }).stdout.trim() === 'true' ? shallowBoundary(ctx.root) : null,
+  }) : null;
+  const last = fastKey && ctx.store.meta('map:last');
+  if (last) {
+    const { key, summary: saved } = JSON.parse(last);
+    if (key === fastKey && saved.generation === Number(ctx.store.meta('generation')) && derivedDone(ctx, saved.generation)) {
+      const checkout = checkoutState(ctx.root);
+      const stale = checkoutNotice(checkout, { expected: branchOk });
+      if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
+      ctx.store.tx(() => {
+        ctx.store.meta('mapped_commit', commit ?? '');
+        ctx.store.meta('mapped_at', observedAt);
+      });
+      const ps = parseScope(givenScope);
+      const notices = [...new Set([...scopes.notes, ...(ps.namespaces.length || ps.seeds.length ? [NS_SEED_NOTE] : []), ...(saved.notices ?? []), ...(stale ? [stale] : [])])];
+      const summary = {
+        ...saved,
+        ...(checkout && { checkout }),
+        notices: notices.length ? notices : undefined,
+        cache: { hits: saved.cache.hits + saved.cache.extracted, extracted: 0, hit_rate: 1 },
+        unchanged: true,
+        duration_ms: Date.now() - t0,
+        phases,
+      };
+      appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
+      return summary;
     }
   }
   for (const adapter of loaded) {
@@ -159,6 +238,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         const before = notes.length;
         const out = await adapter.extractBatch(items, { commit, options, exec, notes });
         degraded = notes.length > before;
+        degradedAny ||= degraded;
         results = chunk.map((f) => (out.has(f.path) ? { path: f.path, blob: f.blob, facts: out.get(f.path) } : { path: f.path, error: 'no output from batch extractor' }));
       } else if (chunk.length >= PARALLEL_THRESHOLD && workers > 1 && adapter.moduleURL) {
         results = await extractParallel({ moduleURL: adapter.moduleURL, root: ctx.root, files: chunk, commit, options, workers });
@@ -232,21 +312,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   // Discovery is cached like extraction: keyed by everything its result can depend on
   // (adapter version and options, the blobs of the files it reads, the evidence files'
   // size and mtime). Rendering charts or importing traces is not repeated on a re-map.
-  const evidenceStamp = Object.values(config.evidence ?? {}).flat().map((p) => {
-    try {
-      const st = statSync(resolveInside(ctx.root, p).abs);
-      return `${p}:${st.size}:${st.mtimeMs}`;
-    } catch {
-      return `${p}:missing`;
-    }
-  });
   for (const adapter of loaded) {
     if (!adapter.discover) continue;
     const relevant = cen.files.filter((f) => matchAny(f.path, adapter.capabilities?.files ?? [])).map((f) => `${f.path}@${f.blob ?? f.size}`);
     const cacheKey = digest({ adapter: adapter.id, version: adapter.version, options: config.adapters?.[adapter.id] ?? {}, relevant, evidence: evidenceStamp });
     const cached = ctx.store.meta(`discover:${adapter.id}`);
-    if (cached) {
-      const { key, ref } = JSON.parse(cached);
+    const previous = cached ? JSON.parse(cached) : null;
+    if (previous) {
+      const { key, ref } = previous;
       if (key === cacheKey) {
         try {
           pushAll(global, JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')));
@@ -257,8 +330,10 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         }
       }
     }
+    const files = fileCache(ctx, `${adapter.id}:uses`, adapter.version);
     try {
       const out = await adapter.discover({
+        files,
         root: ctx.root,
         census: cen.files,
         readText,
@@ -268,13 +343,18 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         now: observedAt,
         factsByFile: perFile,
       });
+      files.flush();
+      if (files.scanned + files.cached) (stats.discover_files ??= {})[adapter.id] = { scanned: files.scanned, cached: files.cached };
       const discovered = (out ?? []).map((f) => redactDeep(assertFact(f)));
       pushAll(global, discovered);
       const discFailures = out?.failures ?? [];
       for (const f of discFailures) failures.push({ path: f.path ?? f.file ?? '<evidence>', adapter: adapter.id, error: String(f.error ?? f.reason ?? f.message ?? 'failed') });
       if (!discFailures.length) {
-        const { casPut } = await import('../state/cas.mjs');
-        ctx.store.meta(`discover:${adapter.id}`, JSON.stringify({ key: cacheKey, ref: casPut(ctx, JSON.stringify(discovered), { mediaType: 'application/json', label: `discover.${adapter.id}` }) }));
+        const { casDrop, casPut } = await import('../state/cas.mjs');
+        const label = `discover.${adapter.id}`;
+        const ref = casPut(ctx, JSON.stringify(discovered), { mediaType: 'application/json', label });
+        ctx.store.meta(`discover:${adapter.id}`, JSON.stringify({ key: cacheKey, ref }));
+        if (previous && previous.ref !== ref) casDrop(ctx, previous.ref, label);
       }
     } catch (err) {
       failures.push({ path: '<discover>', adapter: adapter.id, error: String(err?.message ?? err) });
@@ -356,8 +436,10 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       }
       if (!h) {
         h = historyFacts(ctx.root, config, sources, shallow);
-        const { casPut } = await import('../state/cas.mjs');
-        ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref: casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' }), stats: h.stats }));
+        const { casDrop, casPut } = await import('../state/cas.mjs');
+        const ref = casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' });
+        ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref, stats: h.stats }));
+        if (hc && JSON.parse(hc).ref !== ref) casDrop(ctx, JSON.parse(hc).ref, 'history');
       }
       pushAll(global, h.facts);
       historyStats = h.stats;
@@ -369,7 +451,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   lap('history_ms');
   notes.push(...scopes.notes);
   const ps = parseScope(givenScope);
-  if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
+  if (ps.namespaces.length || ps.seeds.length) notes.push(NS_SEED_NOTE);
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
   const analysis = analysisCoverage(cen.files, perFile);
   const totalSource = cen.files.filter((f) => f.kind === 'source' && !f.context).length;
@@ -386,6 +468,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   lap('coverage_ms');
   // What was mapped, and whether it is behind what the team works on.
   const checkout = checkoutState(ctx.root);
+  // What depends on the scopes asked for and kept is worked out again by a skipped map.
+  const baseNotes = [...new Set(notes)].filter((n) => n !== NS_SEED_NOTE && !scopes.notes.includes(n));
   const stale = checkoutNotice(checkout, { expected: branchOk });
   if (stale) notes.push(stale);
   if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
@@ -414,6 +498,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     ...(checkout && { checkout }),
     ...(stats.scip && { scip: stats.scip }),
     ...(stats.build_graph && { build_graph: stats.build_graph }),
+    ...(stats.discover_files && { discover_files: stats.discover_files }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
     failure_count: failures.length,
@@ -426,7 +511,12 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     phases,
     config_digest: configDigest,
   };
+  if (fastKey && !degradedAny && !failures.length) {
+    ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, duration_ms: undefined } }));
+  } else ctx.store.meta('map:last', '');
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
+  // Fold the write-ahead log into the database, so the store on disk is its size and not its size plus a log.
+  try { ctx.store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* another process reads the store: the log is folded in later */ }
   return summary;
 }
 
