@@ -12,6 +12,8 @@ All notable changes are documented here. The format follows
 
 - COMPATIBILITY says which commands and skills are public API (#97): every command in `unknot --help` and every skill is public under semver except `exec`, `run` and `daemon`, which are internal plumbing. A test fails when a command or skill is added, removed or left unclassified.
 - `diagnose --baseline <ref> [--fail-on new:<severity>]` judges a change only on what it adds (#101): it maps the tree, maps the base commit in a detached worktree into its own store, and lists the open findings whose fingerprint the base does not have, each with `severity` (`diagnose.severity` by kind, then category; cycles, hubs and security findings are `high` by default) and `location`. `--fail-on` exits 1 when a new finding reaches that severity; a base that cannot be mapped exits 5. `--json` output now carries `schema_version` `1.0`, and every listed finding its `severity` and `location`. No model and no network.
+- `map` and `decompose` report progress on stderr (#89): one plain line per update with the phase, done of total and elapsed seconds, after 5 s and at most every 5 s, on a terminal or with `--progress`; stdout, including `--json`, is unchanged. `scripts/bench-map.mjs` maps a pinned public C# repository (nopCommerce) cold and warm and records wall time, peak RSS and file counts as JSON (docs/benchmarks.md).
+- `decompose` is about 2.5 times faster on large graphs (#89): the graph keeps a per-type edge index instead of scanning every edge for each lookup. On Roslyn (35,502 files) a decompose dry run went from 20.1 s to 8.0 s on the same store; `scripts/corpus.json` pins Roslyn and `scripts/bench-map.mjs` times decompose (docs/benchmarks.md).
 
 ### Changed
 
