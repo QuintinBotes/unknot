@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Map benchmark on a real public repository: a cold map (no store), then a warm map (unchanged
-// tree, store kept), each in its own process so peak RSS is that map's own. Writes wall time,
-// peak RSS and file counts to a JSON file, then times one decompose (dry run) of the mapped store. The repository is fetched shallowly at its pinned
+// tree, store kept), then a map after one file is edited and committed, each in its own process
+// so peak RSS is that map's own. Writes wall time, peak RSS, file counts and the #88 ratios
+// (`--gate` fails when one is over its bound) to a JSON file, then times one decompose (dry run)
+// of the mapped store. The repository is fetched shallowly at its pinned
 // commit from scripts/corpus.json into --work, never into this checkout. See docs/benchmarks.md.
 //
-// Usage: node scripts/bench-map.mjs [--repo nopcommerce] [--corpus FILE] [--work DIR] [--out FILE]
+// Usage: node scripts/bench-map.mjs [--repo nopcommerce] [--corpus FILE] [--work DIR] [--out FILE] [--edit PATH] [--gate]
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { GATES, gate, touch } from './bench.mjs';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -106,9 +109,26 @@ const child = (mode = '--child') => {
 };
 const cold = child();
 const warm = child();
+// One file of the repository's language edited and committed (--edit names it; default: the middle one in path order).
+const EXT = { csharp: 'cs', java: 'java', python: 'py', go: 'go', typescript: 'ts' };
+const edit = flag('edit', null) ?? (() => {
+  const all = git(src, 'ls-files', `*.${EXT[repo.language] ?? 'cs'}`).split('\n').filter(Boolean).sort();
+  return all[Math.floor(all.length / 2)];
+})();
+writeFileSync(join(src, edit), touch(edit, readFileSync(join(src, edit), 'utf8')));
+git(src, '-c', 'user.email=bench@example.com', '-c', 'user.name=bench', 'commit', '-qam', 'bench: one file edited');
+const edited = { ...child(), file: edit };
 const decompose = child('--decompose-child');
-const store_mb = Math.round(Number(execFileSync('du', ['-sk', state], { encoding: 'utf8' }).split('\t')[0]) / 1024);
-const result = { repository: repo.url, commit: repo.sha, node: process.version, platform: `${process.platform} ${process.arch}`, cold, warm, decompose, store_mb };
+git(src, 'reset', '-q', '--hard', repo.sha); // the next run starts from the pinned commit again
+const kb = (dir) => Number(execFileSync('du', ['-sk', dir], { encoding: 'utf8' }).split('\t')[0]);
+const store_mb = Math.round(kb(state) / 1024);
+const ratios = gate({ cold, unchanged: warm, incremental: edited, store_bytes: kb(state), tree_bytes: kb(src) - kb(join(src, '.git')) - kb(state) });
+const result = { repository: repo.url, commit: repo.sha, node: process.version, platform: `${process.platform} ${process.arch}`, cold, warm, edited, decompose, store_mb, gate: ratios };
 writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
 rmSync(home, { recursive: true, force: true });
 process.stdout.write(`${JSON.stringify(result)}\nwrote ${out}\n`);
+// --gate: fail when a ratio of #88 is over its bound (GATES in scripts/bench.mjs).
+if (argv.includes('--gate') && ratios.over.length) {
+  process.stderr.write(`bench gate: ${ratios.over.map((k) => `${k} ${ratios.ratios[k]} > ${GATES[k]}`).join(', ')}\n`);
+  process.exitCode = 1;
+}

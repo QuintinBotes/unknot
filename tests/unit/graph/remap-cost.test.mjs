@@ -2,7 +2,7 @@
 // Assertions are on work done (calls, files scanned, rows and blobs kept), never on time.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
@@ -82,6 +82,74 @@ test('re-maps replace superseded discovery blobs and leave the write-ahead log e
     assert.equal(blobs(), base, 'one discovery blob per adapter, whatever the number of re-maps');
   }
   assert.equal(p.ctx.store.get('PRAGMA wal_checkpoint(PASSIVE)').log, 0, 'the write-ahead log is folded into the database');
+});
+
+/** The stored graph, minus what differs between maps of the same tree (generation, time, commit). */
+const dump = (ctx) => ({
+  nodes: ctx.store.all('SELECT * FROM nodes ORDER BY id'),
+  edges: ctx.store.all('SELECT * FROM edges ORDER BY id'),
+  facts: ctx.store.all('SELECT id, kind, subject, predicate, object, attrs, source_type, source_ref, extractor, confidence, scope, contradicts, path, expires_at, digest FROM facts ORDER BY id'),
+  derived: ctx.store.all("SELECT kind, key, body FROM derived WHERE kind != '_done' ORDER BY kind, key, body"),
+});
+
+test('clone fingerprints serve the link and are not stored; a re-map after edits, a rename, a deletion and a moved reference equals a cold map', async () => {
+  const fixture = (name) => readFileSync(new URL(`../../fixtures/detectors/clones/${name}`, import.meta.url), 'utf8');
+  const start = { ...files, 'src/orders.js': fixture('orders.js'), 'src/invoices.js': fixture('invoices.js') };
+  const p = K.makeProject({ files: start });
+  await map(p);
+  const count = (sql) => p.ctx.store.get(`SELECT COUNT(*) AS n FROM ${sql} LIKE '%"fingerprints"%'`).n;
+  const clones = (ctx) => ctx.store.all("SELECT id FROM nodes WHERE attrs LIKE '%\"clones\"%' ORDER BY id").map((r) => r.id);
+  assert.deepEqual(clones(p.ctx), ['module:src/invoices.js', 'module:src/orders.js']);
+  assert.ok(count("file_index WHERE adapter = 'quality' AND facts") > 0, 'the per-file cache keeps them for the next link');
+  assert.equal(count('facts WHERE attrs') + count('nodes WHERE attrs'), 0, 'the graph does not');
+
+  const final = { ...start, 'src/invoices.js': `${start['src/invoices.js']}\nexport function extra() { return 1; }\n`, 'src/c.js': "import { a } from './a.js';\nexport const c = a + 1;\n" };
+  final['src/orders-renamed.js'] = final['src/orders.js'];
+  delete final['src/orders.js'];
+  delete final['src/use.js'];
+  writeFileSync(join(p.dir, 'src/invoices.js'), final['src/invoices.js']);
+  writeFileSync(join(p.dir, 'src/c.js'), final['src/c.js']);
+  K.git(p.dir, 'mv', 'src/orders.js', 'src/orders-renamed.js');
+  K.git(p.dir, 'rm', '-q', 'src/use.js');
+  commit(p, 'edit, rename, delete, move a reference');
+  const delta = await map(p);
+  assert.ok(delta.cache.extracted > 0 && delta.cache.hits > 0);
+  assert.deepEqual(clones(p.ctx), ['module:src/invoices.js', 'module:src/orders-renamed.js']);
+
+  const cold = K.makeProject({ files: final });
+  await map(cold);
+  const a = dump(p.ctx);
+  const b = dump(cold.ctx);
+  for (const k of Object.keys(b)) assert.deepEqual(a[k], b[k], `${k} match a cold map`);
+});
+
+test('a new commit reads only that commit from git, and the history equals one read in full', async () => {
+  const { casGet } = await import('../../../runtime/state/cas.mjs');
+  const hconfig = K.cfg({ mode: 'plan', decomposition: { min_shared_commits: 1 } });
+  const hmap = (p) => mapRepository(p.ctx, { config: hconfig, configDigest: 'd' });
+  const p = K.makeProject({ files });
+  const change = (n) => {
+    for (const f of ['src/a.js', 'src/b.js']) writeFileSync(join(p.dir, f), `${files[f]}// ${n}\n`);
+    commit(p, `change ${n}`);
+  };
+  for (let n = 1; n <= 3; n++) change(n);
+  const first = await hmap(p);
+  assert.equal(first.history.commits, 4);
+  assert.equal(first.history.commits_read, 4);
+  change(4);
+  const next = await hmap(p);
+  assert.equal(next.history.commits, 5);
+  assert.equal(next.history.commits_read, 1, 'only the new commit is read');
+  assert.ok(next.history.co_change_pairs > 0);
+  const historyFacts = () => casGet(p.ctx, JSON.parse(p.ctx.store.meta('history:cache')).ref).toString('utf8');
+  const incremental = historyFacts();
+
+  // Without the per-commit cache every commit is read again: the same history, so the graph does not change.
+  for (const k of ['history:commits', 'history:cache', 'map:last']) p.ctx.store.meta(k, '');
+  const full = await hmap(p);
+  assert.equal(full.history.commits_read, 5);
+  assert.equal(historyFacts(), incremental);
+  assert.equal(full.generation, next.generation);
 });
 
 test('dropping one adapter\'s previous blob keeps a blob another adapter still references', async () => {

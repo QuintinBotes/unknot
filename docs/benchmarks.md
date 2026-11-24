@@ -37,6 +37,14 @@ adapters, history length) will move them.
   (`--sizes 1m`) runs only when named.
 - The cache counts in `results.json` are per adapter-file pair (more than one adapter
   reads each file), so they exceed the file count.
+- **Gate** (`--gate`, #88): every result carries the three ratios of #88 with their bounds
+  (`GATES` in `scripts/bench.mjs`): a no-change re-map at most 0.1 of the cold map, a re-map
+  after the small change at most 2 times the no-change one, and the store at most 3 times the
+  source tree (`tree_bytes`, the fixture without `.git` and `.unknot`). With `--gate` the script
+  exits 1 and names each ratio over its bound. `scripts/bench-map.mjs --gate` checks the same
+  ratios on a pinned public repository, with one edited file as the change. Ratios rather than
+  times keep the bounds the same on every machine, but a machine whose file opens are slow
+  (an endpoint scanner, a cold disk) inflates the census, which every map pays, and so moves them.
 
 Results are written as `results.json` and `results.md` in the output directory (default: the system
 temp directory).
@@ -202,6 +210,27 @@ log (about 180 MB after a cold map) counted toward the store until the database 
 left in a one-file re-map is the census (about 1.4 s), reading every file's cached facts (0.6 s),
 linking (0.6 s), hashing every fact in projection (0.6 s) and the derived facts (0.4 s): all
 proportional to the repository, not to the change.
+
+**Second part.** A profile of a one-file re-map on `main` after the first part (4.2 s, no-change
+1.7 s) put the time in census 1.2 s, extraction 0.66 s, link 0.79 s, history 0.41 s (the whole
+`git log --numstat` window again for one new commit), projection 0.56 s and derived facts 0.39 s.
+History now reads only commits it has not seen, and the graph no longer stores clone
+fingerprints. Measured with `main` and this change side by side on two clones, four committed
+one-file edits each, alternating; the first round ran while another benchmark saturated the disk
+and is left out (load average 9 to 17):
+
+| Run | `main` | This change |
+| --- | ---: | ---: |
+| Re-map, one file edited (three rounds) | 3.4 to 3.9 s | 3.0 s |
+| of which after the census | 2.4 to 2.8 s | 2.0 s |
+| of which history | 0.37 to 0.39 s | 0.07 s |
+| Re-map, no change | 1.1 to 1.4 s | 1.1 to 1.3 s |
+| Edited / no change, per round | 2.4 to 3.3 | 2.4 to 2.6 |
+| Store after a cold map | 250 MB | 233 MB (2.4 times the 96 MB tree) |
+
+Scenario 2 (at most twice the no-change re-map) is still not met: what is left after the census is
+extraction (0.5 s, reading every file's cached facts), link (0.55 s), projection (0.43 s) and
+derived facts (0.29 s), each over the whole repository.
 
 ## Real C# monolith: map, cold and warm
 

@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { generateFixture, touch } from '../../../scripts/bench.mjs';
+import { GATES, gate, generateFixture, touch } from '../../../scripts/bench.mjs';
 import { mkTmp } from '../../helpers/tmp.mjs';
 
 const listing = (dir) => {
@@ -34,4 +34,12 @@ test('the multi-language fixture is deterministic and covers five languages with
     rmSync(a, { recursive: true, force: true });
     rmSync(b, { recursive: true, force: true });
   }
+});
+
+test('the bench gate checks the ratios of #88 against their bounds', () => {
+  assert.deepEqual(GATES, { unchanged_vs_cold: 0.1, changed_vs_unchanged: 2, store_vs_tree: 3 });
+  const run = (cold, unchanged, changed, store, tree) => gate({ cold: { wall_ms: cold }, unchanged: { wall_ms: unchanged }, incremental: { wall_ms: changed }, store_bytes: store, tree_bytes: tree });
+  assert.deepEqual(run(100, 10, 20, 30, 10), { ratios: { unchanged_vs_cold: 0.1, changed_vs_unchanged: 2, store_vs_tree: 3 }, over: [] }, 'each bound is inclusive');
+  assert.deepEqual(run(100, 11, 23, 31, 10).over, ['unchanged_vs_cold', 'changed_vs_unchanged', 'store_vs_tree']);
+  assert.deepEqual(run(100, 5, 11, 1, 10).over, ['changed_vs_unchanged']);
 });

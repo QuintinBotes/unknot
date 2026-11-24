@@ -23,6 +23,9 @@ export const GIT_LOG_ARGS = Object.freeze([
   `--format=%x1e%H%x1f%ct%x1f%ae`,
 ]);
 
+/** The commits `git ${GIT_LOG_ARGS}` would print, one sha per line, without reading their changes. */
+export const GIT_LIST_ARGS = Object.freeze(['log', '--no-merges', '--format=%H']);
+
 /** The only form in which an author identity leaves this module. */
 export function hashAuthor(email) {
   return createHash('sha256').update(String(email).trim().toLowerCase()).digest('hex');

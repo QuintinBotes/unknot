@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { globToRegExp, inScope, matchAny } from '../../../runtime/core/glob.mjs';
+import { globToRegExp, inScope, matchAny, matcher } from '../../../runtime/core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, resolveInside } from '../../../runtime/core/paths.mjs';
 import { findSecrets, redact, redactDeep } from '../../../runtime/core/redact.mjs';
 import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../../../runtime/core/injection.mjs';
@@ -103,6 +103,14 @@ describe('glob', () => {
     assert.ok(!inScope('lib/a.js', { include: ['src/**'] }));
     assert.ok(!inScope('src/a.js', { include: ['src/**'], exclude: ['src/a.js'] }), 'exclude always wins');
     assert.ok(!inScope('src/a.js', { exclude: ['**'] }));
+  });
+
+  test('matcher answers as matchAny does', () => {
+    const lists = [undefined, [], ['src/*.js'], ['./src/*.js', '**/*.{ts,cs}'], ['*.md']];
+    for (const list of lists) {
+      const m = matcher(list);
+      for (const p of ['src/a.js', './src/a.js', 'lib/x/y.cs', 'README.md', 'docs/a.md']) assert.equal(m(p), matchAny(p, list), `${p} ${JSON.stringify(list)}`);
+    }
   });
 });
 
