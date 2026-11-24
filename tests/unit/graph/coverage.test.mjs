@@ -112,3 +112,52 @@ test('a repository above the read budget stops before reading, and a file read b
   const files_ = census(p.dir, { config: t.config }).files.filter((f) => analysable(f) && !f.context).length;
   assert.ok(read > 0 && read <= files_, `each file charged once (got ${read} for ${files_} files)`);
 });
+
+const MIXED = {
+  'src/Shop/Order.cs': cs(1),
+  'src/Shop/Pricing.fs': 'module Pricing\nlet price x = x * 2\n',
+  'src/Shop/Views/Index.cshtml': '@model Shop.Order\n<p>@Model.Id</p>\n',
+  'scripts/build.ps1': 'Write-Host "build"\n',
+  'scripts/deploy.sh': '#!/bin/sh\necho ok\n',
+  'data/export.xyz': 'rows\n',
+  'src/Shop/Order.g.cs': cs(2),
+};
+
+test('the coverage lists every language present, with its file count (#92)', async () => {
+  const p = K.makeProject({ files: MIXED });
+  const r = await map(p);
+  const c = Object.fromEntries(r.coverage.map((x) => [x.language, x]));
+  for (const language of ['fsharp', 'powershell', 'shell', 'razor']) assert.equal(c[language]?.files, 1, language);
+  assert.equal(c.csharp.files, 1, 'a generated file is not counted');
+});
+
+test('a language no adapter reads is `not analysed`, not `none` (#92)', async () => {
+  const p = K.makeProject({ files: MIXED });
+  const r = await map(p);
+  for (const entry of r.coverage.filter((x) => ['fsharp', 'powershell', 'shell', 'razor', 'other'].includes(x.language))) {
+    assert.equal(entry.quality, 'not analysed', entry.language);
+    assert.notEqual(entry.quality, 'none');
+  }
+});
+
+test('files with an unknown extension are counted under `other` (#92)', async () => {
+  const p = K.makeProject({ files: MIXED });
+  const r = await map(p);
+  assert.equal(r.coverage.find((x) => x.language === 'other')?.files, 1);
+  const none = await map(K.makeProject({ files: { 'src/a.js': 'export const a = 1;\n' } }));
+  assert.ok(!none.coverage.some((x) => x.language === 'other'), 'no entry when nothing is unknown');
+});
+
+test('a language with an adapter keeps its entry (#92)', async () => {
+  const p = K.makeProject({ files: { 'src/a.js': 'export const a = 1;\n' } });
+  const r = await map(p);
+  assert.deepEqual(r.coverage, [{ language: 'javascript', files: 2, adapter: 'javascript', quality: 'syntax_tree' }]);
+});
+
+test('diagnose names the languages that were not analysed (#92)', async () => {
+  const p = K.makeProject({ files: MIXED });
+  await map(p);
+  const res = await diagnose(p.ctx, { config: K.cfg({ mode: 'plan' }), only: ['local'] });
+  const lines = analysisGapLines(res.analysis.unavailable).join('\n');
+  for (const language of ['fsharp', 'powershell', 'shell', 'razor']) assert.match(lines, new RegExp(`  ${language}: `), language);
+});

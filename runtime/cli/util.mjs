@@ -154,6 +154,11 @@ const ID_COLUMNS = new Set(['id', 'from', 'to', 'src', 'dst']);
 const NODE_ID = /^[a-z][a-z_]*:\S+$/;
 
 /** Rows as aligned columns. Cells cap at 60 characters, except ids: the tail of an id is what tells two apart. */
+/** The shallow-history notice, said once per map where it is seen (#78); `who` names a workspace member. */
+export function historyNotice(history, who = '') {
+  if (history?.unmeasured) process.stderr.write(`unknot: notice: ${who ? `${who}: ` : ''}${history.unmeasured}\n`);
+}
+
 export function table(rows, columns) {
   if (!rows.length) return '(none)';
   const text = (v) => String(v ?? '');
