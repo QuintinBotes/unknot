@@ -1,0 +1,43 @@
+name: Bump Claude Code pin
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bump:
+    name: open the pin bump pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Bump the pin and open or update the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest="$(npm view @anthropic-ai/claude-code version)"
+          version="$(node scripts/bump-claude-pin.mjs "$latest")"
+          [ -n "$version" ] || { echo "pins are current"; exit 0; }
+          branch=automation/bump-claude-code-pin
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -am "Bump the Claude Code pin to $version"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --json number --jq '.[0].number')" ]; then
+            gh pr create --base main --head "$branch" --title "Bump the Claude Code pin to $version" \
+              --body "Updates the plugin validation pin in ci.yml and the pin in live.yml together."
+          else
+            gh pr edit "$branch" --title "Bump the Claude Code pin to $version"
+          fi
