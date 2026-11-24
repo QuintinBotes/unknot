@@ -196,7 +196,9 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', ...(strictWritable ? [] : ['--tmpfs', '/tmp']), '--die-with-parent', '--new-session', '--unshare-ipc', '--unshare-pid', '--unshare-uts'];
     // A project that lives under /tmp (temporary clones, test fixtures) would vanish under the
     // fresh /tmp: put it back read-only before the narrower mounts below.
-    for (const p of [hideRoot, cwd].filter(Boolean).map((x) => realpathLenient(x))) {
+    // Tool directories on PATH that live there (a tool installed under /tmp) need the same.
+    const pathDirs = (process.env.PATH ?? '').split(':').filter((d) => d.startsWith('/tmp/') && isRealDir(d));
+    for (const p of new Set([hideRoot, cwd, ...pathDirs].filter(Boolean).map((x) => realpathLenient(x)))) {
       if (p.startsWith('/tmp/')) args.push('--ro-bind', p, p);
     }
     // Control sockets (Docker, D-Bus, systemd) live under /run.
