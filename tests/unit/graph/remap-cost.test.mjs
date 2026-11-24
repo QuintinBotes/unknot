@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkTmp } from '../../helpers/tmp.mjs';
 import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
 import { nodeFact, prov } from '../../../runtime/graph/facts.mjs';
@@ -163,4 +165,53 @@ test('dropping one adapter\'s previous blob keeps a blob another adapter still r
   p.ctx.store.meta('discover:b', JSON.stringify({ key: 'k', ref: 'sha256:' + '0'.repeat(64) }));
   casDrop(p.ctx, ref, 'discover.a');
   assert.equal(p.ctx.store.get('SELECT 1 AS x FROM artifacts WHERE digest = ?', ref) ?? null, null, 'dropped once nothing references it');
+});
+
+// A shallow clone, mapped, deepened and mapped again, against a full read of the same state (#88).
+const hconfig = K.cfg({ mode: 'plan', decomposition: { min_shared_commits: 1 } });
+const hmap = (ctx) => mapRepository(ctx, { config: hconfig, configDigest: 'd' });
+const historyOf = async (ctx) => (await import('../../../runtime/state/cas.mjs')).casGet(ctx, JSON.parse(ctx.store.meta('history:cache')).ref).toString('utf8');
+const fullRead = async (ctx) => {
+  for (const k of ['history:commits', 'history:cache', 'map:last']) ctx.store.meta(k, '');
+  const r = await hmap(ctx);
+  return { r, facts: await historyOf(ctx) };
+};
+
+async function shallowCloneOf(commits) {
+  const p = K.makeProject({ files });
+  for (let n = 1; n < commits; n++) {
+    for (const f of ['src/a.js', 'src/b.js']) writeFileSync(join(p.dir, f), `${files[f]}// ${n}\n`);
+    commit(p, `change ${n}`);
+  }
+  const dir = mkTmp(join(tmpdir(), 'uk-clone-'));
+  K.git(dir, 'clone', '-q', '--depth', '2', `file://${p.dir}`, '.');
+  return { origin: p, ctx: K.context.openProject(dir, { create: true }), dir };
+}
+
+test('a shallow boundary commit is not cached: after --unshallow the history equals a full read', async () => {
+  const c = await shallowCloneOf(5);
+  const shallow = await hmap(c.ctx);
+  assert.match(shallow.history.unmeasured, /shallow/);
+  K.git(c.dir, 'fetch', '-q', '--unshallow');
+  const deep = await hmap(c.ctx);
+  assert.equal(deep.history.unmeasured, undefined);
+  const incremental = await historyOf(c.ctx);
+  const full = await fullRead(c.ctx);
+  assert.equal(incremental, full.facts);
+  assert.equal(deep.history.co_change_pairs, full.r.history.co_change_pairs);
+});
+
+test('with history on, an incremental map through a deepen and a new commit equals a full read', async () => {
+  const c = await shallowCloneOf(6);
+  await hmap(c.ctx);
+  K.git(c.dir, 'fetch', '-q', '--deepen', '1');
+  await hmap(c.ctx);
+  for (const f of ['src/a.js', 'src/b.js']) writeFileSync(join(c.dir, f), `${files[f]}// new\n`);
+  commit({ dir: c.dir }, 'new');
+  const next = await hmap(c.ctx);
+  const incremental = await historyOf(c.ctx);
+  const full = await fullRead(c.ctx);
+  assert.equal(incremental, full.facts);
+  assert.equal(next.history.commits, full.r.history.commits);
+  assert.equal(next.history.co_change_pairs, full.r.history.co_change_pairs);
 });

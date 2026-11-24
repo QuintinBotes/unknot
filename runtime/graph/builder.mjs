@@ -43,7 +43,8 @@ const COMMIT_CHUNK = 5000;
 // Bump when what a map result depends on changes in a way its fast-path key does not see.
 const FAST_VERSION = 2; // 2: the graph no longer keeps clone fingerprints
 // Bump when parseGitLog's output changes shape: the per-commit history cache is read again.
-const COMMITS_VERSION = 1;
+// 2: a shallow boundary commit (every file added) is never kept: deepening gives it a parent and a different diff.
+const COMMITS_VERSION = 2;
 const NS_SEED_NOTE = 'scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries';
 
 function optionsDigest(adapter, config) {
@@ -458,7 +459,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref, stats: h.stats }));
         if (hc && JSON.parse(hc).ref !== ref) casDrop(ctx, JSON.parse(hc).ref, 'history');
         // Without the author hash: co-change and churn do not read it, so the store need not keep it.
-        const cref = casPut(ctx, JSON.stringify(h.commits.map(({ sha, time, files }) => ({ sha, time, files }))), { mediaType: 'application/json', label: 'history.commits' });
+        const cref = casPut(ctx, JSON.stringify(h.commits.filter((c) => !(shallow ?? []).includes(c.sha)).map(({ sha, time, files }) => ({ sha, time, files }))), { mediaType: 'application/json', label: 'history.commits' });
         ctx.store.meta('history:commits', JSON.stringify({ v: COMMITS_VERSION, ref: cref }));
         if (prev?.ref && prev.ref !== cref) casDrop(ctx, prev.ref, 'history.commits');
       }
