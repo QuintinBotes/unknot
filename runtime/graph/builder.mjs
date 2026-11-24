@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { canonicalJSON, digest } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
-import { matchAny } from '../core/glob.mjs';
+import { matcher } from '../core/glob.mjs';
 import { parseScope } from '../core/scope.mjs';
 import { resolveScopes } from './mapped-scopes.mjs';
 import { isSecretPath, resolveInside } from '../core/paths.mjs';
@@ -32,7 +32,7 @@ import { templateLanguageIds } from './languages.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
 import { derivedDone, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
-import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
+import { churn, coChange, GIT_LIST_ARGS, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
 import { pushAll } from '../core/arrays.mjs';
 
@@ -41,7 +41,10 @@ const PARALLEL_THRESHOLD = 400;
 const MAX_FACTS_PER_FILE = 5000;
 const COMMIT_CHUNK = 5000;
 // Bump when what a map result depends on changes in a way its fast-path key does not see.
-const FAST_VERSION = 1;
+const FAST_VERSION = 2; // 2: the graph no longer keeps clone fingerprints
+// Bump when parseGitLog's output changes shape: the per-commit history cache is read again.
+// 2: a shallow boundary commit (every file added) is never kept: deepening gives it a parent and a different diff.
+const COMMITS_VERSION = 2;
 const NS_SEED_NOTE = 'scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries';
 
 function optionsDigest(adapter, config) {
@@ -194,11 +197,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     // Repository-level context files (kept outside the scope) go only to adapters that declare them.
     // `capabilities.sniff`: files of a glob that an adapter also reads when their first 4000 characters match.
     const sniff = adapter.capabilities?.sniff;
+    const sniffable = sniff && matcher(sniff.files);
     const sniffed = (f) => {
-      if (!sniff || f.context || !matchAny(f.path, sniff.files)) return false;
+      if (!sniff || f.context || !sniffable(f.path)) return false;
       try { return new RegExp(sniff.pattern).test(readEntry(ctx.root, f)?.slice(0, 4000) ?? ''); } catch { return false; }
     };
-    const files = cen.files.filter((f) => analysable(f) && (matchAny(f.path, (f.context ? adapter.capabilities?.context_files : adapter.capabilities?.files) ?? []) || sniffed(f)));
+    const reads = matcher(adapter.capabilities?.files);
+    const readsContext = matcher(adapter.capabilities?.context_files);
+    const files = cen.files.filter((f) => analysable(f) && ((f.context ? readsContext : reads)(f.path) || sniffed(f)));
     const misses = [];
     let scanned = 0;
     for (const f of files) {
@@ -317,7 +323,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   // size and mtime). Rendering charts or importing traces is not repeated on a re-map.
   for (const adapter of loaded) {
     if (!adapter.discover) continue;
-    const relevant = cen.files.filter((f) => matchAny(f.path, adapter.capabilities?.files ?? [])).map((f) => `${f.path}@${f.blob ?? f.size}`);
+    const reads = matcher(adapter.capabilities?.files);
+    const relevant = cen.files.filter((f) => reads(f.path)).map((f) => `${f.path}@${f.blob ?? f.size}`);
     const cacheKey = digest({ adapter: adapter.id, version: adapter.version, options: config.adapters?.[adapter.id] ?? {}, relevant, evidence: evidenceStamp });
     const cached = ctx.store.meta(`discover:${adapter.id}`);
     const previous = cached ? JSON.parse(cached) : null;
@@ -431,18 +438,30 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         const { key, ref, stats: st } = JSON.parse(hc);
         if (key === hkey) {
           try {
-            h = { facts: JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')), stats: { ...st, cached: true } };
+            h = { facts: JSON.parse((await import('../state/cas.mjs')).casGet(ctx, ref).toString('utf8')), stats: { ...st, commits_read: 0, cached: true } };
           } catch {
             h = null;
           }
         }
       }
       if (!h) {
-        h = historyFacts(ctx.root, config, sources, shallow);
-        const { casDrop, casPut } = await import('../state/cas.mjs');
+        const { casDrop, casGet, casPut } = await import('../state/cas.mjs');
+        // A commit never changes: each one's parsed changes are kept by sha, so a new commit costs
+        // reading that commit, not the whole window again. Only the window's commits are kept.
+        const kc = ctx.store.meta('history:commits');
+        const prev = kc ? JSON.parse(kc) : null;
+        let known = new Map();
+        if (prev?.v === COMMITS_VERSION) {
+          try { known = new Map(JSON.parse(casGet(ctx, prev.ref).toString('utf8')).map((c) => [c.sha, c])); } catch { /* read them again */ }
+        }
+        h = historyFacts(ctx.root, config, sources, shallow, known);
         const ref = casPut(ctx, JSON.stringify(h.facts), { mediaType: 'application/json', label: 'history' });
         ctx.store.meta('history:cache', JSON.stringify({ key: hkey, ref, stats: h.stats }));
         if (hc && JSON.parse(hc).ref !== ref) casDrop(ctx, JSON.parse(hc).ref, 'history');
+        // Without the author hash: co-change and churn do not read it, so the store need not keep it.
+        const cref = casPut(ctx, JSON.stringify(h.commits.filter((c) => !(shallow ?? []).includes(c.sha)).map(({ sha, time, files }) => ({ sha, time, files }))), { mediaType: 'application/json', label: 'history.commits' });
+        ctx.store.meta('history:commits', JSON.stringify({ v: COMMITS_VERSION, ref: cref }));
+        if (prev?.ref && prev.ref !== cref) casDrop(ctx, prev.ref, 'history.commits');
       }
       pushAll(global, h.facts);
       historyStats = h.stats;
@@ -562,9 +581,20 @@ function shallowBoundary(root) {
   }
 }
 
-function historyFacts(root, config, sourcePaths, shallow = null) {
+function historyFacts(root, config, sourcePaths, shallow = null, known = new Map()) {
   const d = config.decomposition;
-  const log = (args) => parseGitLog(git(root, [...GIT_LOG_ARGS, ...args], { check: false, maxBuffer: 512 * 1024 * 1024 }).stdout);
+  const maxBuffer = 512 * 1024 * 1024;
+  let read = 0;
+  // The same commits, in the same order, as `git log` with these arguments prints; only those not in `known` are read.
+  const log = (args) => {
+    const shas = git(root, [...GIT_LIST_ARGS, ...args], { check: false, maxBuffer }).stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+    const missing = shas.filter((s) => !known.has(s));
+    if (missing.length) {
+      for (const c of parseGitLog(git(root, [...GIT_LOG_ARGS, '--no-walk=unsorted', '--stdin'], { check: false, maxBuffer, input: `${missing.join('\n')}\n` }).stdout)) known.set(c.sha, c);
+      read += missing.length;
+    }
+    return shas.map((s) => known.get(s)).filter(Boolean);
+  };
   let commits = log([`--since=${d.history_days} days ago`]);
   // A quiet repository has too few recent commits for co-change to say anything (an
   // unknown-repository test: 116 commits in a year, no pairs). Read the most recent
@@ -599,7 +629,7 @@ function historyFacts(root, config, sourcePaths, shallow = null) {
     facts.push(nodeFact('module', path, { path, attrs: { churn_commits: c.commits, churn_lines: c.added + c.deleted, last_change: new Date(c.last_time * 1000).toISOString() } }, pv));
   }
   const oldest = commits.reduce((m, c) => Math.min(m, c.time ?? Infinity), Infinity);
-  return { facts, stats: { commits: commits.length, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: unmeasured ? null : cc.pairs.length, ...(unmeasured && { unmeasured }), window: extended ? `extended to the latest ${commits.length} commits (fewer than ${floor} in ${d.history_days} days)` : `${d.history_days} days`, ...(Number.isFinite(oldest) && { oldest_commit_at: new Date(oldest * 1000).toISOString() }) } };
+  return { facts, commits, stats: { commits: commits.length, commits_read: read, ignored_large_commits: cc.ignoredCommits ?? 0, co_change_pairs: unmeasured ? null : cc.pairs.length, ...(unmeasured && { unmeasured }), window: extended ? `extended to the latest ${commits.length} commits (fewer than ${floor} in ${d.history_days} days)` : `${d.history_days} days`, ...(Number.isFinite(oldest) && { oldest_commit_at: new Date(oldest * 1000).toISOString() }) } };
 }
 
 const PLACEHOLDER_TYPE = (id) => {

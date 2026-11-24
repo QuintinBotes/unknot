@@ -268,6 +268,10 @@ export default {
       if (kind === 'generated' || kind === 'vendored') continue;
       mods.push({ path, fps: f.attrs.fingerprints, lines: f.attrs.fp_lines ?? 0, test: kind === 'test' || (kind == null && isTestPath(path)) });
     }
+    // Only this link reads fingerprints: the graph keeps the clones they found, not the hashes (#88).
+    for (const facts of ctx.factsByFile?.values() ?? []) {
+      for (const x of facts) if (x.kind === 'node' && x.provenance?.extractor === EXTRACTOR && x.attrs?.fingerprints) delete x.attrs.fingerprints;
+    }
 
     const postings = new Map();
     mods.forEach((m, mi) => m.fps.forEach((fp, fi) => {

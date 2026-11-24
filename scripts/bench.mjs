@@ -188,13 +188,32 @@ function relativeSpec(fromRel, toStem) {
 
 const g = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=bench@example.com', '-c', 'user.name=bench', ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
 
-function dirSize(dir) {
+function dirSize(dir, skip = []) {
   let n = 0;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (skip.includes(e.name)) continue;
     const p = join(dir, e.name);
     n += e.isDirectory() ? dirSize(p) : statSync(p).size;
   }
   return n;
+}
+
+/**
+ * The acceptance ratios of #88 and their bounds: a re-map with no change takes at most 10% of the
+ * cold map, one with files changed at most twice the no-change re-map, and the store is at most
+ * three times the source tree. Ratios, not times, so the gate holds across machines.
+ */
+export const GATES = Object.freeze({ unchanged_vs_cold: 0.1, changed_vs_unchanged: 2, store_vs_tree: 3 });
+
+/** The ratios of one result (`cold`, `unchanged`, `incremental` wall times; `store_bytes`, `tree_bytes`) and those over their bound. */
+export function gate(r, bounds = GATES) {
+  const ratios = {
+    unchanged_vs_cold: r.unchanged.wall_ms / r.cold.wall_ms,
+    changed_vs_unchanged: r.incremental.wall_ms / r.unchanged.wall_ms,
+    store_vs_tree: r.store_bytes / r.tree_bytes,
+  };
+  for (const k of Object.keys(ratios)) ratios[k] = +ratios[k].toFixed(3);
+  return { ratios, over: Object.keys(bounds).filter((k) => !(ratios[k] <= bounds[k])) };
 }
 
 const log = (msg) => process.stderr.write(`  ${new Date().toISOString().slice(11, 19)} ${msg}\n`);
@@ -245,11 +264,14 @@ async function runOne(label, count, work) {
     g(dir, 'add', '-A');
     g(dir, 'commit', '-qm', 'small change');
     const changed = await stage(`re-map, ${SHAPE.incrementalTouchedFiles} files changed`);
+    const storeBytes = dirSize(join(dir, '.unknot'));
     return {
       label,
       files: count,
       setup_ms: setupMs,
-      store_mb: Math.round(dirSize(join(dir, '.unknot')) / 2 ** 20),
+      store_mb: Math.round(storeBytes / 2 ** 20),
+      store_bytes: storeBytes,
+      tree_bytes: dirSize(dir, ['.git', '.unknot']),
       cold,
       unchanged,
       incremental: { ...changed, touched_files: SHAPE.incrementalTouchedFiles },
@@ -277,6 +299,7 @@ export function toMarkdown(machine, results) {
       if (run?.phases) phaseRows.push(`| ${r.label} ${name} | ${PHASES.map((p) => sec(run.phases[p])).join(' | ')} |`);
     }
   }
+  const gateRows = results.filter((r) => r.gate).map((r) => `| ${r.label} | ${Object.keys(GATES).map((k) => `${r.gate.ratios[k]} (${r.gate.over.includes(k) ? 'over' : 'within'} ${GATES[k]})`).join(' | ')} |`);
   return [
     `Machine: ${machine.cpu}, ${machine.cores} cores, ${machine.ram_gb} GB RAM, ${machine.platform}, Node ${machine.node}.`,
     '',
@@ -284,6 +307,7 @@ export function toMarkdown(machine, results) {
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
     ...rows,
     '',
+    ...(gateRows.length ? ['| Fixture | No change / cold | Changed / no change | Store / tree |', '| --- | ---: | ---: | ---: |', ...gateRows, ''] : []),
     '| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
     ...phaseRows,
@@ -319,10 +343,17 @@ async function main() {
     results.push(JSON.parse(child.stdout.trim().split('\n').at(-1)));
   }
   const machine = machineDescription();
-  writeFileSync(join(out, 'results.json'), `${JSON.stringify({ machine, shape: SHAPE, results }, null, 2)}\n`);
+  for (const r of results) r.gate = gate(r);
+  writeFileSync(join(out, 'results.json'), `${JSON.stringify({ machine, shape: SHAPE, gates: GATES, results }, null, 2)}\n`);
   const md = toMarkdown(machine, results);
   writeFileSync(join(out, 'results.md'), md);
   process.stdout.write(`${md}\nresults written to ${out}\n`);
+  // --gate: fail when a ratio is over its bound (#88, FR-004).
+  const over = results.filter((r) => r.gate.over.length);
+  if (flag('--gate') && over.length) {
+    for (const r of over) process.stderr.write(`bench gate: ${r.label} ${r.gate.over.map((k) => `${k} ${r.gate.ratios[k]} > ${GATES[k]}`).join(', ')}\n`);
+    process.exitCode = 1;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

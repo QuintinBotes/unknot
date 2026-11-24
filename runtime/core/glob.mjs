@@ -121,6 +121,12 @@ export function matchAny(path, patterns, opts) {
   return patterns.some((pat) => globToRegExp(pat, opts).test(p));
 }
 
+/** `matchAny` with the patterns compiled once, for testing many paths against one list. */
+export function matcher(patterns, opts) {
+  const res = (patterns ?? []).map((pat) => globToRegExp(pat, opts));
+  return (path) => res.some((re) => re.test(path.replace(/^\.\//, '')));
+}
+
 /** Include/exclude scope test. Empty include means everything. Exclude always wins. */
 export function inScope(path, { include = [], exclude = [] } = {}) {
   if (matchAny(path, exclude)) return false;
