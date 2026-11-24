@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Added
 
+- COMPATIBILITY says which commands and skills are public API (#97): every command in `unknot --help` and every skill is public under semver except `exec`, `run` and `daemon`, which are internal plumbing. A test fails when a command or skill is added, removed or left unclassified.
 - `diagnose --baseline <ref> [--fail-on new:<severity>]` judges a change only on what it adds (#101): it maps the tree, maps the base commit in a detached worktree into its own store, and lists the open findings whose fingerprint the base does not have, each with `severity` (`diagnose.severity` by kind, then category; cycles, hubs and security findings are `high` by default) and `location`. `--fail-on` exits 1 when a new finding reaches that severity; a base that cannot be mapped exits 5. `--json` output now carries `schema_version` `1.0`, and every listed finding its `severity` and `location`. No model and no network.
 
 ### Changed
