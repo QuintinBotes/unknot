@@ -187,6 +187,21 @@ It writes wall time, peak RSS (MB), files, nodes, edges and the store size to a 
 node scripts/bench-map.mjs [--repo nopcommerce] [--work DIR] [--out FILE.json]
 ```
 
+After the two maps it times one `decompose` dry run on the stored graph. The pinned `roslyn`
+repository (large: pass `--repo roslyn`) has 35,502 mapped files:
+
+| Roslyn 20b549ba, Node 22.23.5, darwin arm64 | Wall | Peak RSS |
+|---|---|---|
+| cold map | 201 s | 3,782 MB |
+| warm map (no change) | 108 s | 2,809 MB |
+| decompose before (origin/main, same store) | 20.1 s | 1,690 MB |
+| decompose after (per-type edge index) | 8.0 s | 1,696 MB |
+
+Store 4,371 MB, 203,474 nodes, 683,871 edges. Single runs on a machine shared with other agents,
+so each is an upper bound; the decompose before and after ran back to back on the same store.
+The saving is the per-type edge scan that `decompose` repeated for every node (a CPU profile of
+the old code puts about 3.5 s of self time in `graph.edges`); the rest is store reads.
+
 It needs `git` and network access for the first fetch, and spends nothing else. Run it on an idle
 machine: numbers from a shared one are an upper bound.
 

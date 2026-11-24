@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Map benchmark on a real public repository: a cold map (no store), then a warm map (unchanged
 // tree, store kept), each in its own process so peak RSS is that map's own. Writes wall time,
-// peak RSS and file counts to a JSON file. The repository is fetched shallowly at its pinned
+// peak RSS and file counts to a JSON file, then times one decompose (dry run) of the mapped store. The repository is fetched shallowly at its pinned
 // commit from scripts/corpus.json into --work, never into this checkout. See docs/benchmarks.md.
 //
 // Usage: node scripts/bench-map.mjs [--repo nopcommerce] [--corpus FILE] [--work DIR] [--out FILE]
@@ -15,6 +15,22 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const argv = process.argv.slice(2);
+
+if (argv[0] === '--decompose-child') {
+  // One decompose of the already mapped `dir` (dry run: nothing is written); prints one JSON line.
+  process.env.UNKNOT_HOME = argv[2];
+  delete process.env.CLAUDECODE;
+  const { openProject } = await import('../runtime/context.mjs');
+  const { loadConfig } = await import('../runtime/policy/config.mjs');
+  const { decompose } = await import('../runtime/decompose/index.mjs');
+  const ctx = openProject(argv[1]);
+  const cfg = loadConfig(ctx);
+  const t0 = Date.now();
+  const res = await decompose(ctx, { config: cfg.config, dryRun: true });
+  const wall_ms = Date.now() - t0;
+  process.stdout.write(`${JSON.stringify({ wall_ms, peak_rss_mb: Math.round(process.resourceUsage().maxRSS / 1024), recommendations: res.recommendations.length })}\n`);
+  process.exit(0);
+}
 
 if (argv[0] === '--child') {
   // One map of `dir`; prints one JSON line. Peak RSS is Node's resourceUsage().maxRSS (kilobytes).
@@ -83,15 +99,16 @@ const src = fetchRepo(repo);
 const home = mkdtempSync(join(tmpdir(), 'uk-bench-home-'));
 const state = join(src, '.unknot');
 rmSync(state, { recursive: true, force: true }); // cold: no store from an earlier run
-const child = () => {
-  const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--child', src, home], { encoding: 'utf8', maxBuffer: 1 << 26 });
+const child = (mode = '--child') => {
+  const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), mode, src, home], { encoding: 'utf8', maxBuffer: 1 << 26 });
   if (r.status !== 0) throw new Error(`map failed: ${r.stderr.slice(-2000)}`);
   return JSON.parse(r.stdout.trim().split('\n').pop());
 };
 const cold = child();
 const warm = child();
+const decompose = child('--decompose-child');
 const store_mb = Math.round(Number(execFileSync('du', ['-sk', state], { encoding: 'utf8' }).split('\t')[0]) / 1024);
-const result = { repository: repo.url, commit: repo.sha, node: process.version, platform: `${process.platform} ${process.arch}`, cold, warm, store_mb };
+const result = { repository: repo.url, commit: repo.sha, node: process.version, platform: `${process.platform} ${process.arch}`, cold, warm, decompose, store_mb };
 writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
 rmSync(home, { recursive: true, force: true });
 process.stdout.write(`${JSON.stringify(result)}\nwrote ${out}\n`);

@@ -11,6 +11,7 @@ export class Graph {
     this.outIdx = new Map();
     this.inIdx = new Map();
     this.typeIdx = new Map();
+    this.edgeTypeIdx = new Map(); // edge type -> edges in insertion order
   }
 
   /** Merge node/edge facts. Repeated observations of the same node merge their attrs. */
@@ -32,6 +33,7 @@ export class Graph {
       g.edgeMap.set(r.id, e);
       g.index(g.outIdx, r.src, e);
       g.index(g.inIdx, r.dst, e);
+      g.index(g.edgeTypeIdx, r.type, e);
     }
     return g;
   }
@@ -67,6 +69,7 @@ export class Graph {
     this.edgeMap.set(id, e);
     this.index(this.outIdx, from, e);
     this.index(this.inIdx, to, e);
+    this.index(this.edgeTypeIdx, type, e);
     return e;
   }
 
@@ -80,8 +83,7 @@ export class Graph {
   }
 
   edges(type) {
-    const all = [...this.edgeMap.values()];
-    return type ? all.filter((e) => e.type === type) : all;
+    return type ? [...(this.edgeTypeIdx.get(type) ?? [])] : [...this.edgeMap.values()];
   }
 
   out(id, type) {
