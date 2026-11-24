@@ -228,6 +228,20 @@ and is left out (load average 9 to 17):
 | Edited / no change, per round | 2.4 to 3.3 | 2.4 to 2.6 |
 | Store after a cold map | 250 MB | 233 MB (2.4 times the 96 MB tree) |
 
+`node scripts/bench.mjs --sizes 10k,50k --gate`, same machine and load, before (`main`) and after:
+
+| Tier | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Store / tree |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10k before | 26.0 s | 1.6 s | 4.2 s | 259 MB | 0.06 | 2.6 | 55 |
+| 10k after | 14.9 s | 1.5 s | 3.8 s | 245 MB | 0.101 | 2.50 | 52.1 |
+| 50k before | 725 s | 180 s | 355 s | 1,235 MB | 0.25 | 1.97 | n/a |
+| 50k after | 147 s | 14.9 s | 19.4 s | 1,238 MB | 0.101 | 1.30 | 53.0 |
+
+The 50k times are the census's: opening 50,000 files took 180 s in the `main` no-change re-map
+(a disk saturated by other work) and 14.7 s against 7.5 s in the two re-maps after, so the 50k
+ratios say more about the load than the code. The synthetic store is 50 times its tree because
+the fixture files are a few hundred bytes each.
+
 Scenario 2 (at most twice the no-change re-map) is still not met: what is left after the census is
 extraction (0.5 s, reading every file's cached facts), link (0.55 s), projection (0.43 s) and
 derived facts (0.29 s), each over the whole repository.
