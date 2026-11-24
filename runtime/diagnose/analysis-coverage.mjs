@@ -2,7 +2,7 @@
 // the map, not evidence that the code is healthy. The mapper records this per language and
 // diagnose renders any gaps alongside its findings.
 
-import { LOCAL_ANALYSES, analysesFor } from '../graph/languages.mjs';
+import { LOCAL_ANALYSES, analysesFor, templateLanguageIds } from '../graph/languages.mjs';
 
 export { LOCAL_ANALYSES };
 
@@ -13,7 +13,8 @@ const DISPLAY = Object.freeze({
   member_count: 'member-count',
 });
 
-const source = (file) => file.kind === 'source' && !file.context;
+// A template language (Razor) is no source kind, but no adapter reads it either: it is a gap too (#92).
+const source = (file) => !file.context && (file.kind === 'source' || (file.kind === 'other' && templateLanguageIds().includes(file.language)));
 const moduleFact = (facts) => facts.find((fact) => fact.kind === 'node' && fact.type === 'module') ?? null;
 const numeric = (value) => typeof value === 'number' && Number.isFinite(value);
 
