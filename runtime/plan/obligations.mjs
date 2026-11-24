@@ -5,6 +5,7 @@
 
 import { matchAny } from '../core/glob.mjs';
 import { DEP_MANIFESTS } from '../policy/risk.mjs';
+import { detectHookSystems, onPath } from './hooks.mjs';
 
 export const touchesDependencies = (slice) => [...(slice.changes ?? []).map((c) => c.path), ...(slice.scope?.include ?? [])].some((p) => matchAny(p, DEP_MANIFESTS));
 
@@ -15,7 +16,7 @@ const ob = (kind, description, { command = null, builtin = null, requires_human 
  * @param {{config: object, risk: {risk: string, specialists: string[]}}} ctx
  * @returns {object[]} obligations without ids (the store assigns PO ids)
  */
-export function generateObligations(slice, { config, risk }) {
+export function generateObligations(slice, { config, risk, root = null }) {
   const c = config.commands ?? {};
   const out = [];
   const high = ['high', 'critical'].includes(risk.risk);
@@ -23,6 +24,12 @@ export function generateObligations(slice, { config, risk }) {
   out.push(ob('diff-budget', `Changed files and lines are within budget (${slice.budgets.max_changed_files} files, ${slice.budgets.max_diff_lines} lines)`, { builtin: 'diff-budget' }));
   out.push(ob('parse', 'Every changed source file still parses (re-mapped by the language adapters without extraction failures)', { builtin: 'parse' }));
   if (config.security.secrets_scan !== 'off') out.push(ob('secrets-scan', 'The diff introduces no credential-like values', { builtin: 'secrets' }));
+  // Slice commits skip git hooks, so the repository's hook checks run here, sandboxed and without network.
+  // A missing tool makes the obligation a person's to confirm; a command that cannot start could never pass.
+  if (root) for (const h of detectHookSystems(root)) {
+    const description = `Repository hook checks (${h.system}) pass; slice commits skip git hooks, so they run here without network access`;
+    out.push(h.argv[0] === 'sh' || onPath(h.argv[0]) ? ob('lint', description, { command: h.argv }) : ob('lint', `${description} (not run: ${h.argv[0]} is not installed; a person confirms)`, { requires_human: true }));
+  }
   if (slice.kind !== 'documentation') {
     if (config.quality.forbid_new_cycles) out.push(ob('no-new-cycles', 'No dependency cycle exists after the change that did not exist before', { builtin: 'cycles' }));
     if (config.quality.public_api_compatibility === 'required') out.push(ob('api-compatibility', 'Exported symbols and endpoints of touched modules are unchanged or only added to', { builtin: 'api' }));

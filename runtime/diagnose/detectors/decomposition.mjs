@@ -73,6 +73,7 @@ const coChangeLeak = {
   version: '1.0.0',
   category: 'decomposition',
   kinds: ['decomposition.co-change-leak'],
+  needs_history: true, // reads CO_CHANGES: with history unmeasured it cannot say a finding is gone (#124)
   detect({ graph, options, config }) {
     const threshold = options.threshold ?? config?.decomposition?.thresholds?.co_change_leak ?? 0.2;
     const groups = new Map();

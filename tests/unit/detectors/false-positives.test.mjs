@@ -114,3 +114,29 @@ test('a Go test that only asserts with testify mocks nothing', async () => {
   assert.equal(await found('github.com/stretchr/testify/assert'), 1);
   assert.equal(await found('github.com/stretchr/testify/mock'), 0);
 });
+
+// Test doubles are judged per interface, and a `global using` in another file counts (#125).
+const timeFiles = (tests, extra = {}) => ({
+  'src/Time/Time.cs': cs('Shop.Time', '    public interface IClock\n    {\n        int Now();\n    }\n    public interface IRng\n    {\n        int Next();\n    }\n    public class SystemClock : IClock\n    {\n        public int Now() { return 1; }\n    }\n    public class SystemRng : IRng\n    {\n        public int Next() { return 1; }\n    }'),
+  ...tests,
+  ...extra,
+});
+const mocking = (usings, doubles) => cs('Shop.Time.Tests', `    public class SchedulerTests\n    {\n        public void Run()\n        {\n${doubles.map((d, i) => `            var d${i} = ${d};\n`).join('')}        }\n    }`, usings);
+const flagged = async (files) => ofKind((await analyse('equivalent-csharp', { extra: files })).findings, 'code.one-implementation-interface').map((f) => f.title.split(' ')[0]).filter((n) => ['IClock', 'IRng'].includes(n)).sort();
+
+test('#125 item 2: a global using of a mocking library in another file counts', async () => {
+  const test = mocking('using Shop.Time;\n', ['new Mock<IClock>()']);
+  assert.deepEqual(await flagged(timeFiles({ 'tests/Time.Tests/SchedulerTests.cs': test })), ['IClock', 'IRng'], 'without the library nothing is a double');
+  assert.deepEqual(await flagged(timeFiles({ 'tests/Time.Tests/SchedulerTests.cs': test, 'tests/Time.Tests/GlobalUsings.cs': 'global using Moq;\n' })), ['IRng'], 'the global using makes the Mock a double of IClock');
+});
+
+test('#125 item 1: a double of one interface says nothing about another interface of the same file, whichever test file holds it', async () => {
+  const moq = (doubles) => mocking('using Moq;\nusing Shop.Time;\n', doubles);
+  const plain = cs('Shop.Time.Tests', '    public class OtherTests\n    {\n        public void Run()\n        {\n            var c = new SystemClock();\n        }\n    }', 'using Shop.Time;\n');
+  for (const order of [['AOther.cs', 'ZMock.cs'], ['AMock.cs', 'ZOther.cs']]) {
+    const files = {};
+    for (const f of order) files[`tests/Time.Tests/${f}`] = f.includes('Mock') ? moq(['new Mock<IClock>()']) : plain;
+    assert.deepEqual(await flagged(timeFiles(files)), ['IRng'], order.join());
+  }
+  assert.deepEqual(await flagged(timeFiles({ 'tests/Time.Tests/SchedulerTests.cs': moq(['new Mock<IClock>()', 'new Mock<IRng>()']) })), [], 'both mocked, in one file');
+});

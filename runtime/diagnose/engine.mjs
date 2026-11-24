@@ -207,6 +207,10 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const global = globalSignals(g, config);
   const at = nowISO();
   const commit = ctx.store.meta('mapped_commit') || null;
+  // Co-change the map could not measure (#78) is not evidence that a coupling is gone: those findings stay as they are.
+  const unmeasured = JSON.parse(ctx.store.meta('mapped_history') ?? 'null')?.unmeasured;
+  const heldKinds = new Set(unmeasured ? detectors.filter((d) => d.needs_history).flatMap((d) => d.kinds) : []);
+  const held = [];
   const drafts = [];
   for (const d of detectors) {
     try {
@@ -259,12 +263,17 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
       for (const row of ctx.store.all("SELECT id, version, body FROM findings WHERE status = 'open'")) {
         const body = JSON.parse(row.body);
         if (seen.has(body.fingerprint) || !inScope(body)) continue;
+        if (heldKinds.has(body.kind)) {
+          held.push(body.id);
+          continue;
+        }
         const by = replacedBy.get(body.fingerprint);
         ctx.store.update('findings', row.id, row.version, { status: 'resolved', body: { ...body, status: 'resolved', ...(by && { replaced_by: by }) }, updated_at: at });
       }
     }
     return out;
   });
+  if (held.length) analysis.held_open = { findings: held, reason: `history unmeasured: ${unmeasured}` };
   const cats = objectiveCategories(objective);
   // Human decisions recalibrate ranking per detector (the learning loop); the §12
   // priority itself is unchanged and stays comparable across runs.

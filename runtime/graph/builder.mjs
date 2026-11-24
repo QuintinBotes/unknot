@@ -28,6 +28,7 @@ import { charge } from '../policy/budget.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
+import { templateLanguageIds } from './languages.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
 import { derivedDone, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
@@ -35,6 +36,7 @@ import { churn, coChange, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
 import { pushAll } from '../core/arrays.mjs';
 
+const OTHER = 'other';
 const PARALLEL_THRESHOLD = 400;
 const MAX_FACTS_PER_FILE = 5000;
 const COMMIT_CHUNK = 5000;
@@ -373,7 +375,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   if (ps.namespaces.length || ps.seeds.length) notes.push('scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries');
   const coverage = languageCoverage(cen.files, perFile, moduleBy);
   const analysis = analysisCoverage(cen.files, perFile);
-  const totalSource = coverage.reduce((n, c) => n + c.files, 0);
+  const totalSource = cen.files.filter((f) => f.kind === 'source' && !f.context).length;
   coverage.forEach((c, i) => {
     if (c.qualities?.semantic && c.qualities.lexical) notes.push(`language coverage: ${c.language} ${c.qualities.semantic} of ${c.files} source files are resolved by the SCIP index (semantic), ${c.qualities.lexical} are read lexically`);
     if (c.quality !== 'lexical') return;
@@ -439,12 +441,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
  */
 export function languageCoverage(files, perFile, moduleBy) {
   const by = new Map();
+  const templates = templateLanguageIds();
+  const isTemplate = (f) => f.kind === 'other' && templates.includes(f.language);
   for (const f of files) {
-    if (f.kind !== 'source' || f.context) continue;
+    if (f.context || (f.kind !== 'source' && !isTemplate(f))) continue;
     const mod = (perFile.get(f.path) ?? []).find((x) => x.kind === 'node' && x.type === 'module');
     const pq = mod?.attrs?.parse_quality;
-    const quality = !mod ? 'none' : pq === 'lexical' ? 'lexical' : pq === 'degraded' ? 'degraded' : pq === 'semantic' ? 'semantic' : 'syntax_tree';
-    const g = by.get(f.language) ?? { language: f.language, files: 0, adapters: new Map(), quals: new Map() };
+    const quality = !mod ? 'not analysed' : pq === 'lexical' ? 'lexical' : pq === 'degraded' ? 'degraded' : pq === 'semantic' ? 'semantic' : 'syntax_tree';
+    const g = by.get(f.language) ?? { language: f.language, template: isTemplate(f), files: 0, adapters: new Map(), quals: new Map() };
     g.files++;
     const a = moduleBy.get(f.path) ?? 'none';
     g.adapters.set(a, (g.adapters.get(a) ?? 0) + 1);
@@ -452,7 +456,10 @@ export function languageCoverage(files, perFile, moduleBy) {
     by.set(f.language, g);
   }
   const top = (m) => [...m].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1))[0][0];
-  return [...by.values()].sort((a, b) => b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals), ...((g.quals.size > 1 || g.quals.has('semantic')) && { qualities: Object.fromEntries([...g.quals].sort(([x], [y]) => (x < y ? -1 : 1))) }) }));
+  // Files of an unknown extension are last, whatever their number, and are never read.
+  const other = files.filter((f) => f.kind === 'other' && !f.language && !f.context).length;
+  return [...by.values()].sort((a, b) => a.template - b.template || b.files - a.files || (a.language < b.language ? -1 : 1)).map((g) => ({ language: g.language, files: g.files, adapter: top(g.adapters), quality: top(g.quals), ...((g.quals.size > 1 || g.quals.has('semantic')) && { qualities: Object.fromEntries([...g.quals].sort(([x], [y]) => (x < y ? -1 : 1))) }) }))
+    .concat(other ? [{ language: OTHER, files: other, adapter: 'none', quality: 'not analysed' }] : []);
 }
 
 /** The commits a shallow clone is cut at (its .git/shallow file), sorted. */

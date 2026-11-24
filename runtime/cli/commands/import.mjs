@@ -21,7 +21,7 @@ import { matchReport } from '../../../adapters/database/stats/imports.mjs';
 import { DELIVERY_COLUMNS, readDeliveries } from '../../../adapters/delivery/history/format.mjs';
 import { matchReport as deliveryMatchReport } from '../../../adapters/delivery/history/imports.mjs';
 import { IMPORT_COLUMNS, SOURCE_LABEL, matchRows, parseImport } from '../../../adapters/runtime/imports.mjs';
-import { output, table, withRun } from '../util.mjs';
+import { historyNotice, output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 export const USAGE = `usage: unknot import runtime <file> [--source <label>] [--json]
@@ -34,6 +34,8 @@ export const USAGE = `usage: unknot import runtime <file> [--source <label>] [--
   --window  the window of rows that carry none: an ISO interval a/b or a duration such as P7D
   deliveries reads deployment rows per deployable unit (columns ${DELIVERY_COLUMNS.join(', ')}; see docs/runtime-evidence.md)
   --environment  only rows of this environment count (default: production)`;
+
+const remap = (ctx, cfg, config, actor) => withRun(ctx, cfg, 'map', { actor, scope: [] }, (r) => mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope: [], history: true }));
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const LISTED = 20;
@@ -83,7 +85,7 @@ export async function run({ positional, flags }) {
 
   // Re-project so the graph holds the rows, unless the same file was already imported.
   if (!unchanged) {
-    await withRun(ctx, cfg, 'map', { actor, scope: [] }, (r) => mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope: [], history: true }));
+    historyNotice((await remap(ctx, cfg, config, actor)).history);
   }
   const options = config.adapters?.runtime ?? {};
   const { matched, unmatched } = matchRows(Graph.fromStore(ctx.store), entry.rows, { serviceMap: options.service_map });
@@ -146,7 +148,7 @@ async function runStats({ file, flags }) {
   const entry = unchanged ? earlier : { source: label, file: rel, digest, imported_at: now, format: parsed.format, rows: parsed.rows, transactions: parsed.transactions };
   if (!unchanged) {
     saveStatsImport(ctx.store, entry);
-    await withRun(ctx, cfg, 'map', { actor, scope: [] }, (r) => mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope: [], history: true }));
+    historyNotice((await remap(ctx, cfg, config, actor)).history);
   }
   const report = matchReport(entry, Graph.fromStore(ctx.store));
   const unparsed = entry.rows.filter((r) => !r.parsed).length;
@@ -211,7 +213,7 @@ async function runDeliveries({ file, flags }) {
   };
   if (!unchanged) {
     saveDeliveryImport(ctx.store, entry);
-    await withRun(ctx, cfg, 'map', { actor, scope: [] }, (r) => mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope: [], history: true }));
+    historyNotice((await remap(ctx, cfg, config, actor)).history);
   }
   const report = deliveryMatchReport(entry, Graph.fromStore(ctx.store));
   const summary = {

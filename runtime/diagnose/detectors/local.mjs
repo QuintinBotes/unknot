@@ -774,10 +774,10 @@ function importersOf(graph, moduleId) {
 // Test doubles a mocking library makes at run time declare no implementation (#81).
 // Matched on the import as written (`spec`), so testify's assert is no mocking library and `Rhino.Mocks` is not cut to `Rhino`.
 const MOCKING = /^(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Telerik\.JustMock|org\.mockito|io\.mockk|go\.uber\.org\/mock|github\.com\/golang\/mock|github\.com\/stretchr\/testify\/mock|sinon|testdouble|jest-mock|ts-mockito|pytest_mock)([./]|$)/;
-/** Whether a test that uses a mocking library names the interface's module: its double is a second implementation. */
-const mockedInTests = (graph, mod) => Boolean(mod) && graph.in(mod.id, 'IMPORTS').some((e) => {
+/** Whether a test that uses a mocking library names the interface: its double is a second implementation. A C# test lists the type names it uses from the module, so the judgement is per interface. */
+const mockedInTests = (graph, mod, name) => Boolean(mod) && graph.in(mod.id, 'IMPORTS').some((e) => {
   const t = graph.node(e.from);
-  return t?.attrs?.is_test && graph.out(t.id, 'IMPORTS').some((d) => d.to.startsWith('dependency:') && MOCKING.test(d.attrs?.spec ?? d.to.slice(11)));
+  return t?.attrs?.is_test && (!e.attrs?.names || e.attrs.names.includes(name)) && graph.out(t.id, 'IMPORTS').some((d) => d.to.startsWith('dependency:') && MOCKING.test(d.attrs?.spec ?? d.to.slice(11)));
 });
 
 const oneImplementationInterface = define({
@@ -792,7 +792,7 @@ const oneImplementationInterface = define({
       // A test double as the only implementation: the real one is a dependency's, generated or a framework proxy.
       if (moduleOf(graph, graph.node(impls[0]))?.attrs?.is_test) continue;
       const mod = moduleOf(graph, n);
-      if (mockedInTests(graph, mod)) continue;
+      if (mockedInTests(graph, mod, nameOf(n))) continue;
       const consumers = mod ? importersOf(graph, mod.id).size : 0;
       const structural = Boolean(language(n.attrs?.language)?.genericSyntax?.structuralInterfaces);
       const d = base(graph, n, {
