@@ -83,3 +83,16 @@ test('re-maps replace superseded discovery blobs and leave the write-ahead log e
   }
   assert.equal(p.ctx.store.get('PRAGMA wal_checkpoint(PASSIVE)').log, 0, 'the write-ahead log is folded into the database');
 });
+
+test('dropping one adapter\'s previous blob keeps a blob another adapter still references', async () => {
+  const { casDrop, casPut } = await import('../../../runtime/state/cas.mjs');
+  const p = K.makeProject({ files });
+  const ref = casPut(p.ctx, '[]', { label: 'discover.a' });
+  assert.equal(casPut(p.ctx, '[]', { label: 'discover.b' }), ref, 'identical content shares one blob');
+  p.ctx.store.meta('discover:b', JSON.stringify({ key: 'k', ref }));
+  casDrop(p.ctx, ref, 'discover.a');
+  assert.ok(p.ctx.store.get('SELECT 1 AS x FROM artifacts WHERE digest = ?', ref), 'still referenced by discover:b');
+  p.ctx.store.meta('discover:b', JSON.stringify({ key: 'k', ref: 'sha256:' + '0'.repeat(64) }));
+  casDrop(p.ctx, ref, 'discover.a');
+  assert.equal(p.ctx.store.get('SELECT 1 AS x FROM artifacts WHERE digest = ?', ref) ?? null, null, 'dropped once nothing references it');
+});

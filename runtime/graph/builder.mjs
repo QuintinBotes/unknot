@@ -514,7 +514,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     phases,
     config_digest: configDigest,
   };
-  if (fastKey && !degradedAny && !failures.length) {
+  if (fastKey && !degradedAny && !failures.length && !stats.scip_blocked) {
     ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, duration_ms: undefined } }));
   } else ctx.store.meta('map:last', '');
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });

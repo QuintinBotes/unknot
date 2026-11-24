@@ -43,6 +43,8 @@ export function casDrop(ctx, digestStr, label) {
   if (!/^[0-9a-f]{64}$/.test(hex)) return;
   const row = ctx.store.get('SELECT label, run_id FROM artifacts WHERE digest = ?', `sha256:${hex}`);
   if (!row || row.label !== label || row.run_id) return;
+  // Identical content shares one row: keep it while another cache's current ref still points at it.
+  if (ctx.store.get('SELECT 1 AS x FROM meta WHERE value LIKE ? LIMIT 1', `%${hex}%`)) return;
   ctx.store.run('DELETE FROM artifacts WHERE digest = ?', `sha256:${hex}`);
   rmSync(blobPath(ctx, hex), { force: true });
 }

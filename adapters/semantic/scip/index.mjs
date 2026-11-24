@@ -267,6 +267,8 @@ async function link(ctx) {
     }
   }
 
+  // A blocked run is retried by the next map (the tool may be installed, a failure transient): that map is not reused.
+  if (options.run === true && [...state.values()].some((v) => v.kind === 'blocked')) ctx.stats.scip_blocked = true;
   const entries = [...supplied, ...cacheEntries];
   // Preserve the former no-index behaviour for the default (`run: false`): no SCIP section
   // and no new coverage noise when there is no person-supplied or safe cache index.
