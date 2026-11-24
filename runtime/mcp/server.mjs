@@ -2,10 +2,13 @@
 // only; every diagnostic goes to stderr. Results are data for the model, never authority:
 // nothing reachable from here approves, applies or executes anything.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { tryOpenProject } from '../context.mjs';
 import { redactDeep } from '../core/redact.mjs';
 import { toErrorJSON, UnknotError } from '../core/errors.mjs';
+import { isInside, realpathLenient, resolveInside } from '../core/paths.mjs';
+import { UNKNOT_DIR, findProjectRoot } from '../core/project.mjs';
 import { TOOLS } from './tools.mjs';
 import { validateAgainst } from './validate.mjs';
 
@@ -77,15 +80,56 @@ export function toolResult(payload, isError = false) {
   return { content: [{ type: 'text', text }], structuredContent: data, ...(isError ? { isError: true } : {}) };
 }
 
-/** Lazily-opened project handles: read-only for everything, writable only for the handoff. */
-function makeProjects(env) {
-  const cache = { ro: null, rw: null };
-  const dir = () => env.CLAUDE_PROJECT_DIR ?? process.cwd();
-  return (write) => {
-    const slot = write ? 'rw' : 'ro';
-    if (!cache[slot]) cache[slot] = tryOpenProject(dir(), { readOnly: !write });
-    return cache[slot];
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'bin', 'obj']);
+const FIND_DEPTH = 4;
+const FIND_MS = 1500;
+
+/** Initialised projects below `root` (relative paths), bounded in depth and time; links are not followed. */
+function findProjects(root) {
+  const found = [];
+  const deadline = Date.now() + FIND_MS;
+  const walk = (dir, depth) => {
+    if (depth > FIND_DEPTH || Date.now() > deadline) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (depth > 0 && entries.some((e) => e.isDirectory() && e.name === UNKNOT_DIR)) found.push(relative(root, dir));
+    for (const e of entries) if (e.isDirectory() && !SKIP_DIRS.has(e.name) && e.name !== UNKNOT_DIR) walk(join(dir, e.name), depth + 1);
   };
+  walk(root, 0);
+  return found.sort();
+}
+
+/**
+ * Lazily-opened project handles: read-only for everything, writable only for the handoff.
+ * `project` names a project below the session root; it must resolve, links followed, inside it.
+ */
+function makeProjects(env) {
+  const cache = new Map();
+  const root = () => env.CLAUDE_PROJECT_DIR ?? process.cwd();
+  const open = (write, project) => {
+    let dir = root();
+    if (project !== undefined) {
+      // An absolute path is compared as its real path, as the root is (/var is /private/var on macOS).
+      const { real } = resolveInside(dir, isAbsolute(project) ? realpathLenient(project) : project);
+      if (!isInside(realpathLenient(resolve(dir)), findProjectRoot(real))) {
+        throw new UnknotError('UK_SCOPE_VIOLATION', `project ${project} belongs to a project outside the session root`);
+      }
+      dir = real;
+    }
+    const key = `${write ? 'rw' : 'ro'}:${dir}`;
+    if (!cache.has(key)) {
+      const ctx = tryOpenProject(dir, { readOnly: !write });
+      if (ctx) cache.set(key, ctx);
+    }
+    return cache.get(key) ?? null;
+  };
+  open.root = root;
+  open.opened = () => [...cache.values()];
+  return open;
 }
 
 /**
@@ -101,13 +145,15 @@ export function createServer({ env = process.env } = {}) {
     }
     const tool = Object.hasOwn(TOOLS, params.name) ? TOOLS[params.name] : null;
     if (!tool) return { error: [-32602, `unknown tool ${params.name}`] };
-    const args = params.arguments ?? {};
-    const problems = validateAgainst(args, tool.inputSchema);
+    const { project, ...args } = params.arguments ?? {};
+    const problems = validateAgainst({ ...args, ...(project === undefined ? {} : { project }) }, tool.inputSchema);
     if (problems.length) return { error: [-32602, `invalid arguments: ${problems.slice(0, 5).join('; ')}`] };
     try {
-      const ctx = projects(Boolean(tool.needsWrite));
+      const ctx = projects(Boolean(tool.needsWrite), project);
       if (!ctx) {
-        return { result: toolResult({ code: 'UK_NOT_INITIALIZED', message: 'This project is not initialised for Unknot. Ask the user to run /unknot:init: it writes only a proposal, and a read-only assessment needs nothing else.' }, true) };
+        const below = findProjects(realpathLenient(resolve(projects.root())));
+        const hint = below.length ? ` Initialised projects below the session root: ${below.join(', ')}. Pass one as the tool's project argument, for example project: ${JSON.stringify(below[0])}.` : '';
+        return { result: toolResult({ code: 'UK_NOT_INITIALIZED', message: `This project is not initialised for Unknot. Ask the user to run /unknot:init: it writes only a proposal, and a read-only assessment needs nothing else.${hint}`, ...(below.length ? { projects: below } : {}) }, true) };
       }
       const failed = (err) => {
         if (!(err instanceof UnknotError)) log(`tool ${params.name} failed: ${err?.stack ?? err}`);
@@ -169,7 +215,7 @@ export function createServer({ env = process.env } = {}) {
   return {
     handle,
     close() {
-      for (const ctx of [projects.ro, projects.rw]) ctx?.store?.close?.();
+      for (const ctx of projects.opened()) ctx.store?.close?.();
     },
   };
 }

@@ -9,7 +9,7 @@ import { listWorkspace, loadWorkspaceGraph, mapWorkspace, summarizeWorkspace } f
 import { readSources, writeSources } from '../../policy/config-diff.mjs';
 import { parseConfigText } from '../../policy/config.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
-import { humanCommand, output, table, withRun } from '../util.mjs';
+import { historyNotice, humanCommand, output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
 import { baseProposal } from './init.mjs';
 
@@ -112,6 +112,7 @@ export async function run({ positional, flags }) {
   }
   if (sub === 'map') {
     const r = await withRun(ctx, cfg, 'map', { actor, scope: [] }, () => mapWorkspace(ctx, { config, history: !flags.no_history }));
+    for (const u of r.history_unmeasured) historyNotice({ unmeasured: u.reason }, u.name);
     if (flags.json) return output({ digest: r.digest, repositories: r.repositories, ...r.analysis }, { json: true });
     const a = r.analysis;
     return output([

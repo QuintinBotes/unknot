@@ -414,6 +414,7 @@ export async function mapWorkspace(rootCtx, { config, history = true } = {}) {
   if (!repos.length) throw new UnknotError('UK_CONFIG_INVALID', 'no repositories listed under workspace.repositories in .unknot/config.yaml');
   const graphs = new Map();
   const repositories = [];
+  const unmeasured = [];
   const members = [];
   for (const repo of repos) {
     const ctx = openRepo(repo);
@@ -421,6 +422,7 @@ export async function mapWorkspace(rootCtx, { config, history = true } = {}) {
     const cfg = loadConfig(ctx);
     const s = await mapRepository(ctx, { config: cfg.config, configDigest: cfg.digest, history });
     graphs.set(repo.name, Graph.fromStore(ctx.store));
+    if (s.history?.unmeasured) unmeasured.push({ name: repo.name, reason: s.history.unmeasured });
     repositories.push({ name: repo.name, path: repo.path, remote: repo.remote, project_id: ctx.projectId, commit: s.commit, generation: s.generation, status: s.status, files: s.files, nodes: s.nodes, edges: s.edges, failure_count: s.failure_count });
   }
   const { graph, analysis } = buildWorkspaceGraph(graphs);
@@ -437,7 +439,7 @@ export async function mapWorkspace(rootCtx, { config, history = true } = {}) {
     actor: 'runtime:workspace',
     payload: { repositories: repositories.map((r) => ({ name: r.name, commit: r.commit, generation: r.generation })), cross_repo_edges: analysis.cross_repo_edges.total, shared_tables: analysis.shared_tables.length, digest },
   });
-  return { digest, repositories, analysis, nodes: doc.nodes.length, edges: doc.edges.length };
+  return { digest, repositories, analysis, nodes: doc.nodes.length, edges: doc.edges.length, history_unmeasured: unmeasured };
 }
 
 /** The summary `unknot workspace graph` prints. */

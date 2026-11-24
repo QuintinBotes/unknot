@@ -14,6 +14,8 @@ export const LANGUAGE_IDS = Object.freeze({
   KOTLIN: 'kotlin',
   SCALA: 'scala',
   CSHARP: 'csharp',
+  FSHARP: 'fsharp',
+  RAZOR: 'razor',
   RUST: 'rust',
   RUBY: 'ruby',
   PHP: 'php',
@@ -70,6 +72,7 @@ const row = (value) => {
     qualityFamily: null,
     config: false,
     documentation: false,
+    template: false,
     ...value,
     extensions: Object.freeze(extensions),
     globs: Object.freeze(value.globs ?? extensions.map((extension) => `**/*${extension}`)),
@@ -163,6 +166,7 @@ export const qualityGlobs = () => {
   const extensions = languages().filter((value) => value.qualityFamily).flatMap((value) => value.extensions.map((extension) => extension.slice(1)));
   return extensions.length ? [`**/*.{${extensions.join(',')}}`] : [];
 };
+export const templateLanguageIds = () => languages().filter((value) => value.template).map((value) => value.id);
 export const configLanguageIds = () => languages().filter((value) => value.config).map((value) => value.id);
 export const documentationLanguageIds = () => languages().filter((value) => value.documentation).map((value) => value.id);
 export const generatedGlobs = () => languages().flatMap((value) => value.generatedGlobs);
@@ -570,6 +574,9 @@ const generic = { ...code, adapter: 'generic', generic: true, lexical: true };
   { ...code, id: ids.VUE, extensions: ['.vue'], adapter: 'javascript', frontend: true, frontendExtensions: ['.vue'] },
   { ...code, id: ids.SVELTE, extensions: ['.svelte'], globs: ['**/+page.svelte'], adapter: 'javascript', frontend: true, frontendExtensions: ['.svelte'] },
   { ...code, id: ids.SHELL, extensions: ['.sh', '.bash', '.zsh'], script: true, pathMentionExtensions: ['.sh'] },
+  // No adapter reads these: they are listed so the coverage report shows the gap (#92).
+  { ...code, id: ids.FSHARP, extensions: ['.fs', '.fsx', '.fsi'] },
+  { id: ids.RAZOR, extensions: ['.cshtml', '.razor'], template: true },
   { ...code, id: ids.POWERSHELL, extensions: ['.ps1'], script: true },
   { ...code, id: ids.BATCH, extensions: ['.bat', '.cmd'], script: true },
   { id: ids.SQL, extensions: ['.sql'], config: true },

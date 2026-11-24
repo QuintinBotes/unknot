@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -363,4 +363,53 @@ test('graph_hubs: edge_types union, scope, within and a consistent limit; graph_
   const hoodFull = await c.call('graph_neighbourhood', { id: 'module:src/a.ts', full: true });
   assert.ok(hoodFull.structuredContent.nodes[0].fact_ids);
   assert.equal((await c.request('tools/call', { name: 'graph_neighbourhood', arguments: { id: 'x', full: 'yes' } })).error?.code, -32602);
+});
+
+// A project below the session root (#90): `project` names it, and nothing outside the root opens.
+test('a tool call names an initialised project below the session root', async () => {
+  const session = mkTmp(join(tmpdir(), 'uk-mcp-session-'));
+  const outside = mkTmp(join(tmpdir(), 'uk-mcp-outside-'));
+  for (const dir of [join(session, 'repo'), join(outside, 'elsewhere')]) {
+    mkdirSync(dir, { recursive: true });
+    openProject(dir, { create: true }).store.close();
+  }
+  symlinkSync(join(outside, 'elsewhere'), join(session, 'link'));
+  const c2 = client(session);
+
+  const named = await c2.call('status', { project: 'repo' });
+  assert.equal(named.isError, undefined);
+  assert.equal(named.structuredContent.mode, 'plan');
+  const absolute = await c2.call('status', { project: join(session, 'repo') });
+  assert.equal(absolute.isError, undefined);
+
+  const bare = await c2.call('status');
+  assert.equal(bare.isError, true);
+  assert.equal(bare.structuredContent.code, 'UK_NOT_INITIALIZED');
+  assert.deepEqual(bare.structuredContent.projects, ['repo']);
+  assert.match(bare.structuredContent.message, /project: "repo"/);
+
+  for (const project of ['../uk-elsewhere', join(outside, 'elsewhere'), 'link']) {
+    const refused = await c2.call('status', { project });
+    assert.equal(refused.isError, true, project);
+    assert.equal(refused.structuredContent.code, 'UK_SCOPE_VIOLATION', project);
+  }
+
+  const handoff = await c2.call('submit_handoff', { project: 'repo', handoff: { schema_version: '1.0', run_id: null, slice_id: null, agent: 'cartographer', status: 'complete', facts: [], proposals: [], uncertainties: [], conflicts: [], artifacts: [], recommended_next_state: 'MAPPED' } });
+  assert.match(handoff.structuredContent.errors[0].message, /no active Unknot run/);
+  const outsideHandoff = await c2.call('submit_handoff', { project: 'link', handoff: {} });
+  assert.equal(outsideHandoff.structuredContent.code, 'UK_SCOPE_VIOLATION');
+  await c2.close();
+});
+
+test('an initialised session root behaves as before when no project is named', async () => {
+  assert.equal((await c.call('status')).structuredContent.mode, 'plan');
+});
+
+test('every bundled agent that uses Unknot tools is told to pass project for a nested project', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = fileURLToPath(new URL('../../../agents/', import.meta.url));
+  const agents = readdirSync(dir).filter((f) => f.endsWith('.md'));
+  const using = agents.filter((f) => readFileSync(join(dir, f), 'utf8').includes('mcp__plugin_unknot_unknot__'));
+  assert.ok(using.length > 0);
+  for (const f of using) assert.match(readFileSync(join(dir, f), 'utf8'), /`project`/, f);
 });
