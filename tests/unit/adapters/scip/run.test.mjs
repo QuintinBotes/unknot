@@ -93,3 +93,21 @@ test('doctor reports the marker-selected tool, run setting and repository-code c
   assert.match(check.detail, /run: on/);
   assert.match(check.detail, /executes repository code: no/);
 });
+
+test('a map with a blocked indexer is not reused once the indexer is installed', async () => {
+  const project = K.makeProject({ files: source });
+  const cfg = config({ run: true, languages: ['typescript'] });
+  const before = process.env.PATH;
+  process.env.PATH = `${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`;
+  try {
+    const blocked = await mapRepository(project.ctx, { config: cfg, configDigest: 'd', history: false });
+    assert.equal(blocked.scip.coverage.typescript.quality, 'lexical');
+  } finally {
+    if (before === undefined) delete process.env.PATH;
+    else process.env.PATH = before;
+  }
+  const bin = fakeIndexer(indexBytes());
+  const again = await withPath(bin, () => mapRepository(project.ctx, { config: cfg, configDigest: 'd', history: false }));
+  assert.notEqual(again.unchanged, true, 'recomputed, not served from map:last');
+  assert.equal(again.scip.coverage.typescript.quality, 'semantic');
+});

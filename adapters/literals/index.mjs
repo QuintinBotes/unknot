@@ -6,6 +6,7 @@
 // it appears (labelled inferred), and applies the per-repository cap; `discover` adds the uses
 // that go through the constant's name. Prose, log messages and format strings are never indexed.
 
+import { createHash } from 'node:crypto';
 import { edgeFact, nodeFact, prov } from '../../runtime/graph/facts.mjs';
 import { parseYAML } from '../../runtime/core/yaml.mjs';
 import { definitionOn } from '../../runtime/graph/search.mjs';
@@ -210,7 +211,7 @@ export default {
   },
 
   /** Uses through a constant's name: `Metrics.CheckoutLatency` in another file is a use of its string. */
-  async discover({ census, readText, factsByFile, options = {} }) {
+  async discover({ census, readText, factsByFile, files: cache, options = {} }) {
     const names = new Map(); // constant name → ids defined under it
     for (const facts of factsByFile.values()) {
       for (const f of facts) {
@@ -224,29 +225,35 @@ export default {
     if (!unique.size) return [];
     const users = new Map(); // name → [{path, line}]
     const token = /[A-Za-z_$][\w$]*/g;
+    // Per file, what the scan finds depends on its text and on the names looked for: cached by blob and a digest of the names.
+    const key = createHash('sha1').update([...unique.keys()].sort().join('\n')).digest('hex');
     for (const f of census) {
       if ((f.kind !== 'source' && f.kind !== 'test') || f.too_large || f.context || !EXT_RE.test(f.path)) continue;
-      let text;
-      try {
-        text = readText(f.path);
-      } catch {
-        continue;
-      }
-      if (text.length > MAX_TEXT) continue;
-      const own = new Set((factsByFile.get(f.path) ?? []).filter((x) => x.kind === 'edge' && x.type === 'DEFINES').map((x) => x.attrs.name));
-      const seen = new Map();
-      const lines = text.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].length > MAX_LINE || COMMENT.test(lines[i])) continue;
-        let m;
-        token.lastIndex = 0;
-        while ((m = token.exec(lines[i]))) {
-          if (!unique.has(m[0])) continue;
-          const s = seen.get(m[0]) ?? { n: 0, line: i + 1 };
-          s.n++;
-          seen.set(m[0], s);
+      const hit = cache?.get(f.path, f.blob, key);
+      const seen = new Map(hit);
+      if (!hit) {
+        let text;
+        try {
+          text = readText(f.path);
+        } catch {
+          continue;
         }
+        if (text.length > MAX_TEXT) continue;
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].length > MAX_LINE || COMMENT.test(lines[i])) continue;
+          let m;
+          token.lastIndex = 0;
+          while ((m = token.exec(lines[i]))) {
+            if (!unique.has(m[0])) continue;
+            const s = seen.get(m[0]) ?? { n: 0, line: i + 1 };
+            s.n++;
+            seen.set(m[0], s);
+          }
+        }
+        cache?.put(f.path, f.blob, key, [...seen]);
       }
+      const own = new Set((factsByFile.get(f.path) ?? []).filter((x) => x.kind === 'edge' && x.type === 'DEFINES').map((x) => x.attrs.name));
       for (const [name, s] of seen) {
         if (own.has(name) && s.n < 2) continue;
         users.set(name, [...(users.get(name) ?? []), { path: f.path, line: s.line }]);

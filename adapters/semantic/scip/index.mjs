@@ -3,7 +3,7 @@
 // short-lived, language-table-selected cache entry. It never chooses a tool or command
 // shape itself: that information lives in indexers.mjs.
 
-import { lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { UnknotError } from '../../../runtime/core/errors.mjs';
 import { resolveInside } from '../../../runtime/core/paths.mjs';
@@ -267,6 +267,8 @@ async function link(ctx) {
     }
   }
 
+  // A blocked run is retried by the next map (the tool may be installed, a failure transient): that map is not reused.
+  if (options.run === true && [...state.values()].some((v) => v.kind === 'blocked')) ctx.stats.scip_blocked = true;
   const entries = [...supplied, ...cacheEntries];
   // Preserve the former no-index behaviour for the default (`run: false`): no SCIP section
   // and no new coverage noise when there is no person-supplied or safe cache index.
@@ -380,5 +382,21 @@ export default {
   version: VERSION,
   kind: 'language',
   capabilities: { files: [], executes: [], network: false },
+  /** What a map reads outside the census (the index files and the cache an indexer wrote): stamped, so a skipped map notices a new index. */
+  inputs(ctx, options = {}) {
+    let listed = [];
+    try {
+      listed = locateIndexes(ctx.root, options).entries.map((e) => [e.rel, e.size, e.mtimeMs]);
+    } catch {
+      listed = ['unreadable'];
+    }
+    const dir = join(ctx.paths.state, 'adapter-cache', 'scip');
+    try {
+      for (const name of readdirSync(dir).sort()) listed.push([name, statSync(join(dir, name)).size, statSync(join(dir, name)).mtimeMs]);
+    } catch {
+      // No cache directory: nothing to stamp.
+    }
+    return listed;
+  },
   link,
 };

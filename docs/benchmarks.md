@@ -176,6 +176,33 @@ extra time is spread over census, extraction, link and projection rather than on
 cold 250k time therefore says more about the load during that run than about the code; a
 v0.3.3 run at 250k on an idle machine would settle it.
 
+### Re-map cost and store size on nopCommerce (#88)
+
+Pinned public repository (`scripts/corpus.json`, 24,609 adapter-file pairs, 96 MB of source), cold
+map, a re-map with no change, then three one-file edits, each committed. Same machine, not idle
+(load average 19), so times are upper bounds; the work counts and sizes are exact. Before is `main`
+at the time, after is this change. The facts and edges after the edits equal those of a cold map
+of the final tree in both.
+
+| Run | Before | After | Files re-extracted |
+| --- | ---: | ---: | ---: |
+| Cold map | 66.8 s | 16.5 s (load differed) | 24,609 |
+| Re-map, no change | 9.0 s | 1.9 s (census only) | 0 |
+| Re-map, one file edited | 10.4 to 21.9 s | 4.3 to 4.8 s | 6 adapter-file pairs (one file) |
+
+| Store | Before | After |
+| --- | ---: | ---: |
+| After the cold map (database, write-ahead log and blobs) | 446 MB | 255 MB |
+| Growth per one-file re-map | 1.75 MB | 0.01 to 0.02 MB |
+
+Where a one-file re-map spent its time: the constant-use scan of the `literals` adapter read every
+source file again (0.6 to 3.4 s here) because its cache key holds the blob of every file it reads,
+and wrote its 1.8 MB result as a new blob each time without removing the old one. The write-ahead
+log (about 180 MB after a cold map) counted toward the store until the database closed. What is
+left in a one-file re-map is the census (about 1.4 s), reading every file's cached facts (0.6 s),
+linking (0.6 s), hashing every fact in projection (0.6 s) and the derived facts (0.4 s): all
+proportional to the repository, not to the change.
+
 ## Real C# monolith: map, cold and warm
 
 `scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit

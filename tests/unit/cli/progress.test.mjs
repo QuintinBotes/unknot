@@ -2,6 +2,8 @@
 // never on stdout (so --json stays parseable).
 
 import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { analyse } from '../../golden/_harness.mjs';
 
@@ -62,6 +64,8 @@ describe('map and decompose progress', () => {
   });
 
   test('--progress prints the phase and counts on stderr, and --json stdout stays JSON', async () => {
+    // An unchanged tree is answered from the last map without work (#88): change a file so there is some.
+    appendFileSync(join(r.dir, 'package.json'), ' ');
     const m = await cliIn(runMap, r.dir, '--progress', '--json');
     assert.match(m.err, /unknot: .*: \d+ of \d+, \d+ s\n/);
     assert.ok(!m.err.includes('\r'));
