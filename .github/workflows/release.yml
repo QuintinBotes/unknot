@@ -61,4 +61,18 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           sha="$(git rev-list -n 1 "$TAG")"
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -f sha="$sha" -F force=false
+          cmd="git push git@github.com:$GITHUB_REPOSITORY.git $sha:refs/heads/stable"
+          # GITHUB_TOKEN has no `workflows` permission, so GitHub refuses a ref update onto a
+          # commit that changes .github/workflows. Say so instead of failing with a bare 403.
+          stable="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/stable" --jq .object.sha)"
+          if ! git diff --quiet "$stable" "$sha" -- .github/workflows; then
+            echo "::error::stable not advanced: $TAG changes .github/workflows and GITHUB_TOKEN cannot move a ref onto such a commit. The release is published. The owner runs: $cmd"
+            exit 1
+          fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -f sha="$sha" -F force=false 2>"$RUNNER_TEMP/patch.err" || {
+            cat "$RUNNER_TEMP/patch.err"
+            if grep -q "HTTP 403" "$RUNNER_TEMP/patch.err"; then
+              echo "::error::stable not advanced (HTTP 403). The release is published. The owner runs: $cmd"
+            fi
+            exit 1
+          }

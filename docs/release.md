@@ -37,7 +37,10 @@ step, and the results go into the release notes.
 - **Stable:** the `quintinbotes` catalog installs Unknot from the `stable` branch. After a final
   release, the release job fast-forwards `stable` to the tag. A tag with a prerelease suffix
   (`v0.2.0-beta.1`) is published as a GitHub prerelease and leaves `stable` where it is. A
-  ruleset refuses deleting `stable` or force-pushing to it.
+  ruleset refuses deleting `stable` or force-pushing to it. `GITHUB_TOKEN` cannot move `stable`
+  onto a commit that changes `.github/workflows`; the step then fails with an `::error::` that
+  prints the owner command (the release itself is already published), which is
+  `git push git@github.com:QuintinBotes/unknot.git <tag-sha>:refs/heads/stable`.
 - **Beta:** `main`, reached by adding this repository as a marketplace (`unknot@unknot`).
   Everything lands on `main` through a pull request with CI green, so beta is always tested,
   but it is not yet a release.

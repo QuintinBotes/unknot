@@ -84,6 +84,15 @@ test('release.yml: notes come from the CHANGELOG section, not generated', () => 
   assert.doesNotMatch(text, /--generate-notes/);
 });
 
+test('release.yml: stable advance names the owner command instead of a bare 403', () => {
+  const text = read('release.yml');
+  assert.match(text, /git diff --quiet "\$stable" "\$sha" -- \.github\/workflows/);
+  assert.match(text, /cmd="git push git@github\.com:\$GITHUB_REPOSITORY\.git \$sha:refs\/heads\/stable"/);
+  assert.match(text, /::error::[^\n]*\$cmd/);
+  assert.match(text, /HTTP 403/);
+  assert.ok(text.indexOf('git diff --quiet') < text.indexOf('gh api -X PATCH'), 'check runs before the API call');
+});
+
 test('bump-claude-pin.yml: weekly and manual, writes only on its job, one fixed branch', () => {
   const text = read('bump-claude-pin.yml');
   const wf = parseYAML(text, { filename: 'bump-claude-pin.yml' });
