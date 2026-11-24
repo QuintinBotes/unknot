@@ -46,6 +46,7 @@ export function scopedGraph(graph, scope) {
     g.edgeMap.set(e.id, e);
     g.index(g.outIdx, e.from, e);
     g.index(g.inIdx, e.to, e);
+    g.index(g.edgeTypeIdx, e.type, e);
   }
   return g;
 }

@@ -99,6 +99,7 @@ function withoutMember(g, r, names) {
     out.edgeMap.set(e.id, e);
     out.index(out.outIdx, e.from, e);
     out.index(out.inIdx, e.to, e);
+    out.index(out.edgeTypeIdx, e.type, e);
   }
   return out;
 }

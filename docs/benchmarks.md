@@ -203,6 +203,37 @@ left in a one-file re-map is the census (about 1.4 s), reading every file's cach
 linking (0.6 s), hashing every fact in projection (0.6 s) and the derived facts (0.4 s): all
 proportional to the repository, not to the change.
 
+## Real C# monolith: map, cold and warm
+
+`scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit
+(default `nopcommerce`, a public ASP.NET Core monolith) into a directory outside this checkout,
+then maps it twice in separate processes: cold (no store) and warm (unchanged tree, store kept).
+It writes wall time, peak RSS (MB), files, nodes, edges and the store size to a JSON file.
+
+```
+node scripts/bench-map.mjs [--repo nopcommerce] [--work DIR] [--out FILE.json]
+```
+
+After the two maps it times one `decompose` dry run on the stored graph. The pinned `roslyn`
+repository (large: pass `--repo roslyn`) has 35,502 mapped files:
+
+| Roslyn 20b549ba, Node 22.23.5, darwin arm64 | Wall | Peak RSS |
+|---|---|---|
+| cold map | 201 s | 3,782 MB |
+| warm map (no change) | 108 s | 2,809 MB |
+| decompose before (origin/main, same store) | 20.1 s | 1,690 MB |
+| decompose after (per-type edge index) | 8.0 s | 1,696 MB |
+
+Store 4,371 MB, 203,474 nodes, 683,871 edges. Single runs on a machine shared with other agents,
+so each is an upper bound; the decompose before and after ran back to back on the same store.
+The saving is the per-type edge scan that `decompose` repeated for every node (a CPU profile of
+the old code puts about 3.5 s of self time in `graph.edges`); the rest is store reads.
+
+It needs `git` and network access for the first fetch, and spends nothing else. Run it on an idle
+machine: numbers from a shared one are an upper bound.
+
+## Reading the results against the targets
+
 - **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and
   3.3 GB peak on this machine. Extraction runs in at most `limits.workers` threads (default: cores
   minus one, at most 8) and commits to the per-file cache every 5,000 files, so an interrupted map

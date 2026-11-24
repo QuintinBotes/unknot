@@ -165,7 +165,7 @@ function seamGaps(cand, signals) {
  * @param {object} ctx
  * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[], driverProvenance?: {source?: string, quote?: string}, dryRun?: boolean}} opts
  */
-export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false }) {
+export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false, onProgress = null }) {
   const graph = Graph.fromStore(ctx.store);
   // Co-change the map could not measure (shallow, too short or no history) is unmeasured, never 0 (#78).
   const historyGap = ((h) => (h ? `co-change history unmeasured: ${h}` : null))(JSON.parse(ctx.store.meta('mapped_history') ?? 'null')?.unmeasured);
@@ -218,7 +218,9 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
   // Records this run writes again are nobody's predecessor.
   const claimed = new Set(work.map((w) => known.get(fingerprintOf({ target: w.t, drivers: allDrivers, modules: w.cand.modules }))).filter(Boolean));
   const recommendations = [];
+  let done = 0;
   for (const { t, cand, fe } of work) {
+    onProgress?.(done++, work.length, 'decompose candidates');
     const inf = inferredShare(graph, cand.modules);
     const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, 'boundary.inferred_share': inf.share, ...(fe?.signals ?? {}) };
     if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
