@@ -61,6 +61,7 @@ The effective config is defaults, then the accepted repository config, then each
 | `quality.max_complexity_increase` | Smaller value wins. |
 | `repository.publishes_api` | Org `true` forces `true`. |
 | `security.require_os_sandbox`, `infrastructure.require_saved_plan` | Org `true` forces `true`. |
+| `evidence.allow_weak` | Org `false` forces `false`; org `true` is ignored. Other `evidence` lists from the org replace the repository's, list by list. |
 | `security.sandbox_loopback` | Org `false` forces `false`. |
 | `quality.public_api_compatibility` | Stricter wins: `advisory` < `required`. |
 | `security.secrets_scan` | `off` < `optional` < `required`. |
@@ -101,7 +102,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `infrastructure` | map | see below | Infrastructure analysis settings. |
 | `approvals` | map | see below | Who must approve at each risk level. |
 | `approvers` | map | `{}` | Registered approvers and their public keys. |
-| `evidence` | map | all empty | Files of imported runtime, data and infrastructure evidence. |
+| `evidence` | map | all empty | Files of imported runtime, data and infrastructure evidence, and `allow_weak` (applying on lexical-only evidence). |
 | `adapters` | map of id to options | `scip.run: false`; otherwise `{}` | Per-adapter options. `enabled: false` disables an adapter. `scip.run: true` takes effect only from a configuration a person accepted (`unknot config accept`), and an indexer that runs the repository's build (scip-dotnet, scip-java) never starts without an OS sandbox. |
 | `detectors` | map of id to options | `{}` | Per-detector options. `enabled: false` disables a detector. |
 | `decomposition` | map | see below | Monolith decomposition tuning and drivers. |
@@ -252,6 +253,10 @@ Lists of file paths inside the repository, imported when mapping. Unknot never f
 | `infra_plans`, `infra_state`, `infra_inventory` | Terraform plan JSON, state, actual-resource inventory. |
 
 Runtime-derived facts carry an expiry; `unknot status` reports expired ones as stale evidence.
+
+`allow_weak` is not a file list. `unknot apply` refuses, with `UK_INSUFFICIENT_EVIDENCE`, a slice whose scope was mostly read lexically (no dedicated adapter: imports and calls matched by name), unless the slice only reaches test code. The refusal names the gap and the two ways forward: add semantic evidence (a SCIP index, see `adapters`) and map again, or a person opts the campaign in with `allow_weak: [CMP-1]` (or `true` for every campaign) and runs `unknot config accept` in a terminal. An agent's edit to it stays inert until accepted. An organization policy can forbid it with `allow_weak: false`; its `true` is ignored.
+
+Every slice records `gaps`: its source findings' uncertainties and evidence that is not observed, plus the analysis-coverage holes and lexical reads in its scope. A source finding with `low` confidence, or with more than half of its evidence inferred, raises the slice's risk one level, and the risk reason says which.
 
 ### `adapters` and `detectors`
 

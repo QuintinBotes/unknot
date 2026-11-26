@@ -14,6 +14,7 @@ import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/ap
 import { checkDiffBudget } from '../policy/budget.mjs';
 import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
 import { modeRank, riskRank } from '../policy/defaults.mjs';
+import { assertEvidence } from '../policy/evidence.mjs';
 import { provenDeletion, reclassifySlice, settleProven } from '../policy/proven.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { casPut } from '../state/cas.mjs';
@@ -92,6 +93,7 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
     const p = ctx.store.get('SELECT state FROM slices WHERE id = ?', pre);
     if (!p || p.state !== 'ACCEPTED') throw new UnknotError('UK_POLICY_DENIED', `precondition ${pre} is ${p?.state ?? 'missing'}, not ACCEPTED`, { slice_id: sliceId });
   }
+  assertEvidence(ctx, slice, config);
   // A slice planned as a proven deletion whose findings have since gone stale is judged as it
   // stands now: reclassified (risk only goes up here), which also voids approvals given to the old plan.
   const now = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven: provenDeletion(ctx, slice, { config }) });

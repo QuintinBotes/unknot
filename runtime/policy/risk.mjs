@@ -2,7 +2,8 @@
 // only ever raises risk; nothing a slice declares about itself can lower it.
 
 import { matchAny } from '../core/glob.mjs';
-import { riskRank } from './defaults.mjs';
+import { RISKS, riskRank } from './defaults.mjs';
+import { weakEvidenceReasons } from './evidence.mjs';
 
 const AUTH_PATHS = ['**/auth/**', '**/authn/**', '**/authz/**', '**/security/**', '**/permissions/**', '**/rbac/**', '**/session*/**', '**/crypto/**', '**/*auth*.*'];
 const DB_PATHS = ['**/migrations/**', '**/migrate/**', '**/*.sql', '**/schema.prisma', '**/db/schema.*', '**/alembic/**', '**/liquibase/**', '**/flyway/**'];
@@ -79,6 +80,9 @@ export function classifyRisk(slice, { config, surfaces = {}, proven = null } = {
     state.specialists.add('security-owner');
   }
   if (slice.irreversible) raise(state, 'critical', 'irreversible step');
+  // Weak evidence raises whatever the other factors decided by one level (#146).
+  const weak = weakEvidenceReasons(slice.evidence_strength);
+  if (weak.length) raise(state, RISKS[Math.min(riskRank(state.risk) + 1, RISKS.length - 1)], `weak evidence: ${weak.join('; ')}`);
   return { risk: state.risk, reasons: state.reasons, specialists: [...state.specialists].sort(), ...(proof && { proven: true }) };
 }
 
