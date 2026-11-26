@@ -136,25 +136,31 @@ async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, s
   };
   let stored = null;
   let prev = null;
-  try {
-    stored = JSON.parse(ctx.store.meta(metaKey) ?? 'null');
-    if (stored?.key === key) prev = JSON.parse(casGet(ctx, stored.ref).toString('utf8'));
-  } catch {
-    prev = null; // unreadable: link in full
-  }
-  const sigs = {};
-  for (const path of perFile.keys()) sigs[path] = sigOf(path);
+  let sigs = null;
   let changed = null;
-  if (prev) {
-    changed = new Set(extractedPaths);
-    for (const [path, sig] of Object.entries(sigs)) if (prev.sigs[path] !== sig) changed.add(path);
-    for (const path of Object.keys(prev.sigs)) if (!(path in sigs)) changed.add(path);
-  }
+  // Worked out when a linker first asks: most linkers keep no state, and need not pay for it (#145).
+  const load = () => {
+    if (sigs) return;
+    try {
+      stored = JSON.parse(ctx.store.meta(metaKey) ?? 'null');
+      if (stored?.key === key) prev = JSON.parse(casGet(ctx, stored.ref).toString('utf8'));
+    } catch {
+      prev = null; // unreadable: link in full
+    }
+    sigs = {};
+    for (const path of perFile.keys()) sigs[path] = sigOf(path);
+    if (prev) {
+      changed = new Set(extractedPaths);
+      for (const [path, sig] of Object.entries(sigs)) if (prev.sigs[path] !== sig) changed.add(path);
+      for (const path of Object.keys(prev.sigs)) if (!(path in sigs)) changed.add(path);
+    }
+  };
   const getRows = ctx.store.db.prepare("SELECT facts FROM file_index WHERE path = ? AND adapter NOT LIKE '%:%'");
   let next;
   let nextFiles = null;
   return {
     files() {
+      load();
       const kept = new Map();
       if (!prev) return kept;
       for (const r of ctx.store.iterate('SELECT path, facts FROM file_index WHERE adapter = ? AND config_digest = ?', `${id}:link`, key)) {
@@ -167,15 +173,23 @@ async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, s
       return kept;
     },
     saveFiles(entries) { nextFiles = entries; },
-    changed,
-    previous: prev?.data ?? null,
+    get changed() {
+      load();
+      return changed;
+    },
+    get previous() {
+      load();
+      return prev?.data ?? null;
+    },
     previousFacts(path) {
+      load();
       const rows = staleRows.get(path) ?? (path in sigs ? [] : getRows.all(path).map((r) => r.facts));
       return rows.flatMap((r) => JSON.parse(r));
     },
     save(data) { next = data; },
     async commit() {
       if (next === undefined) return;
+      load();
       if (nextFiles) {
         const put = ctx.store.db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, '1', ?, '', ?)");
         const drop = ctx.store.db.prepare('DELETE FROM file_index WHERE path = ? AND adapter = ?');
@@ -325,7 +339,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       }
       const hit = getIndex.get(f.path, adapter.id);
       if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === keyOf(f)) {
-        addFacts(f.path, JSON.parse(hit.facts), adapter.id);
+        addFacts(f.path, hit.facts === '[]' ? [] : JSON.parse(hit.facts), adapter.id);
         stats.cached++;
       } else {
         misses.push(f);
@@ -845,6 +859,7 @@ export function project(ctx, facts, { commit, observedAt }) {
   const edges = new Map();
   const referenced = new Set(); // ids in `recheck` some edge fact (touched or not) still names
   const recheck = new Set([...touchedNodes, ...ends]); // nodes to rebuild and compare
+  const touchedFrom = new Set([...touchedEdges.values()].map(([, from]) => from));
   const idAt = (i, f) => ids.get(i)?.id ?? factId(f);
   for (let i = 0; i < facts.length; i++) {
     const f = facts[i];
@@ -859,6 +874,7 @@ export function project(ctx, facts, { commit, observedAt }) {
     } else {
       if (recheck.has(f.from)) referenced.add(f.from);
       if (recheck.has(f.to)) referenced.add(f.to);
+      if (!touchedFrom.has(f.from) && !touchedNodes.has(f.from) && !touchedNodes.has(f.to)) continue; // the common case, without building an id
       const eid = edgeId(f.type, f.from, f.to);
       if (!touchedEdges.has(eid) && !(touchedNodes.has(f.from) && invalidEnd(f.from)) && !(touchedNodes.has(f.to) && invalidEnd(f.to))) continue;
       let e = edges.get(eid);
