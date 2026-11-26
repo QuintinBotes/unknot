@@ -26,9 +26,11 @@ export function generateObligations(slice, { config, risk, root = null }) {
   if (config.security.secrets_scan !== 'off') out.push(ob('secrets-scan', 'The diff introduces no credential-like values', { builtin: 'secrets' }));
   // Slice commits skip git hooks, so the repository's hook checks run here, sandboxed and without network.
   // A missing tool makes the obligation a person's to confirm; a command that cannot start could never pass.
+  // `hook` lets verify scope the check to the slice's changed files (#137); `command` is the whole-tree form.
   if (root) for (const h of detectHookSystems(root)) {
-    const description = `Repository hook checks (${h.system}) pass; slice commits skip git hooks, so they run here without network access`;
-    out.push(h.argv[0] === 'sh' || onPath(h.argv[0]) ? ob('lint', description, { command: h.argv }) : ob('lint', `${description} (not run: ${h.argv[0]} is not installed; a person confirms)`, { requires_human: true }));
+    const where = h.scoped ? "on the slice's changed files" : `on the whole tree (${h.system} has no file-list mode)`;
+    const description = `Repository hook checks (${h.system}) pass ${where}; slice commits skip git hooks, so they run here without network access`;
+    out.push({ ...(h.argv[0] === 'sh' || onPath(h.argv[0]) ? ob('lint', description, { command: h.argv }) : ob('lint', `${description} (not run: ${h.argv[0]} is not installed; a person confirms)`, { requires_human: true })), hook: h.system });
   }
   if (slice.kind !== 'documentation') {
     if (config.quality.forbid_new_cycles) out.push(ob('no-new-cycles', 'No dependency cycle exists after the change that did not exist before', { builtin: 'cycles' }));
