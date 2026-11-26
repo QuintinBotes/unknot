@@ -7,6 +7,7 @@
 
 import { checkoutNotice, checkoutState } from './checkout.mjs';
 import { createHash } from 'node:crypto';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { canonicalJSON, digest } from '../core/canonical.mjs';
@@ -45,6 +46,8 @@ const FAST_VERSION = 2; // 2: the graph no longer keeps clone fingerprints
 // Bump when parseGitLog's output changes shape: the per-commit history cache is read again.
 // 2: a shallow boundary commit (every file added) is never kept: deepening gives it a parent and a different diff.
 const COMMITS_VERSION = 2;
+// Bump when what a linker's saved state means changes: every linker re-links in full once.
+const LINK_STATE_VERSION = 1;
 const NS_SEED_NOTE = 'scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries';
 
 function optionsDigest(adapter, config) {
@@ -89,6 +92,106 @@ function fileCache(ctx, adapter, version) {
   return c;
 }
 
+/**
+ * Census entries of tracked files, kept in file_index under `census:entry` (one row per path,
+ * replaced in place) for the rules they were worked out under: a re-map does not stat or open a
+ * file git sees unchanged (#88).
+ */
+function censusCache(ctx) {
+  const db = ctx.store.db;
+  return {
+    load(rulesKey) {
+      const known = new Map();
+      for (const r of ctx.store.iterate("SELECT path, blob, facts FROM file_index WHERE adapter = 'census:entry' AND config_digest = ?", rulesKey)) known.set(r.path, { ...JSON.parse(r.facts), path: r.path, blob: r.blob });
+      return known;
+    },
+    save(rulesKey, entries) {
+      const put = db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, 'census:entry', '1', ?, ?, ?)");
+      ctx.store.tx(() => {
+        for (const { path, blob, context: _, ...rest } of entries) put.run(path, rulesKey, blob, JSON.stringify(rest));
+      });
+    },
+  };
+}
+
+/**
+ * What a linker needs to re-link only what changed (#88, FR-001). `changed` is the set of paths whose
+ * facts are not those the linker's saved state was computed from (extracted again by this map, or
+ * added, deleted or reclassified since), or null when there is no usable state (first map, another
+ * adapter set, options or configuration): then the linker links in full. `previous` is the data the
+ * linker saved last time, `previousFacts(path)` the facts a changed path held before (from its old
+ * cache rows), and `save(data)` keeps new data, written only when the link succeeds (`commit`).
+ * The state lives in one CAS blob per adapter (meta `link:<id>`), replaced and the old one dropped.
+ * A linker that keeps something per file uses `files()` (path → what it kept, for the same state)
+ * and `saveFiles(map)` (the files it linked again): rows of file_index under `<id>:link`, so a
+ * large repository's state is never one string, and rows of deleted paths are removed.
+ */
+async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, staleRows }) {
+  const { casDrop, casGet, casPut } = await import('../state/cas.mjs');
+  const metaKey = `link:${id}`;
+  const label = `link.${id}`;
+  const sigOf = (path) => {
+    const f = filesByPath.get(path);
+    return f ? `${f.blob}|${f.kind}|${f.is_test ? 1 : 0}|${f.context ? 1 : 0}` : '';
+  };
+  let stored = null;
+  let prev = null;
+  try {
+    stored = JSON.parse(ctx.store.meta(metaKey) ?? 'null');
+    if (stored?.key === key) prev = JSON.parse(casGet(ctx, stored.ref).toString('utf8'));
+  } catch {
+    prev = null; // unreadable: link in full
+  }
+  const sigs = {};
+  for (const path of perFile.keys()) sigs[path] = sigOf(path);
+  let changed = null;
+  if (prev) {
+    changed = new Set(extractedPaths);
+    for (const [path, sig] of Object.entries(sigs)) if (prev.sigs[path] !== sig) changed.add(path);
+    for (const path of Object.keys(prev.sigs)) if (!(path in sigs)) changed.add(path);
+  }
+  const getRows = ctx.store.db.prepare("SELECT facts FROM file_index WHERE path = ? AND adapter NOT LIKE '%:%'");
+  let next;
+  let nextFiles = null;
+  return {
+    files() {
+      const kept = new Map();
+      if (!prev) return kept;
+      for (const r of ctx.store.iterate('SELECT path, facts FROM file_index WHERE adapter = ? AND config_digest = ?', `${id}:link`, key)) {
+        try {
+          kept.set(r.path, JSON.parse(inflateRawSync(r.facts)));
+        } catch {
+          // an unreadable row: that file is linked again
+        }
+      }
+      return kept;
+    },
+    saveFiles(entries) { nextFiles = entries; },
+    changed,
+    previous: prev?.data ?? null,
+    previousFacts(path) {
+      const rows = staleRows.get(path) ?? (path in sigs ? [] : getRows.all(path).map((r) => r.facts));
+      return rows.flatMap((r) => JSON.parse(r));
+    },
+    save(data) { next = data; },
+    async commit() {
+      if (next === undefined) return;
+      if (nextFiles) {
+        const put = ctx.store.db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, '1', ?, '', ?)");
+        const drop = ctx.store.db.prepare('DELETE FROM file_index WHERE path = ? AND adapter = ?');
+        ctx.store.tx(() => {
+          // Deflated: what a file looked up repeats across files and compresses about tenfold.
+          for (const [path, data] of nextFiles) put.run(path, `${id}:link`, key, deflateRawSync(JSON.stringify(data)));
+          for (const path of Object.keys(prev?.sigs ?? {})) if (!(path in sigs)) drop.run(path, `${id}:link`);
+        });
+      }
+      const ref = casPut(ctx, JSON.stringify({ sigs, data: next }), { mediaType: 'application/json', label });
+      ctx.store.meta(metaKey, JSON.stringify({ key, ref }));
+      if (stored?.ref && stored.ref !== ref) casDrop(ctx, stored.ref, label);
+    },
+  };
+}
+
 /** Read an evidence file the user listed in config.evidence, refusing escapes and secrets. */
 function evidenceReader(ctx, config) {
   return (path) => {
@@ -118,7 +221,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     mark = now;
   };
   const observedAt = nowISO();
-  const cen = census(ctx.root, { config, scope });
+  const cen = census(ctx.root, { config, scope, cache: censusCache(ctx) });
   lap('census_ms');
   const commit = cen.commit;
   // `adapters` replaces the registry; tests use it to stand in a failing extractor.
@@ -134,6 +237,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const putIndex = ctx.store.db.prepare('INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, ?, ?, ?, ?)');
 
   const moduleBy = new Map(); // path → adapter id that produced its module fact
+  const staleRows = new Map(); // path → facts (JSON) its cache rows held before this map re-extracted it
+  const extractedPaths = new Set(); // paths extracted (not read from the cache) by this map
   const addFacts = (path, facts, adapterId) => {
     if (adapterId && !moduleBy.has(path) && facts.some((f) => f.kind === 'node' && f.type === 'module')) moduleBy.set(path, adapterId);
     let list = perFile.get(path);
@@ -179,6 +284,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         ...(checkout && { checkout }),
         notices: notices.length ? notices : undefined,
         cache: { hits: saved.cache.hits + saved.cache.extracted, extracted: 0, hit_rate: 1 },
+        census: { files: cen.files.length, cached: cen.cached },
         unchanged: true,
         duration_ms: Date.now() - t0,
         phases,
@@ -221,7 +327,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === keyOf(f)) {
         addFacts(f.path, JSON.parse(hit.facts), adapter.id);
         stats.cached++;
-      } else misses.push(f);
+      } else {
+        misses.push(f);
+        // What the file held before this change, for a linker that re-links incrementally (#88).
+        if (hit) staleRows.set(f.path, [...(staleRows.get(f.path) ?? []), hit.facts]);
+      }
     }
     if (run) {
       // A file read by several adapters is still one file read.
@@ -273,6 +383,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           if (entry && !entry.blob) entry.blob = r.blob;
           if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, keyOf(entry), r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
           addFacts(r.path, facts, adapter.id);
+          extractedPaths.add(r.path);
           stats.extracted++;
           extracted++;
         }
@@ -305,11 +416,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const global = [];
   // Files a semantic adapter (a SCIP index) covers, with what it decided about them; read by the language adapters' link.
   const semantic = new Map();
+  const linkKey = digest({ v: LINK_STATE_VERSION, configDigest, adapters: loaded.map((a) => [a.id, a.version, config.adapters?.[a.id] ?? {}]), unavailable });
   for (const adapter of loaded) {
     if (!adapter.link) continue;
+    const incremental = await linkState(ctx, adapter.id, linkKey, { perFile, filesByPath, extractedPaths, staleRows });
     try {
-      const linked = await adapter.link({ root: ctx.root, paths: ctx.paths, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic, exec: adapterExec(ctx, { run, config }) });
+      const linked = await adapter.link({ root: ctx.root, paths: ctx.paths, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic, exec: adapterExec(ctx, { run, config }), incremental });
       pushAll(global, (linked ?? []).map(assertFact));
+      await incremental.commit();
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -513,6 +627,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     files: stats.files,
     by_kind: stats.by_kind,
     cache: { hits: stats.cached, extracted: stats.extracted, hit_rate: stats.cached + stats.extracted ? +(stats.cached / (stats.cached + stats.extracted)).toFixed(3) : null },
+    // Files whose census entry was reused: neither stat'ed nor opened.
+    census: { files: cen.files.length, cached: cen.cached },
     adapters: stats.adapters,
     unavailable,
     coverage,
@@ -520,6 +636,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     ...(checkout && { checkout }),
     ...(stats.scip && { scip: stats.scip }),
     ...(stats.build_graph && { build_graph: stats.build_graph }),
+    // Linkers that re-linked incrementally: how much of their input they linked again (#88).
+    ...(stats.link && { link: stats.link }),
     ...(stats.discover_files && { discover_files: stats.discover_files }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
@@ -685,12 +803,12 @@ export function project(ctx, facts, { commit, observedAt }) {
     ids.set(i, { id, sig });
   }
   const touchedNodes = new Set();
-  const touchedEdges = new Set();
+  const touchedEdges = new Map(); // edge id → [type, from, to]
   const ends = new Set(); // endpoints of touched edges: their placeholders may appear or go
   const touch = (kind, subject, predicate, object) => {
     if (kind === 'node') touchedNodes.add(subject);
     else {
-      touchedEdges.add(edgeId(predicate, subject, object));
+      touchedEdges.set(edgeId(predicate, subject, object), [predicate, subject, object]);
       ends.add(subject).add(object);
     }
   };
@@ -750,9 +868,10 @@ export function project(ctx, facts, { commit, observedAt }) {
     'INSERT OR REPLACE INTO facts(id, generation, kind, subject, predicate, object, attrs, source_type, source_ref, extractor, observed_at, commit_sha, confidence, scope, contradicts, path, expires_at, digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const getNode = db.prepare('SELECT * FROM nodes WHERE id = ?');
-  const getEdge = db.prepare('SELECT * FROM edges WHERE id = ?');
+  const getEdge = db.prepare('SELECT * FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const putNode = db.prepare('INSERT OR REPLACE INTO nodes(id, type, name, path, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  const putEdge = db.prepare('INSERT OR REPLACE INTO edges(id, type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const putEdge = db.prepare('INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?)');
+  const delEdge = db.prepare('DELETE FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
   store.tx(() => {
     const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
@@ -781,16 +900,17 @@ export function project(ctx, facts, { commit, observedAt }) {
       }
     }
     // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
-    for (const eid of new Set([...touchedEdges, ...edges.keys()])) {
+    for (const eid of new Set([...touchedEdges.keys(), ...edges.keys()])) {
       const e = edges.get(eid);
-      const have = getEdge.get(eid);
+      const [type, from, to] = e ? [e.type, e.from, e.to] : touchedEdges.get(eid);
+      const have = getEdge.get(from, type, to);
       if (!e || !exists.get(e.from) || !exists.get(e.to)) {
-        if (have) store.run('DELETE FROM edges WHERE id = ?', eid);
+        if (have) delEdge.run(from, type, to);
         continue;
       }
       const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
       if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
-        putEdge.run(eid, want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
+        putEdge.run(want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
       }
     }
     store.meta('generation', generation);

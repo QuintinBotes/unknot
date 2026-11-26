@@ -279,14 +279,46 @@ export default {
       if (list) list.push([mi, fi]); else postings.set(fp[0], [[mi, fi]]);
     }));
 
+    // Incremental (#88, FR-001): a module's clones depend only on the modules it shares a hash with
+    // and on the size of those hashes' posting lists. A module sharing no hash, now or before, with
+    // a changed file, and whose last clones name none, keeps the clones it had; the hash is the
+    // symbol, the postings its reverse index.
+    const inc = ctx.incremental;
+    const before = inc?.changed ? inc.previous : null;
+    let affected = null; // module indexes to compute; null: all
+    if (before) {
+      const index = new Map(mods.map((m, i) => [m.path, i]));
+      affected = new Set();
+      // Per hash, the postings changed files hold now and held before: a list over MAX_POSTINGS on
+      // both sides pairs nobody, before or after, so its other members are not affected through it.
+      const now = new Map();
+      const was = new Map();
+      const bump = (m, hash) => m.set(hash, (m.get(hash) ?? 0) + 1);
+      for (const path of inc.changed) {
+        if (index.has(path)) affected.add(index.get(path));
+        for (const fp of mods[index.get(path)]?.fps ?? []) bump(now, fp[0]);
+        for (const f of inc.previousFacts(path)) if (f.kind === 'node' && f.provenance?.extractor === EXTRACTOR) for (const fp of f.attrs?.fingerprints ?? []) bump(was, fp[0]);
+      }
+      for (const hash of new Set([...now.keys(), ...was.keys()])) {
+        const list = postings.get(hash) ?? [];
+        const earlier = list.length - (now.get(hash) ?? 0) + (was.get(hash) ?? 0);
+        if (list.length <= MAX_POSTINGS || earlier <= MAX_POSTINGS) for (const [mi] of list) affected.add(mi);
+      }
+      for (const [path, fact] of Object.entries(before)) {
+        if (index.has(path) && fact.attrs.clones.some((c) => inc.changed.has(c.other))) affected.add(index.get(path));
+      }
+    }
+
     const pairs = new Map(); // "i,j" -> Map of "fi,fj" -> [sa,ea,sb,eb]
     for (const list of postings.values()) {
       if (list.length < 2 || list.length > MAX_POSTINGS) continue;
+      if (affected && !list.some(([mi]) => affected.has(mi))) continue;
       for (let x = 0; x < list.length; x++) {
         for (let y = x + 1; y < list.length; y++) {
           const [mi, fi] = list[x];
           const [mj, fj] = list[y];
           if (mi === mj) continue;
+          if (affected && !affected.has(mi) && !affected.has(mj)) continue;
           const [a, fa, b, fb] = mi < mj ? [mi, fi, mj, fj] : [mj, fj, mi, fi];
           if (mods[a].test && mods[b].test) continue; // test-to-test repetition is idiomatic
           const key = `${a},${b}`;
@@ -300,6 +332,7 @@ export default {
 
     const clones = new Map(); // module index -> clone entries
     const add = (idx, entry) => {
+      if (affected && !affected.has(idx)) return;
       if (!clones.has(idx)) clones.set(idx, []);
       clones.get(idx).push(entry);
     };
@@ -319,15 +352,23 @@ export default {
     }
 
     const out = [];
-    for (const idx of [...clones.keys()].sort((x, y) => x - y)) {
+    const kept = {};
+    for (let idx = 0; idx < mods.length; idx++) {
+      const m = mods[idx];
+      if (affected && !affected.has(idx)) {
+        if (before[m.path]) out.push((kept[m.path] = before[m.path]));
+        continue;
+      }
+      if (!clones.has(idx)) continue;
       const list = clones.get(idx)
         .sort((x, y) => y.lines - x.lines || (x.other < y.other ? -1 : 1))
         .slice(0, MAX_CLONES);
-      const m = mods[idx];
-      out.push(nodeFact('module', m.path, { name: m.path, path: m.path, attrs: { clones: list } }, prov({
+      out.push((kept[m.path] = nodeFact('module', m.path, { name: m.path, path: m.path, attrs: { clones: list } }, prov({
         source_type: 'inference', source_ref: `${m.path}:${list[0].ranges[0][0]}`, extractor: EXTRACTOR, confidence: 'medium',
-      })));
+      }))));
     }
+    inc?.save(kept);
+    if (inc) ctx.stats && ((ctx.stats.link ??= {}).quality = { relinked: affected ? affected.size : mods.length, modules: mods.length });
     return out;
   },
 };

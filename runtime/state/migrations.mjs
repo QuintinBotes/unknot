@@ -14,6 +14,15 @@
 
 import { UnknotError } from '../core/errors.mjs';
 
+// Edges keyed by (src, type, dst) in the table itself: the text id is computed, not stored, and the
+// key doubles as the src index. The store's DDL and the `compact-edges` migration share it.
+export const EDGES_DDL = `CREATE TABLE IF NOT EXISTS edges (
+  src TEXT NOT NULL, type TEXT NOT NULL, dst TEXT NOT NULL,
+  attrs TEXT NOT NULL, label TEXT NOT NULL, fact_ids TEXT NOT NULL,
+  id TEXT GENERATED ALWAYS AS (type || '|' || src || '|' || dst) VIRTUAL,
+  PRIMARY KEY (src, type, dst)) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS edges_dst ON edges(dst, type);`;
+
 export const MIGRATIONS = [
   // Everything before the runner existed: the full DDL, every statement `IF NOT EXISTS`.
   // Re-applying it on open is what adds tables and triggers introduced after a store was
@@ -23,6 +32,20 @@ export const MIGRATIONS = [
   // Rows from before it have none, so the first map after the upgrade rewrites what differs.
   // Additive: older releases name their columns when they write facts, and leave it empty.
   { id: 2, name: 'facts-digest', breaks: false, up: (db) => { if (!db.prepare('PRAGMA table_info(facts)').all().some((c) => c.name === 'digest')) db.exec('ALTER TABLE facts ADD COLUMN digest TEXT'); } },
+  // Compact edges (#88, FR-003): keyed by (src, type, dst) without a stored text id or a src index.
+  // The rows are copied, so nothing needs a re-map. Breaks: older releases write the id column,
+  // which is now computed.
+  {
+    id: 3,
+    name: 'compact-edges',
+    breaks: true,
+    up: (db) => {
+      if (db.prepare('PRAGMA table_xinfo(edges)').all().some((c) => c.name === 'id' && c.hidden === 2)) return; // created compact
+      db.exec('ALTER TABLE edges RENAME TO edges_v1; DROP INDEX IF EXISTS edges_src; DROP INDEX IF EXISTS edges_dst;');
+      db.exec(EDGES_DDL);
+      db.exec('INSERT OR IGNORE INTO edges(src, type, dst, attrs, label, fact_ids) SELECT src, type, dst, attrs, label, fact_ids FROM edges_v1; DROP TABLE edges_v1;');
+    },
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

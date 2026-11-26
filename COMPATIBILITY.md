@@ -32,6 +32,11 @@ Not public: anything under `runtime/` imported directly, the SQLite state layout
 automatically, see `schemas/migration.schema.json`), the `.unknot/telemetry/` file contents beyond
 OTLP/JSON, and the benchmark harness.
 
+A store is migrated forward when a newer release opens it, never back. A migration older releases
+cannot live with raises the store's `schema_version`, after which those releases refuse to write it
+(their hooks still allow read-only commands); the release that ships one says so in the CHANGELOG
+migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a migration.
+
 ## Compatibility matrix
 
 | Component | Supported | Notes |

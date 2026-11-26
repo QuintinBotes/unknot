@@ -28,7 +28,7 @@ export function csharpRefs(lx, an) {
  * injected member is used comes from the index, and the name-matched module calls are dropped.
  * `allowed(from, to, name)` says whether the build lets `from` see `name` declared in `to` (build-graph.mjs).
  */
-export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => true) {
+export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => true, rec = () => {}) {
   const byName = new Map();
   const full = new Map();
   const known = new Set();
@@ -52,9 +52,18 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
   }
 
   const csFiles = sortedMods.filter((p) => language(mods.get(p).attrs.language)?.genericSyntax?.memberLinker === 'namespace').map((p) => ({ path: p, attrs: mods.get(p).attrs }));
-  const reach = memberReach(csFiles, new Set(byName.keys()), () => true);
+  const reachAll = memberReach(csFiles, new Set(byName.keys()), () => true);
+  // `rec` notes each key a file's link looks up, for incremental linking (generic/index.mjs).
+  const reach = (path, member, ...rest) => (rec(`reach:${member}`), reachAll(path, member, ...rest));
+  for (const [m, tag] of [[byName, 'cs.name'], [full, 'cs.full'], [known, 'cs.ns']]) {
+    const get = m.get?.bind(m);
+    const has = m.has.bind(m);
+    if (get) m.get = (k) => (rec(`${tag}:${k}`), get(k));
+    m.has = (k) => (rec(`${tag}:${k}`), has(k));
+  }
 
   return (path) => {
+    rec('cs.globals');
     const a = mods.get(path).attrs;
     const ownNs = new Set();
     for (const ns of a.namespaces ?? []) {

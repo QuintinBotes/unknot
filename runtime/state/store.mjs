@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
 import { hooksSeen } from './hooks-seen.mjs';
-import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations.mjs';
+import { EDGES_DDL, LATEST_SCHEMA_VERSION, runMigrations } from './migrations.mjs';
 
 // node:sqlite prints an ExperimentalWarning on load. Hooks and the MCP server share stderr
 // with Claude Code, so the one known warning is dropped and every other passes through.
@@ -61,11 +61,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   label TEXT NOT NULL, fact_ids TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS nodes_type ON nodes(type);
 CREATE INDEX IF NOT EXISTS nodes_path ON nodes(path);
-CREATE TABLE IF NOT EXISTS edges (
-  id TEXT PRIMARY KEY, type TEXT NOT NULL, src TEXT NOT NULL, dst TEXT NOT NULL,
-  attrs TEXT NOT NULL, label TEXT NOT NULL, fact_ids TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS edges_src ON edges(src, type);
-CREATE INDEX IF NOT EXISTS edges_dst ON edges(dst, type);
+${EDGES_DDL}
 CREATE TABLE IF NOT EXISTS findings (
   id TEXT PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, schema_version TEXT NOT NULL,
   kind TEXT NOT NULL, category TEXT NOT NULL, status TEXT NOT NULL, priority REAL NOT NULL,

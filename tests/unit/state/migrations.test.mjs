@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { MIGRATIONS, LATEST_SCHEMA_VERSION, runMigrations } from '../../../runtime/state/migrations.mjs';
+import { compatLevel, MIGRATIONS, LATEST_SCHEMA_VERSION, runMigrations } from '../../../runtime/state/migrations.mjs';
 import { Store } from '../../../runtime/state/store.mjs';
 import { mkTmp } from '../../helpers/tmp.mjs';
 
@@ -15,7 +15,8 @@ const meta = (db, k) => db.prepare('SELECT value FROM meta WHERE key = ?').get(k
 test('a fresh store records the schema version and applied names', () => {
   const dir = tmp();
   const s = new Store(join(dir, 's.db'));
-  assert.equal(s.meta('schema_version'), '1', 'no applied migration breaks older releases');
+  // compact-edges (3, #88) is the first migration since the initial schema that older releases cannot live with.
+  assert.equal(s.meta('schema_version'), '3', 'the newest migration older releases cannot live with');
   assert.equal(s.meta('schema_applied'), String(LATEST_SCHEMA_VERSION));
   assert.deepEqual(JSON.parse(s.meta('migrations')), MIGRATIONS.map((m) => m.name));
   s.close();
@@ -86,7 +87,8 @@ test('additive migrations keep schema_version where older releases accept it; a 
   db.prepare("UPDATE meta SET value = '2' WHERE key = 'schema_version'").run();
   db.close();
   const s = new Store(file);
-  assert.equal(s.meta('schema_version'), '1');
+  assert.equal(s.meta('schema_version'), '3', 'raised by compact-edges only');
+  assert.equal(compatLevel(new Set(['initial-schema', 'facts-digest'])), 1, 'facts-digest is additive');
   assert.ok(s.all('PRAGMA table_info(facts)').some((c) => c.name === 'digest'));
   s.close();
   rmSync(dir, { recursive: true });
@@ -107,4 +109,39 @@ test('a migration older releases cannot live with waits while their hooks ran re
   runMigrations(db, { ddl, migrations, olderHooks: [{ version: '0.3.0', schema: 3 }] });
   assert.equal(meta(db, 'schema_version'), '3');
   assert.equal(meta(db, 'schema_applied'), '3');
+});
+
+test('compact-edges rebuilds a store written before it: same rows, same ids, no stored id or src index (#88)', () => {
+  const dir = tmp();
+  const file = join(dir, 's.db');
+  new Store(file).close();
+  // The edges table as releases up to 0.4.0 created it, with rows, recorded as migrated to facts-digest.
+  const db = new DatabaseSync(file);
+  db.exec(`DROP TABLE edges;
+    CREATE TABLE edges (id TEXT PRIMARY KEY, type TEXT NOT NULL, src TEXT NOT NULL, dst TEXT NOT NULL, attrs TEXT NOT NULL, label TEXT NOT NULL, fact_ids TEXT NOT NULL);
+    CREATE INDEX edges_src ON edges(src, type);
+    CREATE INDEX edges_dst ON edges(dst, type);`);
+  const rows = [['IMPORTS', 'module:a|b.js', 'module:c.js'], ['CALLS', 'module:a.js', 'module:c.js'], ['IMPORTS', 'module:a.js', 'dependency:x']];
+  for (const [type, src, dst] of rows) db.prepare('INSERT INTO edges VALUES (?, ?, ?, ?, ?, ?, ?)').run(`${type}|${src}|${dst}`, type, src, dst, '{"count":1}', 'observed', '["f-1"]');
+  db.prepare("UPDATE meta SET value = ? WHERE key = 'migrations'").run(JSON.stringify(['initial-schema', 'facts-digest']));
+  db.prepare("UPDATE meta SET value = '1' WHERE key = 'schema_version'").run();
+  db.close();
+
+  const s = new Store(file);
+  assert.equal(s.meta('schema_version'), '3');
+  assert.ok(JSON.parse(s.meta('migrations')).includes('compact-edges'));
+  const want = rows.map(([type, src, dst]) => ({ id: `${type}|${src}|${dst}`, type, src, dst, attrs: '{"count":1}', label: 'observed', fact_ids: '["f-1"]' })).sort((a, b) => (a.id < b.id ? -1 : 1));
+  assert.deepEqual(s.all('SELECT id, type, src, dst, attrs, label, fact_ids FROM edges ORDER BY id').map((r) => ({ ...r })), want);
+  assert.equal(s.all('PRAGMA table_xinfo(edges)').find((c) => c.name === 'id').hidden, 2, 'the id is computed, not stored');
+  assert.deepEqual(s.all("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'edges' AND sql IS NOT NULL").map((r) => r.name), ['edges_dst']);
+  assert.ok(!s.get("SELECT 1 AS x FROM sqlite_master WHERE name = 'edges_v1'"));
+  // An edge is replaced by its key.
+  s.run("INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES ('CALLS', 'module:a.js', 'module:c.js', '{}', 'inferred', '[]')");
+  assert.equal(s.get("SELECT label FROM edges WHERE id = 'CALLS|module:a.js|module:c.js'").label, 'inferred');
+  assert.equal(s.get('SELECT COUNT(*) AS n FROM edges').n, 3);
+  s.close();
+  const again = new Store(file);
+  assert.equal(again.get('SELECT COUNT(*) AS n FROM edges').n, 3, 'opening again changes nothing');
+  again.close();
+  rmSync(dir, { recursive: true });
 });
