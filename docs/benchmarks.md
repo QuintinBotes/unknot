@@ -246,6 +246,59 @@ Scenario 2 (at most twice the no-change re-map) is still not met: what is left a
 extraction (0.5 s, reading every file's cached facts), link (0.55 s), projection (0.43 s) and
 derived facts (0.29 s), each over the whole repository.
 
+### Incremental linking, census cache and compact edges (#88, third part)
+
+What a re-map still did over the whole repository after the second part, and what changed:
+
+- **Census.** Every map stat'ed every file and read the first 4 KB of most. Entries of tracked files
+  git sees unchanged are now kept in the store (`census:entry`) for the rules they were worked out
+  under; a file with the same blob is neither stat'ed nor opened (`census.cached` in the summary).
+- **Linking.** Each linker is told which files changed since the state it saved. `generic` keeps each
+  file's link result with the keys it looked up and links again only the files that changed or read
+  a key whose answer a changed file changed; `quality` re-pairs only modules sharing a fingerprint
+  hash with a changed file (the postings are the reverse index); CODEOWNERS answers are kept per path.
+  The summary's `link` says how many modules each linker linked again. Manifest changes, type-set or
+  base changes, friend assemblies and a SCIP index still link everything.
+- **Edges** are keyed by (source, type, target) in a `WITHOUT ROWID` table; the text id is computed,
+  and the separate source index is gone (migration 3, `compact-edges`).
+
+A one-file re-map of a 30.8k-file C# monolith (MewsSystems/mews, lexical C#, 210,713 nodes,
+1,085,342 edges), `unknot map` from the CLI, the edit a comment appended and committed. `main` is
+the run reported on #88; this change ran on the same machine (Apple M5 Max, Node 26.13, load 2 to
+16):
+
+| Run | `main` | This change |
+| --- | ---: | ---: |
+| Cold map | 163 s | 128 s |
+| Re-map, no change | 4.7 s | 0.6 s (2.4 s the first time after the cold map) |
+| Re-map, one file edited (a hub, `Enterprise.cs`) | 147 s | 25 to 31 s (1 file linked again by `generic`) |
+| Re-map, one file edited (a leaf) | n/a | 25 s |
+| Store (`du` of `.unknot`) | 3.5 GiB | 3.1 GiB (the tree is about 0.37 GiB) |
+
+Most of the 147 s was linking that did not depend on the change: the ownership linker compiled
+every CODEOWNERS rule again for every node (about 4 minutes of CPU under a profiler), the clone
+linker re-paired every module, and the generic linker re-resolved every C# file. What is left of a
+one-file re-map there is reading every file's cached facts (3.2 s), linking (9.6 s, mostly loading
+the kept per-file results and the global analyses: member reach, inheritance, partial types),
+discovery (1.7 s), projection (4.8 s) and derived facts (4.5 s).
+
+`node scripts/bench.mjs --sizes 50k --gate`, same machine, `main` and this change back to back (load
+average 3 to 16, so times are upper bounds):
+
+| Run | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Store / tree |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `main` | 49.8 s | 2.7 s | 12.0 s | 1,238 MB | 0.054 | 4.46 | 53.0 |
+| this change (first run) | 47.1 s | 0.65 s | 10.7 s | 1,225 MB | 0.014 | 16.5 | 52.5 |
+| this change (final, busier machine) | 78.0 s | 1.1 s | 12.2 s | 1,168 MB | 0.014 | 11.6 | 50.0 |
+
+The first ratio is met with room. The second is not, and the census cache makes it look worse: the
+no-change re-map fell from 2.7 s to under a second while the 10-file re-map still pays, over the
+whole repository, for reading every file's cached facts (2.1 s), projection (2.9 s) and derived facts
+(2.9 s), which this change does not touch, and for linking (3.3 s), where on these fixtures the
+generic linker relinks 10 of 4,400 files at 10k but the JavaScript and Python linkers, which are not
+incremental, and loading the kept results take the time. The third is about file size: the fixture
+files are a few hundred bytes each, so the store is 50 times the tree whatever the edge encoding.
+
 ## Real C# monolith: map, cold and warm
 
 `scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit
