@@ -6,7 +6,7 @@
 // summaries have e-mail addresses redacted before they reach a fact.
 
 import { nodeFact, edgeFact } from '../../runtime/graph/facts.mjs';
-import { matchAny } from '../../runtime/core/glob.mjs';
+import { matchAny, matcher } from '../../runtime/core/glob.mjs';
 import { parseCodeowners, parseOwnersFile } from './codeowners.mjs';
 import { parseCatalog } from './catalog.mjs';
 import { parseAdr, isAdrCandidate } from './adr.mjs';
@@ -68,13 +68,27 @@ export default {
     const coFile = CODEOWNERS_PATHS.map((p) => nodes.find((n) => n.type === 'file' && n.id === `file:${p}` && n.attrs.codeowners)).find(Boolean);
     if (coFile) {
       const rules = coFile.attrs.rules;
-      for (const n of [...ownable.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-        const p = pathOf(n);
-        let hit = null;
-        for (let i = rules.length - 1; i >= 0 && !hit; i--) {
-          const g = rules[i].glob;
-          if (matchAny(p, g.endsWith('/**') ? [g] : [g, `${g}/**`])) hit = rules[i];
+      // Compiled once, one answer per path (many nodes share a path), and kept: the rule a path falls
+      // under depends on the path and the rules alone, so with the same rules a re-map asks only about
+      // paths it has not seen (#88; on a 30k-file repository this loop took minutes).
+      const tests = rules.map(({ glob: g }) => matcher(g.endsWith('/**') ? [g] : [g, `${g}/**`]));
+      const rulesKey = JSON.stringify([coFile.path, rules]);
+      const inc = ctx.incremental;
+      const known = inc?.changed && inc.previous?.rulesKey === rulesKey ? inc.previous.rule : {};
+      const rule = {};
+      const lastRule = (p) => {
+        if (!Object.hasOwn(rule, p)) {
+          let at = Object.hasOwn(known, p) ? known[p] : undefined;
+          if (at === undefined) {
+            at = -1;
+            for (let i = rules.length - 1; i >= 0 && at < 0; i--) if (tests[i](p)) at = i;
+          }
+          rule[p] = at;
         }
+        return rule[p] < 0 ? null : rules[rule[p]];
+      };
+      for (const n of [...ownable.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+        const hit = lastRule(pathOf(n));
         if (!hit || hit.owners.length === 0) continue;
         const prov = P(coFile.path, hit.line, 'high', 'config');
         out.push(nodeFact(n.type, keyOf(n.id), {
@@ -86,6 +100,7 @@ export default {
           out.push(edgeFact('OWNED_BY', n.id, o, { rule_line: hit.line, rule_pattern: hit.pattern, source: coFile.path }, prov));
         }
       }
+      inc?.save({ rulesKey, rule });
     }
 
     // -- OWNERS: nearest directory first, inheriting upward until `set noparent` ----------------

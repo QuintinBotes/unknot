@@ -30,9 +30,13 @@ export function buildGraph(units, dependsOn, mods, types) {
     return compat.get(p.attrs.ecosystem).includes(lang);
   };
   /** The project whose manifest directory is the file's nearest ancestor, for the file's language. */
+  const owners = new Map();
   const ownerOf = (path) => {
-    const lang = mods.get(path)?.attrs.language;
-    return byDepth.find((p) => fits(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`))) ?? null;
+    if (!owners.has(path)) {
+      const lang = mods.get(path)?.attrs.language;
+      owners.set(path, byDepth.find((p) => fits(p, lang) && (p.attrs.dir === '' || path.startsWith(`${p.attrs.dir}/`))) ?? null);
+    }
+    return owners.get(path);
   };
   const unitCache = new Map();
   const unitsOf = (path) => {
