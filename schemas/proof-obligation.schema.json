@@ -77,6 +77,19 @@
         "infra-plan"
       ],
       "description": "A runtime-executed check, when the obligation is not a configured command."
+    },
+    "hook": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "pre-commit",
+        "husky",
+        "lefthook"
+      ],
+      "description": "The git-hook system a hook-check obligation runs; verify runs it on the slice's changed files when the system has a file-list mode."
     }
   },
   "required": [
@@ -189,6 +202,19 @@
             "infra-plan"
           ],
           "description": "A runtime-executed check, when the obligation is not a configured command."
+        },
+        "hook": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "pre-commit",
+            "husky",
+            "lefthook"
+          ],
+          "description": "The git-hook system a hook-check obligation runs; verify runs it on the slice's changed files when the system has a file-list mode."
         }
       },
       "required": [
