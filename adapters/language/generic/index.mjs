@@ -7,6 +7,7 @@
 // module says `parse_quality: 'lexical'`. Nothing here opens files or runs code.
 
 import { edgeFact, nodeFact, prov } from '../../../runtime/graph/facts.mjs';
+import { canonicalJSON } from '../../../runtime/core/canonical.mjs';
 import { analysesFor, genericGlobs, language, languageForPath } from '../../../runtime/graph/languages.mjs';
 import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
@@ -333,6 +334,89 @@ function structuralImplements(types, receivers, qualified) {
   return out;
 }
 
+/** `reach` noting the member it is asked about (`reach:<member>`), for incremental linking. */
+const notedReach = (rec, reach) => (path, member, ...rest) => {
+  rec(`reach:${member}`);
+  return reach(path, member, ...rest);
+};
+
+/**
+ * What a file's generic facts put in the linker's indexes, as key → what a lookup of that key
+ * gets from this file (another file's link reads only that), and its `shape`: what the linker reads
+ * without a key (type names and bases for member reach, friend assemblies). Null when the file
+ * holds a manifest's facts (packages, workspaces, build targets), which every file's link reads.
+ * Values are canonical JSON: a cached fact has its keys sorted, a fresh one does not.
+ */
+function declares(facts, path) {
+  const keys = new Map();
+  const put = (k, v = 1) => keys.set(k, [...(keys.get(k) ?? []), v]);
+  const shape = [];
+  for (const f of facts) {
+    if (f.kind !== 'node' || f.provenance?.extractor !== EXTRACTOR) continue;
+    if (f.type === 'package' || f.type === 'workspace' || f.type === 'build_target') return null;
+    if (f.type === 'class' || f.type === 'interface') put(`types:${f.name}`, [f.id, f.type, f.path, f.attrs]);
+    if (f.type !== 'module') continue;
+    const a = f.attrs;
+    const syn = genericSyntax(a.language);
+    // What other files' links read of a module they reach: its language, test flag, package, namespaces.
+    put(`mod:${path}`, [a.language, a.is_test ?? null, a.package ?? null, a.namespaces ?? null, a.namespace ?? null]);
+    if (a.package) {
+      put(`pkg:${a.package}`);
+      for (const t of a.types ?? []) put(`fq:${a.package}.${t}`);
+    }
+    const conv = syn.sourceConvention?.exec(path);
+    if (conv) put(`fq:${conv[1].replace(/\//g, '.')}`);
+    for (const ns of a.namespaces ?? []) {
+      if (syn.namespaceIndex) for (const t of a.types ?? []) put(`nsq:${ns}\\${t}`);
+      const parts = ns.split('.');
+      for (let k = 1; k <= parts.length; k++) put(`cs.ns:${parts.slice(0, k).join('.')}`);
+      for (const t of a.types ?? []) put(`cs.full:${ns}.${t}`);
+    }
+    for (const t of a.types ?? []) put(`cs.name:${t}`, a.namespaces ?? null);
+    if (syn.directoryIndex && !a.is_test) put(`dir:${dirname(path)}`);
+    const globals = (a.imports ?? []).filter((i) => i.global);
+    if (globals.length) put('cs.globals', globals);
+    for (const n of Object.keys(a.acc ?? {})) put(`reach:${n}`, ['acc', Object.keys(a.acc[n]).sort()]);
+    for (const n of a.words ?? []) put(`reach:${n}`, 'word');
+    shape.push([[...(a.types ?? [])].sort(), a.type_bases ?? null, a.internals_visible_to ?? null]);
+  }
+  return { keys: new Map([...keys].map(([k, v]) => [k, canonicalJSON(v)])), shape: canonicalJSON(shape) };
+}
+
+/**
+ * The kept per-file link results that still hold (path → result), or null to link every file:
+ * no saved state, a SCIP index in play, or a change to what no key covers. A key is dirty when a
+ * changed file's answer to it differs from its answer before (added, removed or different).
+ */
+function reusable(ctx, mods) {
+  const inc = ctx.incremental;
+  // shortcut: a SCIP index decides per file what the link reads; with one, every file is linked. Key the index's verdicts per file to lift it.
+  if (!inc?.changed || !inc.previous || ctx.semantic?.size) return null;
+  const dirty = new Set();
+  for (const path of inc.changed) {
+    const now = declares(ctx.factsByFile.get(path) ?? [], path);
+    const old = declares(inc.previousFacts(path), path);
+    if (!now || !old || now.shape !== old.shape) return null;
+    for (const k of new Set([...now.keys.keys(), ...old.keys.keys()])) if (now.keys.get(k) !== old.keys.get(k)) dirty.add(k);
+    // A module that came or went changes what a scan over every path finds.
+    if (now.keys.has(`mod:${path}`) !== old.keys.has(`mod:${path}`)) dirty.add('scan');
+  }
+  const out = new Map();
+  for (const [path, kept] of inc.files()) {
+    if (!inc.changed.has(path) && mods.has(path) && !kept.reads.some((k) => dirty.has(k))) out.set(path, { ...kept, facts: kept.facts.map((e) => unpack(e, path)) });
+  }
+  return out;
+}
+
+// A kept edge as a row: what prov_ and edgeFact always set (the extractor, empty scope and
+// contradictions, the file's own module as source) is left out.
+const pack = (f, path) => (f.kind === 'edge' && f.provenance.extractor === EXTRACTOR && !f.provenance.scope?.length && !f.provenance.contradicts?.length
+  ? [f.type, f.from === `module:${path}` ? 0 : f.from, f.to, f.attrs, f.provenance.source_type, f.provenance.source_ref, f.provenance.confidence]
+  : f);
+const unpack = (e, path) => (Array.isArray(e)
+  ? { kind: 'edge', type: e[0], from: e[1] === 0 ? `module:${path}` : e[1], to: e[2], attrs: e[3], provenance: { source_type: e[4], source_ref: e[5], extractor: EXTRACTOR, confidence: e[6], scope: [], contradicts: [] } }
+  : e);
+
 function link(ctx) {
   const mods = new Map();
   const types = new Map();
@@ -367,19 +451,34 @@ function link(ctx) {
     out.push(fact);
   };
   const declared = new Set(pkgs.flatMap((p) => [...(p.attrs.deps ?? []), ...(p.attrs.dev_deps ?? [])]));
+  let depCalls = null; // the dependency() calls of the file being linked, in order
   const dependency = (name, path, line) => {
+    depCalls?.push([name, path, line]);
     if (!deps.has(name) && !declared.has(name)) deps.set(name, nodeFact('dependency', name, { name, attrs: {} }, prov_(path, line)));
     return `dependency:${name}`;
   };
   const sortedMods = [...mods.keys()].sort();
   const has = (p) => mods.has(p);
   const modulePaths = new Set(sortedMods);
+  // While one file is linked, every key it looks up is noted (see `reusable`).
+  let reads = null;
+  const rec = (k) => reads?.add(k);
+  const noting = (m, tag) => {
+    const get = m.get?.bind(m);
+    const hasKey = m.has.bind(m);
+    if (get) m.get = (k) => (reads?.add(`${tag}:${k}`), get(k));
+    m.has = (k) => (reads?.add(`${tag}:${k}`), hasKey(k));
+    return m;
+  };
+  noting(mods, 'mod');
+  noting(types, 'types');
+  noting(modulePaths, 'mod');
 
   // --- indexes ----------------------------------------------------------------------
-  const fq = new Map();
-  const pkgIndex = new Map();
-  const directoryModules = new Map();
-  const phpFq = new Map();
+  const fq = noting(new Map(), 'fq');
+  const pkgIndex = noting(new Map(), 'pkg');
+  const directoryModules = noting(new Map(), 'dir');
+  const phpFq = noting(new Map(), 'nsq');
   const add = (m, k, v) => {
     if (!m.has(k)) m.set(k, []);
     if (!m.get(k).includes(v)) m.get(k).push(v);
@@ -413,6 +512,7 @@ function link(ctx) {
     return null;
   };
   const loadPathFind = (spec, extension) => {
+    rec('scan');
     const hits = sortedMods.filter((p) => p === `${spec}${extension}` || p.endsWith(`/${spec}${extension}`));
     const lib = hits.filter((p) => p.includes('lib/'));
     return (lib.length ? lib : hits).slice(0, 1);
@@ -493,6 +593,7 @@ function link(ctx) {
       }
       case 'targets': {
         const tg = swiftTargets.find((t) => t.name === spec);
+        rec('scan');
         const hit = tg ? sortedMods.filter((p) => mods.get(p).attrs.language === lang && (p.includes(`/${spec}/`) || p.startsWith(`${spec}/`))).slice(0, 200) : [];
         return { paths: hit, external: tg ? null : spec, package_level: true };
       }
@@ -502,6 +603,7 @@ function link(ctx) {
           const cands = [resolvePath(dir, spec), ...incs.map((d) => resolvePath(d, spec)), resolvePath('include', spec), resolvePath('src', spec), resolvePath('', spec)];
           const hit = cands.find(has);
           if (hit) return { paths: [hit] };
+          rec('scan');
           const tail = sortedMods.filter((p) => p.endsWith(`/${spec}`));
           return { paths: tail.length === 1 ? tail : [], external: tail.length ? null : spec, low: tail.length === 1 };
         }
@@ -541,6 +643,12 @@ function link(ctx) {
   const units = pkgs.filter((p) => p.type === 'package');
   const dependsOn = new Map(units.map((p) => [p, references(p)]));
   const build = buildGraph(units, dependsOn, mods, types);
+  const allowedBy = build.allowed;
+  build.allowed = (from, to, name) => {
+    rec(`mod:${to}`);
+    if (name) rec(`types:${name}`);
+    return allowedBy(from, to, name);
+  };
 
   // --- members: a type held only through a member nothing reads (members.mjs) --------------
   // C# resolves types through namespaces (csharp.mjs). Java, Kotlin and Go resolve a mentioned
@@ -550,7 +658,7 @@ function link(ctx) {
     const fam = FAMILY[lang];
     if (!reachers.has(fam)) {
       const files = sortedMods.filter((p) => FAMILY[mods.get(p).attrs.language] === fam && MEMBER_SYNTAX[mods.get(p).attrs.language]).map((p) => ({ path: p, attrs: mods.get(p).attrs }));
-      reachers.set(fam, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined, (m) => Boolean(MEMBER_SYNTAX[lang]?.scopePrivate?.test(m))));
+      reachers.set(fam, notedReach(rec, memberReach(files, new Set(files.flatMap((f) => f.attrs.types ?? [])), (a) => MEMBER_SYNTAX[a.language]?.bare ?? false, genericSyntax(lang).sameDirectoryMembers ? (x, y) => dirname(x) === dirname(y) : undefined, (m) => Boolean(MEMBER_SYNTAX[lang]?.scopePrivate?.test(m)))));
     }
     return reachers.get(fam);
   };
@@ -592,8 +700,48 @@ function link(ctx) {
   const importsOf = new Map();
   // path → qualifier → files of the package it names there: the alias, else the package clause; '' for a dot import.
   const qualified = new Map();
-  const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed);
+  const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed, rec);
+  // Incremental (#88, FR-001): what each file's imports resolve to is kept with the keys it read
+  // (module paths, type names, packages, directories, namespaces, members). A file is linked again
+  // when it changed or when a changed file declares, now or before, a key it read; any other file
+  // gets its kept result. Changes to what no key covers (manifests, type sets, friend assemblies, a
+  // SCIP index) link everything again.
+  const reuse = reusable(ctx, mods);
+  const linkedNow = new Map();
+  let relinked = 0;
   for (const path of sortedMods) {
+    const kept = reuse?.get(path);
+    if (kept) {
+      for (const f of kept.facts) push(f);
+      for (const [n, p, l] of kept.deps) dependency(n, p, l);
+      importsOf.set(path, new Set(kept.resolved));
+      if (kept.qualified) qualified.set(path, new Map(kept.qualified.map(([q, ps]) => [q, new Set(ps)])));
+      if (kept.rejected) build.rejected.set(path, new Set(kept.rejected));
+      dropMemberAttrs(mods.get(path).attrs);
+      continue;
+    }
+    relinked++;
+    reads = new Set();
+    depCalls = [];
+    const from = out.length;
+    linkOne(path);
+    linkedNow.set(path, {
+      reads: [...reads].sort(),
+      facts: out.slice(from).map((f) => pack(f, path)),
+      deps: depCalls,
+      resolved: [...importsOf.get(path)],
+      qualified: qualified.has(path) ? [...qualified.get(path)].map(([q, ps]) => [q, [...ps]]) : null,
+      rejected: build.rejected.has(path) ? [...build.rejected.get(path)] : null,
+    });
+    reads = null;
+    depCalls = null;
+  }
+  if (ctx.incremental) {
+    ctx.incremental.saveFiles(linkedNow);
+    ctx.incremental.save({});
+    if (ctx.stats) (ctx.stats.link ??= {}).generic = { relinked, modules: sortedMods.length };
+  }
+  function linkOne(path) {
     const mod = mods.get(path);
     const a = mod.attrs;
     const resolved = new Set();

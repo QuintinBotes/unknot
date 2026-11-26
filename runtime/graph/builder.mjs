@@ -45,6 +45,8 @@ const FAST_VERSION = 2; // 2: the graph no longer keeps clone fingerprints
 // Bump when parseGitLog's output changes shape: the per-commit history cache is read again.
 // 2: a shallow boundary commit (every file added) is never kept: deepening gives it a parent and a different diff.
 const COMMITS_VERSION = 2;
+// Bump when what a linker's saved state means changes: every linker re-links in full once.
+const LINK_STATE_VERSION = 1;
 const NS_SEED_NOTE = 'scope entries ns: and seed: apply to graph commands (diagnose, decompose, graph); map narrows only by path entries';
 
 function optionsDigest(adapter, config) {
@@ -111,6 +113,76 @@ function censusCache(ctx) {
   };
 }
 
+/**
+ * What a linker needs to re-link only what changed (#88, FR-001). `changed` is the set of paths whose
+ * facts are not those the linker's saved state was computed from (extracted again by this map, or
+ * added, deleted or reclassified since), or null when there is no usable state (first map, another
+ * adapter set, options or configuration): then the linker links in full. `previous` is the data the
+ * linker saved last time, `previousFacts(path)` the facts a changed path held before (from its old
+ * cache rows), and `save(data)` keeps new data, written only when the link succeeds (`commit`).
+ * The state lives in one CAS blob per adapter (meta `link:<id>`), replaced and the old one dropped.
+ * A linker that keeps something per file uses `files()` (path → what it kept, for the same state)
+ * and `saveFiles(map)` (the files it linked again): rows of file_index under `<id>:link`, so a
+ * large repository's state is never one string, and rows of deleted paths are removed.
+ */
+async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, staleRows }) {
+  const { casDrop, casGet, casPut } = await import('../state/cas.mjs');
+  const metaKey = `link:${id}`;
+  const label = `link.${id}`;
+  const sigOf = (path) => {
+    const f = filesByPath.get(path);
+    return f ? `${f.blob}|${f.kind}|${f.is_test ? 1 : 0}|${f.context ? 1 : 0}` : '';
+  };
+  let stored = null;
+  let prev = null;
+  try {
+    stored = JSON.parse(ctx.store.meta(metaKey) ?? 'null');
+    if (stored?.key === key) prev = JSON.parse(casGet(ctx, stored.ref).toString('utf8'));
+  } catch {
+    prev = null; // unreadable: link in full
+  }
+  const sigs = {};
+  for (const path of perFile.keys()) sigs[path] = sigOf(path);
+  let changed = null;
+  if (prev) {
+    changed = new Set(extractedPaths);
+    for (const [path, sig] of Object.entries(sigs)) if (prev.sigs[path] !== sig) changed.add(path);
+    for (const path of Object.keys(prev.sigs)) if (!(path in sigs)) changed.add(path);
+  }
+  const getRows = ctx.store.db.prepare("SELECT facts FROM file_index WHERE path = ? AND adapter NOT LIKE '%:%'");
+  let next;
+  let nextFiles = null;
+  return {
+    files() {
+      const kept = new Map();
+      if (prev) for (const r of ctx.store.iterate('SELECT path, facts FROM file_index WHERE adapter = ? AND config_digest = ?', `${id}:link`, key)) kept.set(r.path, JSON.parse(r.facts));
+      return kept;
+    },
+    saveFiles(entries) { nextFiles = entries; },
+    changed,
+    previous: prev?.data ?? null,
+    previousFacts(path) {
+      const rows = staleRows.get(path) ?? (path in sigs ? [] : getRows.all(path).map((r) => r.facts));
+      return rows.flatMap((r) => JSON.parse(r));
+    },
+    save(data) { next = data; },
+    async commit() {
+      if (next === undefined) return;
+      if (nextFiles) {
+        const put = ctx.store.db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, '1', ?, '', ?)");
+        const drop = ctx.store.db.prepare('DELETE FROM file_index WHERE path = ? AND adapter = ?');
+        ctx.store.tx(() => {
+          for (const [path, data] of nextFiles) put.run(path, `${id}:link`, key, JSON.stringify(data));
+          for (const path of Object.keys(prev?.sigs ?? {})) if (!(path in sigs)) drop.run(path, `${id}:link`);
+        });
+      }
+      const ref = casPut(ctx, JSON.stringify({ sigs, data: next }), { mediaType: 'application/json', label });
+      ctx.store.meta(metaKey, JSON.stringify({ key, ref }));
+      if (stored?.ref && stored.ref !== ref) casDrop(ctx, stored.ref, label);
+    },
+  };
+}
+
 /** Read an evidence file the user listed in config.evidence, refusing escapes and secrets. */
 function evidenceReader(ctx, config) {
   return (path) => {
@@ -156,6 +228,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const putIndex = ctx.store.db.prepare('INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, ?, ?, ?, ?)');
 
   const moduleBy = new Map(); // path → adapter id that produced its module fact
+  const staleRows = new Map(); // path → facts (JSON) its cache rows held before this map re-extracted it
+  const extractedPaths = new Set(); // paths extracted (not read from the cache) by this map
   const addFacts = (path, facts, adapterId) => {
     if (adapterId && !moduleBy.has(path) && facts.some((f) => f.kind === 'node' && f.type === 'module')) moduleBy.set(path, adapterId);
     let list = perFile.get(path);
@@ -244,7 +318,11 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
       if (hit && hit.blob === f.blob && hit.adapter_version === adapter.version && hit.config_digest === keyOf(f)) {
         addFacts(f.path, JSON.parse(hit.facts), adapter.id);
         stats.cached++;
-      } else misses.push(f);
+      } else {
+        misses.push(f);
+        // What the file held before this change, for a linker that re-links incrementally (#88).
+        if (hit) staleRows.set(f.path, [...(staleRows.get(f.path) ?? []), hit.facts]);
+      }
     }
     if (run) {
       // A file read by several adapters is still one file read.
@@ -296,6 +374,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           if (entry && !entry.blob) entry.blob = r.blob;
           if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, keyOf(entry), r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
           addFacts(r.path, facts, adapter.id);
+          extractedPaths.add(r.path);
           stats.extracted++;
           extracted++;
         }
@@ -328,11 +407,14 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const global = [];
   // Files a semantic adapter (a SCIP index) covers, with what it decided about them; read by the language adapters' link.
   const semantic = new Map();
+  const linkKey = digest({ v: LINK_STATE_VERSION, configDigest, adapters: loaded.map((a) => [a.id, a.version, config.adapters?.[a.id] ?? {}]), unavailable });
   for (const adapter of loaded) {
     if (!adapter.link) continue;
+    const incremental = await linkState(ctx, adapter.id, linkKey, { perFile, filesByPath, extractedPaths, staleRows });
     try {
-      const linked = await adapter.link({ root: ctx.root, paths: ctx.paths, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic, exec: adapterExec(ctx, { run, config }) });
+      const linked = await adapter.link({ root: ctx.root, paths: ctx.paths, files: filesByPath, factsByFile: perFile, options: config.adapters?.[adapter.id] ?? {}, notes, stats, semantic, exec: adapterExec(ctx, { run, config }), incremental });
       pushAll(global, (linked ?? []).map(assertFact));
+      await incremental.commit();
     } catch (err) {
       failures.push({ path: '<link>', adapter: adapter.id, error: String(err?.message ?? err) });
     }
@@ -545,6 +627,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     ...(checkout && { checkout }),
     ...(stats.scip && { scip: stats.scip }),
     ...(stats.build_graph && { build_graph: stats.build_graph }),
+    // Linkers that re-linked incrementally: how much of their input they linked again (#88).
+    ...(stats.link && { link: stats.link }),
     ...(stats.discover_files && { discover_files: stats.discover_files }),
     ...(notes.length && { notices: [...new Set(notes)] }),
     failures: failures.slice(0, 200),
