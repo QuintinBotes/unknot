@@ -6,6 +6,7 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
 import { generateObligations } from '../../../runtime/plan/obligations.mjs';
+import { scopedHookArgv } from '../../../runtime/plan/hooks.mjs';
 import { mkTmp } from '../../helpers/tmp.mjs';
 import { tmpdir } from 'node:os';
 
@@ -64,6 +65,17 @@ describe('hook systems become proof obligations', () => {
     }
     assert.equal(by('husky').requires_human, false);
     assert.deepEqual(by('husky').command, ['sh', '.husky/pre-commit']);
+  });
+
+  test('pre-commit and lefthook are scoped to the changed files; husky keeps the whole tree and says so (#137)', () => {
+    const obs = withPath({ 'pre-commit': '#!/bin/sh\n', lefthook: '#!/bin/sh\n' }, () => hookObs(repo({ '.pre-commit-config.yaml': 'repos: []\n', 'lefthook.yml': 'x: 1\n', '.husky/pre-commit': 'exit 0\n' })));
+    const by = (sys) => obs.find((o) => o.hook === sys);
+    for (const sys of ['pre-commit', 'lefthook']) assert.match(by(sys).description, /on the slice's changed files/);
+    assert.match(by('husky').description, /on the whole tree \(husky has no file-list mode\)/);
+    assert.equal(scopedHookArgv('husky', ['src/a.mjs']), null);
+    // Changed paths are untrusted: each stays one argv element, and none can read as an option.
+    assert.deepEqual(scopedHookArgv('pre-commit', ['src/a b.mjs', '-rf', '$(x).py']), ['pre-commit', 'run', '--files', 'src/a b.mjs', './-rf', '$(x).py']);
+    assert.deepEqual(scopedHookArgv('lefthook', ['src/a.mjs', '-rf']), ['lefthook', 'run', 'pre-commit', '--file=src/a.mjs', '--file=-rf']);
   });
 
   test('a repository without a hook configuration adds none', () => {

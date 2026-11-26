@@ -18,6 +18,7 @@ import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { CHECKS, changedPaths, graphPair } from './checks.mjs';
+import { scopedHookArgv } from '../plan/hooks.mjs';
 import { emitProofBundle } from './bundle.mjs';
 
 function obligationsOf(ctx, sliceId) {
@@ -53,12 +54,17 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   const results = [];
   const checkNotes = [];
   const guide = guidanceForScope(ctx.root, slice.body.scope.include, loadGuidance(ctx.root));
+  // Hook checks run on what the slice changed, so a violation elsewhere does not block it (#137).
+  // Deleted paths are left out; changedPaths has no renames, so a renamed file is under its new name.
+  const hookPaths = changes.filter((c) => c.status !== 'D').map((c) => c.path);
   for (const o of obligations) {
-    if (o.body.builtin) {
+    const scoped = o.body.command && o.body.hook ? scopedHookArgv(o.body.hook, hookPaths) : null;
+    if (o.body.builtin || (scoped && !hookPaths.length)) {
+      const check = o.body.builtin ?? o.body.hook;
       const t0 = Date.now();
       let res;
       try {
-        res = await CHECKS[o.body.builtin]({ ctx, slice, config, changes, patch: staged.patch, pair });
+        res = o.body.builtin ? await CHECKS[o.body.builtin]({ ctx, slice, config, changes, patch: staged.patch, pair }) : { verdict: 'pass', detail: `no changed files for ${o.body.hook} to check`, data: {} };
       } catch (err) {
         res = { verdict: 'inconclusive', detail: `check failed to run: ${err.message}`, data: {} };
       }
@@ -67,15 +73,15 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
       const record = {
         id: `ex-${randomId(6)}`,
         obligation: o.id,
-        command: ['unknot', 'check', o.body.builtin],
+        command: ['unknot', 'check', check],
         working_directory: slice.worktree,
-        environment_digest: digest({ builtin: o.body.builtin, runtime: process.versions.node }),
+        environment_digest: digest({ builtin: check, runtime: process.versions.node }),
         started_at: new Date(t0).toISOString(),
         duration_ms: Date.now() - t0,
         exit_code: res.verdict === 'pass' ? 0 : res.verdict === 'fail' ? 1 : null,
         stdout_digest: digest(body),
         stderr_digest: digest(''),
-        artifact_refs: [casPut(ctx, body, { mediaType: 'application/json', runId: run.id, label: `${o.id}.${o.body.builtin}` })],
+        artifact_refs: [casPut(ctx, body, { mediaType: 'application/json', runId: run.id, label: `${o.id}.${check}` })],
         verdict: res.verdict,
         kind: 'builtin',
         detail: res.detail,
@@ -91,9 +97,9 @@ async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
       ctx.store.run('UPDATE proof_obligations SET requires_human = 1, body = ?, version = version + 1 WHERE id = ?', JSON.stringify(body), o.id);
       results.push({ id: o.id, kind: o.kind, verdict: 'needs_human', detail: `${o.body.command.join(' ')} ${note}` });
     } else if (o.body.command) {
-      const r = await brokerExec(ctx, { argv: o.body.command, cwd: slice.worktree, origin: 'configured', run, config, writable: [slice.worktree], timeoutMs: (config.limits.max_runtime_minutes ?? 30) * 60_000, obligation: o.id, sliceId, diffHash: slice.diff_hash });
+      const r = await brokerExec(ctx, { argv: scoped ?? o.body.command, cwd: slice.worktree, origin: 'configured', run, config, writable: [slice.worktree], timeoutMs: (config.limits.max_runtime_minutes ?? 30) * 60_000, obligation: o.id, sliceId, diffHash: slice.diff_hash });
       recordEvidence(ctx, { run, slice, obligation: o, record: { ...r.record, kind: 'command' }, verdict: r.record.verdict });
-      results.push({ id: o.id, kind: o.kind, verdict: r.record.verdict, detail: `${o.body.command.join(' ')} → exit ${r.record.exit_code}${r.record.timed_out ? ' (timed out)' : ''}`, stderr: r.record.verdict === 'pass' ? undefined : r.stderrTail.slice(-1200) });
+      results.push({ id: o.id, kind: o.kind, verdict: r.record.verdict, detail: `${(scoped ?? o.body.command).join(' ')} → exit ${r.record.exit_code}${r.record.timed_out ? ' (timed out)' : ''}`, stderr: r.record.verdict === 'pass' ? undefined : r.stderrTail.slice(-1200) });
     } else {
       results.push({ id: o.id, kind: o.kind, verdict: 'inconclusive', detail: 'no command configured and not a built-in check' });
     }
