@@ -685,12 +685,12 @@ export function project(ctx, facts, { commit, observedAt }) {
     ids.set(i, { id, sig });
   }
   const touchedNodes = new Set();
-  const touchedEdges = new Set();
+  const touchedEdges = new Map(); // edge id → [type, from, to]
   const ends = new Set(); // endpoints of touched edges: their placeholders may appear or go
   const touch = (kind, subject, predicate, object) => {
     if (kind === 'node') touchedNodes.add(subject);
     else {
-      touchedEdges.add(edgeId(predicate, subject, object));
+      touchedEdges.set(edgeId(predicate, subject, object), [predicate, subject, object]);
       ends.add(subject).add(object);
     }
   };
@@ -750,9 +750,10 @@ export function project(ctx, facts, { commit, observedAt }) {
     'INSERT OR REPLACE INTO facts(id, generation, kind, subject, predicate, object, attrs, source_type, source_ref, extractor, observed_at, commit_sha, confidence, scope, contradicts, path, expires_at, digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const getNode = db.prepare('SELECT * FROM nodes WHERE id = ?');
-  const getEdge = db.prepare('SELECT * FROM edges WHERE id = ?');
+  const getEdge = db.prepare('SELECT * FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const putNode = db.prepare('INSERT OR REPLACE INTO nodes(id, type, name, path, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  const putEdge = db.prepare('INSERT OR REPLACE INTO edges(id, type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const putEdge = db.prepare('INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?)');
+  const delEdge = db.prepare('DELETE FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
   store.tx(() => {
     const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
@@ -781,16 +782,17 @@ export function project(ctx, facts, { commit, observedAt }) {
       }
     }
     // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
-    for (const eid of new Set([...touchedEdges, ...edges.keys()])) {
+    for (const eid of new Set([...touchedEdges.keys(), ...edges.keys()])) {
       const e = edges.get(eid);
-      const have = getEdge.get(eid);
+      const [type, from, to] = e ? [e.type, e.from, e.to] : touchedEdges.get(eid);
+      const have = getEdge.get(from, type, to);
       if (!e || !exists.get(e.from) || !exists.get(e.to)) {
-        if (have) store.run('DELETE FROM edges WHERE id = ?', eid);
+        if (have) delEdge.run(from, type, to);
         continue;
       }
       const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
       if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
-        putEdge.run(eid, want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
+        putEdge.run(want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
       }
     }
     store.meta('generation', generation);
