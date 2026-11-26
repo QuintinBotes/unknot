@@ -89,6 +89,28 @@ function fileCache(ctx, adapter, version) {
   return c;
 }
 
+/**
+ * Census entries of tracked files, kept in file_index under `census:entry` (one row per path,
+ * replaced in place) for the rules they were worked out under: a re-map does not stat or open a
+ * file git sees unchanged (#88).
+ */
+function censusCache(ctx) {
+  const db = ctx.store.db;
+  return {
+    load(rulesKey) {
+      const known = new Map();
+      for (const r of ctx.store.iterate("SELECT path, blob, facts FROM file_index WHERE adapter = 'census:entry' AND config_digest = ?", rulesKey)) known.set(r.path, { ...JSON.parse(r.facts), path: r.path, blob: r.blob });
+      return known;
+    },
+    save(rulesKey, entries) {
+      const put = db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, 'census:entry', '1', ?, ?, ?)");
+      ctx.store.tx(() => {
+        for (const { path, blob, context: _, ...rest } of entries) put.run(path, rulesKey, blob, JSON.stringify(rest));
+      });
+    },
+  };
+}
+
 /** Read an evidence file the user listed in config.evidence, refusing escapes and secrets. */
 function evidenceReader(ctx, config) {
   return (path) => {
@@ -118,7 +140,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     mark = now;
   };
   const observedAt = nowISO();
-  const cen = census(ctx.root, { config, scope });
+  const cen = census(ctx.root, { config, scope, cache: censusCache(ctx) });
   lap('census_ms');
   const commit = cen.commit;
   // `adapters` replaces the registry; tests use it to stand in a failing extractor.
@@ -179,6 +201,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         ...(checkout && { checkout }),
         notices: notices.length ? notices : undefined,
         cache: { hits: saved.cache.hits + saved.cache.extracted, extracted: 0, hit_rate: 1 },
+        census: { files: cen.files.length, cached: cen.cached },
         unchanged: true,
         duration_ms: Date.now() - t0,
         phases,
@@ -513,6 +536,8 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     files: stats.files,
     by_kind: stats.by_kind,
     cache: { hits: stats.cached, extracted: stats.extracted, hit_rate: stats.cached + stats.extracted ? +(stats.cached / (stats.cached + stats.extracted)).toFixed(3) : null },
+    // Files whose census entry was reused: neither stat'ed nor opened.
+    census: { files: cen.files.length, cached: cen.cached },
     adapters: stats.adapters,
     unavailable,
     coverage,

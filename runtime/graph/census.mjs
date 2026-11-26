@@ -4,7 +4,8 @@
 
 import { closeSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { sha256 } from '../core/canonical.mjs';
+import { digest, sha256 } from '../core/canonical.mjs';
+import { VERSION } from '../core/version.mjs';
 import { inScope, matchAny } from '../core/glob.mjs';
 import { isSecretPath } from '../core/paths.mjs';
 import { pathGlobs } from '../core/scope.mjs';
@@ -15,6 +16,8 @@ import { codeLanguageIds, configLanguageIds, documentationLanguageIds, generated
 export const CONTEXT_FILES = ['CODEOWNERS', '.github/CODEOWNERS', 'docs/CODEOWNERS', '.gitlab/CODEOWNERS'];
 import { blobIds, git, isRepo, listFiles } from '../apply/git.mjs';
 
+// Bump when how an entry is worked out changes: stored census entries are classified again (a new release does too).
+const CENSUS_VERSION = 1;
 const BINARY_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz', '.tgz', '.jar', '.war', '.class', '.so', '.dylib', '.dll', '.exe', '.wasm', '.woff', '.woff2', '.ttf', '.otf', '.mp4', '.mp3', '.mov', '.sqlite', '.db', '.bin', '.pyc', '.o', '.a']);
 const VENDORED = ['**/vendor/**', '**/third_party/**', '**/third-party/**', '**/node_modules/**', '**/bower_components/**', '.yarn/**', '**/Pods/**', '**/vendors/**', '**/_vendor/**', '**/wwwroot/lib/**', '**/tinymce/**', '**/tiny_mce/**', '**/ckeditor/**'];
 const GENERATED = ['**/dist/**', '**/build/**', '**/out/**', '**/target/**', '**/.next/**', '**/coverage/**', '**/*.min.css', '**/*.map', '**/*.generated.*', '**/*.gen.*', '**/ios/App/App/public/**', '**/android/app/src/main/assets/public/**', '**/platforms/*/www/**', '**/generated/**', '**/__generated__/**', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Cargo.lock', '**/go.sum', '**/composer.lock', '**/Gemfile.lock'];
@@ -219,19 +222,38 @@ export function censusPlan(root, { config, scope = [], blobs: withBlobs = true }
     if (blobs.has(path) && !modified.has(path)) e.blob = `git:${blobs.get(path)}`;
     return e;
   };
-  return { repo, candidates, maxBytes, fixedKind, entry };
+  // A tracked file git sees unchanged has its index blob: its bytes, so its entry, are known.
+  const blobOf = (path) => (blobs.has(path) && !modified.has(path) ? `git:${blobs.get(path)}` : null);
+  // Everything an entry depends on besides the path and the file's bytes.
+  const rulesKey = digest({ v: CENSUS_VERSION, release: VERSION, generatedGlobs, vendoredGlobs, maxBytes, testProjects: [...testProjects].sort(), projectDirs: [...projectDirs].sort(), test: [...TEST, ...registryTestGlobs()], languages: [codeLanguageIds(), configLanguageIds(), documentationLanguageIds(), longLineGeneratedExtensions()] });
+  return { repo, candidates, maxBytes, fixedKind, entry, blobOf, rulesKey };
 }
 
 /**
  * @param {string} root
- * @param {{config: object, scope?: string[]}} opts `scope` narrows to path prefixes/globs
- * @returns {{files: object[], repo: boolean, commit: string|null, byKind: object}}
+ * @param {{config: object, scope?: string[], cache?: {load: (rulesKey: string) => Map<string, object>, save: (rulesKey: string, entries: object[]) => void}}} opts
+ *   `scope` narrows to path prefixes/globs. `cache` keeps entries of unchanged tracked files between
+ *   censuses (#88): `load` returns path → a stored entry for these rules, and a file git sees
+ *   unchanged with the stored blob is neither stat'ed nor opened; `save` receives the entries worked out.
+ * @returns {{files: object[], repo: boolean, commit: string|null, byKind: object, cached: number}}
  */
-export function census(root, { config, scope = [] } = {}) {
+export function census(root, { config, scope = [], cache = null } = {}) {
   const plan = censusPlan(root, { config, scope });
   const files = [];
   const byKind = {};
+  const known = cache?.load(plan.rulesKey) ?? new Map();
+  const fresh = [];
+  let cached = 0;
   for (const c of plan.candidates) {
+    const blob = plan.blobOf(c.path);
+    const hit = blob && known.get(c.path);
+    if (hit && hit.blob === blob) {
+      const { context: _, ...rest } = hit;
+      files.push({ ...rest, ...(c.context && { context: true }) });
+      if (!c.context) byKind[hit.kind] = (byKind[hit.kind] ?? 0) + 1;
+      cached++;
+      continue;
+    }
     const abs = join(root, c.path);
     let st;
     try {
@@ -243,10 +265,12 @@ export function census(root, { config, scope = [] } = {}) {
     const entry = plan.entry(c, st, fixed === undefined ? head(abs, 4096) : null, fixed);
     if (!entry) continue;
     files.push(entry);
+    if (entry.blob) fresh.push(entry);
     if (!c.context) byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
   }
+  if (fresh.length) cache?.save(plan.rulesKey, fresh);
   const commit = plan.repo ? git(root, ['rev-parse', 'HEAD'], { check: false }).stdout.trim() || null : null;
-  return { files, repo: plan.repo, commit, byKind };
+  return { files, repo: plan.repo, commit, byKind, cached };
 }
 
 /** Read a census entry's text for an adapter, filling in its content blob id. */
