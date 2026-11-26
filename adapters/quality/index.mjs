@@ -289,11 +289,20 @@ export default {
     if (before) {
       const index = new Map(mods.map((m, i) => [m.path, i]));
       affected = new Set();
-      const touch = (hash) => { for (const [mi] of postings.get(hash) ?? []) affected.add(mi); };
+      // Per hash, the postings changed files hold now and held before: a list over MAX_POSTINGS on
+      // both sides pairs nobody, before or after, so its other members are not affected through it.
+      const now = new Map();
+      const was = new Map();
+      const bump = (m, hash) => m.set(hash, (m.get(hash) ?? 0) + 1);
       for (const path of inc.changed) {
         if (index.has(path)) affected.add(index.get(path));
-        for (const fp of mods[index.get(path)]?.fps ?? []) touch(fp[0]);
-        for (const f of inc.previousFacts(path)) if (f.kind === 'node' && f.provenance?.extractor === EXTRACTOR) for (const fp of f.attrs?.fingerprints ?? []) touch(fp[0]);
+        for (const fp of mods[index.get(path)]?.fps ?? []) bump(now, fp[0]);
+        for (const f of inc.previousFacts(path)) if (f.kind === 'node' && f.provenance?.extractor === EXTRACTOR) for (const fp of f.attrs?.fingerprints ?? []) bump(was, fp[0]);
+      }
+      for (const hash of new Set([...now.keys(), ...was.keys()])) {
+        const list = postings.get(hash) ?? [];
+        const earlier = list.length - (now.get(hash) ?? 0) + (was.get(hash) ?? 0);
+        if (list.length <= MAX_POSTINGS || earlier <= MAX_POSTINGS) for (const [mi] of list) affected.add(mi);
       }
       for (const [path, fact] of Object.entries(before)) {
         if (index.has(path) && fact.attrs.clones.some((c) => inc.changed.has(c.other))) affected.add(index.get(path));
