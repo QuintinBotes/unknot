@@ -145,3 +145,23 @@ test('compact-edges rebuilds a store written before it: same rows, same ids, no 
   again.close();
   rmSync(dir, { recursive: true });
 });
+
+test('drop-unused-fact-indexes removes the facts indexes no query reads, without raising schema_version (#145)', () => {
+  const dir = tmp();
+  const file = join(dir, 's.db');
+  const factIndexes = (s) => s.all("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'facts' AND sql IS NOT NULL ORDER BY name").map((r) => r.name);
+  const fresh = new Store(file);
+  assert.deepEqual(factIndexes(fresh), ['facts_object'], 'a new store never has them');
+  fresh.close();
+  // A store an older release opened last: it created them again and left the name out of the list.
+  const db = new DatabaseSync(file);
+  db.exec('CREATE INDEX facts_subject ON facts(subject); CREATE INDEX facts_path ON facts(path); CREATE INDEX facts_generation ON facts(generation);');
+  db.prepare("UPDATE meta SET value = ? WHERE key = 'migrations'").run(JSON.stringify(['initial-schema', 'facts-digest', 'compact-edges']));
+  db.close();
+  const s = new Store(file);
+  assert.deepEqual(factIndexes(s), ['facts_object']);
+  assert.equal(s.meta('schema_version'), '3', 'older releases can still write the store');
+  assert.ok(JSON.parse(s.meta('migrations')).includes('drop-unused-fact-indexes'));
+  s.close();
+  rmSync(dir, { recursive: true });
+});
