@@ -32,6 +32,11 @@ change you are releasing touches detectors or the graph, dispatch the workflow o
 branch first. Nothing gates a release on these numbers automatically yet; the review is a human
 step, and the results go into the release notes.
 
+### How long fixes may wait
+
+A fix merged to `main` waits at most 7 days for a release. If no feature release is ready by
+then, release `main` as a patch release, so fixes are never held behind features.
+
 ### Channels
 
 - **Stable:** the `quintinbotes` catalog installs Unknot from the `stable` branch. After a final
