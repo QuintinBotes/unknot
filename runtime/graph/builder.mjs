@@ -7,6 +7,7 @@
 
 import { checkoutNotice, checkoutState } from './checkout.mjs';
 import { createHash } from 'node:crypto';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { canonicalJSON, digest } from '../core/canonical.mjs';
@@ -155,7 +156,14 @@ async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, s
   return {
     files() {
       const kept = new Map();
-      if (prev) for (const r of ctx.store.iterate('SELECT path, facts FROM file_index WHERE adapter = ? AND config_digest = ?', `${id}:link`, key)) kept.set(r.path, JSON.parse(r.facts));
+      if (!prev) return kept;
+      for (const r of ctx.store.iterate('SELECT path, facts FROM file_index WHERE adapter = ? AND config_digest = ?', `${id}:link`, key)) {
+        try {
+          kept.set(r.path, JSON.parse(inflateRawSync(r.facts)));
+        } catch {
+          // an unreadable row: that file is linked again
+        }
+      }
       return kept;
     },
     saveFiles(entries) { nextFiles = entries; },
@@ -172,7 +180,8 @@ async function linkState(ctx, id, key, { perFile, filesByPath, extractedPaths, s
         const put = ctx.store.db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, '1', ?, '', ?)");
         const drop = ctx.store.db.prepare('DELETE FROM file_index WHERE path = ? AND adapter = ?');
         ctx.store.tx(() => {
-          for (const [path, data] of nextFiles) put.run(path, `${id}:link`, key, JSON.stringify(data));
+          // Deflated: what a file looked up repeats across files and compresses about tenfold.
+          for (const [path, data] of nextFiles) put.run(path, `${id}:link`, key, deflateRawSync(JSON.stringify(data)));
           for (const path of Object.keys(prev?.sigs ?? {})) if (!(path in sigs)) drop.run(path, `${id}:link`);
         });
       }
