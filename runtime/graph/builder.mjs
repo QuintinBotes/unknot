@@ -31,7 +31,7 @@ import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { templateLanguageIds } from './languages.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
-import { derivedDone, writeDerived } from './derived.mjs';
+import { DERIVED_EDGE_TYPES, derivedDone, updateDerived, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LIST_ARGS, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
@@ -616,8 +616,13 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   ctx.store.meta('mapped_history', JSON.stringify(historyStats ?? { unmeasured: history ? 'the history could not be read (see the <history> failure of this map)' : 'history was not read (map --no-history)' }));
   ctx.store.meta('mapped_analysis_coverage', JSON.stringify(analysis));
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
-  // Derived facts are a function of the graph: an unchanged graph keeps the stored ones.
-  if (projection.changed || !derivedDone(ctx, projection.generation)) writeDerived(ctx, Graph.fromStore(ctx.store), projection.generation);
+  // Derived facts are a function of the graph: an unchanged graph keeps the stored ones, and a changed
+  // one works out again only what the rows projection changed reach, when it can (#145).
+  let derived = 'kept';
+  if (projection.changed || !derivedDone(ctx, projection.generation)) {
+    derived = projection.delta && projection.from !== null && updateDerived(ctx, projection.delta, projection.from, projection.generation) ? 'updated' : 'recomputed';
+    if (derived === 'recomputed') writeDerived(ctx, Graph.fromStore(ctx.store, { edgeTypes: DERIVED_EDGE_TYPES }), projection.generation);
+  }
   lap('derived_ms');
   const summary = {
     commit,
@@ -647,12 +652,13 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     edges: projection.edges,
     ...(stats.constants && { constants: stats.constants }),
     history: historyStats,
+    derived,
     duration_ms: Date.now() - t0,
     phases,
     config_digest: configDigest,
   };
   if (fastKey && !degradedAny && !failures.length && !stats.scip_blocked) {
-    ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, duration_ms: undefined } }));
+    ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, derived: undefined, duration_ms: undefined } }));
   } else ctx.store.meta('map:last', '');
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
   // Fold the write-ahead log into the database, so the store on disk is its size and not its size plus a log.
@@ -873,6 +879,7 @@ export function project(ctx, facts, { commit, observedAt }) {
   const putEdge = db.prepare('INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?)');
   const delEdge = db.prepare('DELETE FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
+  const delta = { nodes: new Map(), edges: [] }; // rows written or deleted (node id → [before, after]), for derived facts
   store.tx(() => {
     const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
     for (const id of staleIds) delFact.run(id);
@@ -894,9 +901,10 @@ export function project(ctx, facts, { commit, observedAt }) {
       const want = ofNode(id);
       const have = getNode.get(id);
       if (!want) {
-        if (have) store.run('DELETE FROM nodes WHERE id = ?', id);
+        if (have) { store.run('DELETE FROM nodes WHERE id = ?', id); delta.nodes.set(id, [have, null]); }
       } else if (!have || have.type !== want.type || have.name !== want.name || have.path !== want.path || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putNode.run(id, want.type, want.name, want.path, want.attrs, want.label, want.fact_ids);
+        delta.nodes.set(id, [have ?? null, want]);
       }
     }
     // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
@@ -905,19 +913,20 @@ export function project(ctx, facts, { commit, observedAt }) {
       const [type, from, to] = e ? [e.type, e.from, e.to] : touchedEdges.get(eid);
       const have = getEdge.get(from, type, to);
       if (!e || !exists.get(e.from) || !exists.get(e.to)) {
-        if (have) delEdge.run(from, type, to);
+        if (have) { delEdge.run(from, type, to); delta.edges.push([type, from, to]); }
         continue;
       }
       const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
       if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putEdge.run(want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
+        delta.edges.push([type, from, to]);
       }
     }
     store.meta('generation', generation);
     store.meta('mapped_commit', commit ?? '');
     store.meta('mapped_at', observedAt);
   });
-  return { generation, changed: true, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+  return { generation, from: gen0 == null ? null : generation0, delta, changed: true, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
 }
 
 /** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */

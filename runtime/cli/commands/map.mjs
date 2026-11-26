@@ -1,5 +1,5 @@
 import { mapRepository } from '../../graph/builder.mjs';
-import { impossibleWarning } from '../../graph/derived.mjs';
+import { impossibleWarning, rowsGeneration } from '../../graph/derived.mjs';
 import { historyNotice, output, withRun } from '../util.mjs';
 import { progressFor } from '../progress.mjs';
 import { open } from './_shared.mjs';
@@ -17,7 +17,7 @@ export async function run({ positional, flags }) {
   );
   // A cycle the build forbids is an analysis artifact: say so where it is seen first (#72).
   // Read straight from the stored components: mapRepository has written them for this generation.
-  for (const r of ctx.store.all("SELECT body FROM derived WHERE kind = 'scc' AND generation = ?", summary.generation)) {
+  for (const r of ctx.store.all("SELECT body FROM derived WHERE kind = 'scc' AND generation = ?", rowsGeneration(ctx, summary.generation))) {
     const body = JSON.parse(r.body);
     if (body.impossible_by_build) process.stderr.write(`unknot: warning: ${impossibleWarning(body)}\n`);
   }
