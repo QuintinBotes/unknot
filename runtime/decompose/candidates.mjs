@@ -17,10 +17,11 @@ export const sizeBandFor = (n) => [Math.max(2, Math.round(Math.sqrt(n) / 2)), Ma
 
 /**
  * `units` (from buildUnits in affinity.mjs) means the affinity nodes are build units: each
- * candidate is measured on, and lists, the files of its units.
+ * candidate is measured on, and lists, the files of its units. `keep(id)` false leaves a node out of
+ * every candidate without moving the partition of the rest.
  * @returns {{candidates: object[], modularity: number, stats: object}}
  */
-export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null, units = null } = {}) {
+export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null, units = null, keep = () => true } = {}) {
   const input = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
   const rob = robustness(input, { seed });
   const partition = rob.baseline;
@@ -40,8 +41,9 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
     .map((cl, i) => {
       if (absorbed.has(i)) return null;
       const folded = folds.get(i) ?? [];
-      const parts = [...cl.members, ...folded.map((f) => f.module)].sort();
-      const all = units ? parts.flatMap((u) => units.files.get(u)).sort() : parts;
+      const parts = [...cl.members, ...folded.map((f) => f.module)].filter(keep).sort();
+      const all = units ? parts.flatMap((u) => units.files.get(u)).filter(keep).sort() : parts;
+      if (!all.length) return null;
       const members = new Set(all);
       const stab = minOf(cl.members.map((m) => stability.get(m) ?? 0));
       const touching = cl.internal + cl.external;
