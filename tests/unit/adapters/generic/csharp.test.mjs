@@ -185,6 +185,32 @@ test('Entity Framework: Add on a DbSet member is a write, Add on an ordinary col
   assert.deepEqual([inherited[0].provenance.source_type, inherited[0].provenance.confidence], ['inference', 'low']);
 });
 
+test('Entity Framework: a receiver-qualified Add resolves through the receiver\'s declared type (#191)', () => {
+  const g = build({
+    'D/Message.cs': cls('Shop.Data', 'Message'),
+    'D/Ctx.cs': 'namespace Shop.Data\n{\n    public class Ctx : DbContext\n    {\n        public DbSet<Message> Messages { get; set; }\n    }\n}\n',
+    'D/ReadCtx.cs': 'namespace Shop.Data\n{\n    public class ReadCtx : Ctx\n    {\n    }\n}\n',
+    'B/BizContext.cs': cls('Shop.Biz', 'BizContext', '        public MessageComponent Messages => Get<MessageComponent>();'),
+    'S/Field.cs': cls('Shop.Services', 'Field', '        private readonly Ctx _db;\n        public void Post(Message m) { _db.Messages.Add(m); }'),
+    'S/Derived.cs': cls('Shop.Services', 'Derived', '        public void Post(ReadCtx db, Message m) { db.Messages.Add(m); }'),
+    'S/Local.cs': cls('Shop.Services', 'Local', '        public void Post(Message m) { Ctx db = Make(); db.Messages.Remove(m); }'),
+    'S/Biz.cs': cls('Shop.Services', 'Biz', '        public void Post(BizContext context, Message m) { context.Messages.Add(m); }'),
+    'S/Lambda.cs': cls('Shop.Services', 'Lambda', '        public void Post(Message m) { Run(async (context) => context.Messages.Add(m)); }'),
+    'S/Arity.cs': cls('Shop.Services', 'Arity', '        public void Post(Message m) { Run(async (context) => context.Messages.Add(client, thread, m)); }'),
+  });
+  const writes = (from) => g.edges('MUTATES', from).filter((e) => e.to === 'table:messages').map((e) => e.provenance.confidence);
+  // Scenario 2: a field, a local or a parameter typed with the context (or a context derived from it) writes the table.
+  assert.deepEqual(writes('S/Field.cs'), ['medium']);
+  assert.deepEqual(writes('S/Derived.cs'), ['medium']);
+  assert.deepEqual(writes('S/Local.cs'), ['medium']);
+  // Scenario 1: a receiver whose type declares `Messages` as something else is no table write.
+  assert.deepEqual(writes('S/Biz.cs'), []);
+  // Scenario 3: a receiver with no type in the file is an inferred, low-confidence write.
+  assert.deepEqual(writes('S/Lambda.cs'), ['low']);
+  // A set's Add takes one entity: `Add(client, thread, m)` is another type's method.
+  assert.deepEqual(writes('S/Arity.cs'), []);
+});
+
 test('link-only name sets are not left in persisted module attrs', () => {
   const g = build({ 'A/X.cs': cls('N', 'X'), 'A/Y.cs': cls('N', 'Y', '        X x;') });
   for (const facts of g.factsByFile.values()) {
