@@ -4,6 +4,7 @@
 //   projects/<project-id>/audit.pem      Ed25519 key that signs every ledger event
 //   projects/<project-id>/cache.key      AES-256-GCM key for the content-addressed cache
 //   projects/<project-id>/capability.key HMAC key for capability tokens
+//   projects/<project-id>/acceptance.json the project's latest config acceptance, at any path (#222)
 //   roots/<sha256 of checkout path>/acceptance.json  the config acceptance in force there (#215)
 //   approvers/<name>.pem                 Ed25519 approver key, encrypted with a passphrase
 //
@@ -20,7 +21,7 @@ import {
   sign,
   verify,
 } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from './errors.mjs';
 import { unknotHome } from './project.mjs';
@@ -116,25 +117,67 @@ export function verifyText(publicKeyPem, text, signature) {
 
 // The acceptance in force is kept per checkout, under a name the store cannot choose (#215): a
 // store recreated under a new project id, or an older store or backup put back, cannot bring
-// its own pointer with it.
+// its own pointer with it. It is also kept per project id (#222), so an older store of a
+// checkout that moved, put back at the old path, is superseded by the acceptance at the new
+// one. Only an acceptance that is the latest in both records verifies.
 const acceptanceDir = (root) => join(unknotHome(), 'roots', createHash('sha256').update(root).digest('hex'));
+const latestForProject = (projectId) => join(projectKeyDir(projectId), 'acceptance.json');
+
+/** True only when nothing is at `path`: a path that cannot be read (permissions, macOS privacy) still exists. */
+function gone(path) {
+  try {
+    lstatSync(path);
+    return false;
+  } catch (err) {
+    return err.code === 'ENOENT' || err.code === 'ENOTDIR';
+  }
+}
+
+/** Remove the in-force records under `roots/` whose checkout path no longer exists (#222). Best effort. */
+function pruneRoots() {
+  const dir = join(unknotHome(), 'roots');
+  let entries = [];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    try {
+      const { root } = JSON.parse(readFileSync(join(dir, name, 'acceptance.json'), 'utf8'));
+      if (typeof root === 'string' && gone(root)) rmSync(join(dir, name), { recursive: true, force: true });
+    } catch {
+      // Unreadable, or written before the path was recorded: leave it.
+    }
+  }
+}
 
 /**
  * Sign a config acceptance with the project's audit key and make it the one in force for the
- * checkout at `root`, superseding every earlier acceptance there, under any project id.
- * Called only from the human-only `config accept` path.
+ * checkout at `root` and for the project: it supersedes every earlier acceptance at that path,
+ * under any project id, and every earlier acceptance of the project, at any path. Then prune
+ * the records of checkout paths that no longer exist. Called only from the human-only
+ * `config accept` path.
  */
 export function signAcceptance(projectId, root, statement) {
   const signature = signText(auditPrivateKey(projectId), statement);
-  writeFileSync(join(secureDir(acceptanceDir(root)), 'acceptance.json'), JSON.stringify({ project_id: projectId, signature }), { mode: 0o600 });
+  const record = JSON.stringify({ project_id: projectId, root, signature });
+  writeFileSync(latestForProject(projectId), record, { mode: 0o600 });
+  writeFileSync(join(secureDir(acceptanceDir(root)), 'acceptance.json'), record, { mode: 0o600 });
+  pruneRoots();
   return signature;
 }
 
-/** Whether `signature`, by `projectId`'s key, is the acceptance in force for `root` and verifies over `statement`. */
+/**
+ * Whether `signature`, by `projectId`'s key, verifies over `statement` and is the latest
+ * acceptance both for the checkout at `root` and for the project.
+ */
 export function verifyAcceptance(projectId, root, statement, signature) {
   try {
-    const inForce = JSON.parse(readFileSync(join(acceptanceDir(root), 'acceptance.json'), 'utf8'));
-    return inForce.project_id === projectId && inForce.signature === signature && verifyText(auditPublicKeyPem(projectId), statement, signature);
+    const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
+    const here = read(join(acceptanceDir(root), 'acceptance.json'));
+    const latest = read(latestForProject(projectId));
+    return here.project_id === projectId && here.signature === signature && latest.signature === signature && verifyText(auditPublicKeyPem(projectId), statement, signature);
   } catch {
     return false;
   }
