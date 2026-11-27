@@ -185,7 +185,7 @@ test('CI evidence counts only with an attestation from the pinned workflow on th
     process.stdout.write = write;
     if (testContext !== undefined) process.env.NODE_TEST_CONTEXT = testContext;
   }
-  assert.match(log, /✔ classify/, 'the slice head\'s tests really ran in the CI job');
+  assert.match(log, /(?:✔|ok \d+ -) classify/, 'the slice head\'s tests really ran in the CI job');
   assert.equal(ev.head, head);
   assert.equal(ev.results.find((r) => r.id === unit.id).exit_code, 0, 'the unit tests ran and passed on the pushed head');
   assert.ok(ev.results.filter((r) => r.not_run).every((r) => /built-in|person/.test(r.not_run)));
