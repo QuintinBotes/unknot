@@ -306,13 +306,26 @@ describe('brokered environment', () => {
     assert.equal(env.UNKNOT_SANDBOXED, '1');
   });
 
+  test('minimalEnv keeps the toolchain variables a private HOME needs (#170)', () => {
+    const vars = { RUSTUP_HOME: '/opt/rustup', PYTHONUSERBASE: '/opt/py', PIP_CONFIG_FILE: '/opt/pip.conf', MAVEN_ARGS: '-s /opt/settings.xml' };
+    const saved = { ...process.env };
+    Object.assign(process.env, vars);
+    try {
+      const env = minimalEnv({ home: '/private-home' });
+      for (const [k, v] of Object.entries(vars)) assert.equal(env[k], v, k);
+    } finally {
+      for (const k of Object.keys(vars)) if (saved[k] === undefined) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
+  });
+
   test('minimalEnv only inherits the allowlisted variables', () => {
     const saved = process.env.UK_PROBE_VAR;
     process.env.UK_PROBE_VAR = 'secret-ish';
     try {
       const env = minimalEnv();
       assert.ok(!('UK_PROBE_VAR' in env));
-      for (const k of Object.keys(env)) assert.ok(/^(PATH|LANG|LC_ALL|LC_CTYPE|SHELL|USER|LOGNAME|JAVA_HOME|GOPATH|GOROOT|CARGO_HOME|RUSTUP_HOME|PYENV_ROOT|NVM_DIR|VOLTA_HOME|PNPM_HOME|VIRTUAL_ENV|HOME|TERM|CI|NO_COLOR|FORCE_COLOR|UNKNOT_SANDBOXED)$/.test(k), k);
+      for (const k of Object.keys(env)) assert.ok(/^(PATH|LANG|LC_ALL|LC_CTYPE|SHELL|USER|LOGNAME|JAVA_HOME|GOPATH|GOROOT|CARGO_HOME|RUSTUP_HOME|PYENV_ROOT|NVM_DIR|VOLTA_HOME|PNPM_HOME|VIRTUAL_ENV|PYTHONUSERBASE|PIP_CONFIG_FILE|MAVEN_ARGS|HOME|TERM|CI|NO_COLOR|FORCE_COLOR|UNKNOT_SANDBOXED)$/.test(k), k);
     } finally {
       if (saved === undefined) delete process.env.UK_PROBE_VAR;
       else process.env.UK_PROBE_VAR = saved;

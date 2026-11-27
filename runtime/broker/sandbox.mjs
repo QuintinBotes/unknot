@@ -7,7 +7,7 @@
 // unless a person explicitly set `security.require_os_sandbox: false` (sandboxRequired).
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,39 +70,57 @@ function executable(path) {
   }
 }
 
-let macSandboxUsable;
-
-// Some managed macOS environments expose sandbox-exec but forbid sandbox_apply. Treating that
-// binary as available makes every brokered command fail instead of reporting that no OS sandbox
-// is usable (and makes security.require_os_sandbox less meaningful).
-function usableMacSandbox() {
-  if (macSandboxUsable !== undefined) return macSandboxUsable;
-  const result = spawnSync('/usr/bin/sandbox-exec', ['-p', '(version 1) (allow default)', '/usr/bin/true'], { stdio: 'ignore', timeout: 2_000 });
-  macSandboxUsable = result.status === 0 && !result.error;
-  return macSandboxUsable;
+/**
+ * A sandbox binary is trusted only when root owns it and every directory above its real path,
+ * and none of them is group- or world-writable (#170): on Debian the `staff` group can write
+ * /usr/local, so it could put its own `bwrap` there. `stat` is a seam for tests.
+ */
+export function trustedBinary(path, stat = statSync) {
+  let real;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return false;
+  }
+  for (let d = real; ; d = dirname(d)) {
+    let st;
+    try {
+      st = stat(d);
+    } catch {
+      return false;
+    }
+    if (st.uid !== 0 || (st.mode & 0o022) !== 0) return false;
+    if (d === dirname(d)) break;
+  }
+  return executable(real);
 }
 
+const usable = new Map();
+
+// A trusted binary that cannot start is no sandbox, not a sandbox that fails every command:
+// a managed Mac can forbid sandbox_apply, and bubblewrap without unprivileged user namespaces
+// (an AppArmor default on Ubuntu 24.04) cannot start.
+function starts(file, args) {
+  const key = `${file}\0${args.join('\0')}`;
+  if (!usable.has(key)) {
+    const result = spawnSync(file, args, { stdio: 'ignore', timeout: 2_000 });
+    usable.set(key, result.status === 0 && !result.error);
+  }
+  return usable.get(key);
+}
+
+const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 // Fixed locations only: the wrapper runs the binary detection found, never one PATH names, so
 // a fake `bwrap` earlier on PATH cannot pass for the sandbox.
 const BWRAP_PATHS = ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'];
-const bwrapPath = () => BWRAP_PATHS.find(executable) ?? null;
+const bwrapPath = (paths = BWRAP_PATHS) => paths.find((p) => trustedBinary(p)) ?? null;
 
-let bwrapUsable;
-
-// bubblewrap without unprivileged user namespaces (an AppArmor default on Ubuntu 24.04) is
-// installed but cannot start: that is no sandbox, not a sandbox that fails every command.
-function usableBwrap(path) {
-  if (bwrapUsable !== undefined) return bwrapUsable;
-  const result = spawnSync(path, ['--ro-bind', '/', '/', '--unshare-net', 'true'], { stdio: 'ignore', timeout: 2_000 });
-  bwrapUsable = result.status === 0 && !result.error;
-  return bwrapUsable;
-}
-
-export function detectSandbox() {
-  if (process.platform === 'darwin' && executable('/usr/bin/sandbox-exec') && usableMacSandbox()) return 'macos-sandbox-exec';
-  if (process.platform === 'linux') {
-    const p = bwrapPath();
-    if (p && usableBwrap(p)) return 'linux-bwrap';
+/** Which OS sandbox brokered commands run in. `platform` and `bwrapPaths` are seams for tests. */
+export function detectSandbox({ platform = process.platform, bwrapPaths = BWRAP_PATHS } = {}) {
+  if (platform === 'darwin' && trustedBinary(SANDBOX_EXEC) && starts(SANDBOX_EXEC, ['-p', '(version 1) (allow default)', '/usr/bin/true'])) return 'macos-sandbox-exec';
+  if (platform === 'linux') {
+    const p = bwrapPath(bwrapPaths);
+    if (p && starts(p, ['--ro-bind', '/', '/', '--unshare-net', 'true'])) return 'linux-bwrap';
   }
   return 'none';
 }

@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { sandboxRequired } from '../broker/sandbox.mjs';
 import { digest } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { verifyText } from '../core/keys.mjs';
@@ -158,6 +159,14 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
     const r = applyOrgPolicy(config, { ...view.tighten, mode: view.tighten.mode }, { unruledKeys: 'ignore' });
     config = r.config;
     adjustments.push(...r.adjustments.map((a) => ({ ...a, by: 'unaccepted config.yaml (tighten-only)' })));
+  }
+  // An edit or removal nobody accepted may lower the mode, never the OS sandbox requirement of
+  // the accepted configuration (#170): code a slice wrote in assist must not run unsandboxed
+  // because an agent set `mode: plan`.
+  const snapshot = overrideRaw || view.acceptance === 'accepted' ? null : ctx.store?.meta?.('accepted_config_text');
+  if (snapshot && !sandboxRequired(config) && sandboxRequired(overlay(structuredClone(DEFAULT_CONFIG), parseConfigText(snapshot, '<accepted snapshot>')))) {
+    adjustments.push({ path: 'security.require_os_sandbox', from: config.security?.require_os_sandbox ?? null, to: true, by: 'accepted config.yaml (sandbox requirement kept)' });
+    config = { ...config, security: { ...config.security, require_os_sandbox: true } };
   }
   const org = loadOrgPolicy();
   for (const bundle of org) {

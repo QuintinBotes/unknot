@@ -210,7 +210,9 @@ export function which(file, pathEnv = process.env.PATH ?? '') {
 
 /** The environment a brokered process sees: enough to run toolchains, no credentials. */
 export function minimalEnv({ tmp, home = homedir(), extra = {} } = {}) {
-  const keep = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME', 'JAVA_HOME', 'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'PYENV_ROOT', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'VIRTUAL_ENV'];
+  const keep = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME', 'JAVA_HOME', 'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'PYENV_ROOT', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'VIRTUAL_ENV',
+    // Toolchain settings a private HOME would otherwise lose (#170): pip --user packages and config, Maven settings.
+    'PYTHONUSERBASE', 'PIP_CONFIG_FILE', 'MAVEN_ARGS'];
   const env = {};
   for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k];
   Object.assign(env, { HOME: home, TERM: 'dumb', CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', UNKNOT_SANDBOXED: '1' });

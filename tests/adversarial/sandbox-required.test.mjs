@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -108,14 +108,20 @@ describe('scenario 1: a write mode with no sandbox runs nothing', () => {
 describe('spoofing the sandbox does not get a command run', () => {
   const p = K.makeProject();
 
-  test('environment variables that look like a sandbox, and fake sandbox binaries on PATH', () => withoutSandbox(async () => {
+  // A fake sandbox: it drops its own flags and runs the command, so a command it "wraps" runs
+  // unconfined. With no `--` (the detection probe) it exits 0, so it looks usable.
+  function fakeSandboxes() {
     const fakes = mkTmp(join(tmpdir(), 'uk-fake-sandbox-'));
     for (const name of ['sandbox-exec', 'bwrap']) {
-      writeFileSync(join(fakes, name), '#!/bin/sh\nwhile [ "$1" != "--" ] && [ $# -gt 0 ]; do shift; done; shift; exec "$@"\n');
+      writeFileSync(join(fakes, name), '#!/bin/sh\nwhile [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done\n[ $# -gt 0 ] || exit 0\nshift; exec "$@"\n');
       chmodSync(join(fakes, name), 0o755);
     }
+    return fakes;
+  }
+
+  test('environment variables that look like a sandbox do not count', () => withoutSandbox(async () => {
     const saved = { ...process.env };
-    Object.assign(process.env, { PATH: `${fakes}${delimiter}${process.env.PATH}`, UNKNOT_SANDBOXED: '1', SANDBOX: '1', container: 'docker' });
+    Object.assign(process.env, { UNKNOT_SANDBOXED: '1', SANDBOX: '1', container: 'docker' });
     try {
       const req = marking(p);
       await assert.rejects(brokerExec(p.ctx, { ...req, config: K.cfg({ mode: 'assist' }) }), code('UK_SANDBOX_REQUIRED'));
@@ -124,15 +130,86 @@ describe('spoofing the sandbox does not get a command run', () => {
       for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
       Object.assign(process.env, saved);
     }
-    // Where bubblewrap is the sandbox, the wrapper runs it from a fixed location, never from PATH.
-    process.env.PATH = `${fakes}${delimiter}${process.env.PATH}`;
+  }));
+
+  // #170: the old test hid the sandbox as freebsd, where detection never looks for a binary.
+  test('linux: a fake bwrap first on PATH, with none at the fixed paths, is no sandbox', () => {
+    const fakes = fakeSandboxes();
+    const saved = process.env.PATH;
+    process.env.PATH = `${fakes}${delimiter}${saved}`;
     try {
+      assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [join(fakes, 'none', 'bwrap')] }), 'none');
+      // The wrapper never takes bwrap from PATH either.
       const w = wrap(['true'], { kind: 'linux-bwrap' });
       assert.ok(['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'].includes(w.file), w.file);
     } finally {
-      process.env.PATH = saved.PATH;
+      process.env.PATH = saved;
+    }
+  });
+
+  test('a sandbox binary at a fixed path is trusted only when root owns it and nobody else can write it', () => {
+    const fakes = fakeSandboxes();
+    const fake = join(fakes, 'bwrap');
+    // Owned by the test user, not root, even with safe permissions; then world-writable.
+    assert.equal(K.sandbox.trustedBinary(fake), false);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [fake] }), 'none');
+    chmodSync(fake, 0o777);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [fake] }), 'none');
+    // A root-owned, unwritable binary that starts is accepted: the check is not "never".
+    const real = '/usr/bin/true';
+    assert.equal(K.sandbox.trustedBinary(real), true);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [real] }), 'linux-bwrap');
+    // Root-owned but group- or world-writable, the file or a directory above it: not trusted.
+    const as = (target, over) => (d) => (d === target ? { ...statSync(d), uid: 0, ...over } : statSync(d));
+    for (const [target, mode] of [[real, 0o100775], [real, 0o100757], ['/usr/bin', 0o40775], ['/usr', 0o42775], ['/', 0o40777]]) {
+      assert.equal(K.sandbox.trustedBinary(real, as(target, { mode })), false, `${target} ${mode.toString(8)}`);
+    }
+    // Not owned by root, the file or a directory above it (a /usr/local the staff group owns).
+    assert.equal(K.sandbox.trustedBinary(real, as(real, { uid: 1000, mode: 0o100755 })), false);
+    assert.equal(K.sandbox.trustedBinary(real, as('/usr/bin', { uid: 1000, mode: 0o40755 })), false);
+    // A symlink is judged where it points.
+    const link = join(fakes, 'link');
+    symlinkSync(fake, link);
+    assert.equal(K.sandbox.trustedBinary(link), false);
+  });
+
+  test('an unaccepted edit that lowers the mode keeps the accepted write mode\'s sandbox requirement', () => withoutSandbox(async () => {
+    for (const edit of ['version: 1\nmode: plan\n', 'version: 1\nmode: observe\n', 'version: 1\nmode: plan\nsecurity:\n  require_os_sandbox: false\n', null]) {
+      const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
+      if (edit === null) rmSync(q.ctx.paths.config);
+      else writeFileSync(q.ctx.paths.config, edit);
+      const loaded = K.configMod.loadConfig(q.ctx);
+      assert.equal(sandboxRequired(loaded.config), true, String(edit));
+      const req = marking(q);
+      await assert.rejects(brokerExec(q.ctx, { ...req, cwd: q.dir, config: loaded.config }), code('UK_SANDBOX_REQUIRED'), String(edit));
+      assert.equal(existsSync(req.mark), false, String(edit));
     }
   }));
+
+  test('a lowered mode a person accepted, an accepted plan mode, or an accepted opt-out still runs without a sandbox', () => {
+    const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
+    K.configMod.recordAcceptedConfig(q.ctx, 'version: 1\nmode: plan\n', 'human:test');
+    writeFileSync(q.ctx.paths.config, 'version: 1\nmode: plan\n');
+    assert.equal(sandboxRequired(K.configMod.loadConfig(q.ctx).config), false);
+    const r = K.makeProject({ config: 'version: 1\nmode: plan\n' });
+    writeFileSync(r.ctx.paths.config, 'version: 1\nmode: observe\n');
+    const loaded = K.configMod.loadConfig(r.ctx);
+    assert.equal(loaded.acceptance, 'changed');
+    assert.equal(sandboxRequired(loaded.config), false);
+    const o = K.makeProject({ config: 'version: 1\nmode: assist\nsecurity:\n  require_os_sandbox: false\n' });
+    writeFileSync(o.ctx.paths.config, 'version: 1\nmode: plan\n');
+    assert.equal(sandboxRequired(K.configMod.loadConfig(o.ctx).config), false);
+  });
+
+  test('the CLI refuses exec after an agent lowers an accepted assist config to plan', () => {
+    const cmd = `[${JSON.stringify(process.execPath)}, -e, "require('fs').writeFileSync('ran', 'x')"]`;
+    const q = K.makeProject({ config: `version: 1\nmode: assist\ncommands:\n  test_unit: ${cmd}\n` });
+    writeFileSync(q.ctx.paths.config, `version: 1\nmode: plan\ncommands:\n  test_unit: ${cmd}\n`);
+    const r = spawnSync(process.execPath, ['--import', helper, bin, 'exec', 'test_unit', '--cwd', q.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: q.home, UNKNOT_TEST_HIDE_SANDBOX: '1' } });
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /UK_SANDBOX_REQUIRED/);
+    assert.equal(existsSync(join(q.dir, 'ran')), false);
+  });
 
   test('an unaccepted edit cannot opt out', () => withoutSandbox(async () => {
     const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
