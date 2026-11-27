@@ -4,7 +4,7 @@
 
 > Untangle complexity. Preserve behavior.
 
-Unknot is a Claude Code plugin for simplifying existing codebases under governance. It maps a repository (code, data, infrastructure, delivery, ownership), finds accidental complexity, proposes the smallest change that would remove it, applies one approved change at a time in an isolated git worktree, and proves the result with commands it ran itself. A person approves each step.
+Unknot is a Claude Code plugin for simplifying existing codebases under governance. It maps a repository (code, data, infrastructure, delivery, ownership), finds accidental complexity, proposes the smallest change that would remove it, applies one approved change at a time in its own git worktree (which isolates changes, not trust: see [SECURITY.md](SECURITY.md)), and proves the result with commands it ran itself. A person approves each step.
 
 It is not a formatter, a "clean code" prompt, or an autonomous rewrite engine. The model proposes. A deterministic runtime decides what is allowed, runs the checks, and records what happened.
 
@@ -49,7 +49,7 @@ node <plugin directory>/bin/unknot cli install     # writes ~/.local/bin/unknot;
 | Requirement | Notes |
 |---|---|
 | Node.js 22.13 or later | Required. No npm dependencies. `unknot doctor` checks the version (it needs `node:sqlite`). |
-| git | Required. Worktree isolation, the file census and change history depend on it. |
+| git | Required. Slice worktrees, the file census and change history depend on it. |
 | python3 | Optional. Used for Python AST extraction; without it Python files use a lexical fallback. |
 | helm, kustomize | Optional. Render charts and overlays when present; a missing renderer is recorded as a gap. |
 | terraform (or tofu) | Optional. Used only for read-only commands such as `validate`, `show`, `graph`. |

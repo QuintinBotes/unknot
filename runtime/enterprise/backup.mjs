@@ -23,7 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { unknotHome } from '../core/project.mjs';
-import { verifyLedger } from '../state/ledger.mjs';
+import { verifyAgainstAnchor, verifyLedger } from '../state/ledger.mjs';
 import { Store } from '../state/store.mjs';
 
 export const BACKUP_FORMAT = 'unknot-backup';
@@ -295,21 +295,27 @@ function scanArchive(file, passphrase, onChunk) {
   return manifest;
 }
 
-function checkLedger(dbFile, manifest) {
+// The manifest travels inside the backup, so on its own it only proves self-consistency; an
+// anchor (an audit checkpoint kept elsewhere) is what proves this is the real ledger.
+function checkLedger(dbFile, manifest, anchor) {
   const store = new Store(dbFile, { readOnly: true });
   try {
     if (store.meta('audit_public_key') !== manifest.audit_public_key) throw integrity('audit key in the database differs from the manifest');
     const r = verifyLedger(store, manifest.audit_public_key);
     if (!r.ok) throw integrity(`restored ledger does not verify (broken at event ${r.broken_at}: ${r.reason})`);
     if (r.count !== manifest.ledger.count || r.head !== manifest.ledger.head) throw integrity('ledger head differs from the manifest');
-    return r;
+    if (anchor) {
+      const a = verifyAgainstAnchor(store, anchor);
+      if (!a.ok) throw integrity(`ledger fails the anchor (${a.reason}): ${a.detail}`);
+    }
+    return { ...r, checked_against: anchor ? 'anchor' : 'manifest' };
   } finally {
     store.close();
   }
 }
 
 /** Check digests and ledger. Never throws for tampering: returns `{ok: false, reason}`. */
-export function verifyBackup(file, passphrase) {
+export function verifyBackup(file, passphrase, { anchor = null } = {}) {
   checkPassphrase(passphrase);
   const tmp = mkdtempSync(join(tmpdir(), 'unknot-verify-'));
   const dbFile = join(tmp, 'unknot.db');
@@ -324,8 +330,8 @@ export function verifyBackup(file, passphrase) {
         fd = null;
       }
     });
-    const ledger = checkLedger(dbFile, manifest);
-    return { ok: true, project_id: manifest.project_id, created_at: manifest.created_at, files: manifest.files.length, bytes: manifest.total_bytes, ledger: { count: ledger.count, head: ledger.head } };
+    const ledger = checkLedger(dbFile, manifest, anchor);
+    return { ok: true, project_id: manifest.project_id, created_at: manifest.created_at, files: manifest.files.length, bytes: manifest.total_bytes, ledger: { count: ledger.count, head: ledger.head, checked_against: ledger.checked_against } };
   } catch (err) {
     if (err instanceof UnknotError && err.code === 'UK_INTEGRITY') return { ok: false, reason: err.message };
     throw err;
@@ -339,13 +345,13 @@ export function verifyBackup(file, passphrase) {
  * Restore into `toDir`, which must be empty or absent. The whole archive is verified
  * before the first byte is written, so a bad backup never leaves a partial restore.
  */
-export function restoreBackup(file, passphrase, toDir) {
+export function restoreBackup(file, passphrase, toDir, { anchor = null } = {}) {
   const to = resolve(toDir);
   if (existsSync(to)) {
     if (!statSync(to).isDirectory()) throw new UnknotError('UK_STATE_CONFLICT', `${to} exists and is not a directory`);
     if (readdirSync(to).length) throw new UnknotError('UK_STATE_CONFLICT', `${to} is not empty; restore never overwrites existing data`);
   }
-  const pre = verifyBackup(file, passphrase);
+  const pre = verifyBackup(file, passphrase, { anchor });
   if (!pre.ok) throw integrity(`backup does not verify: ${pre.reason}`);
 
   const base = join(to, '.unknot');
@@ -365,13 +371,13 @@ export function restoreBackup(file, passphrase, toDir) {
         fd = null;
       }
     });
-    const ledger = checkLedger(join(base, DB_REL), manifest);
+    const ledger = checkLedger(join(base, DB_REL), manifest, anchor);
     const keyDir = join(unknotHome(), 'projects', manifest.project_id);
     return {
       root: to,
       project_id: manifest.project_id,
       files: manifest.files.length,
-      ledger: { count: ledger.count, head: ledger.head },
+      ledger: { count: ledger.count, head: ledger.head, checked_against: ledger.checked_against },
       keys_present: existsSync(join(keyDir, 'cache.key')) && existsSync(join(keyDir, 'audit.pem')),
       key_dir: keyDir,
     };

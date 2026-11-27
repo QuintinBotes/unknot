@@ -5,6 +5,7 @@
 // rebuilding the whole chain requires that key. Current state everywhere else in the
 // store is a projection that can be rebuilt from this table.
 
+import { readFileSync } from 'node:fs';
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
@@ -108,4 +109,51 @@ export function verifyLedger(store, publicKeyPem) {
     count++;
   }
   return { ok: true, count, head: prev };
+}
+
+export const CHECKPOINT_FORMAT = 'unknot-audit-checkpoint';
+
+/** A checkpoint of a verified ledger, for the operator to store outside the agent's reach. */
+export function ledgerCheckpoint(store, publicKeyPem) {
+  if (!publicKeyPem) throw new UnknotError('UK_INTEGRITY', 'no audit public key: a checkpoint needs one to anchor signatures');
+  const r = verifyLedger(store, publicKeyPem);
+  if (!r.ok) throw new UnknotError('UK_INTEGRITY', `refusing to checkpoint a ledger that does not verify (broken at event ${r.broken_at}: ${r.reason})`);
+  return { format: CHECKPOINT_FORMAT, version: 1, project_id: store.meta('project_id') ?? null, count: r.count, head: r.head, audit_public_key: publicKeyPem, at: nowISO() };
+}
+
+/** Read an anchor file; refuses anything that is not a well-formed checkpoint. */
+export function readCheckpoint(path) {
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new UnknotError('UK_NOT_FOUND', `no anchor file ${path}`);
+  }
+  let a;
+  try {
+    a = JSON.parse(text);
+  } catch {
+    throw new UnknotError('UK_CONFIG_INVALID', 'anchor is not JSON');
+  }
+  if (a?.format !== CHECKPOINT_FORMAT || a.version !== 1 || !Number.isSafeInteger(a.count) || a.count < 0 || typeof a.head !== 'string' || typeof a.audit_public_key !== 'string' || !a.audit_public_key) {
+    throw new UnknotError('UK_CONFIG_INVALID', 'anchor is not an Unknot audit checkpoint');
+  }
+  return a;
+}
+
+/**
+ * Verify the ledger against an independent anchor: every signature under the anchored key,
+ * and the anchored head at the anchored position. The anchor, not the store, is the trust
+ * root, so an attacker who rewrites the store (even holding the audit key) cannot pass.
+ * `reason` is one of 'key', 'rewritten', 'truncated'.
+ */
+export function verifyAgainstAnchor(store, anchor) {
+  const fail = (reason, detail) => ({ ok: false, reason, detail });
+  if (store.meta('audit_public_key') !== anchor.audit_public_key) return fail('key', 'the ledger is signed under a different audit key than the anchored one');
+  const r = verifyLedger(store, anchor.audit_public_key);
+  if (!r.ok) return fail('rewritten', `broken at event ${r.broken_at}: ${r.reason}`);
+  if (r.count < anchor.count) return fail('truncated', `the ledger has ${r.count} events but the anchor recorded ${anchor.count}`);
+  const at = anchor.count === 0 ? GENESIS : store.get('SELECT hash FROM events ORDER BY seq LIMIT 1 OFFSET ?', anchor.count - 1).hash;
+  if (at !== anchor.head) return fail('rewritten', `event ${anchor.count} is not the anchored head`);
+  return { ok: true, count: r.count, head: r.head, anchored: { count: anchor.count, head: anchor.head } };
 }

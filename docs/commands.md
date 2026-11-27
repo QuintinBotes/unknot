@@ -35,7 +35,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | 1 | Error, or a command whose job is to report a verdict found a bad one: `verify` not reaching `REVIEW_READY`, `exec` not passing, `diagnose --fail-on` with a new finding at that severity, `doctor` with a failed check, `policy verify` on an invalid policy. |
 | 2 | Unknown command, or missing or unknown subcommand for `audit`, `backup`, `graph`, `learn`, `pattern`, `policy`, `workspace`. |
 | 3 | `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_INSUFFICIENT_EVIDENCE`, `UK_SANDBOX_REQUIRED` or `UK_KIND_NOT_ALLOWED`: policy refused the operation, approvals are missing, the slice rests on lexical-only evidence, a write mode would run a command with no OS sandbox, or `apply.allowed_kinds` does not accept the slice's kind of change. |
-| 4 | Integrity failure: `audit verify` found a broken ledger, or `backup verify` found an invalid archive. |
+| 4 | Integrity failure: `audit verify` found a broken ledger or one that fails its `--anchor`, or `backup verify` found an invalid archive. |
 | 5 | `diagnose --baseline`: the base could not be mapped. |
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
@@ -287,13 +287,13 @@ Run lifecycle. Hooks enforce policy only while a run is active, and only in the 
 
 ## State, audit and operations
 
-### `unknot audit verify | export [--out file] [--after seq] [--limit N]`
+### `unknot audit verify [--anchor file] | checkpoint [--out file] | export [--out file] [--after seq] [--limit N]`
 
-`verify` (default) walks the ledger checking hash chain and signatures; exit 4 and the first broken event if it fails. It verifies against the audit public key in `$UNKNOT_HOME`; if the database copy differs it reports LEDGER UNTRUSTED and exits 4, and if there is no key in `$UNKNOT_HOME` it falls back to the database copy and names the `anchor` in the output. `unknot doctor` flags a mismatch and warns when the key is missing. `export` writes NDJSON, with a header line holding the audit public key, so an auditor can verify offline. Human-only from an agent's shell.
+`verify` (default) walks the ledger checking hash chain and signatures; exit 4 and the first broken event if it fails. With `--anchor <checkpoint>` the checkpoint is the only trust root: it passes only if the ledger is signed under the checkpoint's key and holds the checkpoint's head at the checkpoint's position, and otherwise exits 4 naming `key`, `truncated` or `rewritten`. `checkpoint` writes the verified head hash, event count, audit public key and time as JSON (never overwriting a file); keep it where the agent's OS user cannot write. It verifies against the audit public key in `$UNKNOT_HOME`; if the database copy differs it reports LEDGER UNTRUSTED and exits 4, and if there is no key in `$UNKNOT_HOME` it falls back to the database copy and names the `anchor` in the output. `unknot doctor` flags a mismatch and warns when the key is missing. `export` writes NDJSON, with a header line holding the audit public key, so an auditor can verify offline. Human-only from an agent's shell.
 
-### `unknot backup create <file> | verify <file> | restore <file> --to <empty-dir>` `[--passphrase-file <file>]`
+### `unknot backup create <file> | verify <file> | restore <file> --to <empty-dir>` `[--anchor <checkpoint>] [--passphrase-file <file>]`
 
-Encrypted, authenticated backup of Unknot state. The project key directory is not included. The passphrase comes from the terminal or from a mode-0600 file of at least 12 characters, never from argv or the environment. `verify` exits 4 if invalid. See [operations.md](operations.md).
+Encrypted, authenticated backup of Unknot state. The project key directory is not included. The passphrase comes from the terminal or from a mode-0600 file of at least 12 characters, never from argv or the environment. `verify` exits 4 if invalid. Without `--anchor` the ledger is checked only against the backup's own manifest, and the output says so; with `--anchor`, verify and restore refuse a ledger that does not extend the checkpoint's head under its key. See [operations.md](operations.md).
 
 ### `unknot gc [--dry-run] | gc --shred`
 

@@ -13,6 +13,7 @@ A change to any of these is governed by the semver policy below.
 | Pattern-card schema | `schemas/pattern-card.schema.json` |
 | Adapter interfaces (`id`, `version`, `kind`, `capabilities`, `extract`, `link`, ...) | `adapters/README.md` |
 | Artifact schemas: finding, graph fact, provenance, campaign, slice, approval, decision, evidence record, proof obligation, proof-bundle manifest, handoff, event, error, migration, decomposition recommendation | `schemas/*.schema.json` |
+| Audit checkpoint file (`unknot audit checkpoint`: `format: unknot-audit-checkpoint`, `version: 1`, `project_id`, `count`, `head`, `audit_public_key`, `at`), read by `--anchor` | `runtime/state/ledger.mjs` |
 | Policy input/output (operation in, `allow | ask | deny` decision with reasons out) and the organisation policy bundle format | `runtime/policy/`, spec §14 |
 
 ### Commands and skills
@@ -46,7 +47,7 @@ migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a mi
 | Node.js | 22.13 and later; CI runs 22, 24 and 26, and the exact floor 22.13.0 | `engines.node` is `>=22.13`. No npm dependencies. |
 | Operating systems | Linux and macOS (CI: ubuntu-latest, macos-latest) | Windows is not tested; use WSL2. |
 | Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against the current release. The mod (`/unknot-panel` and the scope guard) needs 2.1.287 or later; older versions ignore it and keep the settings hooks. |
-| git | Required | Worktree isolation and census depend on it. |
+| git | Required | Slice worktrees and census depend on it. |
 | python3 | Optional | Python adapter helpers, when present. |
 | helm, kustomize, terraform | Optional | Infrastructure adapters render or plan only when installed. |
 | gitleaks, semgrep | Optional | Used as extra evidence when installed; built-in secret redaction does not depend on them. |

@@ -116,8 +116,10 @@ be signed.
 
 ```
 unknot backup create <file> [--passphrase-file <0600 file>]
-unknot backup verify <file> [--passphrase-file <file>]
-unknot backup restore <file> --to <empty-dir> [--passphrase-file <file>]
+unknot backup verify <file> [--anchor <checkpoint>] [--passphrase-file <file>]
+unknot backup restore <file> --to <empty-dir> [--anchor <checkpoint>] [--passphrase-file <file>]
+unknot audit checkpoint --out <checkpoint>
+unknot audit verify --anchor <checkpoint>
 ```
 
 The passphrase is read from the terminal, or from a passphrase file for scheduled jobs.
@@ -148,6 +150,17 @@ runs the full verification before writing anything, then restores into
 `<dir>/.unknot/`, only into an empty or absent directory, and verifies the restored ledger
 again. It never overwrites.
 
+The manifest travels inside the backup, so on its own it proves only that the archive agrees
+with itself: someone who can write the state database and read the passphrase file can
+truncate the ledger and take a fresh backup that verifies. An **audit checkpoint** is the
+independent anchor. `unknot audit checkpoint --out <file>` writes the head hash, event count,
+audit public key and time of the verified ledger; store it where the agent cannot write (see
+"Isolation boundary" below). `backup verify|restore --anchor <file>` then refuses a ledger that
+does not extend that head under that key, and `audit verify --anchor <file>` checks a live or
+restored project the same way, naming `key`, `truncated` or `rewritten` on failure. A restore
+without `--anchor` says that the ledger was checked only against the backup's manifest.
+Take a checkpoint with every backup, and keep the latest one beside the escrowed keys.
+
 ### Key escrow caveat
 
 The project key directory (`<unknotHome>/projects/<project-id>/`: `audit.pem`,
@@ -163,6 +176,15 @@ or cache, so restore the key directory before running any Unknot command there.
 
 Approver keys (`<unknotHome>/approvers/`) and policy signing keys are also outside the
 backup and need their own escrow.
+
+### Isolation boundary
+
+`$UNKNOT_HOME` (keys), the state database and the repository all belong to the OS user that
+runs Claude Code. Anything that user can write, the agent can in principle write too. So
+keys, trusted organization policy and exported audit checkpoints are out of the agent's
+reach only on a **separate OS user or a separate machine** (or write-once storage that user
+cannot alter). The slice worktree isolates *changes* (a patch lands only there and only
+inside scope); it does not isolate *trust*.
 
 ### Backup cadence and objectives
 
@@ -180,13 +202,21 @@ weekly) and run `backup verify` on each new file.
 
 ### Restore drill (run at least quarterly)
 
-1. Pick the newest backup and run `unknot backup verify <file>`; expect `Backup verifies`.
+Every release tag runs a scripted version of this drill (`node scripts/restore-drill.mjs`, in
+`release.yml` and CI): map and plan a fixture, approve it with a test key, checkpoint, back
+up, wipe, restore with the checkpoint as the anchor, verify, and confirm that a restore
+against a checkpoint the backup does not extend is refused. A failure fails the release. The
+quarterly drill below is the same exercise on your real data.
+
+1. Pick the newest backup and run `unknot backup verify <file> --anchor <checkpoint>` with
+   the checkpoint kept outside the agent's reach; expect `Backup verifies` and `checked
+   against the anchor`.
 2. On a clean machine or a scratch user account, retrieve the escrowed project key
    directory into the new `UNKNOT_HOME`. Do this step once without it to confirm the
    warning described above appears and that the cache is unreadable.
-3. Run `unknot backup restore <file> --to /srv/restore-drill`; expect a verified ledger and
-   no key warning.
-4. `cd /srv/restore-drill && unknot audit verify` and `unknot status`; confirm campaigns,
+3. Run `unknot backup restore <file> --to /srv/restore-drill --anchor <checkpoint>`; expect a
+   verified ledger checked against the anchor and no key warning.
+4. `cd /srv/restore-drill && unknot audit verify --anchor <checkpoint>` and `unknot status`; confirm campaigns,
    slices and decisions match what the source reports.
 5. Read one artifact from the restored cache (for example `unknot slice <id>` for a slice
    with a proof bundle) to prove the keys and CAS match.
@@ -194,8 +224,9 @@ weekly) and run `backup verify` on each new file.
    deviations, and delete the drill directory.
 
 A tampered archive, a wrong passphrase, a missing manifest and a non-empty target are all
-expected to fail loudly; the unit tests in `tests/unit/enterprise/backup.test.mjs`
-exercise each.
+expected to fail loudly, as is a ledger that is truncated, rewritten or re-keyed relative to
+the checkpoint; the unit tests in `tests/unit/enterprise/backup.test.mjs` and
+`tests/unit/state/ledger.test.mjs` exercise each.
 
 ## 5. Upgrades and stored shapes
 

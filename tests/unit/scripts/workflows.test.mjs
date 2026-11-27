@@ -84,6 +84,12 @@ test('release.yml: notes come from the CHANGELOG section, not generated', () => 
   assert.doesNotMatch(text, /--generate-notes/);
 });
 
+test('release.yml: a restore drill runs before anything is published', () => {
+  const text = read('release.yml');
+  assert.match(text, /run: node scripts\/restore-drill\.mjs\n/);
+  assert.ok(text.indexOf('restore-drill.mjs') < text.indexOf('gh release create'), 'a failed drill fails the release');
+});
+
 test('release.yml: stable advance names the owner command instead of a bare 403', () => {
   const text = read('release.yml');
   assert.match(text, /git diff --quiet "\$stable" "\$sha" -- \.github\/workflows/);

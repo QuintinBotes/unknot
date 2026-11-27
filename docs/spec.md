@@ -13,7 +13,7 @@
 
 ## 1. Executive specification
 
-Unknot is an architecture-aware simplification system for existing software. It maps a codebase and its runtime, data, infrastructure, delivery, ownership, and security context; identifies unnecessary complexity; decomposes improvements into reversible slices; applies only approved slices in isolated worktrees; and proves each change against explicit behavioral and operational obligations.
+Unknot is an architecture-aware simplification system for existing software. It maps a codebase and its runtime, data, infrastructure, delivery, ownership, and security context; identifies unnecessary complexity; decomposes improvements into reversible slices; applies only approved slices, each in its own worktree (which isolates changes, not trust: keys, trusted policy and audit checkpoints need a separate OS user or machine to be out of the agent's reach); and proves each change against explicit behavioral and operational obligations.
 
 Unknot is not a formatter, a “clean code” prompt, or an autonomous rewrite engine. It is a governed modernization system that can operate from a function to a portfolio of repositories, services, databases, cloud resources, and deployment pipelines.
 
@@ -947,7 +947,7 @@ It SHALL NOT execute these against a live database.
 - Integrity and constraint checks.
 - Backfill pause/resume/retry/idempotency.
 - Count, checksum, and domain reconciliation.
-- Backup creation and isolated restore.
+- Backup creation and restore verified against an independent audit checkpoint.
 - PITR rehearsal for critical stores.
 - Permission and tenant isolation.
 - Retention and deletion propagation.
@@ -1932,7 +1932,7 @@ Deliver:
 - Runtime state machine.
 - Capability model.
 - Path and command broker.
-- Worktree isolation.
+- Change isolation in a worktree (not trust isolation: see Security).
 - Event/evidence ledger.
 - Config and policy schemas.
 - Hook enforcement.
