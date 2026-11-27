@@ -7,18 +7,37 @@ telemetry is emitted (spec §27, §16.5).
 
 1. Update `CHANGELOG.md` (migration notes included) and `COMPATIBILITY.md` if the matrix changed.
 2. Bump `version` in `package.json` and `.claude-plugin/plugin.json`; they must agree.
-3. Merge to `main` through a pull request with CI green (`npm test`, benchmark smoke, `plugin validate --strict`). `main` is protected: it accepts no direct or force pushes, and the required checks must pass on a branch that is up to date with it.
-4. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Release tags (`v*`) are immutable: a ruleset refuses moving or deleting them, so check the commit before you push the tag.
-5. `.github/workflows/release.yml` then, in a single job:
-   - checks the tag equals `v<package.json version>`;
-   - runs `npm test`;
+3. Run the live sessions: dispatch `.github/workflows/live.yml` on the release commit (it needs the
+   `ANTHROPIC_API_KEY` secret, so it stays a manual step). When it is green, add its run link to
+   the version's `CHANGELOG.md` section as `Live session: <run URL>`; that section is the release
+   notes. A release without the line has not had its live session.
+4. Merge to `main` through a pull request with CI green (`npm test`, benchmark smoke, `plugin validate --strict`). `main` is protected: it accepts no direct or force pushes, and the required checks must pass on a branch that is up to date with it. The required checks are every `test (node <version>, <os>)` job of `ci.yml` (node 22, 24 and 26 on ubuntu-latest and macos-latest, and node 22.13.0 on ubuntu-latest), `validate plugin manifest` and `upgrade from previous releases`.
+5. Optionally dry-run the gates: dispatch `release.yml` on the branch (`gh workflow run release.yml --ref <branch>`). A dispatch runs the gate jobs only; the publishing job runs for a tag.
+6. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Release tags (`v*`) are immutable: a ruleset refuses moving or deleting them, so check the commit before you push the tag.
+7. `.github/workflows/release.yml` then runs four gate jobs on the tagged commit, in parallel and
+   read-only, and publishes only when all of them pass:
+   - **tests**: checks the tag equals `v<package.json version>`, runs `npm test` and the restore
+     drill (`scripts/restore-drill.mjs`);
+   - **upgrade**: `scripts/upgrade-test.mjs --count 5`: each of the last five releases maps a
+     fixture, plans a campaign, approves its slice with a test key and applies it; this commit then
+     migrates the store, and `status`, `slice`, `audit verify` and the approval binding must still
+     work;
+   - **consistency**: maps the quick corpus (`scripts/accuracy.mjs --quick`) and runs the
+     cross-command consistency check (`scripts/consistency.mjs`) on every repository;
+   - **benchmark**: `scripts/bench.mjs --sizes 10k --release-gate`: a no-change re-map at most 0.1
+     of the cold map and a re-map after a 10-file change at most 0.5 of it (`RELEASE_GATES`). The
+     other two #88 bounds (a changed re-map at most twice the no-change one, the store at most three
+     times the tree) are reported in the job log but not gated, because `main` does not meet them
+     yet (#145); they move into `RELEASE_GATES` once it does.
+
+   The publishing job then:
    - runs `node scripts/build-release.mjs --out dist`;
    - runs `node scripts/verify-release.mjs dist`;
    - attests the tarball and the SBOM with `actions/attest-build-provenance` (Sigstore);
    - creates the GitHub release with `gh release create` using `GITHUB_TOKEN`, uploading the tarball,
      `SHA256SUMS` and `sbom.cdx.json`.
 
-Only that job holds `contents: write`, `id-token: write` and `attestations: write`; every other
+Only the publishing job holds `contents: write`, `id-token: write` and `attestations: write`; every other
 workflow runs with `permissions: {}` or read-only scope, and every action is pinned to a full
 commit SHA.
 
@@ -29,8 +48,8 @@ quick corpus every week and runs the cross-command consistency check on each map
 (see `docs/accuracy.md`). Before tagging, open the latest run: consistency must be green, and the
 step summary's change since the previous run should have no drop you cannot explain. If the
 change you are releasing touches detectors or the graph, dispatch the workflow on the release
-branch first. Nothing gates a release on these numbers automatically yet; the review is a human
-step, and the results go into the release notes.
+branch first. Consistency gates the release (above); precision and recall do not yet, so reviewing
+them is a human step, and the results go into the release notes.
 
 ### How long fixes may wait
 
@@ -156,4 +175,4 @@ read from the repository.
 
 ## Claude Code pin
 
-`ci.yml` validates the plugin with a pinned Claude Code and `live.yml` installs the same version; a non-blocking CI job checks the latest. `.github/workflows/bump-claude-pin.yml` runs weekly (and on demand), and when npm has a newer version it opens one pull request on the fixed branch `automation/bump-claude-code-pin` that updates both pins; a rerun updates that PR. A pull request opened with `GITHUB_TOKEN` does not trigger CI, so the owner reruns the checks or closes and reopens it before merging.
+`ci.yml` validates the plugin with a pinned Claude Code and `live.yml` installs the same version; a non-blocking CI job checks the latest. `.github/workflows/bump-claude-pin.yml` runs weekly (and on demand), and when npm has a newer version it opens one pull request on the fixed branch `automation/bump-claude-code-pin` that updates both pins and the tested profile in `COMPATIBILITY.md`; a rerun updates that PR. A pull request opened with `GITHUB_TOKEN` does not trigger CI, so the owner reruns the checks or closes and reopens it before merging.

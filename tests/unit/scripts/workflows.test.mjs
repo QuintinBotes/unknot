@@ -90,6 +90,24 @@ test('release.yml: a restore drill runs before anything is published', () => {
   assert.ok(text.indexOf('restore-drill.mjs') < text.indexOf('gh release create'), 'a failed drill fails the release');
 });
 
+test('release.yml: publishing waits for the upgrade, consistency and benchmark gates; a dispatch runs only the gates', () => {
+  const text = read('release.yml');
+  const wf = parseYAML(text, { filename: 'release.yml' });
+  assert.ok('workflow_dispatch' in wf.on && wf.on.push.tags);
+  const gates = { test: /npm test/, upgrade: /node scripts\/upgrade-test\.mjs --count 5/, consistency: /node scripts\/consistency\.mjs --work/, bench: /node scripts\/bench\.mjs --sizes \w+ --release-gate/ };
+  const run = (job) => job.steps.map((s) => s.run ?? '').join('\n');
+  for (const [id, re] of Object.entries(gates)) {
+    assert.match(run(wf.jobs[id]), re, id);
+    assert.deepEqual(wf.jobs[id].permissions, { contents: 'read' }, `${id} only reads`);
+  }
+  assert.match(run(wf.jobs.consistency), /scripts\/accuracy\.mjs --quick/, 'the quick corpus is mapped before consistency');
+  assert.equal(wf.jobs.upgrade.steps[0].with['fetch-depth'], 0, 'the upgrade test needs the release tags');
+  const release = wf.jobs.release;
+  assert.deepEqual([...release.needs].sort(), Object.keys(gates).sort());
+  assert.match(release.if, /github\.event_name == 'push'/);
+  assert.doesNotMatch(run(release), /npm test|upgrade-test|consistency|bench\.mjs/, 'gates run in their own jobs, before this one');
+});
+
 test('release.yml: stable advance names the owner command instead of a bare 403', () => {
   const text = read('release.yml');
   assert.match(text, /git diff --quiet "\$stable" "\$sha" -- \.github\/workflows/);

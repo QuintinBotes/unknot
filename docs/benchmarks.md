@@ -45,6 +45,11 @@ adapters, history length) will move them.
   ratios on a pinned public repository, with one edited file as the change. Ratios rather than
   times keep the bounds the same on every machine, but a machine whose file opens are slow
   (an endpoint scanner, a cold disk) inflates the census, which every map pays, and so moves them.
+- **Release gate** (`--release-gate`, #154): `release.yml` runs `--sizes 10k --release-gate` and
+  publishes only when the ratios of `RELEASE_GATES` hold: a no-change re-map at most 0.1 of the
+  cold map and a re-map after the small change at most 0.5 of it. Those are the bounds `main`
+  meets; the other two #88 ratios are printed but not gated until it meets them (#145). On an
+  Apple M5 Max the 10k tier gave 0.017 and 0.159 (cold 15.5 s, no change 0.3 s, 10 changed 2.5 s).
 
 Results are written as `results.json` and `results.md` in the output directory (default: the system
 temp directory).

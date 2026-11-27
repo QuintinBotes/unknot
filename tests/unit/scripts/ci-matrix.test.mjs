@@ -38,3 +38,31 @@ test('a test job runs the engines floor exactly, on ubuntu', () => {
     `matrix.include needs node ${exact} on ubuntu-latest`,
   );
 });
+
+// COMPATIBILITY "Tested profile": each row says what CI exercises, checked against its source (#154).
+const profile = Object.fromEntries(
+  [...(compat.split('## Tested profile')[1] ?? '').split('\n## ')[0].matchAll(/^\| ([^|]+?) \| ([^|]+?) \| [^|]+ \|$/gm)].map((m) => [m[1], m[2]]),
+);
+const listed = (cell) => cell.split(/,| and /).map((s) => s.trim()).filter(Boolean);
+
+test('the tested profile names exactly the OS and Node.js versions the CI matrix runs', () => {
+  assert.deepEqual(listed(profile.OS).sort(), [...matrix.os].sort());
+  const ran = [...matrix.node, ...(matrix.include ?? []).map((i) => i.node)].map(String);
+  assert.deepEqual(listed(profile['Node.js']).map((s) => s.replace(/ on .*/, '')).sort(), [...new Set(ran)].sort());
+  for (const i of matrix.include ?? []) assert.ok(profile['Node.js'].includes(`${i.node} on ${i.os}`), `Node.js row names ${i.node} on ${i.os}`);
+});
+
+test('the tested profile names the pinned Claude Code version', () => {
+  const pin = readFileSync(root('.github/workflows/ci.yml'), 'utf8').match(/claude-code@(\d+\.\d+\.\d+) plugin validate/)[1];
+  assert.equal(profile['Claude Code'], `\`@anthropic-ai/claude-code@${pin}\``);
+});
+
+test('the tested profile names the benchmark languages, the release benchmark tier and every mode', () => {
+  const shape = JSON.parse(readFileSync(root('tests/fixtures/bench/shape.json'), 'utf8'));
+  const names = { ts: 'TypeScript', py: 'Python', cs: 'C#', java: 'Java', go: 'Go' };
+  assert.deepEqual(listed(profile['Languages and analysis depth'].split(';')[0]).sort(), Object.keys(shape.languageMix).map((k) => names[k]).sort());
+  const tier = readFileSync(root('.github/workflows/release.yml'), 'utf8').match(/scripts\/bench\.mjs --sizes (\w+) --release-gate/)[1];
+  assert.equal(profile['Largest repository measured'], `${shape.sizes[tier].toLocaleString('en-US')} files`);
+  const modes = JSON.parse(readFileSync(root('schemas/config.schema.json'), 'utf8')).properties.mode.enum;
+  assert.deepEqual(listed(profile.Modes), modes);
+});

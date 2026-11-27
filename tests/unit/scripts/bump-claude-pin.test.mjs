@@ -5,6 +5,7 @@ import { bumpPin } from '../../../scripts/bump-claude-pin.mjs';
 
 const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const live = readFileSync(new URL('../../../.github/workflows/live.yml', import.meta.url), 'utf8');
+const compat = readFileSync(new URL('../../../COMPATIBILITY.md', import.meta.url), 'utf8');
 const pin = (t) => t.match(/claude-code@(\d+\.\d+\.\d+)/)[1];
 
 test('bump pin: a newer version rewrites both files to the same pin', () => {
@@ -13,6 +14,7 @@ test('bump pin: a newer version rewrites both files to the same pin', () => {
   assert.equal(pin(a), '2.1.999');
   assert.equal(pin(b), '2.1.999');
   assert.match(a, /claude-code@latest plugin validate/);
+  assert.equal(pin(bumpPin(compat, '2.1.999')), '2.1.999', 'the tested profile in COMPATIBILITY.md moves with the pin');
 });
 
 test('bump pin: equal, older and unparsable versions change nothing', () => {

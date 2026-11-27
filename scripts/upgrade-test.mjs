@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Upgrade test: a project mapped by an earlier release must keep working, in place, on this
 // checkout. For each of the last N release tags: `git archive` the tag, run init, map, diagnose
-// and decompose with it on a fixture project (C#, TypeScript, Python), then run map, diagnose,
-// decompose, status and doctor with the current checkout on the same project, and check that
-// the state migrated, stable things stayed stable and nothing is left broken.
+// and decompose with it on a fixture project (C#, TypeScript, Python), plan a campaign, approve
+// its slice with a test approver key and apply it (scripts/lib/upgrade-slice.mjs), then run map,
+// diagnose, decompose, status, slice show, audit verify and doctor with the current checkout on
+// the same project, and check that the state migrated, the ledger and the approval still verify,
+// stable things stayed stable and nothing is left broken. Release gate (release.yml).
 //
 // Usage: node scripts/upgrade-test.mjs [--count N] [--tags v0.1.14,v0.1.15] [--keep] [--verbose]
 // Needs the release tags in the clone (CI: fetch-depth 0). Exit 1 when any upgrade fails.
@@ -122,6 +124,22 @@ function cli(bin, project, home, argv) {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, json };
 }
 
+/** Run scripts/lib/upgrade-slice.mjs against one runtime; its JSON line, or {error}. */
+function slice(mode, bin, project, home, id) {
+  const r = spawnSync(process.execPath, [join(root, 'scripts/lib/upgrade-slice.mjs'), mode, join(bin, 'runtime'), project, ...(id ? [id] : [])], {
+    cwd: project,
+    encoding: 'utf8',
+    timeout: 300_000,
+    env: { ...process.env, UNKNOT_HOME: home, CLAUDE_PLUGIN_ROOT: bin, NO_COLOR: '1' },
+  });
+  if (r.status !== 0) return { error: `exit ${r.status}: ${(r.stderr || r.stdout).split('\n').find((l) => /Error|UK_/.test(l)) ?? r.stderr.slice(-300)}` };
+  try {
+    return JSON.parse(r.stdout.trim().split('\n').at(-1));
+  } catch {
+    return { error: `no JSON on stdout: ${r.stdout.slice(0, 200)}` };
+  }
+}
+
 const storeMeta = (project) => {
   const db = new DatabaseSync(join(project, '.unknot/state/unknot.db'), { readOnly: true });
   try {
@@ -169,6 +187,9 @@ function upgradeFrom(tag, work) {
   const dOld = step(old, `${tag} diagnose`, ['diagnose', '--json']);
   step(old, `${tag} decompose`, ['decompose', '--json']);
   if (problems.length) return { tag, problems, note };
+  // ... and carries a campaign, a signed plan approval, an applied slice and ledger events across.
+  const built = slice('build', old, project, home);
+  if (built.error) return { tag, problems: [`${tag} plan, approve and apply: ${built.error}`], note };
   const oldFindings = new Map((dOld.json?.findings ?? []).map((f) => [f.fingerprint, f]));
   const oldRecords = records(project);
   if (!oldFindings.size) fail('the fixture produced no findings with the earlier release: the stability check would prove nothing');
@@ -182,6 +203,9 @@ function upgradeFrom(tag, work) {
   const list = step(root, 'decompose list', ['decompose', 'list', '--json']);
   const st = step(root, 'status', ['status', '--json']);
   const doc = step(root, 'doctor', ['doctor', '--json']);
+  const shown = step(root, 'slice show', ['slice', built.slice, '--json']);
+  step(root, 'audit verify', ['audit', 'verify']);
+  const bound = slice('check', root, project, home, built.slice);
   note.push(`schema ${before.schema_version ?? 'none'} -> ${storeMeta(project).schema_version}`);
 
   // The store migrated: opened by this checkout, recorded as current, and still at a
@@ -246,6 +270,21 @@ function upgradeFrom(tag, work) {
   const staleTests = oldRecords.filter((o) => (o.candidate?.modules ?? []).some((mod) => /qa\/Shop\.Checks\//.test(mod))).length;
   note.push(`${oldFindings.size} findings, ${oldRecords.length} records (${reused} reused by fingerprint, ${supersedes.size} superseded, ${staleTests} had test members)`);
   note.push(`first map extracted ${m.json?.cache?.extracted ?? '?'}`);
+
+  // The campaign, the slice, its approval and the ledger came across.
+  if (!JSON.stringify(st.json ?? {}).includes(built.campaign)) fail(`status does not list campaign ${built.campaign}`);
+  const shownState = shown.json?.state ?? shown.json?.slice?.state;
+  if (shownState !== built.state) fail(`slice show ${built.slice}: state ${shownState}, the earlier release left it ${built.state}`);
+  if (bound.error) fail(`approval check: ${bound.error}`);
+  else {
+    // Everything the approval binds must still verify under this checkout; only a changed
+    // effective config (new defaults) may make it stale, and then a person approves again.
+    if (!bound.approvals) fail(`no plan approval signed by ${tag} survived the upgrade`);
+    else if (!bound.bound) fail(`the plan approval signed by ${tag} does not verify here: ${JSON.stringify(bound.bound_stale).slice(0, 200)}`);
+    const other = (bound.stale ?? []).flatMap((s) => s.reasons).filter((r) => r !== 'policy_digest changed');
+    if (other.length) fail(`the plan approval signed by ${tag} went stale for ${[...new Set(other)].join(', ')}`);
+  }
+  note.push(`${built.slice} ${built.state}, ${built.events} events, approval ${bound.satisfied ? 'still satisfied' : 'verifies, re-approval needed (effective config changed)'}`);
 
   // Nothing broken.
   if (st.json) {

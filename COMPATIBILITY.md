@@ -46,7 +46,7 @@ migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a mi
 | --- | --- | --- |
 | Node.js | 22.13 and later; CI runs 22, 24 and 26, and the exact floor 22.13.0 | `engines.node` is `>=22.13`. No npm dependencies. |
 | Operating systems | Linux and macOS (CI: ubuntu-latest, macos-latest) | Windows is not tested; use WSL2. |
-| Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against the current release. The mod (`/unknot-panel` and the scope guard) needs 2.1.287 or later; older versions ignore it and keep the settings hooks. |
+| Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against a pinned version (see Tested profile); the latest is also validated, without blocking. The mod (`/unknot-panel` and the scope guard) needs 2.1.287 or later; older versions ignore it and keep the settings hooks. |
 | git | Required | Slice worktrees and census depend on it. |
 | python3 | Optional | Python adapter helpers, when present. |
 | helm, kustomize, terraform | Optional | Infrastructure adapters render or plan only when installed. |
@@ -54,6 +54,26 @@ migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a mi
 
 Optional tools are detected at run time (`/unknot:doctor` reports them) and are never bundled; a
 missing tool reduces evidence and is reported, never silently ignored.
+
+## Tested profile
+
+What CI and the release gates exercise, and nothing more. A test (`tests/unit/scripts/ci-matrix.test.mjs`)
+checks each row against `ci.yml`, `release.yml`, the benchmark shape and the config schema, so this
+table cannot drift from them.
+
+| Dimension | Tested | Where |
+| --- | --- | --- |
+| OS | ubuntu-latest, macos-latest | `ci.yml` test matrix: the full suite on each OS and Node.js pair |
+| Node.js | 22, 24, 26, and 22.13.0 on ubuntu-latest | `ci.yml` test matrix; the release gates run on 22 |
+| Claude Code | `@anthropic-ai/claude-code@2.1.289` | `ci.yml` validate-plugin (strict) and `live.yml`, the same pin |
+| Languages and analysis depth | TypeScript, Python, C#, Java, Go; lexical analysis by the built-in adapters | `scripts/bench.mjs` fixtures and the test suite; no SCIP indexer runs in CI |
+| Largest repository measured | 10,000 files | `release.yml` benchmark gate (generated fixture); pull requests run the 300-file smoke |
+| Modes | observe, plan, assist, governed, campaign | unit and integration tests |
+
+Everything else is **untested**: Windows, other Node.js versions, other Claude Code versions (the
+latest is validated but does not block), semantic analysis through SCIP indexers, and repositories
+larger than 10,000 files in CI. `docs/benchmarks.md` records manual measurements beyond that
+(generated tiers to 250,000 files, a 30,800-file C# monolith); they are not repeated by CI.
 
 ## Semver policy
 

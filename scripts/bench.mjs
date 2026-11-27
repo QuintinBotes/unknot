@@ -4,7 +4,7 @@
 // running this script on a stated machine; docs/benchmarks.md records one such run and how to
 // reproduce it.
 //
-//   node scripts/bench.mjs [--quick] [--large] [--sizes 1k,50k,250k,1m] [--out <dir>] [--work <dir>] [--keep]
+//   node scripts/bench.mjs [--quick] [--large] [--sizes 1k,50k,250k,1m] [--gate] [--release-gate] [--out <dir>] [--work <dir>] [--keep]
 //
 // Each size runs in its own child process so `maxRSS` (a process-lifetime high-water mark)
 // is attributable to that size alone. Fixtures are generated under --work (default: the system
@@ -205,14 +205,24 @@ function dirSize(dir, skip = []) {
  */
 export const GATES = Object.freeze({ unchanged_vs_cold: 0.1, changed_vs_unchanged: 2, store_vs_tree: 3 });
 
-/** The ratios of one result (`cold`, `unchanged`, `incremental` wall times; `store_bytes`, `tree_bytes`) and those over their bound. */
+/**
+ * What a release is gated on (`--release-gate`, release.yml, #154): only bounds main meets on a
+ * GitHub runner at the 10k tier, a no-change re-map at most 0.1 of the cold map and a re-map
+ * after a 10-file change at most half of it. The other two #88 bounds are still missed (#145) and
+ * are reported, not gated; move them here once main meets them.
+ */
+export const RELEASE_GATES = Object.freeze({ unchanged_vs_cold: 0.1, changed_vs_cold: 0.5 });
+
+const RATIOS = {
+  unchanged_vs_cold: (r) => r.unchanged.wall_ms / r.cold.wall_ms,
+  changed_vs_unchanged: (r) => r.incremental.wall_ms / r.unchanged.wall_ms,
+  store_vs_tree: (r) => r.store_bytes / r.tree_bytes,
+  changed_vs_cold: (r) => r.incremental.wall_ms / r.cold.wall_ms,
+};
+
+/** The ratios `bounds` names for one result (`cold`, `unchanged`, `incremental` wall times; `store_bytes`, `tree_bytes`) and those over their bound. */
 export function gate(r, bounds = GATES) {
-  const ratios = {
-    unchanged_vs_cold: r.unchanged.wall_ms / r.cold.wall_ms,
-    changed_vs_unchanged: r.incremental.wall_ms / r.unchanged.wall_ms,
-    store_vs_tree: r.store_bytes / r.tree_bytes,
-  };
-  for (const k of Object.keys(ratios)) ratios[k] = +ratios[k].toFixed(3);
+  const ratios = Object.fromEntries(Object.keys(bounds).map((k) => [k, +RATIOS[k](r).toFixed(3)]));
   return { ratios, over: Object.keys(bounds).filter((k) => !(ratios[k] <= bounds[k])) };
 }
 
@@ -344,6 +354,7 @@ async function main() {
   }
   const machine = machineDescription();
   for (const r of results) r.gate = gate(r);
+  if (flag('--release-gate')) for (const r of results) r.release_gate = gate(r, RELEASE_GATES);
   writeFileSync(join(out, 'results.json'), `${JSON.stringify({ machine, shape: SHAPE, gates: GATES, results }, null, 2)}\n`);
   const md = toMarkdown(machine, results);
   writeFileSync(join(out, 'results.md'), md);
@@ -353,6 +364,12 @@ async function main() {
   if (flag('--gate') && over.length) {
     for (const r of over) process.stderr.write(`bench gate: ${r.label} ${r.gate.over.map((k) => `${k} ${r.gate.ratios[k]} > ${GATES[k]}`).join(', ')}\n`);
     process.exitCode = 1;
+  }
+  // --release-gate: fail when a ratio of RELEASE_GATES is over its bound.
+  for (const r of results.filter((x) => x.release_gate)) {
+    const line = Object.keys(RELEASE_GATES).map((k) => `${k} ${r.release_gate.ratios[k]} (bound ${RELEASE_GATES[k]})`).join(', ');
+    process.stdout.write(`release gate ${r.label}: ${r.release_gate.over.length ? 'FAILED' : 'ok'}: ${line}\n`);
+    if (r.release_gate.over.length) process.exitCode = 1;
   }
 }
 
