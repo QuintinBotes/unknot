@@ -270,6 +270,16 @@ test('grants, policies, row level security, comments', () => {
 
 // ------------------------------------------------------------------ DML / SELECT
 
+test('DML: a T-SQL UPDATE or DELETE of an alias writes the aliased table, never a table named after the alias', () => {
+  assert.deepEqual(one('UPDATE t SET t.a = s.a FROM orders t JOIN src s ON s.id = t.id').table, { schema: null, name: 'orders' });
+  assert.deepEqual(one('DELETE t FROM orders AS t JOIN x ON x.id = t.id', { dialect: 'tsql' }).table, { schema: null, name: 'orders' });
+  // The aliased table is interpolated, so which table is written is unknown, not `target`.
+  assert.equal(one('UPDATE target SET target.[x] = src.[x] FROM [{cfg.Schema}].[{nameof(OrderItem)}] target INNER JOIN #rows src ON src.[Id] = target.[Id]').table, null);
+  // A real table that is also read after FROM, or qualified in SET, stays the target.
+  assert.deepEqual(one('UPDATE orders SET a = 1 FROM src WHERE src.id = orders.id').table, { schema: null, name: 'orders' });
+  assert.deepEqual(one('UPDATE orders o SET a = 1 FROM src WHERE src.id = o.id').table, { schema: null, name: 'orders' });
+});
+
 test('DML: target table and WHERE detection', () => {
   const u = one('UPDATE ONLY public.t SET a = 1');
   assert.deepEqual([u.kind, u.table.name, u.table.schema, u.has_where], ['update', 't', 'public', false]);

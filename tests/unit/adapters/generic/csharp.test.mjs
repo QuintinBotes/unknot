@@ -160,6 +160,31 @@ test('Entity Framework: fluent ToTable names the table, owned by the entity file
   assert.deepEqual(owns('orders'), [], 'explicit mapping replaces the DbSet name guess');
 });
 
+test('Entity Framework: Add on a DbSet member is a write, Add on an ordinary collection of the same name is not', () => {
+  const ctx = 'namespace Shop.Data\n{\n    public class Ctx : DbContext\n    {\n        public DbSet<Message> Messages { get; set; }\n        public void Post(Message m) { Messages.Add(m); }\n    }\n}\n';
+  const g = build({
+    'D/Message.cs': cls('Shop.Data', 'Message'),
+    'D/Ctx.cs': ctx,
+    'S/Poster.cs': cls('Shop.Services', 'Poster', '        public void Post(Ctx db, Message m) { db.Messages.Add(m); }'),
+    'S/Collector.cs': cls('Shop.Services', 'Collector', '        public List<string> Messages { get; } = new List<string>();\n        public void Log(string m) { Messages.Add(m); }'),
+    'S/Component.cs': cls('Shop.Services', 'Component', '        private MessageComponent Messages { get; set; }\n        public void Send() { this.Messages.Add("x"); }'),
+    'S/Inherited.cs': cls('Shop.Services', 'Inherited', '        public void Post(Message m) { Messages.Add(m); }'),
+  });
+  const writes = (from) => g.edges('MUTATES', from).filter((e) => e.to === 'table:messages');
+  // Scenario 2: the DbSet written through a context, and inside the context, is a write as before.
+  assert.equal(writes('S/Poster.cs').length, 1);
+  assert.equal(writes('S/Poster.cs')[0].provenance.confidence, 'medium');
+  assert.equal(writes('D/Ctx.cs').length, 1);
+  assert.equal(writes('D/Ctx.cs')[0].provenance.confidence, 'medium');
+  // Scenario 1: a member declared here as a List or another type is not a table.
+  assert.deepEqual(writes('S/Collector.cs'), []);
+  assert.deepEqual(writes('S/Component.cs'), []);
+  // Scenario 4: a member with no declaration in the file (inherited) is an inferred, low-confidence write.
+  const inherited = writes('S/Inherited.cs');
+  assert.equal(inherited.length, 1);
+  assert.deepEqual([inherited[0].provenance.source_type, inherited[0].provenance.confidence], ['inference', 'low']);
+});
+
 test('link-only name sets are not left in persisted module attrs', () => {
   const g = build({ 'A/X.cs': cls('N', 'X'), 'A/Y.cs': cls('N', 'Y', '        X x;') });
   for (const facts of g.factsByFile.values()) {

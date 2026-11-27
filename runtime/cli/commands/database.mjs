@@ -14,6 +14,7 @@ function render(inv) {
   out.push(`Table ownership: ${inv.ownership.status}${inv.ownership.sources.length ? ` (from ${inv.ownership.sources.join(', ')})` : ' (no ORM mapping, statistics import or ownership file)'}`);
   const groups = Object.entries(inv.writers_by_group);
   if (groups.length) out.push('Writers by module group:', ...groups.map(([g, t]) => `  ${g}: ${t.slice(0, 8).join(', ')}${t.length > 8 ? `, +${t.length - 8} more` : ''}`));
+  if (inv.test_writers.modules) out.push(`Test writers (not counted as owners): ${inv.test_writers.modules} test module(s) write ${inv.test_writers.tables.length} table(s)`);
   out.push('', `Shared-writer tables: ${inv.shared_writer_tables.length}`);
   if (inv.shared_writer_tables.length) out.push(table(inv.shared_writer_tables.map((t) => ({ table: t.table, writers: t.writers.join(', ') })), ['table', 'writers']));
   out.push('', `Hazardous migrations: ${inv.hazardous_migrations.length}`);

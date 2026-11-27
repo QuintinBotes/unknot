@@ -906,6 +906,23 @@ function depthZeroHas(tokens, word, from = 0) {
   return false;
 }
 
+// Whether `name` stands as an alias after a top-level FROM: it follows a table reference rather
+// than a keyword or punctuation, and is not qualifying a column (`target.[Id]`).
+function aliasedAfterFrom(tokens, name) {
+  let depth = 0;
+  let from = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.t === 'punct') { if (t.v === '(') depth++; else if (t.v === ')') depth--; continue; }
+    if (depth) continue;
+    if (t.t === 'word' && t.u === 'FROM') { from = true; continue; }
+    if (!from || !isIdent(t) || identValue(t) !== name || tokens[i + 1]?.v === '.') continue;
+    const prev = tokens[i - 1];
+    if (prev?.u === 'AS' || (prev?.t === 'punct' && [']', '"', '`'].includes(prev.v)) || (prev && isIdent(prev) && !NOT_ALIAS.has(prev.u))) return true;
+  }
+  return false;
+}
+
 function parseDml(tokens, src, st, verb) {
   const { tables, joins, ctes } = extractTables(tokens, src);
   st.kind = verb.toLowerCase() === 'replace' ? 'insert' : verb.toLowerCase();
@@ -918,6 +935,14 @@ function parseDml(tokens, src, st, verb) {
     const c = new Cur(tokens, src); c.i = i + 1;
     const nm = parseName(c);
     if (nm) st.table = nm;
+  }
+  // T-SQL `UPDATE t SET ... FROM orders t` (and `DELETE t FROM orders t`): the target is an alias, so it
+  // is the table it names, or unknown when that table is not readable (`FROM [{schema}].[{name}] t`).
+  if (['update', 'delete'].includes(st.kind) && st.table && !st.table.schema) {
+    const name = st.table.name;
+    const named = tables.find((t) => t.role === 'read' && t.alias === name);
+    if (named) st.table = { schema: named.schema, name: named.name };
+    else if (aliasedAfterFrom(tokens, name)) st.table = null;
   }
   st.reads = tables.filter((t) => t !== write && t.role === 'read').map(stripRole);
   st.joins = joins;

@@ -21,7 +21,9 @@
 //   convention the key into CONVENTIONS that names the table when the code does not
 //   texts      mappings that are a shape in the text rather than part of a type: a call that
 //              names a table, a method that returns one, a fluent configuration
-//   collections  a typed collection member that maps its element type (`DbSet<T> Name`)
+//   collections  a typed collection member that maps its element type (`DbSet<T> Name`); `type`
+//              is what that member's declared type looks like, so a member of the same name
+//              declared with another type (`List<string> Messages`) is not one
 //   access     the verbs that read or write through the mapped type, by how it is reached:
 //              `static` (`Entity.verb()`, optionally through a named manager), `arg` (the type
 //              is the argument of the call) and `member` (a collection member)
@@ -137,7 +139,7 @@ export const ORM_SYNTAX = [
         follow: (m) => new RegExp(`\\b${m[2]}\\s*\\.ToTable\\(\\s*@?"([^"]*)"`), followWindow: 4000, followTable: 1,
       },
     ],
-    collections: { re: /\bDbSet<\s*([\w.]+)\s*>\s+(\w+)/g, entity: 1, member: 2, convention: 'snake' },
+    collections: { re: /\bDbSet<\s*([\w.]+)\s*>\s+(\w+)/g, entity: 1, member: 2, convention: 'snake', type: /^I?DbSet\s*</ },
     access: {
       member: {
         [WRITE]: ['Add', 'AddAsync', 'AddRange', 'AddRangeAsync', 'Remove', 'RemoveRange', 'Update', 'UpdateRange', 'Attach'],
@@ -464,23 +466,36 @@ const SEP = /\s*(?:\?\.|\.|::|->)\s*/;
 const CHAIN = /([A-Za-z_$][\w$]*(?:\s*(?:\?\.|\.|::|->)\s*[A-Za-z_$][\w$]*[!?]?)+)(\s*\()?/g;
 const ARG = /^\s*(?:&|new\s+)?(?:\(\s*)?([A-Z]\w*)(?=\s*[({),]|\.class\b|::class\b|\s*$)/;
 const MAX_ACCESS = 400;
+const NOT_TYPE = new Set(['return', 'await', 'yield', 'throw', 'new', 'in', 'is', 'as', 'case', 'else', 'out', 'ref', 'var', 'params', 'using']);
+
+/** The type `name` is declared with in `text` (`List<string> Messages {`, `DbSet<T> Orders;`), or null. */
+function declaredType(text, name) {
+  const re = new RegExp(`([\\w.]+(?:\\s*<[^;{}()=]*>)?\\??(?:\\[\\])?)\\s+${name}\\s*(?:[{;=]|$)`, 'gm');
+  for (const m of text.matchAll(re)) if (!NOT_TYPE.has(m[1])) return m[1];
+  return null;
+}
 
 /**
  * Calls in `text` that could reach a mapped type, without knowing which types are mapped (they
  * may be declared in another file): `{ n, v, via, l }` is a call of verb `v` on name `n`, `via`
  * being the path between them, '@arg' when `n` is the call's argument and '@member' when `n` is
  * the member the call is made on. link resolves them with `ormAccess`.
+ * A member called with no receiver (`Messages.Add(x)`, `this.Orders.Add(x)`) belongs to this
+ * class, so its declaration here decides: an ORM set is a candidate, any other type
+ * (`List<string> Messages`) is not, and no declaration in the file makes it `u` (unresolved).
  */
 export function accessCandidates(text, lang, lineOf) {
   if (!ormLanguages(lang)) return [];
   const parenless = lang === L.RUBY;
+  const setTypes = ormRowsFor(lang).map((r) => r.collections?.type).filter(Boolean);
+  const types = new Map(); // member name -> its declared type here, read once per name
   const out = [];
   const seen = new Set();
-  const add = (n, v, via, off) => {
+  const add = (n, v, via, off, u) => {
     const k = `${n}|${v}|${via}`;
     if (seen.has(k) || out.length >= MAX_ACCESS) return;
     seen.add(k);
-    out.push({ n, v, via, l: lineOf(off) });
+    out.push({ n, v, via, l: lineOf(off), ...(u && { u: 1 }) });
   };
   CHAIN.lastIndex = 0;
   for (const m of text.matchAll(CHAIN)) {
@@ -489,7 +504,14 @@ export function accessCandidates(text, lang, lineOf) {
     const v = segs[segs.length - 1];
     if (!ALL_VERBS.has(v)) continue;
     if (/^[A-Z]/.test(segs[0])) add(segs[0], v, segs.slice(1, -1).join('.'), m.index);
-    if (segs.length >= 2 && /^[A-Z]/.test(segs[segs.length - 2])) add(segs[segs.length - 2], v, '@member', m.index);
+    if (segs.length >= 2 && /^[A-Z]/.test(segs[segs.length - 2])) {
+      const name = segs[segs.length - 2];
+      const own = setTypes.length && (segs.length === 2 || (segs.length === 3 && /^(?:this|base)$/.test(segs[0])));
+      if (own && !types.has(name)) types.set(name, declaredType(text, name.replace(/[!?]$/, '')));
+      const type = own ? types.get(name) : null;
+      if (!own || !type) add(name, v, '@member', m.index, own);
+      else if (setTypes.some((t) => t.test(type))) add(name, v, '@member', m.index);
+    }
     if (m[2]) {
       const arg = ARG.exec(text.slice(m.index + m[0].length, m.index + m[0].length + 120));
       if (arg) add(arg[1], v, '@arg', m.index);
@@ -613,7 +635,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
       const key = `${type}|${path}|${hit.id}`;
       if (done.has(key)) continue;
       done.add(key);
-      out.push(edgeFact(type, `module:${path}`, `table:${hit.id}`, { via: 'orm', orm: hit.orm, entity: c.n, kind: c.v, line: c.l }, pv(path, c.l)));
+      out.push(edgeFact(type, `module:${path}`, `table:${hit.id}`, { via: 'orm', orm: hit.orm, entity: c.n, kind: c.v, line: c.l }, c.u ? pv(path, c.l, 'low') : pv(path, c.l)));
     }
   }
   return out;

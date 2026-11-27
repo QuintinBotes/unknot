@@ -62,7 +62,8 @@ function writersOf(graph, tid) {
   const owners = new Map();
   for (const e of graph.in(tid, 'MUTATES')) {
     const src = graph.node(e.from);
-    if (!src || ['query', 'plan', 'migration'].includes(src.type)) continue;
+    // A test that writes a table does not make its package an owner of it.
+    if (!src || ['query', 'plan', 'migration'].includes(src.type) || src.attrs?.is_test === true) continue;
     const o = ownerOf(graph, src.id);
     if (!owners.has(o)) owners.set(o, []);
     owners.get(o).push(src.id);
