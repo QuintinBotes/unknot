@@ -232,3 +232,22 @@ test('scope limits the views to paths under it', () => {
   assert.doesNotMatch(r.views.landscape.mermaid, /repositories/);
   assert.match(r.views.landscape.mermaid, /controllers/);
 });
+
+test('views do not rescan a hub node\'s in-edges per edge (#157)', () => {
+  // Every module imports one dependency and calls one method, as test projects do with NUnit
+  // on a 30k-file repository: finding a node's parent must not scan the hub's in-edges each time.
+  const facts = [node('dependency', 'NUnit', { name: 'NUnit' }), mod('src/core/lib.ts'), node('method', 'lib.run', { name: 'run' })];
+  facts.push(edge('CONTAINS', 'module:src/core/lib.ts', 'method:lib.run'));
+  const n = 3000;
+  for (let i = 0; i < n; i++) {
+    const path = `src/p${i % 30}/m${i}.ts`;
+    facts.push(mod(path), edge('IMPORTS', `module:${path}`, 'dependency:NUnit'), edge('CALLS', `module:${path}`, 'method:lib.run'));
+  }
+  const g = Graph.fromFacts(facts);
+  let scanned = 0;
+  g.in = (id, type) => { scanned += g.inIdx.get(id)?.length ?? 0; return Graph.prototype.in.call(g, id, type); };
+  const r = architectureViews(g);
+  assert.equal(Object.keys(r.timings).length, VIEWS.length + 1);
+  // Linear work is a few passes over the edges; the old per-edge scan of the hub was n * n per view.
+  assert.ok(scanned < 10 * g.size.edges, `scanned ${scanned} in-edges for ${g.size.edges} edges`);
+});

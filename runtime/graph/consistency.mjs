@@ -97,9 +97,7 @@ function withoutMember(g, r, names) {
   for (const e of g.edges()) {
     if (e.type === 'IMPORTS' && e.from === r.from && e.to === r.to) continue;
     out.edgeMap.set(e.id, e);
-    out.index(out.outIdx, e.from, e);
-    out.index(out.inIdx, e.to, e);
-    out.index(out.edgeTypeIdx, e.type, e);
+    out.indexEdge(e);
   }
   return out;
 }
