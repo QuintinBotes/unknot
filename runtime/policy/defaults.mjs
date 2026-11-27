@@ -7,6 +7,9 @@ export const modeRank = (m) => MODES.indexOf(m);
 export const RISKS = Object.freeze(['low', 'medium', 'high', 'critical']);
 export const riskRank = (r) => RISKS.indexOf(r);
 
+// Container and deployment files decide what runs and with which privileges: risky and protected by default (#149).
+export const CONTAINER_PATHS = Object.freeze(['**/Dockerfile', '**/Dockerfile.*', '**/*.dockerfile', '**/docker-compose*.yml', '**/docker-compose*.yaml', '**/compose*.yaml', '**/compose*.yml', '**/Chart.yaml', '**/helm/**', '**/charts/*/templates/**', '**/charts/*/values*.yaml']);
+
 export const DEFAULT_CONFIG = Object.freeze({
   version: 1,
   mode: 'plan',
@@ -16,7 +19,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   },
   // CI definitions and git hooks run with the project's credentials or on developers'
   // machines, so every CI system the delivery adapter parses is protected, not only GitHub's.
-  protected_paths: ['.github/workflows/**', '.gitlab-ci.yml', '.gitlab/ci/**', '.circleci/**', 'azure-pipelines.yml', '**/Jenkinsfile', '.buildkite/**', 'bitbucket-pipelines.yml', '.husky/**', '.githooks/**', '**/auth/**', '**/crypto/**', '**/migrations/**'],
+  protected_paths: ['.github/workflows/**', '.gitlab-ci.yml', '.gitlab/ci/**', '.circleci/**', 'azure-pipelines.yml', '**/Jenkinsfile', '.buildkite/**', 'bitbucket-pipelines.yml', '.husky/**', '.githooks/**', '**/auth/**', '**/crypto/**', '**/migrations/**', ...CONTAINER_PATHS],
   generated_paths: [],
   commands: {},
   limits: {

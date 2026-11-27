@@ -139,7 +139,7 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
   assert.equal(write(join(slice.worktree, 'package.json')), 'deny', 'outside slice scope');
 
   writeFileSync(join(slice.worktree, 'src/classify.mjs'), FLAT);
-  const fin = finishApply(ctx, { cfg, run, sliceId, actor: 'model:main' });
+  const fin = await finishApply(ctx, { cfg, run, sliceId, actor: 'model:main' });
   assert.match(fin.diff_hash, /^sha256:/);
 
   const v = await verifySlice(ctx, { cfg, run, sliceId, actor: 'model:main' });

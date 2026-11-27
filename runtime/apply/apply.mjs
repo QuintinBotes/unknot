@@ -15,6 +15,7 @@ import { checkDiffBudget } from '../policy/budget.mjs';
 import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
 import { modeRank, riskRank } from '../policy/defaults.mjs';
 import { assertEvidence } from '../policy/evidence.mjs';
+import { assertKindsAllowed, diffKinds, plannedKinds } from '../policy/kinds.mjs';
 import { provenDeletion, reclassifySlice, settleProven } from '../policy/proven.mjs';
 import { classifyRisk, requiredApprovals } from '../policy/risk.mjs';
 import { casPut } from '../state/cas.mjs';
@@ -76,6 +77,8 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
     throw new UnknotError('UK_POLICY_DENIED', `mode ${config.mode} does not permit patching; a human sets mode: assist (or higher) in .unknot/config.yaml`, { slice_id: sliceId, details: { policy: 'mode.write', required_mode: 'assist' } });
   }
   let slice = loadSlice(ctx, sliceId);
+  // Checked on every start, resumes included: a list narrowed since planning applies at once.
+  assertKindsAllowed(config, plannedKinds(ctx, slice.body), { sliceId, from: 'its plan' });
   if (slice.state === 'REVIEW_READY' && !(run.scope ?? []).includes(sliceId) && !String(actor).startsWith('human:')) {
     // Changes after review are the reviewer's request, so a person names the slice.
     throw new UnknotError('UK_POLICY_DENIED', `slice ${sliceId} is ready for review; going back to patching is requested by a person (/unknot:apply ${sliceId})`, { slice_id: sliceId, details: { policy: 'review.reopen' } });
@@ -148,8 +151,16 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   return { slice: loadSlice(ctx, sliceId), worktree: wt, baseline };
 }
 
+/** Whether the staged patch removes public surface, by the same API check verify runs. */
+async function publicSurfaceRemoved(ctx, { config, slice }) {
+  const { CHECKS, changedPaths, graphPair } = await import('../verify/checks.mjs');
+  const changes = changedPaths(slice.worktree, slice.baseline_commit);
+  const pair = await graphPair(ctx, { config, worktree: slice.worktree, base: slice.baseline_commit, changes });
+  return CHECKS.api({ pair, changes }).verdict === 'fail';
+}
+
 /** Stage the patch, bind its hash, move to VERIFYING. */
-export function finishApply(ctx, { cfg, run, sliceId, actor }) {
+export async function finishApply(ctx, { cfg, run, sliceId, actor }) {
   let slice = loadSlice(ctx, sliceId);
   if (slice.state !== 'PATCHING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}, not PATCHING`, { slice_id: sliceId });
   if (diffStat(slice.worktree).files === 0) throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} has no changes in its worktree`, { slice_id: sliceId });
@@ -158,6 +169,13 @@ export function finishApply(ctx, { cfg, run, sliceId, actor }) {
   // hashed and approved, whatever the worktree's own history says.
   const stat = stagedStat(slice.worktree, slice.baseline_commit);
   const budget = checkDiffBudget({ ...cfg.config.limits, ...slice.body.budgets }, stat);
+  // The diff and the API check decide the kind, not the slice's label (#149). Exports are a declared
+  // public interface unless a person set repository.publishes_api: false; the graph pair is only
+  // built when the list could refuse public-interface.
+  const allowed = cfg.config.apply?.allowed_kinds;
+  const checkApi = Array.isArray(allowed) && !allowed.includes('public-interface') && cfg.config.repository?.publishes_api !== false;
+  const removed = checkApi ? await publicSurfaceRemoved(ctx, { config: cfg.config, slice }) : false;
+  assertKindsAllowed(cfg.config, diffKinds(slice.body, stat, { publicSurfaceRemoved: removed }), { sliceId, from: 'the staged diff' });
   // Under a lane the patch itself must fit: only deletions or only tests, within its caps.
   const lane = laneOfSlice(ctx, sliceId);
   if (lane) {

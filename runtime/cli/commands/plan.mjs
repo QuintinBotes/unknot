@@ -18,9 +18,9 @@ export async function run({ positional, flags }) {
     const slices = ctx.store.all('SELECT id, state, risk, body FROM slices WHERE campaign_id = ? ORDER BY id', c.id).map((s) => {
       const body = JSON.parse(s.body);
       const st = sliceStanding({ ...s, body }, config, ctx);
-      return { id: s.id, state: s.state, risk: s.risk, objective: body.objective, risk_reasons: st.risk_reasons, approvals: st.approvals.roles, lane: st.lane, proven_deletion: st.proven_deletion };
+      return { id: s.id, state: s.state, risk: s.risk, objective: body.objective, risk_reasons: st.risk_reasons, approvals: st.approvals.roles, lane: st.lane, proven_deletion: st.proven_deletion, plan_only: st.plan_only };
     });
-    const why = slices.map((s) => `  ${s.id} ${s.risk}: ${s.risk_reasons.join('; ')}; approvals ${s.approvals.join('+')}; ${laneLine(s)}${s.proven_deletion ? `; ${provenLine(s)}` : ''}`);
+    const why = slices.map((s) => `  ${s.id} ${s.risk}: ${s.risk_reasons.join('; ')}; approvals ${s.approvals.join('+')}; ${s.plan_only ? `${s.plan_only}; ` : ''}${laneLine(s)}${s.proven_deletion ? `; ${provenLine(s)}` : ''}`);
     return output(flags.json ? { campaign: c, slices } : `${c.id}: ${c.objective}\nselected ${c.selected} (alternatives: ${c.alternatives.join(', ')})\n\n${table(slices, ['id', 'state', 'risk', 'objective'])}\n\nWhy each risk, and whether a lane can cover it:\n${why.join('\n')}`, { json: flags.json });
   }
   if (modeRank(config.mode) < modeRank('plan')) throw new UnknotError('UK_POLICY_DENIED', `mode ${config.mode} does not permit writing plans; a human sets mode: plan in .unknot/config.yaml`);
@@ -41,7 +41,7 @@ export async function run({ positional, flags }) {
     'Why each risk, and whether a lane can cover it:',
     ...res.slices.map((s) => {
       const st = standing(s);
-      return `  ${s.id} ${s.risk}: ${st.risk_reasons.join('; ')}; ${laneLine(st)}${st.proven_deletion ? `; ${provenLine(st)}` : ''}`;
+      return `  ${s.id} ${s.risk}: ${st.risk_reasons.join('; ')}; ${st.plan_only ? `${st.plan_only}; ` : ''}${laneLine(st)}${st.proven_deletion ? `; ${provenLine(st)}` : ''}`;
     }),
     '',
     'Every slice is AWAITING_APPROVAL. A human approves the exact plan in a separate terminal window:',

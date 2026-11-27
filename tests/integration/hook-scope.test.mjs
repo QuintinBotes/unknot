@@ -79,7 +79,7 @@ async function verifyHook(changes, edit) {
   const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: planned.id, config: cfg.config, configDigest: cfg.digest });
   await startApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   edit(loadSlice(ctx, planned.id).worktree);
-  finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
+  await finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   const v = await verifySlice(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   return v.results.find((r) => r.id === hook.id);
 }

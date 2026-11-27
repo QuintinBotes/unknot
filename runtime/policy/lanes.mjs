@@ -16,6 +16,7 @@ import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.
 import { isTestCode } from '../graph/census.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { holdsRole, sliceDigest } from './approvals.mjs';
+import { planOnlyReason } from './kinds.mjs';
 import { provenDeletion } from './proven.mjs';
 import { classifyRisk, requiredApprovals } from './risk.mjs';
 
@@ -34,6 +35,8 @@ export function laneProblems(slice, config, ctx = null) {
   if (needed.roles.length !== 1 || needed.min_approvers > 1) problems.push(`needs ${needed.roles.join('+')} from ${needed.min_approvers} approver(s)`);
   const touched = (slice.body.scope?.include ?? []).filter((g) => matchAny(g.replace(/\*+/g, 'x'), config.protected_paths, { nocase: true }));
   if (touched.length) problems.push(`protected paths ${touched.join(', ')}`);
+  const planOnly = planOnlyReason(ctx, slice.body, config);
+  if (planOnly) problems.push(planOnly);
   return problems;
 }
 
@@ -46,8 +49,10 @@ export function sliceStanding(slice, config, ctx = null) {
   const c = classifyRisk(slice.body, { config, surfaces: slice.body.surfaces ?? {}, proven: proof });
   const needed = requiredApprovals(c, config);
   const problems = laneProblems({ ...slice, state: slice.state === 'PLANNED' ? 'AWAITING_APPROVAL' : slice.state }, config, ctx);
+  const planOnly = planOnlyReason(ctx, slice.body, config);
   return {
     ...(proof && { proven_deletion: { qualifies: proof.qualifies, reasons: proof.reasons, problems: proof.problems } }),
+    ...(planOnly && { plan_only: planOnly }),
     risk: slice.risk,
     risk_reasons: c.reasons.length ? c.reasons : ['no risk factor found'],
     approvals: needed,

@@ -25,7 +25,7 @@ Some commands (`slice`, `config show`, `graph stats|node`, `pattern show|fit`) a
 {"error": {"code": "UK_POLICY_DENIED", "class": "policy-denied", "message": "...", "run_id": null, "slice_id": null, "retryable": false, "details": {}}}
 ```
 
-Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIALIZED`, `UK_ADAPTER_UNSUPPORTED`, `UK_BASELINE_INVALID`, `UK_SCOPE_VIOLATION`, `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_APPROVAL_STALE`, `UK_BUDGET_EXCEEDED`, `UK_TOOL_FAILED`, `UK_EVIDENCE_INCONCLUSIVE`, `UK_INSUFFICIENT_EVIDENCE`, `UK_VERIFICATION_FAILED`, `UK_STATE_CONFLICT`, `UK_RECOVERY_REQUIRED`, `UK_INTEGRITY`, `UK_WORKSPACE_UNACCEPTED`, `UK_SANDBOX_REQUIRED`. Set `UNKNOT_DEBUG=1` to print stack traces.
+Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIALIZED`, `UK_ADAPTER_UNSUPPORTED`, `UK_BASELINE_INVALID`, `UK_SCOPE_VIOLATION`, `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_APPROVAL_STALE`, `UK_BUDGET_EXCEEDED`, `UK_TOOL_FAILED`, `UK_EVIDENCE_INCONCLUSIVE`, `UK_INSUFFICIENT_EVIDENCE`, `UK_KIND_NOT_ALLOWED`, `UK_VERIFICATION_FAILED`, `UK_STATE_CONFLICT`, `UK_RECOVERY_REQUIRED`, `UK_INTEGRITY`, `UK_WORKSPACE_UNACCEPTED`, `UK_SANDBOX_REQUIRED`. Set `UNKNOT_DEBUG=1` to print stack traces.
 
 **Exit codes.**
 
@@ -34,7 +34,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | 0 | Success. |
 | 1 | Error, or a command whose job is to report a verdict found a bad one: `verify` not reaching `REVIEW_READY`, `exec` not passing, `diagnose --fail-on` with a new finding at that severity, `doctor` with a failed check, `policy verify` on an invalid policy. |
 | 2 | Unknown command, or missing or unknown subcommand for `audit`, `backup`, `graph`, `learn`, `pattern`, `policy`, `workspace`. |
-| 3 | `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_INSUFFICIENT_EVIDENCE` or `UK_SANDBOX_REQUIRED`: policy refused the operation, approvals are missing, the slice rests on lexical-only evidence, or a write mode would run a command with no OS sandbox. |
+| 3 | `UK_POLICY_DENIED`, `UK_APPROVAL_REQUIRED`, `UK_INSUFFICIENT_EVIDENCE`, `UK_SANDBOX_REQUIRED` or `UK_KIND_NOT_ALLOWED`: policy refused the operation, approvals are missing, the slice rests on lexical-only evidence, a write mode would run a command with no OS sandbox, or `apply.allowed_kinds` does not accept the slice's kind of change. |
 | 4 | Integrity failure: `audit verify` found a broken ledger, or `backup verify` found an invalid archive. |
 | 5 | `diagnose --baseline`: the base could not be mapped. |
 

@@ -8,7 +8,7 @@ import { LADDERS, MODES, modeRank } from './defaults.mjs';
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 // Top-level keys with an explicit tighten-only rule below (or org-only metadata).
-const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed', 'evidence']);
+const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed', 'evidence', 'apply']);
 
 /** Deep-merge `over` onto `base` (plain override). Used for repo-over-defaults. */
 export function overlay(base, over) {
@@ -78,6 +78,12 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   // An organization can forbid applying on weak evidence, never allow it (#146); its evidence files replace the repository's, key by key.
   if (org.evidence?.allow_weak === false) set('evidence.allow_weak', false);
   if (unruledKeys === 'replace') for (const [k, v] of Object.entries(org.evidence ?? {})) if (k !== 'allow_weak') set(`evidence.${k}`, structuredClone(v));
+  // Which kinds of change may be applied (#149): only ever narrowed. A value that is not a list
+  // (organization policy is not schema-checked) accepts nothing rather than everything.
+  if (org.apply?.allowed_kinds !== undefined) {
+    const o = Array.isArray(org.apply.allowed_kinds) ? org.apply.allowed_kinds : [];
+    set('apply.allowed_kinds', intersect(c.apply?.allowed_kinds, o));
+  }
   if (org.quality?.max_complexity_increase != null) {
     set('quality.max_complexity_increase', minNum(c.quality.max_complexity_increase, org.quality.max_complexity_increase));
   }

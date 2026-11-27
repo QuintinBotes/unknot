@@ -109,7 +109,7 @@ test('a forbidden command is not run: planned obligations, the broker and verify
   await startApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   const wt = loadSlice(ctx, planned.id).worktree;
   writeFileSync(join(wt, 'src/ledger.mjs'), 'export const total = (xs) => xs.reduce((a, b) => a + b, 0); // sum\n');
-  finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
+  await finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   const v = await verifySlice(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   const r = v.results.find((x) => x.id === lint.id);
   assert.equal(r.verdict, 'needs_human');
