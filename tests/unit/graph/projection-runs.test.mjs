@@ -41,6 +41,8 @@ test('a re-map finds new and stale facts from the runs a change reached, and sto
     project(cold, facts, opts);
     assert.deepEqual(rows(ctx), rows(cold), `${name}: the same rows as projecting from empty`);
     assert.equal(r.matched, matched, `${name}: matched by ${matched}`);
+    const n = (t) => ctx.store.get(`SELECT COUNT(*) AS n FROM ${t}`).n;
+    assert.deepEqual([r.nodes, r.edges], [n('nodes'), n('edges')], `${name}: the kept counts are the rows'`);
     cold.store.close();
     return r;
   };
@@ -64,6 +66,7 @@ test('a re-map finds new and stale facts from the runs a change reached, and sto
   step('back to runs', (l) => l.map((f) => (f.id === 'module:m11.x' ? mod(11, { n: 110 }) : f)), 'runs');
   // A store written without the stamp (an older release, or the stamp of another generation) is matched fact by fact.
   ctx.store.meta('projection:keys', '');
+  ctx.store.meta('projection:counts', '');
   step('no stamp', (l) => l.map((f) => (f.id === 'module:m12.x' ? mod(12, { n: 120 }) : f)), 'store');
   step('stamped again', (l) => l.map((f) => (f.id === 'module:m13.x' ? mod(13, { n: 130 }) : f)), 'runs');
   ctx.store.close();

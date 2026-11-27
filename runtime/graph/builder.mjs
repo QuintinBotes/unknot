@@ -807,6 +807,8 @@ const ID_LEN = 26; // `f-` and 24 hex digits (facts.mjs factId)
 // facts table the rows describe exactly.
 const KEYS_MEMO = 'projection:keys';
 const KEYS_STAMP = 'projection:keys';
+// The node and edge counts of a generation (#145): counting a large graph's rows took seconds on every map.
+const COUNTS = 'projection:counts';
 const RUN_CAP = 256;
 const fnv = (s) => {
   let h = 2166136261;
@@ -1008,14 +1010,20 @@ export function project(ctx, facts, { commit, observedAt }) {
     if (r) touch(r.kind, r.subject, r.predicate, r.object);
   }
   const changed = !!(fresh.length || staleIds.length || recount.length) || gen0 == null;
+  // Counted again when the kept counts are not this generation's (another release wrote it).
+  let counts = null;
+  try { counts = JSON.parse(store.meta(COUNTS) ?? 'null'); } catch { /* counted below */ }
+  if (counts?.generation !== generation0) counts = null;
+  const count = (generation) => ({ generation, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n });
   if (!changed) {
     store.tx(() => {
       runs.rows();
       store.meta(KEYS_STAMP, `${PROJECTION_VERSION}:${generation0}`);
+      if (!counts) store.meta(COUNTS, JSON.stringify((counts = count(generation0))));
       store.meta('mapped_commit', commit ?? '');
       store.meta('mapped_at', observedAt);
     });
-    return { generation: generation0, changed: false, hashed, matched, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+    return { generation: generation0, changed: false, hashed, matched, nodes: counts.nodes, edges: counts.edges };
   }
   const generation = generation0 + 1;
 
@@ -1061,6 +1069,8 @@ export function project(ctx, facts, { commit, observedAt }) {
   const putEdge = db.prepare('INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?)');
   const delEdge = db.prepare('DELETE FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
+  let dn = 0; // nodes and edges added less those deleted
+  let de = 0;
   const delta = { nodes: new Map(), edges: [] }; // rows written or deleted (node id → [before, after]), for derived facts
   store.tx(() => {
     const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
@@ -1085,10 +1095,11 @@ export function project(ctx, facts, { commit, observedAt }) {
       const want = ofNode(id);
       const have = getNode.get(id);
       if (!want) {
-        if (have) { store.run('DELETE FROM nodes WHERE id = ?', id); delta.nodes.set(id, [have, null]); }
+        if (have) { store.run('DELETE FROM nodes WHERE id = ?', id); delta.nodes.set(id, [have, null]); dn--; }
       } else if (!have || have.type !== want.type || have.name !== want.name || have.path !== want.path || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putNode.run(id, want.type, want.name, want.path, want.attrs, want.label, want.fact_ids);
         delta.nodes.set(id, [have ?? null, want]);
+        if (!have) dn++;
       }
     }
     // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
@@ -1097,22 +1108,25 @@ export function project(ctx, facts, { commit, observedAt }) {
       const [type, from, to] = e ? [e.type, e.from, e.to] : touchedEdges.get(eid);
       const have = getEdge.get(from, type, to);
       if (!e || !exists.get(e.from) || !exists.get(e.to)) {
-        if (have) { delEdge.run(from, type, to); delta.edges.push([type, from, to]); }
+        if (have) { delEdge.run(from, type, to); delta.edges.push([type, from, to]); de--; }
         continue;
       }
       const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
       if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putEdge.run(want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
         delta.edges.push([type, from, to]);
+        if (!have) de++;
       }
     }
     store.meta('generation', generation);
     runs.rows();
     store.meta(KEYS_STAMP, `${PROJECTION_VERSION}:${generation}`);
+    counts = counts ? { generation, nodes: counts.nodes + dn, edges: counts.edges + de } : count(generation);
+    store.meta(COUNTS, JSON.stringify(counts));
     store.meta('mapped_commit', commit ?? '');
     store.meta('mapped_at', observedAt);
   });
-  return { generation, from: gen0 == null ? null : generation0, delta, changed: true, hashed, matched, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+  return { generation, from: gen0 == null ? null : generation0, delta, changed: true, hashed, matched, nodes: counts.nodes, edges: counts.edges };
 }
 
 /** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */
