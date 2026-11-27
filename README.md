@@ -150,7 +150,7 @@ If an assumption in the plan turns out wrong, `/unknot:apply UK-0001 replan` ret
 | `/unknot:learn [report\|propose]` | Metrics, detector calibration, threshold proposals | `config.proposed.yaml` (propose) |
 | `/unknot:doctor` | Validate sandbox, ledger, config, adapters, tools | None |
 
-Commands meant for a person at a terminal (`approve`, `attest`, `keys`, `config accept`, `run end`, `policy keygen|sign`, `gc --shred`) check for a TTY, and an agent's shell is also barred from `backup`, `audit`, `daemon`, `policy`, `gc`, `config` and `run`. None of them has a skill. Full reference: [docs/commands.md](docs/commands.md).
+Commands meant for a person at a terminal (`approve`, `pr`, `attest`, `keys`, `config accept`, `run end`, `policy keygen|sign`, `gc --shred`) check for a TTY, and an agent's shell is also barred from `backup`, `audit`, `daemon`, `policy`, `gc`, `config` and `run`. None of them has a skill. Full reference: [docs/commands.md](docs/commands.md).
 
 ## Modes
 

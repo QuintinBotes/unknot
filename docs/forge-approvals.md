@@ -1,6 +1,6 @@
 # Forge approvals and CI verification (design)
 
-Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phase 1 (control 1) is implemented. GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
+Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phase 1 (control 1) is implemented, and so is the first half of phase 2: `unknot pr <slice>` opens a draft pull request per slice with the review summary from the proof bundle ([commands.md](commands.md#unknot-pr-slice-human)). GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
 
 ## Goal
 
@@ -49,7 +49,7 @@ Campaign state and the ledger move to a git ref in the repository (`refs/unknot/
 ## Phases
 
 1. Human-only rule extended to forge reviews (control 1). Small; ships first on its own.
-2. Draft pull request per slice, binding comment, reading and checking reviews (controls 2 to 4), `approvals.via`, role mapping, doctor checks (control 6). GitHub only.
+2. Draft pull request per slice, binding comment, reading and checking reviews (controls 2 to 4), `approvals.via`, role mapping, doctor checks (control 6). GitHub only. The draft pull request with the review summary is done (`unknot pr`); the binding comment and reading reviews are next.
 3. Attested CI evidence (control 5).
 4. Shared state in the repository.
 5. A second forge behind the same interface, passing the same tests.

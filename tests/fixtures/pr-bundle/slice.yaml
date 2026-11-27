@@ -1,0 +1,19 @@
+id: S-0001
+objective: Flatten classify
+kind: refactor
+status: REVIEW_READY
+conventions:
+  - rule: Never edit generated files
+    scope: src
+    source:
+      file: src/AGENTS.md
+      line: 3
+    status: documented
+    verification: null
+  - rule: No unrelated dependency changes
+    scope: .
+    source:
+      file: unknot:default
+      line: null
+    status: default
+    verification: PO-1 (scope-check)

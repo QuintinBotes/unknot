@@ -1,0 +1,10 @@
+{
+  "slice": "S-0001",
+  "diff_hash": "sha256:aaaa",
+  "obligations": [
+    { "id": "PO-1", "kind": "unit-tests", "status": "pass", "evidence": "EV-1", "human": false, "description": "unit tests pass" },
+    { "id": "PO-2", "kind": "secrets-scan", "status": "fail", "evidence": "EV-2", "human": false, "description": "no secrets added" },
+    { "id": "PO-3", "kind": "behaviour-review", "status": "pending", "evidence": null, "human": true, "description": "a person checks the labels" },
+    { "id": "PO-4", "kind": "api-check", "status": "inconclusive", "evidence": "EV-4", "human": false, "description": "public API unchanged" }
+  ]
+}
