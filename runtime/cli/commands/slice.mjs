@@ -1,15 +1,24 @@
 // `unknot slice <id>` — a slice with its obligations, approvals and evidence.
 // `unknot slice <id> diff` — the slice's patch (staged, else working changes) in its worktree:
 // the read-only way to look at it, since shell commands into .unknot/ are denied.
+// `unknot slice patching [path...]` — the slices in PATCHING, and which paths their scope holds back.
 
-import { UnknotError } from '../../core/errors.mjs';
+import { relative, resolve } from 'node:path';
+import { ERROR_CLASSES, UnknotError } from '../../core/errors.mjs';
+import { openProject } from '../../context.mjs';
+import { loadConfig } from '../../policy/config.mjs';
 import { git } from '../../apply/git.mjs';
+import { diffStat } from '../../apply/worktree.mjs';
+import { isInside, realpathLenient, toPosix } from '../../core/paths.mjs';
+import { sliceScopeDenial } from '../../policy/pdp.mjs';
+import { activeRun } from '../../state/runs.mjs';
 import { redact } from '../../core/redact.mjs';
 import { staleEvidence } from '../../plan/staleness.mjs';
 import { output } from '../util.mjs';
 import { open, sliceRow } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
+  if (positional[0] === 'patching') return output(patching(positional.slice(1), flags), { json: true });
   const { ctx, config } = open(flags);
   const s = sliceRow(ctx, positional[0]);
   if (!s) throw new UnknotError('UK_NOT_FOUND', `no slice ${positional[0]}`);
@@ -29,4 +38,61 @@ export async function run({ positional, flags }) {
   const st = sliceStanding(s, config, ctx);
   const stale = staleEvidence(ctx, s.body);
   output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
+}
+
+/**
+ * `unknot slice patching [--session <id>] -- [path...]`: the slices in PATCHING with their scope and
+ * the change budget left, and which of `paths` their scope holds back, judged by the PDP's own
+ * scope rules. Read-only; the guard mod asks it before an Edit or Write runs. `applies` is false
+ * when the active run belongs to another session, whose edits the run does not govern.
+ */
+function patching(paths, flags) {
+  // Read-only, and the store before the configuration: with no slice in PATCHING the answer
+  // must not depend on a config or policy that fails to load, since the guard would then hold
+  // every edit in a repository where nothing is being patched.
+  const ctx = openProject(flags.cwd ?? process.cwd(), { readOnly: true });
+  const run = activeRun(ctx.store);
+  const slices = ctx.store.all("SELECT * FROM slices WHERE state = 'PATCHING' ORDER BY id").map((r) => ({ ...r, body: JSON.parse(r.body) }));
+  const applies = slices.length > 0 && !(run?.session_id && flags.session && run.session_id !== flags.session);
+  if (!applies) return { patching: slices.map((s) => ({ id: s.id })), applies: false, held: [] };
+  try {
+    return judge(ctx, loadConfig(ctx).config, run, slices, paths, flags);
+  } catch (err) {
+    // A slice is PATCHING and its scope could not be judged: `details.patching` tells the guard
+    // to hold the edit (fail closed).
+    const code = ERROR_CLASSES[err?.code] ? err.code : 'UK_TOOL_FAILED';
+    throw new UnknotError(code, String(err?.message ?? err), { details: { ...(err?.details ?? {}), patching: slices.map((s) => s.id) } });
+  }
+}
+
+function judge(ctx, config, run, slices, paths, flags) {
+  const out = slices.map((s) => ({ id: s.id, campaign_id: s.campaign_id, worktree: s.worktree, scope: { include: s.body.scope?.include ?? [], exclude: s.body.scope?.exclude ?? [] }, budget: budgetLeft(config, s) }));
+  const held = [];
+  const root = realpathLenient(ctx.root);
+  for (const p of paths) {
+    const real = realpathLenient(resolve(flags.cwd ?? process.cwd(), p));
+    if (!isInside(root, real)) continue;
+    const owner = slices.filter((s) => s.worktree && isInside(realpathLenient(s.worktree), real));
+    const runSlice = slices.filter((s) => s.id === run?.slice_id);
+    const candidates = owner.length ? owner : runSlice.length ? runSlice : slices;
+    const verdicts = candidates.map((s) => {
+      const base = owner.length ? realpathLenient(s.worktree) : root;
+      return { slice: s.id, ...sliceScopeDenial({ config, slice: s, inner: toPosix(relative(base, real)) }) };
+    });
+    // Held only when no candidate slice's scope takes the path.
+    if (verdicts.every((v) => v.rule)) held.push({ path: p, ...verdicts[0] });
+  }
+  return { patching: out, applies: true, held };
+}
+
+function budgetLeft(config, s) {
+  const limits = { ...config.limits, ...(s.body.budgets ?? {}) };
+  const budget = { max_changed_files: limits.max_changed_files ?? null, max_diff_lines: limits.max_diff_lines ?? null };
+  if (!s.worktree) return budget;
+  try {
+    const stat = diffStat(s.worktree);
+    return { ...budget, changed_files: stat.files, diff_lines: stat.lines, files_left: budget.max_changed_files == null ? null : budget.max_changed_files - stat.files, lines_left: budget.max_diff_lines == null ? null : budget.max_diff_lines - stat.lines };
+  } catch {
+    return budget; // a worktree git cannot read: the budget is unknown, the scope still holds
+  }
 }

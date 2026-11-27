@@ -28,6 +28,8 @@ and `skills/`, so a new command or skill must be classified here.
 
 **Public skills**: `accept`, `apply`, `architecture`, `database`, `decompose`, `diagnose`, `doctor`, `explain`, `infrastructure`, `init`, `lane`, `learn`, `map`, `next`, `plan`, `reject`, `rollback`, `security`, `status`, `verify`
 
+**Public mod commands**: `/unknot-panel` (registered by the mod in `hooks/register.jsx`, Claude Code 2.1.287 and later). The `unknot slice patching` form of the public `slice` command, which the mod's scope guard reads, is public with it.
+
 Not public: anything under `runtime/` imported directly, the SQLite state layout (migrated
 automatically, see `schemas/migration.schema.json`), the `.unknot/telemetry/` file contents beyond
 OTLP/JSON, and the benchmark harness.
@@ -43,7 +45,7 @@ migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a mi
 | --- | --- | --- |
 | Node.js | 22.13 and later; CI runs 22, 24 and 26, and the exact floor 22.13.0 | `engines.node` is `>=22.13`. No npm dependencies. |
 | Operating systems | Linux and macOS (CI: ubuntu-latest, macos-latest) | Windows is not tested; use WSL2. |
-| Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against the current release. |
+| Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against the current release. The mod (`/unknot-panel` and the scope guard) needs 2.1.287 or later; older versions ignore it and keep the settings hooks. |
 | git | Required | Worktree isolation and census depend on it. |
 | python3 | Optional | Python adapter helpers, when present. |
 | helm, kustomize, terraform | Optional | Infrastructure adapters render or plan only when installed. |

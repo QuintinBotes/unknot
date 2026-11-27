@@ -4,8 +4,8 @@ import { openProject } from '../../context.mjs';
 import { loadConfig } from '../../policy/config.mjs';
 import { currentActor } from '../util.mjs';
 
-export function open(flags = {}, { create = false } = {}) {
-  const ctx = openProject(flags.cwd ?? process.cwd(), { create });
+export function open(flags = {}, { create = false, readOnly = false } = {}) {
+  const ctx = openProject(flags.cwd ?? process.cwd(), { create, readOnly });
   const cfg = loadConfig(ctx);
   if (cfg.notice && !flags.json) process.stderr.write(`unknot: ${cfg.notice}\n`);
   return { ctx, cfg, config: cfg.config, actor: currentActor() };

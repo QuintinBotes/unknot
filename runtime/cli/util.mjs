@@ -19,7 +19,7 @@ export function agentSession(env = process.env) {
 
 // Flags that are only ever on or off: the word after one is a positional, not its value
 // (`unknot diagnose --all src`, `unknot map --replace src/b`).
-const SWITCHES = new Set(['json', 'all', 'replace', 'scan', 'regex', 'supersede', 'dry_run', 'no_history', 'summary', 'verbose', 'detected_only', 'keep', 'quick', 'include_large', 'no_recall', 'progress']);
+const SWITCHES = new Set(['json', 'all', 'replace', 'scan', 'regex', 'supersede', 'dry_run', 'no_history', 'summary', 'verbose', 'detected_only', 'keep', 'quick', 'include_large', 'no_recall', 'progress', 'read_only']);
 
 export function parseArgs(argv) {
   const positional = [];

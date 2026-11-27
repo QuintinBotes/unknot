@@ -17,5 +17,6 @@
     "modernization",
     "database",
     "infrastructure"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }

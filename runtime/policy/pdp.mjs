@@ -474,27 +474,38 @@ function decideWrite({ ctx, config, run, slice, profile, capability, op, base })
     const wt = realpathLenient(slice.worktree);
     if (!isInside(wt, real)) return deny('scope.worktree', `writes must be inside the slice worktree ${toPosix(relative(ctx.root, wt))}/, not ${rel}`, base);
     const inner = toPosix(relative(wt, real));
-    if (inner === '.git' || inner.startsWith('.git/')) return deny('write.git', 'git internals are not writable', base);
-    if (/^\.unknot(\/|$)/i.test(inner)) return deny('state.protected', 'a slice cannot change Unknot configuration or state, even in its worktree', base);
-    const body = slice.body ?? {};
-    const include = body.scope?.include ?? [];
-    const exclude = body.scope?.exclude ?? [];
-    if (matchAny(inner, exclude) || (include.length && !matchAny(inner, include))) {
-      return deny('scope.slice', `${inner} is outside slice ${slice.id} scope (include: ${include.join(', ') || '—'}; exclude: ${exclude.join(', ') || '—'})`, base);
-    }
-    if (matchAny(inner, config.generated_paths) || matchAny(inner, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) {
-      return deny('scope.generated', `${inner} is generated or vendored; it is not edited as source`, base);
-    }
-    if (matchAny(inner, config.scope?.exclude ?? [])) return deny('scope.excluded', `${inner} is excluded from Unknot's scope (config scope.exclude)`, base);
-    if (matchAny(inner, config.protected_paths, { nocase: true })) {
-      const named = include.some((g) => matchAny(inner, [g]) && !g.includes('**'));
-      if (!named || !['high', 'critical'].includes(slice.risk)) {
-        return deny('scope.protected', `${inner} is a protected path; it can change only when the slice names it explicitly and is approved as high risk`, { ...base, risk: 'high' });
-      }
-    }
+    const held = sliceScopeDenial({ config, slice, inner });
+    if (held) return deny(held.rule, held.reason, held.risk ? { ...base, risk: held.risk } : base);
     if (capability && !(capability.write ?? []).some((g) => g === '<worktree-scope>' || matchAny(inner, [g]))) {
       return deny('capability.write', `capability ${capability.id} does not cover ${inner}`, base);
     }
   }
   return allow('fs.write.scoped', base);
+}
+
+/**
+ * Whether a slice's scope holds back a write to `inner`, a path relative to its worktree. The PDP
+ * and the read-only `unknot slice patching` query (the guard mod's matcher) share it.
+ * @returns {{rule: string, reason: string, risk?: string}|null} null when the scope does not hold it
+ */
+export function sliceScopeDenial({ config, slice, inner }) {
+  if (inner === '.git' || inner.startsWith('.git/')) return { rule: 'write.git', reason: 'git internals are not writable' };
+  if (/^\.unknot(\/|$)/i.test(inner)) return { rule: 'state.protected', reason: 'a slice cannot change Unknot configuration or state, even in its worktree' };
+  const body = slice.body ?? {};
+  const include = body.scope?.include ?? [];
+  const exclude = body.scope?.exclude ?? [];
+  if (matchAny(inner, exclude) || (include.length && !matchAny(inner, include))) {
+    return { rule: 'scope.slice', reason: `${inner} is outside slice ${slice.id} scope (include: ${include.join(', ') || '—'}; exclude: ${exclude.join(', ') || '—'})` };
+  }
+  if (matchAny(inner, config.generated_paths) || matchAny(inner, ['**/vendor/**', '**/node_modules/**', '**/dist/**'])) {
+    return { rule: 'scope.generated', reason: `${inner} is generated or vendored; it is not edited as source` };
+  }
+  if (matchAny(inner, config.scope?.exclude ?? [])) return { rule: 'scope.excluded', reason: `${inner} is excluded from Unknot's scope (config scope.exclude)` };
+  if (matchAny(inner, config.protected_paths, { nocase: true })) {
+    const named = include.some((g) => matchAny(inner, [g]) && !g.includes('**'));
+    if (!named || !['high', 'critical'].includes(slice.risk)) {
+      return { rule: 'scope.protected', reason: `${inner} is a protected path; it can change only when the slice names it explicitly and is approved as high risk`, risk: 'high' };
+    }
+  }
+  return null;
 }
