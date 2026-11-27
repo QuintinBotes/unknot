@@ -3,7 +3,7 @@
 // Human only: an interactive terminal, the slice id typed back, and the approver key's
 // passphrase. The signature binds the exact plan or diff (spec §20).
 
-import { approvalStatus, currentBinding, loadSlice, neededApprovals } from '../../apply/apply.mjs';
+import { approvalStatus, assertPatchKinds, currentBinding, loadSlice, neededApprovals } from '../../apply/apply.mjs';
 import { head } from '../../apply/git.mjs';
 import { UnknotError } from '../../core/errors.mjs';
 import { loadApproverKey } from '../../core/keys.mjs';
@@ -14,11 +14,13 @@ import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
 /** Move a slice whose change approvals are complete to ACCEPTED (and commit in governed mode). */
-async function accept(ctx, cfg, slice, status, approver) {
+export async function accept(ctx, cfg, slice, status, approver) {
   // What is accepted must be what was reviewed: re-stage the worktree and compare the hash.
   const { stagePatch } = await import('../../apply/worktree.mjs');
   const now = stagePatch(slice.worktree, slice.baseline_commit).diff_hash;
   if (now !== slice.diff_hash) throw new UnknotError('UK_STATE_CONFLICT', `${slice.id}: the worktree changed since it was verified (${now} is not the approved ${slice.diff_hash}); nothing accepted. Run /unknot:apply ${slice.id} to re-verify`, { slice_id: slice.id });
+  // A list narrowed after the patch was made still holds: this is the one way to ACCEPTED (#149).
+  await assertPatchKinds(ctx, { config: cfg.config, slice });
   transitionSlice(ctx, { slice, to: 'ACCEPTED', actor: `human:${approver}`, reason: 'change approved', guards: [() => ({ ok: status.satisfied, id: 'approval.change' })] });
   if (modeRank(cfg.config.mode) >= modeRank('governed')) {
     const { git } = await import('../../apply/git.mjs');

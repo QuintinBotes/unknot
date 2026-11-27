@@ -55,7 +55,7 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: planned.id, config: cfg.config, configDigest: cfg.digest });
   await startApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   writeFileSync(join(loadSlice(ctx, planned.id).worktree, 'src/ledger.mjs'), 'export const total = (xs) => xs.reduce((a, b) => a + b, 0); // sum\n');
-  finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
+  await finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   const started = () => ctx.store.all("SELECT * FROM events WHERE type = 'exec.started'").length;
   const startedBefore = started();
 

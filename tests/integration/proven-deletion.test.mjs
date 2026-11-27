@@ -206,7 +206,7 @@ test('a patch that adds a line loses proven status and needs the normal approval
   assert.equal(slice.state, 'PATCHING');
 
   writeFileSync(join(slice.worktree, 'src/util.mjs'), `${UTIL.split('\n\nexport class')[0]}\n\nexport const zero = 0;\n`);
-  const res = finishApply(ctx, { cfg, run, sliceId: id, actor: 'model:main' });
+  const res = await finishApply(ctx, { cfg, run, sliceId: id, actor: 'model:main' });
   assert.match(res.proven_deletion_lost.join(' '), /adds \d+ line\(s\), so it is not deletion-only/);
   slice = loadSlice(ctx, id);
   assert.match(ctx.store.get("SELECT payload FROM events WHERE type = 'proven.lost' AND slice_id = ?", id).payload, /not deletion-only/);
@@ -234,7 +234,7 @@ test('a pure deletion in the one file keeps the status through finish', async ()
   await startApply(ctx, { cfg, run, sliceId: id, actor: 'model:main' });
   slice = loadSlice(ctx, id);
   writeFileSync(join(slice.worktree, 'src/util.mjs'), `${UTIL.split('\n\nexport class')[0]}\n`);
-  const res = finishApply(ctx, { cfg, run, sliceId: id, actor: 'model:main' });
+  const res = await finishApply(ctx, { cfg, run, sliceId: id, actor: 'model:main' });
   assert.equal(res.proven_deletion_lost, undefined);
   slice = loadSlice(ctx, id);
   assert.equal(slice.state, 'VERIFYING');

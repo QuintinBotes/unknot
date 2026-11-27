@@ -61,6 +61,7 @@ The effective config is defaults, then the accepted repository config, then each
 | `quality.max_complexity_increase` | Smaller value wins. |
 | `repository.publishes_api` | Org `true` forces `true`. |
 | `security.require_os_sandbox`, `infrastructure.require_saved_plan` | Org `true` forces `true`. |
+| `apply.allowed_kinds` | Intersection: a kind must be in both lists. A repository without the key takes the org list; disjoint lists accept nothing; an org value that is not a list accepts nothing. An unaccepted repository edit can narrow it at once, never widen or remove it. |
 | `evidence.allow_weak` | Org `false` forces `false`; org `true` is ignored. Other `evidence` lists from the org replace the repository's, list by list. |
 | `security.sandbox_loopback` | Org `false` forces `false`. |
 | `quality.public_api_compatibility` | Stricter wins: `advisory` < `required`. |
@@ -92,7 +93,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `mode` | `observe`, `plan`, `assist`, `governed`, `campaign` | `plan` | Authority level. See below. |
 | `scope.include` | list of globs | `[]` | Repository paths in scope. Empty means everything. |
 | `scope.exclude` | list of globs | `vendor/**`, `node_modules/**`, `dist/**`, `build/**`, `generated/**`, `**/node_modules/**`, `.git/**`, `.unknot/**` | Paths never mapped or edited. |
-| `protected_paths` | list of globs | `.github/workflows/**`, `**/auth/**`, `**/crypto/**`, `**/migrations/**` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. `unknot init` also proposes Azure DevOps pipeline directories (found up to depth 4, with the templates they reference) and, for .NET repositories, `Directory.Build.*`, `Directory.Packages.props`, `global.json` and `NuGet.config`. |
+| `protected_paths` | list of globs | `.github/workflows/**` and the other CI definitions, git hooks, `**/auth/**`, `**/crypto/**`, `**/migrations/**`, and container and deployment files: `**/Dockerfile`, `**/Dockerfile.*`, `**/*.dockerfile`, `**/docker-compose*.yml`, `**/docker-compose*.yaml`, `**/compose*.yaml`, `**/compose*.yml`, `**/Chart.yaml`, `**/helm/**`, `**/charts/*/templates/**`, `**/charts/*/values*.yaml` | A slice may change these only if it names them explicitly (without `**`) and is high or critical risk. Any slice touching them is classified high. `unknot init` also proposes Azure DevOps pipeline directories (found up to depth 4, with the templates they reference) and, for .NET repositories, `Directory.Build.*`, `Directory.Packages.props`, `global.json` and `NuGet.config`. |
 | `generated_paths` | list of globs | `[]` | Treated as generated: never edited as source. `**/vendor/**`, `**/node_modules/**` and `**/dist/**` are always treated this way inside a worktree. |
 | `commands` | map of name to argument list | `{}` | Project commands run through the broker. See below. |
 | `limits` | map | see below | Budgets. |
@@ -101,6 +102,7 @@ Durations are a number and a unit: `ms`, `s`, `m`, `h`, `d`, `w` (`72h`, `30d`).
 | `database` | map | see below | Database analysis settings. |
 | `infrastructure` | map | see below | Infrastructure analysis settings. |
 | `approvals` | map | see below | Who must approve at each risk level. |
+| `apply.allowed_kinds` | list of `tests`, `deletion`, `documentation`, `refactor`, `extraction`, `migration`, `infrastructure`, `public-interface` | absent (every kind) | The only kinds of change `unknot apply` accepts. See below. |
 | `approvers` | map | `{}` | Registered approvers and their public keys. |
 | `evidence` | map | all empty | Files of imported runtime, data and infrastructure evidence, and `allow_weak` (applying on lexical-only evidence). |
 | `adapters` | map of id to options | `scip.run: false`; otherwise `{}` | Per-adapter options. `enabled: false` disables an adapter. `scip.run: true` takes effect only from a configuration a person accepted (`unknot config accept`), and an indexer that runs the repository's build (scip-dotnet, scip-java) never starts without an OS sandbox. |
@@ -206,6 +208,32 @@ A breach is recorded in the ledger and blocks the operation and the run. There i
 | `apply`, `destroy` | `forbidden` only | Cannot be loosened. |
 | `require_saved_plan` | boolean, `true` | Infrastructure slices are judged against a saved plan, not a live one. |
 | `plans` | list of `{workspace, environment?, plan_json?, state_json?, tool?}` | Saved plans and state exports. `tool` is `terraform`, `opentofu`, `cloudformation`, `pulumi`, `bicep`, `kubernetes`, `helm` or `kustomize`. |
+
+### `apply`
+
+`allowed_kinds` limits which kinds of change a repository can receive, whatever the mode and whoever approves. Without it every kind is accepted, as before. A slice's kinds are judged from what it reaches, never only from its label:
+
+- `infrastructure`: an infrastructure slice, or one reaching Terraform, Kubernetes, Helm, Kustomize, CloudFormation, Bicep, Pulumi or CDK files, a Dockerfile or a compose file.
+- `migration`: a database slice, or one reaching migrations, SQL or schema files.
+- `extraction`: a decomposition slice, or one with a decomposition treatment.
+- `public-interface`: a slice that declares a public API surface, or whose staged patch removes an export, public member or endpoint by the same API check `verify` runs. Exports count as a public interface unless `repository.publishes_api` is `false`.
+- Every slice is also one of `tests` (only test code), `deletion` (only removes: planned as deletes or from dead-code findings, and the patch adds no line), `documentation` (only Markdown, MDX, reStructuredText or AsciiDoc files, whatever the slice's `kind` says) or `refactor` (anything else). A slice labelled `documentation` whose scope reaches code also gets the code proof obligations (unit tests, complexity, API compatibility).
+
+Each of the first four a slice has must be listed, and at least one of the others. A slice that fails is plan-only: `unknot plan` says so (`plan-only: apply.allowed_kinds [...] excludes ...`) and no lane covers it. `unknot apply` refuses it with `UK_KIND_NOT_ALLOWED` (exit 3), naming the setting: at `start` from the plan, and at `finish` from the staged diff, so a patch that turns out to add code, touch a Dockerfile or remove an export is refused even when the plan was allowed. The slice stays `PATCHING` and can be shrunk to fit. The change approval (`unknot approve --stage change`, and `approve --lane`) checks again against the list in force then, so a slice patched before the list was narrowed is not accepted.
+
+The list is tighten-only: an organization policy intersects it, and an edit nobody accepted can only narrow it.
+
+A pilot recipe: start with `mode: plan` to see the plans and their kinds; then move to `mode: assist` with
+
+```yaml
+mode: assist
+apply:
+  allowed_kinds: [tests, deletion]
+```
+
+and widen the list, through `unknot config accept`, only once the first slices have been reviewed.
+
+Container and deployment files (Dockerfiles, compose files, Helm charts) are infrastructure for risk too: a slice reaching one is at least medium risk, and they are in the default `protected_paths`, so in practice high.
 
 ### `approvals` and `approvers`
 

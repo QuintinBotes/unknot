@@ -376,6 +376,18 @@
         }
       }
     },
+    "apply": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_kinds": {
+          "description": "The only kinds of change unknot apply accepts; absent means every kind. Tighten-only: an organization policy or an unaccepted edit can only narrow it.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["tests", "deletion", "documentation", "refactor", "extraction", "migration", "infrastructure", "public-interface"] }
+        }
+      }
+    },
     "approvals": {
       "type": "object",
       "additionalProperties": false,

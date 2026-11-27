@@ -85,7 +85,7 @@ test('nothing detected says which manifests were looked for and what is below th
   repo({ 'svc/api/go.mod': 'module x' }, (d) => assert.ok(d.notes.some((n) => /found below the root: svc\/api\/go\.mod/.test(n))));
 });
 
-test('Azure pipelines in a subdirectory and their templates are protected; compose, Kubernetes and OpenAPI files are not', () => {
+test('Azure pipelines in a subdirectory and their templates are protected; compose files only by default, Kubernetes and OpenAPI files not', () => {
   repo({
     'pipelines/ci.yml': `${PIPELINE}  - template: templates/build.yml\n`,
     'pipelines/templates/build.yml': 'parameters: []\nsteps:\n  - script: echo\n',
@@ -100,7 +100,10 @@ test('Azure pipelines in a subdirectory and their templates are protected; compo
     assert.ok(d.protectedPaths.includes('pipelines/**'));
     assert.ok(d.protectedPaths.includes('ops/azure/**/*.yml') && d.protectedPaths.includes('ops/azure/**/*.yaml'));
     assert.ok(d.protectedPaths.includes('ops/shared/**/*.yml'));
-    for (const p of ['docker-compose.yml', 'deploy/k8s.yml', 'api/openapi.yml', 'conf/app.yml']) assert.ok(!matchAny(p, d.protectedPaths), p);
+    for (const p of ['deploy/k8s.yml', 'api/openapi.yml', 'conf/app.yml']) assert.ok(!matchAny(p, d.protectedPaths), p);
+    // A compose file is protected by default (#149), but the pipeline detection must not add a glob for it.
+    const detected = d.protectedPaths.filter((g) => !DEFAULT_CONFIG.protected_paths.includes(g));
+    assert.ok(matchAny('docker-compose.yml', DEFAULT_CONFIG.protected_paths) && !matchAny('docker-compose.yml', detected));
     assert.ok(d.notes.some((n) => /^protected pipelines\/\*\*/.test(n)));
     assert.ok(!d.protectedPaths.some((p) => /Directory\.Build/.test(p)));
   });

@@ -155,7 +155,7 @@ describe('Scenario C: PostgreSQL type change on a large table', async () => {
     await startApply(r.ctx, { cfg: r.cfg, run, sliceId, actor: 'model:main' });
     slice = loadSlice(r.ctx, sliceId);
     appendFileSync(join(slice.worktree, 'db/migration/V2__hazard.sql'), '-- reviewed: split into expand/backfill/validate/switch/contract\n');
-    finishApply(r.ctx, { cfg: r.cfg, run, sliceId, actor: 'model:main' });
+    await finishApply(r.ctx, { cfg: r.cfg, run, sliceId, actor: 'model:main' });
     const v = await verifySlice(r.ctx, { cfg: r.cfg, run, sliceId, actor: 'model:main' });
     assert.equal(v.state, 'VERIFYING', 'human obligations are still open');
     assert.ok(v.waiting_for_human.some((o) => o.kind === 'rollback-rehearsal'));

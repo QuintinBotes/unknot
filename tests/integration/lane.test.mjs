@@ -106,12 +106,12 @@ test('a signed lane lets the agent apply and verify a deletion-only slice; accep
 
   // A patch that adds code leaves the lane and is refused at finish.
   writeFileSync(join(slice.worktree, 'src/util.mjs'), `${UTIL.split('\n\nfunction legacyTotal')[0]}\n\nexport const zero = 0;\n`);
-  assert.throws(() => finishApply(ctx, { cfg, run, sliceId: inLane, actor: 'model:main' }), (e) => e.code === 'UK_POLICY_DENIED' && /leaves lane/.test(e.message) && /not deletion-only/.test(e.message));
+  await assert.rejects(finishApply(ctx, { cfg, run, sliceId: inLane, actor: 'model:main' }), (e) => e.code === 'UK_POLICY_DENIED' && /leaves lane/.test(e.message) && /not deletion-only/.test(e.message));
   assert.equal(loadSlice(ctx, inLane).state, 'PATCHING');
 
   // Deleting only: inside the lane.
   writeFileSync(join(slice.worktree, 'src/util.mjs'), `${UTIL.split('\n\nfunction legacyTotal')[0]}\n`);
-  finishApply(ctx, { cfg, run, sliceId: inLane, actor: 'model:main' });
+  await finishApply(ctx, { cfg, run, sliceId: inLane, actor: 'model:main' });
   const v = await verifySlice(ctx, { cfg, run, sliceId: inLane, actor: 'model:main' });
   assert.equal(v.state, 'REVIEW_READY', JSON.stringify(v.results, null, 1));
 

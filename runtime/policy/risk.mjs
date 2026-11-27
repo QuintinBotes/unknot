@@ -2,12 +2,14 @@
 // only ever raises risk; nothing a slice declares about itself can lower it.
 
 import { matchAny } from '../core/glob.mjs';
-import { RISKS, riskRank } from './defaults.mjs';
+import { CONTAINER_PATHS, RISKS, riskRank } from './defaults.mjs';
 import { weakEvidenceReasons } from './evidence.mjs';
 
+export { CONTAINER_PATHS };
+
 const AUTH_PATHS = ['**/auth/**', '**/authn/**', '**/authz/**', '**/security/**', '**/permissions/**', '**/rbac/**', '**/session*/**', '**/crypto/**', '**/*auth*.*'];
-const DB_PATHS = ['**/migrations/**', '**/migrate/**', '**/*.sql', '**/schema.prisma', '**/db/schema.*', '**/alembic/**', '**/liquibase/**', '**/flyway/**'];
-const INFRA_PATHS = ['**/*.tf', '**/*.tfvars', '**/terraform/**', '**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**', '**/kustomize/**', '**/cloudformation/**', '**/*.bicep', '**/Pulumi.*', '**/cdk/**'];
+export const DB_PATHS = ['**/migrations/**', '**/migrate/**', '**/*.sql', '**/schema.prisma', '**/db/schema.*', '**/alembic/**', '**/liquibase/**', '**/flyway/**'];
+export const INFRA_PATHS = ['**/*.tf', '**/*.tfvars', '**/terraform/**', '**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**', '**/kustomize/**', '**/cloudformation/**', '**/*.bicep', '**/Pulumi.*', '**/cdk/**'];
 const IAM_HINT = /iam|role|policy|permission|rbac|serviceaccount|service_account|identity/i;
 const NET_HINT = /firewall|security_group|securitygroup|ingress|egress|route|dns|certificate|gateway|networkpolicy|load_?balancer|vpc|subnet|nat/i;
 export const DEP_MANIFESTS = ['**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/requirements*.txt', '**/pyproject.toml', '**/poetry.lock', '**/go.mod', '**/go.sum', '**/Cargo.toml', '**/Cargo.lock', '**/pom.xml', '**/build.gradle*', '**/Gemfile*', '**/composer.*', '**/*.csproj', '**/*.fsproj', '**/*.vbproj', '**/Directory.Packages.props', '**/packages.config'];
@@ -51,7 +53,7 @@ export function classifyRisk(slice, { config, surfaces = {}, proven = null } = {
     raise(state, 'high', 'database schema or data');
     state.specialists.add('data-owner');
   }
-  if (slice.kind === 'infrastructure' || any(INFRA_PATHS)) {
+  if (slice.kind === 'infrastructure' || any(INFRA_PATHS) || any(CONTAINER_PATHS)) {
     raise(state, 'medium', 'infrastructure declaration');
     state.specialists.add('platform-owner');
     if (IAM_HINT.test(text)) {
