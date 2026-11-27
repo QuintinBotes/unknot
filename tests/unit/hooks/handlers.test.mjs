@@ -547,6 +547,10 @@ describe('Stop', () => {
     const res = await H.onStop(h.base);
     assert.equal(res.decision, 'block');
     assert.match(res.reason, /still PATCHING/);
+    // Both commands it names take the slice first, as the CLI parses them (#177).
+    const id = h.slice.id;
+    assert.ok(res.reason.includes(`\`unknot apply ${id} finish\``), res.reason);
+    assert.ok(res.reason.includes(`\`unknot apply ${id} replan --reason "..."\``), res.reason);
   });
 
   test('a VERIFYING slice without recorded obligations still blocks', async () => {

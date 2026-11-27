@@ -40,10 +40,16 @@ function recordEvidence(ctx, { run, slice, obligation, record, verdict }) {
 async function verifySliceInner(ctx, { cfg, run, sliceId, actor }) {
   const config = cfg.config;
   let slice = loadSlice(ctx, sliceId);
-  if (slice.state !== 'VERIFYING') throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}; run \`unknot apply finish ${sliceId}\` first`, { slice_id: sliceId });
+  if (slice.state !== 'VERIFYING') {
+    const next = {
+      PATCHING: `run \`unknot apply ${sliceId} finish\` first`,
+      AWAITING_APPROVAL: `a person approves it first (\`unknot approve ${sliceId} --role <role> --as <approver>\`), then \`unknot apply ${sliceId}\` and \`unknot apply ${sliceId} finish\``,
+    }[slice.state] ?? 'only a VERIFYING slice can be verified';
+    throw new UnknotError('UK_STATE_CONFLICT', `slice ${sliceId} is ${slice.state}; ${next}`, { slice_id: sliceId });
+  }
   const staged = stagePatch(slice.worktree, slice.baseline_commit);
   if (staged.diff_hash !== slice.diff_hash) {
-    throw new UnknotError('UK_STATE_CONFLICT', `the worktree changed after apply finish (diff ${staged.diff_hash.slice(0, 19)}… ≠ ${slice.diff_hash.slice(0, 19)}…); re-run apply finish`, { slice_id: sliceId });
+    throw new UnknotError('UK_STATE_CONFLICT', `the worktree changed after apply finish (diff ${staged.diff_hash.slice(0, 19)}… ≠ ${slice.diff_hash.slice(0, 19)}…); re-run \`unknot apply ${sliceId} finish\``, { slice_id: sliceId });
   }
   // Belt and braces: the staged patch is what was approved, so a proven deletion is checked against it again.
   if (settleProven(ctx, { config, slice, stat: stagedStat(slice.worktree, slice.baseline_commit), actor }).lost) slice = loadSlice(ctx, sliceId);
