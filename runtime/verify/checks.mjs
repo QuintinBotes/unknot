@@ -84,10 +84,12 @@ export async function graphPair(ctx, { config, worktree, base, changes }) {
     for (const c of touched) byFile.delete(c.path);
     for (const [p, f] of overrides) byFile.set(p, f);
     const facts = [...byFile.values()].flat();
+    const semantic = new Map();
     for (const ad of loaded) {
       if (!ad.link) continue;
       try {
-        const linked = await ad.link({ files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {} });
+        // As mapping does (#184), less `exec`: verification imports an existing index and never starts an indexer.
+        const linked = await ad.link({ root: ctx.root, paths: ctx.paths, files: new Map([...byFile.keys()].map((p) => [p, { path: p, language: languageOf(p) }])), factsByFile: byFile, options: config.adapters?.[ad.id] ?? {}, stats: {}, semantic });
         pushAll(facts, linked ?? []);
       } catch (err) {
         notes.push(`${ad.id} link failed during verification: ${err.message}`);

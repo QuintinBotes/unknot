@@ -11,6 +11,7 @@ import * as K from '../../../helpers/kernel.mjs';
 import * as S from '../../../helpers/scip.mjs';
 import { mapRepository } from '../../../../runtime/graph/builder.mjs';
 import { scipChecks } from '../../../../adapters/semantic/scip/locate.mjs';
+import { graphPair } from '../../../../runtime/verify/checks.mjs';
 
 after(() => K.cleanup());
 
@@ -462,4 +463,22 @@ test('a member a template names may be read: the index does not cover Razor view
   S.writeIndex(join(p.dir, 'index.scip'), withOrders(ordersDoc([])));
   await map(p);
   assert.ok(!importEdge(p, 'Shop/OrderService.cs', 'Shop/Mailer.cs').declared_only);
+});
+
+test('verification links with the project root: a supplied index reaches the before/after graphs, with no link failure (#184)', async () => {
+  const p = K.makeProject({ files: FILES });
+  S.writeIndex(join(p.dir, 'index.scip'), indexBytes());
+  await map(p);
+  const pair = await graphPair(p.ctx, { config: K.cfg({ mode: 'plan' }), worktree: p.dir, base: K.git(p.dir, 'rev-parse', 'HEAD').trim(), changes: [{ path: 'Shop/Caller.cs', status: 'M' }] });
+  assert.deepEqual(pair.notes.filter((n) => /link failed/.test(n)), []);
+  for (const g of [pair.before, pair.after]) {
+    assert.ok(g.out('module:Shop/Caller.cs', 'REFERENCES').some((e) => e.to === 'module:Shop/ReportService.cs' && e.attrs?.via === 'scip'), 'the SCIP reference is in both graphs');
+  }
+});
+
+test('verification without an index records no link failure (#184)', async () => {
+  const p = K.makeProject({ files: FILES });
+  await map(p);
+  const pair = await graphPair(p.ctx, { config: K.cfg({ mode: 'plan' }), worktree: p.dir, base: K.git(p.dir, 'rev-parse', 'HEAD').trim(), changes: [{ path: 'Shop/Caller.cs', status: 'M' }] });
+  assert.deepEqual(pair.notes.filter((n) => /link failed/.test(n)), []);
 });

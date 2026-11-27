@@ -146,6 +146,7 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
   const v = await verifySlice(ctx, { cfg, run, sliceId, actor: 'model:main' });
   assert.equal(v.state, 'REVIEW_READY', JSON.stringify(v.results, null, 1));
   assert.ok(v.results.every((r) => r.verdict === 'pass'));
+  assert.deepEqual(v.notes.filter((n) => /link failed/.test(n)), [], 'every adapter links during verification (#184)');
   assert.ok(existsSync(join(dir, v.bundle, 'manifest.json')));
   const manifest = JSON.parse(readFileSync(join(dir, v.bundle, 'manifest.json'), 'utf8'));
   for (const f of ['diff.patch', 'slice.yaml', 'verification.json', 'recovery.md', 'command-log.jsonl']) assert.ok(manifest.files.some((x) => x.path === f), f);
