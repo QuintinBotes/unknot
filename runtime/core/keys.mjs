@@ -21,7 +21,7 @@ import {
   sign,
   verify,
 } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from './errors.mjs';
 import { unknotHome } from './project.mjs';
@@ -123,6 +123,16 @@ export function verifyText(publicKeyPem, text, signature) {
 const acceptanceDir = (root) => join(unknotHome(), 'roots', createHash('sha256').update(root).digest('hex'));
 const latestForProject = (projectId) => join(projectKeyDir(projectId), 'acceptance.json');
 
+/** True only when nothing is at `path`: a path that cannot be read (permissions, macOS privacy) still exists. */
+function gone(path) {
+  try {
+    lstatSync(path);
+    return false;
+  } catch (err) {
+    return err.code === 'ENOENT' || err.code === 'ENOTDIR';
+  }
+}
+
 /** Remove the in-force records under `roots/` whose checkout path no longer exists (#222). Best effort. */
 function pruneRoots() {
   const dir = join(unknotHome(), 'roots');
@@ -135,7 +145,7 @@ function pruneRoots() {
   for (const name of entries) {
     try {
       const { root } = JSON.parse(readFileSync(join(dir, name, 'acceptance.json'), 'utf8'));
-      if (typeof root === 'string' && !existsSync(root)) rmSync(join(dir, name), { recursive: true, force: true });
+      if (typeof root === 'string' && gone(root)) rmSync(join(dir, name), { recursive: true, force: true });
     } catch {
       // Unreadable, or written before the path was recorded: leave it.
     }

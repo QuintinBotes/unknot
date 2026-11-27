@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -232,6 +232,31 @@ describe('forged acceptance rows unlock nothing', () => {
       const m = moveAndTighten({ putBackBeforeAccept: false });
       assert.equal(existsSync(rootRecord(m.a.home, m.root)), false, 'config accept pruned the record of a path that no longer existed');
       assertInvalidAtA(m);
+    });
+
+    test('pruning keeps the records of live checkouts, including one whose path cannot be read', () => {
+      const live = K.makeProject({ config: LOOSE });
+      // A checkout under a folder this process cannot search (permissions, or macOS privacy) still exists.
+      const parent = mkTmp(join(tmpdir(), 'uk-locked-'));
+      const hidden = join(parent, 'p');
+      mkdirSync(hidden);
+      const hiddenRecord = rootRecord(live.home, hidden);
+      mkdirSync(join(hiddenRecord, '..'), { recursive: true });
+      writeFileSync(hiddenRecord, JSON.stringify({ project_id: 'other', root: hidden, signature: 'x' }));
+      const gonePath = join(mkTmp(join(tmpdir(), 'uk-gone-')), 'p');
+      const goneRecord = rootRecord(live.home, gonePath);
+      mkdirSync(join(goneRecord, '..'), { recursive: true });
+      writeFileSync(goneRecord, JSON.stringify({ project_id: 'other', root: gonePath, signature: 'x' }));
+      const other = K.makeProject();
+      chmodSync(parent, 0o000);
+      try {
+        K.configMod.recordAcceptedConfig(other.ctx, LOOSE, 'human:test');
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+      assert.ok(existsSync(rootRecord(live.home, live.ctx.root)), 'a live checkout keeps its record');
+      assert.ok(existsSync(hiddenRecord), 'an unreadable checkout keeps its record');
+      assert.equal(existsSync(goneRecord), false, 'a path that is gone is pruned');
     });
   });
 
