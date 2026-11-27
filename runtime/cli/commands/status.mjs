@@ -15,7 +15,7 @@ import { open } from './_shared.mjs';
 export const constantsLine = (c) => `Constants: ${c.nodes} identifier-like string nodes (${Object.entries(c.by_subkind).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}; sub-kinds inferred)${c.dropped_by_repo_cap ? `; ${c.dropped_by_repo_cap} more cut by the repository cap` : ''}${c.files_capped ? `; ${c.files_capped} file(s) cut by the per-file cap` : ''}`;
 
 export async function run({ flags }, { unknotOnPath } = {}) {
-  const { ctx, config, cfg } = open(flags);
+  const { ctx, config, cfg } = open(flags, { readOnly: flags.read_only === true });
   const now = new Date().toISOString();
   const run = activeRun(ctx.store);
   const mapped = ctx.store.meta('mapped_commit');
