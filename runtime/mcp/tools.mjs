@@ -17,7 +17,7 @@ import { EDGE_TYPES } from '../graph/facts.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { card, evaluate, index as patternIndex } from '../patterns/engine.mjs';
 import { selectNext } from '../plan/next.mjs';
-import { staleEvidence, staleSlices } from '../plan/staleness.mjs';
+import { conventionsView, staleEvidence, staleSlices } from '../plan/staleness.mjs';
 import { loadConfig } from '../policy/config.mjs';
 import { humanSteps } from '../policy/human-steps.mjs';
 import { sliceStanding } from '../policy/lanes.mjs';
@@ -280,7 +280,7 @@ export const TOOLS = {
       );
       const st = sliceStanding({ ...meta, body }, loadConfig(ctx).config, ctx);
       const stale = staleEvidence(ctx, body);
-      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), obligations, approvals };
+      return { slice: upgradeSlice(body), meta, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), conventions: conventionsView(ctx, row), obligations, approvals };
     },
   },
 

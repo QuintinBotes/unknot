@@ -56,7 +56,7 @@ function heldMessage(h, slices) {
   const s = slices.find((x) => x.id === h.slice)
   const scope = s ? `include ${s.scope.include.join(', ') || '—'}; exclude ${s.scope.exclude.join(', ') || '—'}` : 'unknown'
   const left = s?.budget?.files_left != null ? ` Change budget left: ${s.budget.files_left} file(s), ${s.budget.lines_left ?? '?'} diff line(s).` : ''
-  return `Unknot held this edit: slice ${h.slice} is PATCHING with scope (${scope}), and ${h.path} is outside it: ${h.reason}.${left} Keep the change inside the slice scope, or stop and report; a person re-plans with \`unknot apply replan ${h.slice}\`.`
+  return `Unknot held this edit: slice ${h.slice} is PATCHING with scope (${scope}), and ${h.path} is outside it: ${h.reason}.${left} Keep the change inside the slice scope, or stop and report; a person re-plans with \`unknot apply ${h.slice} replan --reason "..."\`.`
 }
 
 const failed = (why) => `Unknot held this edit: its scope check failed (${why}), so it cannot tell whether a slice in PATCHING allows it. Edits are held until \`unknot slice patching\` answers again; run /unknot:doctor.`

@@ -1,5 +1,6 @@
 // SC-001 of #148: with the sandbox probe stubbed to "absent", `verify` refuses in assist and
-// works in plan. The slice is planned and applied with the real sandbox, then verified without it.
+// works in an accepted plan mode; an unaccepted edit to plan still refuses (#170). The slice is
+// planned and applied with the real sandbox, then verified without it.
 
 import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
@@ -69,8 +70,17 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   assert.deepEqual(commandEvidence(), []);
   assert.equal(loadSlice(ctx, planned.id).state, 'VERIFYING');
 
-  // Lowering the mode tightens policy, so it applies without a new acceptance.
-  writeFileSync(join(dir, '.unknot/config.yaml'), stringifyYAML({ ...config, mode: 'plan' }));
+  // An unaccepted edit that lowers the mode does not drop the sandbox requirement (#170):
+  // the slice's code was written in assist, and an agent can edit the config.
+  const planText = stringifyYAML({ ...config, mode: 'plan' });
+  writeFileSync(join(dir, '.unknot/config.yaml'), planText);
+  const lowered = verify();
+  assert.equal(lowered.status, 3, lowered.stderr + lowered.stdout);
+  assert.equal(JSON.parse(lowered.stdout).error.code, 'UK_SANDBOX_REQUIRED');
+  assert.equal(started(), startedBefore, 'the unit tests did not run');
+
+  // Once a person accepts plan mode, verify runs unsandboxed (SC-001 of #148).
+  recordAcceptedConfig(ctx, planText, 'human:test');
   const ran = verify();
   assert.equal(ran.status, 0, ran.stderr + ran.stdout);
   assert.ok(started() > startedBefore, 'the unit tests ran');

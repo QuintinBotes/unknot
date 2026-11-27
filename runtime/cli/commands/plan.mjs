@@ -15,7 +15,7 @@ export async function run({ positional, flags }) {
     if (!row) throw new UnknotError('UK_NOT_FOUND', `no campaign ${positional[1]}`);
     const c = JSON.parse(row.body);
     const { sliceStanding, laneLine, provenLine } = await import('../../policy/lanes.mjs');
-    const slices = ctx.store.all('SELECT id, state, risk, body FROM slices WHERE campaign_id = ? ORDER BY id', c.id).map((s) => {
+    const slices = ctx.store.all('SELECT id, campaign_id, state, risk, body FROM slices WHERE campaign_id = ? ORDER BY id', c.id).map((s) => {
       const body = JSON.parse(s.body);
       const st = sliceStanding({ ...s, body }, config, ctx);
       return { id: s.id, state: s.state, risk: s.risk, objective: body.objective, risk_reasons: st.risk_reasons, approvals: st.approvals.roles, lane: st.lane, proven_deletion: st.proven_deletion, plan_only: st.plan_only };
@@ -30,7 +30,7 @@ export async function run({ positional, flags }) {
     createCampaign(ctx, { config, actor, objective, decomposition: flags.from ?? null, findings: flags.findings ? String(flags.findings).split(',') : null, proposal, scope: flags.scope ? String(flags.scope).split(',') : [] }),
   );
   const { sliceStanding, laneLine, provenLine } = await import('../../policy/lanes.mjs');
-  const standing = (body) => sliceStanding({ id: body.id, state: 'AWAITING_APPROVAL', risk: body.risk, body }, config, ctx);
+  const standing = (body) => sliceStanding({ id: body.id, campaign_id: res.campaign.id, state: 'AWAITING_APPROVAL', risk: body.risk, body }, config, ctx);
   if (flags.json) return output({ ...res, standing: Object.fromEntries(res.slices.map((s) => [s.id, standing(s)])) }, { json: true });
   output([
     `Created ${res.campaign.id}: ${res.campaign.objective}`,

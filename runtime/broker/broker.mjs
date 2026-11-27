@@ -210,9 +210,13 @@ export function which(file, pathEnv = process.env.PATH ?? '') {
 
 /** The environment a brokered process sees: enough to run toolchains, no credentials. */
 export function minimalEnv({ tmp, home = homedir(), extra = {} } = {}) {
-  const keep = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME', 'JAVA_HOME', 'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'PYENV_ROOT', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'VIRTUAL_ENV'];
+  const keep = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME', 'JAVA_HOME', 'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'PYENV_ROOT', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'VIRTUAL_ENV',
+    // Toolchain locations a private HOME would otherwise lose (#170): pip --user packages and config.
+    // Paths only, kept only when absolute, so no credential can ride along.
+    'PYTHONUSERBASE', 'PIP_CONFIG_FILE'];
+  const pathOnly = new Set(['PYTHONUSERBASE', 'PIP_CONFIG_FILE']);
   const env = {};
-  for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k];
+  for (const k of keep) if (process.env[k] !== undefined && (!pathOnly.has(k) || process.env[k].startsWith('/'))) env[k] = process.env[k];
   Object.assign(env, { HOME: home, TERM: 'dumb', CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', UNKNOT_SANDBOXED: '1' });
   if (tmp) Object.assign(env, { TMPDIR: tmp, TMP: tmp, TEMP: tmp });
   for (const [k, v] of Object.entries(extra)) {

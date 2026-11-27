@@ -125,7 +125,7 @@ Every slice also records a **convention report**: what this team would expect if
 | `conflict` | A command one rule requires and another forbids; not enforced, a person decides. |
 | `flagged` | Text that tries to grant something (approve its own changes, skip verification). It has no effect. |
 
-Prose never makes a rule `enforced`. The report comes from the guidance files that apply to the slice's scope (the root's apply to every slice); approvals bind the content digest of each of them, so an edit to one after approval makes the approval stale with `conventions changed (<file>)`, and `status`, `next` and `slice show` list the slice as needing re-approval. An edit to guidance in a directory the slice does not reach changes nothing. A slice planned before reports existed shows `not recorded`, and the upgrade does not void its approvals.
+Prose never makes a rule `enforced`. The report comes from the guidance files that apply to the slice's scope (the root's apply to every slice); approvals and lanes bind the content digest of each guidance file that applies to the scope, so an edit to one, or a new one inside the scope, after approval makes the approval stale with `conventions changed (<file>)`, and `status`, `next` and `slice show` list the slice as needing re-approval. An edit to guidance in a directory the slice does not reach changes nothing. A slice planned before reports existed shows `not recorded`, and the upgrade does not void its approvals.
 
 Slice states and the legal moves between them:
 

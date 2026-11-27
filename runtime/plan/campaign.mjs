@@ -15,6 +15,7 @@ import { topoOrder } from '../graph/algorithms.mjs';
 import { sliceDigest } from '../policy/approvals.mjs';
 import { riskRank } from '../policy/defaults.mjs';
 import { sliceEvidence } from '../policy/evidence.mjs';
+import { planOnlyReason } from '../policy/kinds.mjs';
 import { provenDeletion } from '../policy/proven.mjs';
 import { classifyRisk, DEP_MANIFESTS, requiredApprovals } from '../policy/risk.mjs';
 import { matchAny } from '../core/glob.mjs';
@@ -214,12 +215,17 @@ export function createCampaign(ctx, { config, actor, objective, scope = [], cons
   const at = nowISO();
   const baseline = gitHead(ctx.root) ?? 'working-tree';
   const slices = [];
-  // Drafts are sequential unless they say otherwise: each depends on the one before.
+  // Drafts are sequential unless they say otherwise: each depends on the one before. Under
+  // apply.allowed_kinds an applicable slice skips plan-only ones, which can never be accepted (#217).
   let previous = null;
+  let previousApplicable = null;
   for (const draft of plan.drafts) {
-    const s = createSlice(ctx, { config, campaignId: id, draft: { ...draft, preconditions: draft.preconditions ?? (previous ? [previous] : []) }, actor });
+    const applicable = !planOnlyReason(ctx, { kind: 'code', ...draft }, config);
+    const implicit = applicable ? previousApplicable : previous;
+    const s = createSlice(ctx, { config, campaignId: id, draft: { ...draft, preconditions: draft.preconditions ?? (implicit ? [implicit] : []) }, actor });
     slices.push(s);
     previous = s.id;
+    if (applicable) previousApplicable = s.id;
   }
   topoOrder(slices.map((s) => s.id), slices.flatMap((s) => s.preconditions.filter((p) => slices.some((x) => x.id === p)).map((p) => [p, s.id])));
   const body = {

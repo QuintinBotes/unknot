@@ -63,7 +63,35 @@ export function objectiveCategories(objective) {
 
 const KIND_TO_SLICE = { database: 'database', infrastructure: 'infrastructure', decomposition: 'decomposition' };
 
-function finalize(draft, detector, signals, config) {
+const CONFIDENCE = ['low', 'medium', 'high'];
+const WEAK_LABELS = new Set(['inferred', 'unknown', 'contradicted']);
+const FULL_PARSE = new Set(['ok', 'ast', 'semantic']);
+// "Low confidence: ...", "... so confidence is low", "Inference from names only: low confidence"; not "Medium/low".
+const SAYS_LOW = /(?<![/\w])low confidence|confidence is low/i;
+
+/**
+ * How sure a finding is (#179), one rule for every detector: from the parse quality of the
+ * modules its evidence rests on, whether that evidence is observed, the detector's evidence
+ * factor and what its uncertainties say. A detector that judges its own `confidence` keeps it
+ * (the unused-member detectors weigh lexical reads themselves; #46 relies on it).
+ * Not part of identity: the fingerprint never reads it.
+ */
+export function findingConfidence(draft, graph) {
+  const evidence = draft.evidence ?? [];
+  const paths = new Set(draft.scope ?? []);
+  for (const e of evidence) { const p = graph?.node(e.ref)?.path; if (p) paths.add(p); }
+  const qualities = [...paths].map((p) => graph?.node(`module:${p}`)?.attrs?.parse_quality).filter(Boolean);
+  // Weak when the entry says so, or the graph fact it points at was inferred (an endpoint guessed from a lexical read).
+  const weak = evidence.filter((e) => WEAK_LABELS.has(e.label ?? 'observed') || WEAK_LABELS.has(graph?.node(e.ref)?.label)).length;
+  const factor = draft.factors?.evidence ?? 0.5;
+  let level = 'high';
+  if ((qualities.length && qualities.every((q) => q === 'lexical')) || (evidence.length && weak === evidence.length)
+    || factor < 0.5 || (draft.uncertainties ?? []).some((u) => SAYS_LOW.test(u))) level = 'low';
+  else if (qualities.some((q) => !FULL_PARSE.has(q)) || weak || factor < 0.8) level = 'medium';
+  return CONFIDENCE.includes(draft.confidence) ? draft.confidence : level;
+}
+
+function finalize(draft, detector, signals, config, graph) {
   const scope = [...new Set(draft.scope ?? [])].sort();
   const key = draft.key ?? scope.join(',');
   const fingerprint = digest({ kind: draft.kind, key });
@@ -95,7 +123,7 @@ function finalize(draft, detector, signals, config) {
     fingerprint,
     key,
     evidence: (draft.evidence ?? []).map((e) => ({ ref: e.ref, label: e.label ?? 'observed', summary: e.summary ?? '', source_ref: e.source_ref ?? null })),
-    ...(['low', 'medium', 'high'].includes(draft.confidence) && { confidence: draft.confidence }),
+    confidence: findingConfidence(draft, graph),
     measurements: draft.measurements ?? {},
     ...(draft.related_kinds?.length && { related_kinds: draft.related_kinds }),
     // Findings folded into this one, by fingerprint: their stored rows are reported as replaced by it.
@@ -225,7 +253,7 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   const findings = [];
   for (const { draft, detector } of drafts) {
     const subject = draft.evidence?.map((e) => e.ref).filter((r) => g.node(r)) ?? [];
-    const f = finalize(draft, detector, { ...global, ...scopeSignals(g, subject) }, config);
+    const f = finalize(draft, detector, { ...global, ...scopeSignals(g, subject) }, config, g);
     if (!inScope(f)) continue;
     const v = validateArtifact('finding', { ...f, id: 'F-0000' });
     if (!v.valid) {

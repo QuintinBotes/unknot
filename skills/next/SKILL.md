@@ -16,7 +16,9 @@ slice or an alternative, run `unknot slice <id> --json`.
 ## 2. Explain the why
 
 Report the slice id, state, risk and objective, and the reasons returned (size, satisfied
-dependencies, risk, value). Name alternatives that were also ready. If nothing is ready, list
+dependencies, risk, value). Name alternatives that were also ready, and the slices listed as `plan_only` or
+`waits_on_evidence` with their reason and ways forward: they are plans `apply` refuses, never offer
+them as work. If nothing is ready, list
 the blocked slices and what each waits for; do not pick one anyway.
 
 ## 3. Say what is needed before it can start

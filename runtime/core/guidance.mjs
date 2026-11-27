@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { git } from '../apply/git.mjs';
-import { matchAny } from './glob.mjs';
+import { matchAny, scopeReachesAny } from './glob.mjs';
 import { findInjectionMarkers } from './injection.mjs';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', 'vendored', 'bin', 'obj', '.unknot', '.claude']);
@@ -442,7 +442,7 @@ export function scopeHits(guidance, include) {
     const fp = prefixOf(rule.glob);
     const reach = include.some((g) => {
       const p = prefixOf(g);
-      return matchAny(g.replace(/\*+/g, 'x'), [rule.glob], { nocase: true }) || (/[*?]/.test(g) && Boolean(fp) && (!p || fp === p || fp.startsWith(`${p}/`)));
+      return scopeReachesAny([g], (path) => matchAny(path, [rule.glob], { nocase: true })) || (/[*?]/.test(g) && Boolean(fp) && (!p || fp === p || fp.startsWith(`${p}/`)));
     });
     if (reach && !hits.some((h) => h.glob === rule.glob && h.file === rule.file)) hits.push(rule);
   }
@@ -460,13 +460,15 @@ export function forbiddenCommand(guidance, argv) {
 }
 
 /**
- * The content digest of each guidance file a slice recorded, by file (null when it is gone), or null
- * for a slice planned before convention reports. Bound into approvals: an edit to one voids them.
+ * The content digest of each guidance file that applies to a slice's scope now, and of each it recorded
+ * at planning (null when gone), by file; null for a slice planned before convention reports. Bound into
+ * approvals and lanes: an edit, a new file in scope, or a removed one voids them.
  */
 export function guidanceDigests(root, body) {
   if (!Array.isArray(body?.conventions)) return null;
   const out = {};
-  for (const { file } of body.guidance ?? []) {
+  const files = new Set([...(body.guidance ?? []).map((g) => g.file), ...guidanceForScope(root, body.scope?.include).files.map((f) => f.file)]);
+  for (const file of [...files].sort()) {
     try {
       out[file] = `sha256:${createHash('sha256').update(readFileSync(join(root, file))).digest('hex')}`;
     } catch {

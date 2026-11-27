@@ -24,7 +24,8 @@ Lead with what needs attention, in this order:
    headed "For you, in your own terminal:") verbatim and tell the person to copy it into a
    separate terminal window (not `!`). It already holds the exact commands, in order: install
    the CLI, accept the config, register a key, approve each slice, end a run. Do not retype
-   or paraphrase them.
+   or paraphrase them. Slices in `for_you.held` get no approve command because `apply` would refuse
+   them; give each one's reason and never suggest approving it.
 3. Human attestations pending (`unknot attest <PO-id> --result pass|fail --note "..." --as <name>`).
 4. Stale evidence: a graph mapped at an older commit, or expired facts. Suggest `/unknot:map`.
 5. Everything else: counts of findings by status and slices by state.

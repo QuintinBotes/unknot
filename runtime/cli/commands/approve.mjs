@@ -59,15 +59,36 @@ async function approveLane(flags) {
   ].join('\n'));
   if (prompt(`Type ${lane.id} to approve these changes: `).trim() !== lane.id) throw new UnknotError('UK_POLICY_DENIED', 'confirmation did not match; nothing recorded');
   const key = loadApproverKey(approver, prompt(`Passphrase for ${approver}: `, { secret: true }));
+  output((await approveLaneSlices(ctx, cfg, { ready, role, approver, key })).join('\n'));
+}
+
+/**
+ * Record the change approval of each ready lane slice and accept it, in order. A slice that is
+ * refused stops the run; the error lists every slice accepted before it, which stay ACCEPTED.
+ */
+export async function approveLaneSlices(ctx, cfg, { ready, role, approver, key }) {
   const lines = [];
+  const accepted = [];
   for (const row of ready) {
     const slice = loadSlice(ctx, row.id);
-    const binding = currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash });
-    recordApproval(ctx, { config: cfg.config, slice, binding, role, approver, privateKey: key, actor: `human:${approver}` });
-    const status = approvalStatus(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash });
-    lines.push(status.satisfied ? await accept(ctx, cfg, slice, status, approver) : `${slice.id}: still needed: roles ${status.missing_roles.join(', ') || '—'}; approvers ${status.approvers}/${status.needed.min_approvers}.`);
+    try {
+      // Before the approval is recorded, so a slice refused on kind carries none (#173).
+      await assertPatchKinds(ctx, { config: cfg.config, slice });
+      const binding = currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash });
+      recordApproval(ctx, { config: cfg.config, slice, binding, role, approver, privateKey: key, actor: `human:${approver}` });
+      const status = approvalStatus(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash });
+      if (!status.satisfied) lines.push(`${slice.id}: still needed: roles ${status.missing_roles.join(', ') || '—'}; approvers ${status.approvers}/${status.needed.min_approvers}.`);
+      else {
+        lines.push(await accept(ctx, cfg, slice, status, approver));
+        accepted.push(slice.id);
+      }
+    } catch (e) {
+      if (!(e instanceof UnknotError)) throw e;
+      const done = lines.length ? `${lines.join('\n')}\n` : '';
+      throw new UnknotError(e.code, `${done}${slice.id} refused, so the lane approval stopped there (accepted before it: ${accepted.join(', ') || 'none'}): ${e.message}`, { slice_id: slice.id, details: { ...e.details, accepted, refused: slice.id } });
+    }
   }
-  output(lines.join('\n'));
+  return lines;
 }
 
 export async function run({ positional, flags }) {

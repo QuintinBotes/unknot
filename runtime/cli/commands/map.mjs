@@ -31,7 +31,9 @@ export async function run({ positional, flags }) {
   historyNotice(summary.history);
   if (flags.json) return output(summary, { json: true });
   const lines = [
-    `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,
+    summary.unchanged
+      ? `Unchanged since the last map: reused generation ${summary.generation}${summary.generated_at ? ` from ${summary.generated_at}` : ''} (${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges; ${summary.duration_ms} ms).`
+      : `Mapped ${summary.files} files at ${summary.commit?.slice(0, 12) ?? 'working tree'} → ${summary.nodes} nodes, ${summary.edges} edges (generation ${summary.generation}, ${summary.duration_ms} ms).`,
     `Covers: ${coverLine(summary.scope)}.`,
     `Cache: ${summary.cache.hits} reused, ${summary.cache.extracted} extracted.`,
     `Files by kind: ${Object.entries(summary.by_kind).map(([k, v]) => `${k} ${v}`).join(', ')}.`,

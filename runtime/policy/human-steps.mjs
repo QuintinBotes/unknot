@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { parseYAML } from '../core/yaml.mjs';
 import { cliPath } from '../cli/util.mjs';
+import { applyHold } from '../plan/next.mjs';
 import { activeRun } from '../state/runs.mjs';
 
 export const HUMAN_BLOCK_HEADING = 'For you, in your own terminal:';
@@ -65,13 +66,21 @@ export function humanSteps(ctx, cfg, { unknotOnPath, checkCli = false } = {}) {
   if (!Object.keys(approvers).length) {
     steps.push({ step: 'register_approver', commands: [`unknot keys generate ${name}`], note: 'paste the printed block under approvers: in .unknot/config.yaml, then accept the configuration again' });
   }
-  for (const s of ctx.store.all("SELECT id, body FROM slices WHERE state IN ('AWAITING_APPROVAL', 'REVIEW_READY') ORDER BY id")) {
-    let roles = [];
+  const held = [];
+  for (const s of ctx.store.all("SELECT id, campaign_id, state, body FROM slices WHERE state IN ('AWAITING_APPROVAL', 'REVIEW_READY') ORDER BY id")) {
+    let body = null;
     try {
-      roles = JSON.parse(s.body).approvals ?? [];
+      body = JSON.parse(s.body);
     } catch {
       // unreadable body: fall back to a placeholder role
     }
+    // An approval apply would never use is not asked for (#178); a patched slice is past those checks.
+    const hold = body && s.state === 'AWAITING_APPROVAL' && applyHold(ctx, { ...s, body }, cfg.config);
+    if (hold) {
+      held.push({ slice: s.id, ...hold });
+      continue;
+    }
+    let roles = body?.approvals ?? [];
     if (!roles.length) roles = ['<role>'];
     steps.push({
       step: 'approve_slice',
@@ -93,5 +102,5 @@ export function humanSteps(ctx, cfg, { unknotOnPath, checkCli = false } = {}) {
   const text = steps.length
     ? [HUMAN_BLOCK_HEADING, ...steps.flatMap((s) => [...s.commands.map((c) => `  ${c}`), ...(s.note ? [`    # ${s.note}`] : [])])].join('\n')
     : null;
-  return { heading: HUMAN_BLOCK_HEADING, steps, text };
+  return { heading: HUMAN_BLOCK_HEADING, steps, text, held };
 }

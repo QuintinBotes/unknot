@@ -7,7 +7,7 @@
 // unless a person explicitly set `security.require_os_sandbox: false` (sandboxRequired).
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,39 +70,80 @@ function executable(path) {
   }
 }
 
-let macSandboxUsable;
-
-// Some managed macOS environments expose sandbox-exec but forbid sandbox_apply. Treating that
-// binary as available makes every brokered command fail instead of reporting that no OS sandbox
-// is usable (and makes security.require_os_sandbox less meaningful).
-function usableMacSandbox() {
-  if (macSandboxUsable !== undefined) return macSandboxUsable;
-  const result = spawnSync('/usr/bin/sandbox-exec', ['-p', '(version 1) (allow default)', '/usr/bin/true'], { stdio: 'ignore', timeout: 2_000 });
-  macSandboxUsable = result.status === 0 && !result.error;
-  return macSandboxUsable;
+// Root owns `path` and every directory above it, and none is group- or world-writable. A
+// symlink's own mode bits mean nothing; its owner and the directory holding it still count.
+function rootOnly(path, stat) {
+  for (let d = path; ; d = dirname(d)) {
+    let st;
+    try {
+      st = stat(d);
+    } catch {
+      return false;
+    }
+    const link = (st.mode & 0o170000) === 0o120000;
+    if (st.uid !== 0 || (!link && (st.mode & 0o022) !== 0)) return false;
+    if (d === dirname(d)) return true;
+  }
 }
 
+/**
+ * The real path of a sandbox binary, or null when it is not trusted (#170). Both the path as
+ * given (each component and the directory holding a link, by lstat) and its real path must be
+ * root-owned and not group- or world-writable: on Debian the `staff` group can write
+ * /usr/local, so it could put its own `bwrap`, or a link to anything, there. Callers spawn the
+ * returned real path, so a link swapped after the check is never followed. `stat` and `lstat`
+ * are seams for tests.
+ */
+export function trustedBinary(path, { stat = statSync, lstat = lstatSync } = {}) {
+  if (typeof path !== 'string' || !path.startsWith('/')) return null;
+  let real;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return null;
+  }
+  return rootOnly(path, lstat) && rootOnly(real, stat) && executable(real) ? real : null;
+}
+
+const usable = new Map();
+
+// A trusted binary that cannot start is no sandbox, not a sandbox that fails every command:
+// a managed Mac can forbid sandbox_apply, and bubblewrap without unprivileged user namespaces
+// (an AppArmor default on Ubuntu 24.04) cannot start.
+function starts(file, args) {
+  const key = `${file}\0${args.join('\0')}`;
+  if (!usable.has(key)) {
+    const result = spawnSync(file, args, { stdio: 'ignore', timeout: 2_000 });
+    usable.set(key, result.status === 0 && !result.error);
+  }
+  return usable.get(key);
+}
+
+const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 // Fixed locations only: the wrapper runs the binary detection found, never one PATH names, so
 // a fake `bwrap` earlier on PATH cannot pass for the sandbox.
 const BWRAP_PATHS = ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'];
-const bwrapPath = () => BWRAP_PATHS.find(executable) ?? null;
-
-let bwrapUsable;
-
-// bubblewrap without unprivileged user namespaces (an AppArmor default on Ubuntu 24.04) is
-// installed but cannot start: that is no sandbox, not a sandbox that fails every command.
-function usableBwrap(path) {
-  if (bwrapUsable !== undefined) return bwrapUsable;
-  const result = spawnSync(path, ['--ro-bind', '/', '/', '--unshare-net', 'true'], { stdio: 'ignore', timeout: 2_000 });
-  bwrapUsable = result.status === 0 && !result.error;
-  return bwrapUsable;
+const bwrapPath = (paths = BWRAP_PATHS) => paths.map((p) => trustedBinary(p)).find(Boolean) ?? null;
+// What the wrapper runs when no binary is trusted: the fixed path when nothing is there, or a
+// path that cannot exist when an untrusted file is. Either way the spawn fails and nothing runs.
+function untrusted(fixed) {
+  try {
+    lstatSync(fixed); // a dangling link counts as something there
+    return '/nonexistent/untrusted-sandbox';
+  } catch {
+    return fixed;
+  }
 }
 
-export function detectSandbox() {
-  if (process.platform === 'darwin' && executable('/usr/bin/sandbox-exec') && usableMacSandbox()) return 'macos-sandbox-exec';
-  if (process.platform === 'linux') {
-    const p = bwrapPath();
-    if (p && usableBwrap(p)) return 'linux-bwrap';
+/** Which OS sandbox brokered commands run in. `platform` and `bwrapPaths` are seams for tests. */
+export function detectSandbox({ platform = process.platform, bwrapPaths = BWRAP_PATHS } = {}) {
+  if (platform === 'darwin') {
+    const p = trustedBinary(SANDBOX_EXEC);
+    if (p && starts(p, ['-p', '(version 1) (allow default)', '/usr/bin/true'])) return 'macos-sandbox-exec';
+  }
+  if (platform === 'linux') {
+    const p = bwrapPath(bwrapPaths);
+    if (p && starts(p, ['--ro-bind', '/', '/', '--unshare-net', 'true'])) return 'linux-bwrap';
   }
   return 'none';
 }
@@ -227,7 +268,7 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
   const allWritable = [...new Set([...writable, ...system].map((p) => realpathLenient(p)))];
   const hide = hideRoot && cwd && realpathLenient(cwd) !== realpathLenient(hideRoot) ? hideRoot : null;
   if (kind === 'macos-sandbox-exec') {
-    return { file: '/usr/bin/sandbox-exec', args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, rootFiles, cwd, loopback }), ...argv], sandbox: kind };
+    return { file: trustedBinary(SANDBOX_EXEC) ?? untrusted(SANDBOX_EXEC), args: ['-p', macosProfile({ writable: allWritable, network, sockets, hideRoot: hide, rootFiles, cwd, loopback }), ...argv], sandbox: kind };
   }
   if (kind === 'linux-bwrap') {
     const home = realpathLenient(homedir());
@@ -268,8 +309,8 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     }
     args.push('--ro-bind', PLUGIN_ROOT, PLUGIN_ROOT); // after the tmpfs mounts: see macosProfile
     if (!network) args.push('--unshare-net');
-    // A missing binary fails to spawn: the command does not run.
-    return { file: bwrapPath() ?? BWRAP_PATHS[0], args: [...args, '--', ...argv], sandbox: kind };
+    // The checked real path, never the name that was checked (a link could be swapped).
+    return { file: bwrapPath() ?? untrusted(BWRAP_PATHS[0]), args: [...args, '--', ...argv], sandbox: kind };
   }
   if (requireSandbox) {
     throw new UnknotError('UK_POLICY_DENIED', 'security.require_os_sandbox is set but no OS sandbox is available (need sandbox-exec or bubblewrap)', {

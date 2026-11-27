@@ -172,7 +172,7 @@ export async function onPostToolUse(event) {
     const verdict = checkDiffBudget(limits, stat);
     if (!verdict.ok) {
       appendEvent(ctx, { type: 'budget.breach', run_id: run.id, slice_id: slice.id, actor: 'hook:PostToolUse', payload: { diff: stat, problems: verdict.problems } });
-      return block(`Unknot: slice ${slice.id} is over its change budget (${verdict.problems.join('; ')}). Revert the excess or stop and run \`unknot apply replan ${slice.id}\`; do not widen scope.`);
+      return block(`Unknot: slice ${slice.id} is over its change budget (${verdict.problems.join('; ')}). Revert the excess or stop and run \`unknot apply ${slice.id} replan --reason "..."\`; do not widen scope.`);
     }
   }
   return notes.length ? context('PostToolUse', notes.join('\n')) : null;
@@ -242,7 +242,7 @@ export async function onStop(event) {
   const open = slice ? ctx.store.all("SELECT id, kind FROM proof_obligations WHERE slice_id = ? AND status IN ('open', 'inconclusive')", slice.id) : [];
   const unfinished = slice && ['PATCHING', 'VERIFYING'].includes(slice.state);
   if (unfinished && !event.stop_hook_active) {
-    const what = slice.state === 'PATCHING' ? `slice ${slice.id} is still PATCHING (run \`unknot apply finish ${slice.id}\` or \`unknot apply replan ${slice.id}\`)` : `slice ${slice.id} has open proof obligations: ${open.map((o) => `${o.id} ${o.kind}`).join(', ') || 'verification not finished'}`;
+    const what = slice.state === 'PATCHING' ? `slice ${slice.id} is still PATCHING (run \`unknot apply ${slice.id} finish\` or \`unknot apply ${slice.id} replan --reason "..."\`)` : `slice ${slice.id} has open proof obligations: ${open.map((o) => `${o.id} ${o.kind}`).join(', ') || 'verification not finished'}`;
     return block(`Unknot: ${what}. Do not report success; finish verification or report the slice as incomplete with what remains.`);
   }
   endRun(ctx, run.id, { outcome: unfinished ? 'incomplete' : 'completed', actor: 'hook:Stop' });

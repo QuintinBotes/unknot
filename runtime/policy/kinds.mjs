@@ -4,8 +4,9 @@
 // (at `apply finish`). What a slice says about itself can add kinds, never remove them.
 
 import { UnknotError } from '../core/errors.mjs';
-import { matchAny } from '../core/glob.mjs';
+import { matchAny, scopeReachesOnly } from '../core/glob.mjs';
 import { isTestCode } from '../graph/census.mjs';
+import { modulePaths } from './evidence.mjs';
 import { PROVEN_KINDS } from './proven.mjs';
 import { CONTAINER_PATHS, DB_PATHS, INFRA_PATHS } from './risk.mjs';
 
@@ -27,17 +28,19 @@ function reachKinds(body, paths) {
 }
 
 // Documentation is judged by the files, never by a slice's `kind` label.
-const DOC_FILES = ['**/*.md', '**/*.mdx', '**/*.markdown', '**/*.rst', '**/*.adoc'];
+// MDX is not documentation: it can import and export, and runs code at build time (#173).
+const DOC_FILES = ['**/*.md', '**/*.markdown', '**/*.rst', '**/*.adoc'];
 const isDoc = (p) => matchAny(p, DOC_FILES, { nocase: true });
 
-/** The files a plan names: its planned changes, else its scope globs with each wildcard made a literal segment. */
-const namedPaths = (body) => ((body.changes ?? []).length ? body.changes.map((c) => c.path) : (body.scope?.include ?? []).map((p) => p.replace(/\*+/g, 'x'))).filter(Boolean);
-
-/** Whether a plan only reaches documentation files (a scope like `src/**` does not, whatever its label). */
-export const plannedDocsOnly = (body) => {
-  const named = namedPaths(body);
-  return named.length > 0 && named.every(isDoc) && (body.scope?.include ?? []).every((g) => isDoc(g.replace(/\*+/g, 'x')));
+/** Whether every file a plan names passes `test`: its planned changes, else the paths its scope can reach. */
+const plannedOnly = (body, test, known) => {
+  const changes = (body.changes ?? []).map((c) => c.path).filter(Boolean);
+  const include = body.scope?.include ?? [];
+  return changes.length ? changes.every(test) : include.length > 0 && scopeReachesOnly(include, test, known);
 };
+
+/** Whether a plan only reaches documentation files (a scope like `src/**`, or a glob ending in `.md*`, does not, whatever its label). */
+export const plannedDocsOnly = (body) => plannedOnly(body, isDoc) && scopeReachesOnly(body.scope?.include ?? [], isDoc);
 
 const removalSources = (ctx, body) => (body.sources ?? []).length > 0 && body.sources.every((s) => PROVEN_KINDS.includes(ctx?.store?.get('SELECT kind FROM findings WHERE id = ?', s)?.kind));
 
@@ -46,9 +49,8 @@ export function plannedKinds(ctx, body) {
   const changes = body.changes ?? [];
   const paths = [...changes.map((c) => c.path), ...(body.scope?.include ?? [])].filter(Boolean);
   // Planned files when there are any, else the scope; the staged diff is judged again at finish.
-  const named = namedPaths(body);
   const shape = [];
-  if (named.length && named.every((p) => isTestCode(p))) shape.push('tests');
+  if (plannedOnly(body, (p) => isTestCode(p), modulePaths(ctx))) shape.push('tests');
   if ((changes.length && changes.every((c) => c.operation === 'delete')) || ((body.kind ?? 'code') === 'code' && !body.treatment && removalSources(ctx, body))) shape.push('deletion');
   if (plannedDocsOnly(body)) shape.push('documentation');
   if (!shape.length) shape.push('refactor');

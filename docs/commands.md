@@ -115,7 +115,7 @@ Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, t
 
 ### `unknot map [scope...]`
 
-Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumulate: the project records the scopes it has mapped, and `unknot map B` after `unknot map A` maps both, so edges between them stay (unchanged files come from the cache, so the kept scopes cost little). `unknot map` with no scope maps the whole repository and records that; a scoped map after it still covers the whole repository. `--replace` maps exactly the given scopes and says which earlier ones it dropped. A recorded scope that no longer exists on disk is dropped with a notice. The output, `--json` (`scope`) and `unknot status` name the scopes the graph covers. Unchanged files are served from a cache keyed by content, adapter version and config digest.
+Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumulate: the project records the scopes it has mapped, and `unknot map B` after `unknot map A` maps both, so edges between them stay (unchanged files come from the cache, so the kept scopes cost little). `unknot map` with no scope maps the whole repository and records that; a scoped map after it still covers the whole repository. `--replace` maps exactly the given scopes and says which earlier ones it dropped. A recorded scope that no longer exists on disk is dropped with a notice. The output, `--json` (`scope`) and `unknot status` name the scopes the graph covers. Unchanged files are served from a cache keyed by content, adapter version and config digest. When nothing changed since the last complete map, the result is reused: the first line says `Unchanged since the last map: reused generation N from <time>`, and `--json` has `unchanged: true`, `generated_at`, and counts of this run (nothing extracted or re-linked).
 
 | Flag | Meaning |
 |---|---|
@@ -195,7 +195,7 @@ The MCP tools take the same filters: `graph_query` lists nodes by `type`, edges 
 ### `unknot search <text> [--regex] [--scan] [--limit N] [scope...]`
 
 Where a string occurs in the files the map covers. Generated, vendored and credential files are excluded. Strings a dependency graph does not index (metric names, setting keys, role names, feature flags, durations) are what runbooks and alerts are made of.
-- **Definitions:** a constant or a config key holding the string are listed apart from plain uses.
+- **Definitions:** a constant or a config key holding the string are listed apart from plain uses, and so is a scanned line declaring a type of that name (`class Foo`). A comment, a doc-comment `<see cref="Foo"/>` included, is never a definition.
 - **Through its constant:** a constant that holds it is followed once, to where its name is used.
 - **Context:** each hit carries its kind (source, test, config, doc), module and owners.
 - **Which path answered:** an exact or prefix match on an indexed constant node (see the `literals` adapter) is answered from the graph, with its sub-kind (inferred) and every definition and use site; anything else, a `--regex`, or `--scan`, scans the files. The output says `Answered by: graph` or `scan` and why. `unknot graph nodes constant --name <text>` lists the constants.
@@ -208,7 +208,7 @@ Lists, shows or evaluates pattern cards against signals you supply. `fit` return
 
 ### `unknot status`
 
-Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval, open obligations and stale evidence (expired runtime facts, expired approvals). Flags: `--json`; `--read-only` opens the store read-only and writes nothing to the project (no migration, keys or `.gitignore`), as the campaign panel does.
+Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval (not those `apply` would refuse on `apply.allowed_kinds` or weak evidence: they are listed with the reason under "Not offered for approval", and in `for_you.held`), open obligations and stale evidence (expired runtime facts, expired approvals). Flags: `--json`; `--read-only` opens the store read-only and writes nothing to the project (no migration, keys or `.gitignore`), as the campaign panel does.
 
 ### `unknot workspace list | map [--no-history] | graph | add <name> <path> | remove <name>`
 
@@ -226,7 +226,7 @@ Creates a campaign and its slices. Needs mode `plan` or higher. The runtime, not
 
 ### `unknot next [campaign]`
 
-Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. `--json` supported.
+Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. A slice `unknot apply` would refuse is never selected: one whose kinds `apply.allowed_kinds` refuses is listed as `Plan-only` (`plan_only`), and one whose scope was mostly read lexically without `evidence.allow_weak` for its campaign as `Waits on evidence` (`waits_on_evidence`, with `ways_forward`). `--json` supported.
 
 ### `unknot slice <id>`
 
@@ -250,7 +250,7 @@ Approves the changes of every slice of a lane that is `REVIEW_READY`, one change
 
 ### `unknot lane approve <CMP-id> --as <approver> [--kinds deletion,tests] [--max-files N] [--max-lines N] [--expires 72h]` (human), `lane status [LN-id | CMP-id]`, `lane review <LN-id>`, `lane revoke <LN-id> [--reason "..."]` (human)
 
-A lane is one signed plan approval for the low-risk slices of a campaign: low risk, one required role, no protected paths. `approve` lists what it covers and what it leaves out, then signs it; inside it the agent applies and verifies covered slices without asking per slice (`/unknot:lane`), and `apply finish` refuses a patch that is not deletion-only or test-only within the caps (defaults: both kinds, 5 files, 60 lines, never above the configured limits). `status` shows each lane, whether it is still valid and the state of its slices; `review` prints the diffs of its slices that are ready for review. A replanned slice, a configuration change, expiry or `revoke` ends coverage. See [security-model.md](security-model.md#approvals).
+A lane is one signed plan approval for the low-risk slices of a campaign: low risk, one required role, no protected paths (judged by every brace alternative and the module paths a scope glob matches), and evidence apply accepts (not mostly read lexically, unless `evidence.allow_weak` lists the campaign). `approve` lists what it covers and what it leaves out, then signs it; inside it the agent applies and verifies covered slices without asking per slice (`/unknot:lane`), and `apply finish` refuses a patch that is not deletion-only or test-only within the caps (defaults: both kinds, 5 files, 60 lines, never above the configured limits). `status` shows each lane, whether it is still valid and the state of its slices; `review` prints the diffs of its slices that are ready for review. A replanned slice, a configuration change, expiry or `revoke` ends coverage. See [security-model.md](security-model.md#approvals).
 
 ### `unknot apply <slice> [start | finish | replan | abandon] [--reason "..."]`
 

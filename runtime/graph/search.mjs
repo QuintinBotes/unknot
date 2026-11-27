@@ -13,6 +13,15 @@ const KINDS = new Set(['source', 'test', 'config', 'doc', 'other']);
 const MAX_FILE_HITS = 50;
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const COMMENT = /^\s*(?:\/\/|\/\*|\*|#|--|<!--|;)/;
+const TYPE_DECL = /\b(?:class|struct|interface|record|enum|trait|type)\s+([A-Za-z_]\w*)/g;
+
+/** A line that declares a type named `text` (`public partial class Foo`), or null. */
+function typeOn(line, text) {
+  if (COMMENT.test(line)) return null;
+  for (const m of line.matchAll(TYPE_DECL)) if (m[1] === text) return { kind: 'type', name: text };
+  return null;
+}
 
 /**
  * A line that binds the string to a name: `const string Name = "x"`, `NAME = 'x'`,
@@ -20,6 +29,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * @returns {{kind: 'constant'|'key', name: string}|null}
  */
 export function definitionOn(line, text) {
+  if (COMMENT.test(line)) return null; // `/// <see cref="X"/>` names a type; a comment binds nothing
   const q = `["'\`]${escapeRe(text)}["'\`]`;
   const constant = new RegExp(`([A-Za-z_$][\\w$]*)\\s*(?::\\s*[\\w<>\\[\\]?, .]+)?\\s*[:=]\\s*(?:[@$]?)${q}`).exec(line);
   if (constant && !/^(if|while|return|case|when)$/.test(constant[1])) return { kind: 'constant', name: constant[1] };
@@ -108,7 +118,7 @@ function hitsIn(f, body, m) {
   const lines = body.split('\n');
   for (let i = 0; i < lines.length && out.length < MAX_FILE_HITS; i++) {
     if (!m.line(lines[i])) continue;
-    out.push({ path: f.path, line: i + 1, kind: f.kind, text: lines[i].trim().slice(0, 240), definition: m.regex ? null : definitionOn(lines[i], m.text) });
+    out.push({ path: f.path, line: i + 1, kind: f.kind, text: lines[i].trim().slice(0, 240), definition: m.regex ? null : definitionOn(lines[i], m.text) ?? typeOn(lines[i], m.text) });
   }
   return out;
 }

@@ -275,3 +275,80 @@ test('with no guidance the report has only Unknot defaults and says so; a slice 
   assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit }).satisfied, true);
   assert.match((await showSlice(dir, s.id)).conventions, /^not recorded/);
 });
+
+const { draftLane, laneFor, recordLane } = await import('../../runtime/policy/lanes.mjs');
+const { TOOLS } = await import('../../runtime/mcp/tools.mjs');
+const { matchRoute } = await import('../../runtime/daemon/routes.mjs');
+
+/** A slice under services/orders with its plan approved by alice. */
+async function approvedOrdersSlice() {
+  const { dir, ctx, cfg } = await conventionProject();
+  const [s] = plan(ctx, cfg, [slice('Rename the orders handler', ['services/orders/**'], ['services/orders/handler.mjs'])]);
+  const sl = loadSlice(ctx, s.id);
+  const key = loadApproverKey('alice', PASS);
+  for (const role of sl.body.approvals) recordApproval(ctx, { config: cfg.config, slice: sl, binding: currentBinding(ctx, sl, 'plan', { cfg, commit: head(dir) }), role, approver: 'alice', privateKey: key });
+  assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit: head(dir) }).satisfied, true);
+  return { dir, ctx, cfg, s, sl };
+}
+
+test('a guidance file added inside the scope after approval makes it stale everywhere: status, next, slice show, MCP, daemon and apply', { timeout: 120_000 }, async () => {
+  const { dir, ctx, cfg, s, sl } = await approvedOrdersSlice();
+  writeFileSync(join(dir, 'services/orders/CONTRIBUTING.md'), '- Always add a changelog entry.\n');
+  const reason = 'conventions changed (services/orders/CONTRIBUTING.md)';
+  assert.deepEqual(approvalStatus(ctx, sl, 'plan', { cfg, commit: head(dir) }).stale[0].reasons, [reason]);
+  assert.deepEqual(reapprovalSlices(ctx).map((r) => r.reason), [reason]);
+  assert.equal(selectNext(ctx).next.needs_reapproval, reason);
+  assert.deepEqual((await showSlice(dir, s.id)).conventions.needs_reapproval, [reason]);
+  // MCP slice_get and the daemon's slice route give the grouped report, as slice show does.
+  const mcp = TOOLS.slice_get.run(ctx, { id: s.id }).conventions;
+  assert.deepEqual(mcp.needs_reapproval, [reason]);
+  assert.equal(mcp.by_status.documented[0].source.file, 'services/orders/AGENTS.md');
+  const { route, params } = matchRoute('GET', `/v1/slices/${s.id}`);
+  assert.deepEqual(route.handler({ ctx, params }).body.conventions, mcp);
+
+  g(dir, 'add', '-A');
+  g(dir, 'commit', '-qm', 'new guidance');
+  const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: s.id, config: cfg.config, configDigest: cfg.digest });
+  await assert.rejects(startApply(ctx, { cfg, run, sliceId: s.id, actor: 'model:main' }), (e) => e.code === 'UK_APPROVAL_REQUIRED' && e.message.includes(reason));
+});
+
+test('a guidance file renamed into the scope makes the approval stale', { timeout: 120_000 }, async () => {
+  const { dir, ctx, cfg, sl } = await approvedOrdersSlice();
+  mkdirSync(join(dir, 'services/orders/lib'));
+  g(dir, 'mv', 'src/AGENTS.md', 'services/orders/lib/AGENTS.md');
+  g(dir, 'commit', '-qm', 'move guidance');
+  assert.deepEqual(approvalStatus(ctx, sl, 'plan', { cfg, commit: head(dir) }).stale.flatMap((x) => x.reasons), ['commit changed', 'conventions changed (services/orders/lib/AGENTS.md)']);
+});
+
+test('a lane stops covering a slice whose applicable guidance changes or is added, until it is signed again', { timeout: 120_000 }, async () => {
+  const { dir, ctx, cfg } = await conventionProject();
+  const [s] = plan(ctx, cfg, [slice('Rename the orders handler', ['services/orders/**'], ['services/orders/handler.mjs'])]);
+  const key = loadApproverKey('alice', PASS);
+  const sign = () => recordLane(ctx, { config: cfg.config, lane: draftLane(ctx, { cfg, campaignId: loadSlice(ctx, s.id).campaign_id }).lane, approver: 'alice', privateKey: key });
+  const signed = sign();
+  assert.equal(laneFor(ctx, { cfg, slice: loadSlice(ctx, s.id) }).lane?.id, signed.id);
+  assert.deepEqual(reapprovalSlices(ctx), []);
+
+  // Unrelated guidance leaves the lane alone.
+  writeFileSync(join(dir, 'src/CONTRIBUTING.md'), '- Keep it short.\n');
+  assert.equal(laneFor(ctx, { cfg, slice: loadSlice(ctx, s.id) }).lane?.id, signed.id);
+
+  // An edit to applicable guidance, and a new file in scope: the lane no longer covers the slice.
+  writeFileSync(join(dir, 'services/orders/AGENTS.md'), '- Never export defaults.\n');
+  writeFileSync(join(dir, 'services/orders/CONTRIBUTING.md'), '- Always add a changelog entry.\n');
+  const reason = 'conventions changed (services/orders/AGENTS.md), conventions changed (services/orders/CONTRIBUTING.md)';
+  const lf = laneFor(ctx, { cfg, slice: loadSlice(ctx, s.id) });
+  assert.equal(lf.lane, null);
+  assert.equal(lf.reasons[0], `${signed.id}: ${reason.replace(', conventions', '; conventions')}`);
+  assert.deepEqual(reapprovalSlices(ctx).map((r) => r.reason), [reason]);
+  assert.equal(selectNext(ctx).next.needs_reapproval, reason);
+  g(dir, 'add', '-A');
+  g(dir, 'commit', '-qm', 'guidance changed');
+  const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: s.id, config: cfg.config, configDigest: cfg.digest });
+  await assert.rejects(startApply(ctx, { cfg, run, sliceId: s.id, actor: 'model:main' }), (e) => e.code === 'UK_APPROVAL_REQUIRED' && /lanes: LN-\w+: conventions changed \(services\/orders\/AGENTS\.md\)/.test(e.message));
+
+  // Signed again over the new guidance: covered, and nothing needs re-approval.
+  const again = sign();
+  assert.equal(laneFor(ctx, { cfg, slice: loadSlice(ctx, s.id) }).lane?.id, again.id);
+  assert.deepEqual(reapprovalSlices(ctx), []);
+});

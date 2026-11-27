@@ -1,7 +1,7 @@
 // Risk classification and required approvals (spec §20, §15.9, §14.11). Classification
 // only ever raises risk; nothing a slice declares about itself can lower it.
 
-import { matchAny } from '../core/glob.mjs';
+import { matchAny, scopeReachesAny } from '../core/glob.mjs';
 import { CONTAINER_PATHS, RISKS, riskRank } from './defaults.mjs';
 import { weakEvidenceReasons } from './evidence.mjs';
 
@@ -34,7 +34,8 @@ export function classifyRisk(slice, { config, surfaces = {}, proven = null } = {
   const proof = proven?.qualifies === true;
   if (proof) state.reasons.push(`proven deletion: ${(proven.reasons ?? []).join('; ')}`);
   const paths = [...(slice.changes ?? []).map((c) => c.path), ...(slice.scope?.include ?? [])].filter(Boolean);
-  const any = (globs) => paths.some((p) => matchAny(p, globs, { nocase: true }));
+  // Scope globs count by each brace alternative too, so `{src/,.github/}**` is not read as one odd path.
+  const any = (globs) => paths.some((p) => matchAny(p, globs, { nocase: true })) || scopeReachesAny(slice.scope?.include ?? [], (p) => matchAny(p, globs, { nocase: true }));
   const text = JSON.stringify(slice.changes ?? []) + JSON.stringify(slice.objective ?? '');
 
   // A planner's 'medium' and the medium surfaces are the only factors a proven deletion lowers;

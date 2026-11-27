@@ -132,3 +132,58 @@ export function inScope(path, { include = [], exclude = [] } = {}) {
   if (matchAny(path, exclude)) return false;
   return include.length === 0 || matchAny(path, include);
 }
+
+/** A pattern with its brace alternatives spelled out: `{a,b}/x` gives `a/x` and `b/x`. An unclosed `{` stays literal. */
+export function expandBraces(p) {
+  for (let i = p.indexOf('{'); i !== -1; i = p.indexOf('{', i + 1)) {
+    const close = matchingBrace(p, i);
+    if (close === -1) continue;
+    return splitTopLevel(p.slice(i + 1, close)).flatMap((alt) => expandBraces(p.slice(0, i) + alt + p.slice(close + 1)));
+  }
+  return [p];
+}
+
+// What a scope reaches (#146, #171, #173) is never judged from one reading of its glob text, which
+// brace alternatives and trailing wildcards (`{src/,.github/}**`, a doc extension followed by `*`) dress up.
+const WILD = /[*?[]/;
+const MAX_ALTERNATIVES = 64;
+const alternativesOf = (globs) => {
+  const alts = globs.flatMap((g) => expandBraces(g));
+  return alts.length > MAX_ALTERNATIVES ? null : alts;
+};
+
+/**
+ * Whether some path a scope reaches passes `test`: each brace alternative read with its wildcards
+ * as one sample segment, and every `known` path (module paths from the graph) it matches.
+ * Too many alternatives to judge counts as reaching.
+ */
+export function scopeReachesAny(globs, test, known = []) {
+  const alts = alternativesOf(globs);
+  if (!alts) return true;
+  return alts.some((a) => {
+    // The sample only adds hits (it finds a protected glob's own directory); the known paths are the real reach.
+    if (test(a.replace(/\*+/g, 'x'))) return true;
+    if (!WILD.test(a)) return false;
+    const m = matcher([a]);
+    return known.some((p) => m(p) && test(p));
+  });
+}
+
+/**
+ * Whether every path a scope can reach passes `test` (true for no globs). A literal alternative is
+ * its own path. A wildcard one passes when the fixed text after its last wildcard decides it for
+ * any path (a glob ending in `*` has none), or when it matches known paths and all of them pass.
+ * Too many alternatives to judge fails.
+ */
+export function scopeReachesOnly(globs, test, known = []) {
+  const alts = alternativesOf(globs);
+  if (!alts) return false;
+  return alts.every((a) => {
+    if (!WILD.test(a)) return test(a);
+    const tail = a.replace(/^.*[*?[\]]/s, '');
+    if (tail && test(`x${tail}`)) return true;
+    const m = matcher([a]);
+    const hits = known.filter((p) => m(p));
+    return hits.length > 0 && hits.every(test);
+  });
+}
