@@ -13,6 +13,7 @@ import { diagnose } from '../../runtime/diagnose/engine.mjs';
 import { createCampaign } from '../../runtime/plan/campaign.mjs';
 import { currentBinding, startApply } from '../../runtime/apply/apply.mjs';
 import { stringifyYAML } from '../../runtime/core/yaml.mjs';
+import { draftLane, recordLane, sliceStanding } from '../../runtime/policy/lanes.mjs';
 
 after(() => K.cleanup());
 
@@ -114,6 +115,32 @@ test('apply refuses a lexically read slice, naming the gap and both ways forward
   opted = accept(p, { evidence: { allow_weak: [campaign.id] } });
   const res = await apply(p, opted, slice.id);
   assert.equal(res.slice.state, 'PATCHING');
+});
+
+test('lane eligibility uses the same weak-evidence rule as apply, per campaign (#171)', async () => {
+  const { p, cfg, campaign, slice } = await planned(CSHARP);
+  const lane = (c) => sliceStanding(K.loadSlice(p.ctx, slice.id), c.config, p.ctx).lane;
+  assert.equal(lane(cfg).eligible, false);
+  assert.match(lane(cfg).problems.join(' | '), /^weak evidence: \d+ of \d+ modules in scope were read lexically \(csharp\)/m);
+  const draft = draftLane(p.ctx, { cfg, campaignId: campaign.id });
+  assert.equal(draft.lane.slices[slice.id], undefined, 'a lane cannot be signed for it');
+  assert.throws(() => recordLane(p.ctx, { config: cfg.config, lane: draft.lane, approver: 'alice', privateKey: key }), (e) => e.code === 'UK_POLICY_DENIED');
+  assert.match(lane(accept(p, { evidence: { allow_weak: ['CMP-999'] } })).problems.join(' | '), /weak evidence/);
+  assert.deepEqual(lane(accept(p, { evidence: { allow_weak: [campaign.id] } })), { eligible: true, problems: [] });
+  // Without the campaign id the opt-in cannot apply, which is why every caller passes it.
+  const { campaign_id: _, ...bare } = K.loadSlice(p.ctx, slice.id);
+  assert.match(sliceStanding(bare, K.configMod.loadConfig(p.ctx).config, p.ctx).lane.problems.join(' | '), /weak evidence/);
+});
+
+test('a brace glob reaching a protected path is high risk and not lane-eligible; a plain one still is (#171)', async () => {
+  const { p, slice } = await planned(TYPESCRIPT);
+  const cfg = accept(p, { protected_paths: ['.github/**'] });
+  const { slices } = createCampaign(p.ctx, { config: cfg.config, actor: 'model:main', objective: 'Tidy the mailer module', proposal: { slices: [{ objective: 'Tidy mailer', kind: 'code', scope: { include: ['{src/mailer.ts,.github/**}'] } }] } });
+  const st = sliceStanding(K.loadSlice(p.ctx, slices[0].id), cfg.config, p.ctx);
+  assert.equal(slices[0].risk, 'high');
+  assert.match(st.risk_reasons.join(' | '), /protected paths/);
+  assert.match(st.lane.problems.join(' | '), /protected paths \{src\/mailer\.ts,\.github\/\*\*\}/);
+  assert.deepEqual(sliceStanding(K.loadSlice(p.ctx, slice.id), cfg.config, p.ctx).lane, { eligible: true, problems: [] }, 'the TypeScript deletion slice is unaffected');
 });
 
 test('the same slice in a repository with a syntax adapter proceeds as before', async () => {
