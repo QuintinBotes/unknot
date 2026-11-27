@@ -58,7 +58,9 @@ export async function run({ flags }) {
       const { loadConfig, waitingProposal } = await import('../../policy/config.mjs');
       const ctx = openProject(root);
       const cfg = loadConfig(ctx);
-      add('config acceptance', cfg.acceptance === 'accepted' || cfg.acceptance === 'none', cfg.notice ?? `accepted (${cfg.acceptance})`, cfg.acceptance === 'accepted' || cfg.acceptance === 'none' ? 'ok' : 'warn');
+      if (cfg.acceptance !== 'none') add('config acceptance', cfg.acceptance === 'accepted', cfg.notice ?? `accepted (${cfg.acceptance})`, cfg.acceptance === 'accepted' ? 'ok' : 'warn');
+      else if (existsSync(ctx.paths.proposedConfig)) add('config acceptance', false, `no configuration is accepted, so built-in defaults apply; a proposal waits (.unknot/config.proposed.yaml): a person reviews it (${humanCommand('config diff').split('\n')[0]}) and accepts it (${humanCommand('config accept').split('\n')[0]})`, 'warn');
+      else add('config acceptance', true, 'no configuration is accepted, so built-in defaults apply');
       const waiting = waitingProposal(ctx);
       if (waiting) add('config proposal', false, `a newer proposal is waiting (${waiting.path}, differs in ${waiting.differs.join(', ')}); it is not in force until a person reviews it (${humanCommand('config diff').split('\n')[0]}) and accepts it`, 'warn');
       if (sandbox === 'none' && sandboxRequired(cfg.config)) {
