@@ -140,7 +140,7 @@ export const acceptedConfigText = (ctx) => acceptedRecord(ctx)?.text ?? null;
 
 const INVALID_NOTICE = {
   unsigned: 'the configuration acceptance in the store carries no signature (it was recorded by an earlier release, or written into the store directly), so it is not honoured',
-  signature: "the configuration acceptance in the store does not verify against this project's key in UNKNOT_HOME (forged, replayed, from another project or checkout path, or the key was replaced), so it is not honoured",
+  signature: "the configuration acceptance in the store does not verify against this project's key in UNKNOT_HOME (forged, replayed, superseded by a newer acceptance at this path or of this project at another path, from another project or checkout path, or the key was replaced), so it is not honoured",
 };
 
 /**
