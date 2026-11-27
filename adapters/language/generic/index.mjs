@@ -21,7 +21,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.20';
+const VERSION = '0.1.21';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -904,7 +904,7 @@ function link(ctx) {
   }
 
   routeGroups(ctx.factsByFile, 'generic@', normPath);
-  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
+  for (const f of ormAccess(ctx.factsByFile, 'generic@', (p, line, c = 'medium') => prov_(p, line, c, 'inference'))) push(f);
   for (const f of serverInterfaces(ctx.factsByFile, 'generic@', (p, line) => prov_(p, line, 'medium', 'inference'))) push(f);
 
   // --- packages ---------------------------------------------------------------------

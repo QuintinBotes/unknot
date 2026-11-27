@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Graph } from '../../../runtime/graph/graph.mjs';
 import { databaseInventory, infrastructureInventory, securityInventory, threatChecklist } from '../../../runtime/artifacts/reports.mjs';
 import { edge, mod, node } from '../../fixtures/artifacts/systems.mjs';
+import DB from '../../../runtime/diagnose/detectors/database.mjs';
 
 function dbFacts() {
   return [
@@ -48,6 +49,22 @@ test('database inventory: shared writers, hazards by forecast, framework counts'
   assert.ok(v2.hazards.some((h) => /rewrites public\.orders/.test(h)));
   assert.equal(v2.forecasts[0].safer_alternative, 'add a new column and backfill');
   assert.ok(!ids.includes('db/V3__add.sql'));
+});
+
+test('database inventory: test files that write a table are counted apart, not as writer groups or owners', () => {
+  const facts = [
+    ...dbFacts(),
+    mod('packages/orders/test/repo.test.ts', { is_test: true }),
+    mod('packages/users/OrdersTests.cs', { is_test: true }),
+    edge('MUTATES', 'module:packages/orders/test/repo.test.ts', 'table:public.users'),
+    edge('MUTATES', 'module:packages/users/OrdersTests.cs', 'table:public.users'),
+  ];
+  const inv = databaseInventory(Graph.fromFacts(facts));
+  assert.deepEqual(inv.test_writers, { modules: 2, tables: ['public.users'] });
+  assert.deepEqual(inv.writers_by_group.users, ['public.users']);
+  assert.ok(!Object.keys(inv.writers_by_group).some((g) => /test/i.test(g)), Object.keys(inv.writers_by_group).join());
+  assert.deepEqual(inv.shared_writer_tables.map((t) => t.table), ['public.orders'], 'users stays single-writer');
+  assert.equal(DB.find((d) => d.id === 'database.multiple-writers').detect({ graph: Graph.fromFacts(facts), options: {}, config: {}, scope: [] }).length, 1);
 });
 
 test('database invariants: missing unless the graph or config states them', () => {

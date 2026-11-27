@@ -4,7 +4,7 @@
 // invents an invariant, an owner, a backup policy or a layer that was not observed.
 
 import { matchAny } from '../core/glob.mjs';
-import { dedupe, publicEntries, riskyRole, unitModel, unitOf, WRITE_EDGES } from './model.mjs';
+import { dedupe, isTestNode, publicEntries, riskyRole, unitModel, unitOf, WRITE_EDGES } from './model.mjs';
 
 const count = (arr, key) => {
   const out = {};
@@ -67,10 +67,14 @@ export function databaseInventory(graph, { config = {}, catalog = null } = {}) {
   const tables = graph.nodes('table').filter((t) => !t.attrs?.placeholder);
   const writers = new Map();
   const writersByGroup = {};
+  const testWriters = { modules: new Set(), tables: new Set() };
   for (const e of graph.edges()) {
     if (!WRITE_EDGES.includes(e.type) || e.type === 'OWNS_DATA') continue;
     const t = graph.node(e.to);
-    if (!t || !['table', 'collection'].includes(t.type) || graph.node(e.from)?.type === 'migration') continue;
+    const from = graph.node(e.from);
+    if (!t || !['table', 'collection'].includes(t.type) || from?.type === 'migration') continue;
+    // Tests write tables to set up fixtures: counted apart, never a writer group or an owner.
+    if (from && isTestNode(from)) { testWriters.modules.add(from.id); testWriters.tables.add(t.name); continue; }
     const who = groupName(e.from);
     if (!writers.has(t.id)) writers.set(t.id, new Set());
     writers.get(t.id).add(who);
@@ -109,6 +113,7 @@ export function databaseInventory(graph, { config = {}, catalog = null } = {}) {
     ownership: { status: ownershipSources.length ? 'measured' : 'unmeasured', sources: ownershipSources },
     writers_by_group: Object.fromEntries(Object.entries(writersByGroup).map(([k, v]) => [k, [...v].sort()]).sort((a, b) => a[0].localeCompare(b[0]))),
     shared_writer_tables: sharedWriterTables,
+    test_writers: { modules: testWriters.modules.size, tables: [...testWriters.tables].sort() },
     hazardous_migrations: hazardous,
     catalog_evidence: catalog ?? { facts: 0, newest: null, oldest: null, age_days: null },
     invariants,
