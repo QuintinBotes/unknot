@@ -30,3 +30,9 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           post: false
           fail-open: true
+      # Log what the run did; the job summary is not readable from the API.
+      - if: always()
+        run: |
+          f="$RUNNER_TEMP/review-voice/report.json"
+          [ -f "$f" ] && jq -c '{exitCode, scope: .scope.kind, mode: .plan.mode, findings: [(.findings // [])[] | {id, severity, path, line, title}], held: ((.held // []) | length), verdict: (.verdict | {event, action}), costUsd, seconds}' "$f" || echo "no report"
+
