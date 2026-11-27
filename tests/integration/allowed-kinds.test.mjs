@@ -11,7 +11,7 @@ import { mapRepository } from '../../runtime/graph/builder.mjs';
 import { createCampaign } from '../../runtime/plan/campaign.mjs';
 import { currentBinding, finishApply, startApply } from '../../runtime/apply/apply.mjs';
 import { sliceStanding } from '../../runtime/policy/lanes.mjs';
-import { accept } from '../../runtime/cli/commands/approve.mjs';
+import { accept, approveLaneSlices } from '../../runtime/cli/commands/approve.mjs';
 import { stringifyYAML } from '../../runtime/core/yaml.mjs';
 
 after(() => K.cleanup());
@@ -143,6 +143,17 @@ test('a "refactor" that removes a public export is refused when public-interface
   assert.equal(s.state, 'VERIFYING');
 });
 
+test('a glob ending in .md* gets the code checks; docs/**/*.md keeps the documentation ones (#173)', { timeout: 120_000 }, async () => {
+  const slices = [
+    { objective: 'Tidy markdown-ish files', kind: 'documentation', scope: { include: ['src/**/*.md*'] }, preconditions: [] },
+    { objective: 'Tidy the docs', kind: 'documentation', scope: { include: ['docs/**/*.md'] }, preconditions: [] },
+  ];
+  const { p, ids } = await project(null, {}, slices);
+  const kinds = (id) => p.ctx.store.all('SELECT kind FROM proof_obligations WHERE slice_id = ?', id).map((o) => o.kind);
+  for (const k of ['unit', 'architecture-fitness']) assert.ok(kinds(ids[0]).includes(k), `${k} applies to src/**/*.md*, which also matches src/net.md.js`);
+  assert.ok(!kinds(ids[1]).includes('architecture-fitness'), 'docs/**/*.md is still documentation-only');
+});
+
 test('a "documentation" label does not let a code change through, and does not skip the code checks', { timeout: 120_000 }, async () => {
   const slices = [
     { objective: 'Document price', kind: 'documentation', scope: { include: ['src/**'] }, preconditions: [] },
@@ -194,4 +205,35 @@ test('a slice patched before the list was narrowed cannot be accepted after it',
   const widened = setConfig(p, ['refactor']);
   assert.match(await accept(p.ctx, widened, K.loadSlice(p.ctx, id), satisfied, 'alice'), /ACCEPTED/);
   assert.equal(K.loadSlice(p.ctx, id).state, 'ACCEPTED');
+});
+
+test('a lane approval that stops at a refused slice reports the slices it accepted, and records nothing for the refused one (#173)', { timeout: 120_000 }, async () => {
+  const { p, ids } = await project(null);
+  let cfg = K.configMod.loadConfig(p.ctx);
+  const [tests, deletion, refactor] = ids;
+  const patches = {
+    [tests]: (wt) => writeFileSync(join(wt, 'test/price.test.js'), "import { price } from '../src/price.js';\nprice([]);\nprice([{ p: 1 }]);\n"),
+    [refactor]: (wt) => writeFileSync(join(wt, 'src/price.js'), 'export function price(items) {\n  let s = 0;\n  for (const i of items) s += i.p;\n  return s;\n}\n'),
+    [deletion]: (wt) => rmSync(join(wt, 'src/old.js')),
+  };
+  for (const id of [tests, refactor, deletion]) {
+    approve(p, cfg, id);
+    patches[id]((await start(p, cfg, id)).slice.worktree);
+    await finish(p, cfg, id);
+    K.machine.transitionSlice(p.ctx, { slice: K.loadSlice(p.ctx, id), to: 'REVIEW_READY', actor: 'runtime:verifier', reason: 'test: proven' });
+  }
+  cfg = setConfig(p, ['tests', 'deletion']);
+  const ready = [tests, refactor, deletion].map((id) => K.loadSlice(p.ctx, id));
+  await assert.rejects(approveLaneSlices(p.ctx, cfg, { ready, role: 'code-owner', approver: 'alice', key }), (e) => {
+    assert.equal(e.code, 'UK_KIND_NOT_ALLOWED');
+    assert.ok(e.message.startsWith(`${tests} ACCEPTED`), e.message);
+    assert.ok(e.message.includes(`${refactor} refused, so the lane approval stopped there (accepted before it: ${tests}): slice ${refactor} is a change of kind refactor`), e.message);
+    assert.deepEqual(e.details.accepted, [tests]);
+    assert.equal(e.details.refused, refactor);
+    return true;
+  });
+  assert.equal(K.loadSlice(p.ctx, tests).state, 'ACCEPTED');
+  assert.equal(K.loadSlice(p.ctx, refactor).state, 'REVIEW_READY');
+  assert.equal(K.loadSlice(p.ctx, deletion).state, 'REVIEW_READY', 'the run stopped before it');
+  assert.equal(p.ctx.store.all("SELECT id FROM approvals WHERE slice_id = ? AND stage = 'change'", refactor).length, 0, 'no change approval for the refused slice');
 });
