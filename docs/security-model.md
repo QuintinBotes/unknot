@@ -153,6 +153,10 @@ With no sandbox (none installed, or one that cannot start, such as bubblewrap wi
 
 A run is bound to at most one slice at a time. Only a run started for slice work (`apply`, `verify`, `rollback`) can take on a slice, and when the person typed slice ids the run may take on only those. A command's write ceiling bounds every actor in its run, subagents included: source changes need an `apply` or `rollback` run, and documentation writes need a planning command. A slice that is ready for review goes back to patching only when a person names it (`/unknot:apply UK-…`). In `mode: campaign` a run may move to the next slice of the same campaign once the current one is settled.
 
+## Configuration acceptance
+
+`unknot config accept` (human only, at a terminal) signs what it accepts with the project's audit key from `UNKNOT_HOME`: an Ed25519 signature over the config digest, the project id, the checkout's path and the time, stored beside the text in the store, and the same signature written to `UNKNOT_HOME/projects/<id>/acceptance.sig` as the acceptance in force. Every load verifies both before it honours the accepted text; an unsigned, forged, replayed or transplanted acceptance, or one under a removed or replaced key, unlocks nothing (`acceptance: invalid`, honoured as unaccepted) and `doctor` and `status` say so. With no valid acceptance but a write mode's traces left, the OS sandbox stays required. Signing happens only in `recordAcceptedConfig`, which only the `config accept` command calls in the runtime; tests and scripts call it through the runtime API. A process that can read `UNKNOT_HOME` as the same user can still sign, as it can sign approvals.
+
 ## Approvals
 
 An approval is a signature, not a flag in a database.

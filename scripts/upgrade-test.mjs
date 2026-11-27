@@ -197,6 +197,15 @@ function upgradeFrom(tag, work) {
 
   // This checkout upgrades the same project in place.
   const before = storeMeta(project);
+  // An earlier release recorded the acceptance unsigned (#215): this checkout honours none of it
+  // and says so, until a person accepts the configuration once.
+  const shownCfg = step(root, 'config show', ['config', 'show', '--json']);
+  if (!before.accepted_config_signature) {
+    if (shownCfg.json?.acceptance !== 'invalid') fail(`an unsigned acceptance from ${tag} is ${shownCfg.json?.acceptance}, expected invalid`);
+    if (!/unknot config accept/.test(shownCfg.json?.notice ?? '')) fail(`the notice does not say to run unknot config accept: ${shownCfg.json?.notice}`);
+  }
+  const reaccepted = slice('accept', root, project, home);
+  if (reaccepted.error || reaccepted.acceptance !== 'accepted') fail(`re-accepting the configuration: ${reaccepted.error ?? reaccepted.acceptance}`);
   const m = step(root, 'map', ['map', '--json']);
   const d = step(root, 'diagnose', ['diagnose', '--json']);
   const dec = step(root, 'decompose', ['decompose', '--json']);

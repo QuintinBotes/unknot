@@ -110,7 +110,7 @@ These are real, and you should weigh them before pointing Unknot at a sensitive 
 
 **Handoffs are reports.** An agent's handoff is validated and recorded, never obeyed. A hand-back through the `submit_handoff` tool is matched to the agent by its type, so one agent can file the report another was asked for.
 
-**Configuration acceptance is the root of trust.** Whoever can run `unknot config accept` at a terminal as you can register approvers and raise the mode. Organization policy can lock approvers (`approvers_locked`) and cap the mode (`max_mode`).
+**Configuration acceptance is the root of trust.** Whoever can run `unknot config accept` at a terminal as you can register approvers and raise the mode. Organization policy can lock approvers (`approvers_locked`) and cap the mode (`max_mode`). The acceptance is signed with the project's audit key in `UNKNOT_HOME` (#215), so writing `.unknot/state` alone accepts nothing; a process that can read `UNKNOT_HOME` as you can sign one, the same limit as for approvals.
 
 **Organization policy without trusted keys is accepted unsigned.** A policy directory that has a `trusted-keys/` directory requires a valid signature. One without it is loaded as-is; `unknot policy verify` and `unknot doctor` warn. Managed locations (`/Library/Application Support/Unknot`, `/etc/unknot`) should be writable only by administrators.
 

@@ -5,9 +5,10 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { sandboxRequired } from '../broker/sandbox.mjs';
-import { digest } from '../core/canonical.mjs';
+import { canonicalJSON, digest } from '../core/canonical.mjs';
+import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
-import { verifyText } from '../core/keys.mjs';
+import { signAcceptance, verifyAcceptance, verifyText } from '../core/keys.mjs';
 import { unknotHome } from '../core/project.mjs';
 import { validateArtifact } from '../core/schema.mjs';
 import { parseYAML } from '../core/yaml.mjs';
@@ -76,19 +77,15 @@ export function readRepoConfig(paths) {
 }
 
 /**
- * Record `text` as the human-accepted configuration (spec §4.2: mode elevation requires
- * explicit configuration and cannot be inferred). Called only by `unknot config accept`
- * at a terminal, and by tests.
- */
-/**
  * A proposal waiting for a person: `config accept` consumes the proposal file, so one that
  * exists beside an accepted configuration is newer than it. Null when there is none.
  */
 export function waitingProposal(ctx) {
-  if (!existsSync(ctx.paths.proposedConfig) || !ctx.store.meta('accepted_config_text')) return null;
+  const acceptedText = acceptedConfigText(ctx);
+  if (!existsSync(ctx.paths.proposedConfig) || !acceptedText) return null;
   try {
     const proposed = parseConfigText(readFileSync(ctx.paths.proposedConfig, 'utf8'), 'config.proposed.yaml');
-    const accepted = parseConfigText(ctx.store.meta('accepted_config_text'), '<accepted>');
+    const accepted = parseConfigText(acceptedText, '<accepted>');
     const differs = Object.keys({ ...proposed, ...accepted }).filter((k) => JSON.stringify(proposed[k] ?? null) !== JSON.stringify(accepted[k] ?? null)).sort();
     return differs.length ? { path: '.unknot/config.proposed.yaml', differs } : null;
   } catch {
@@ -96,16 +93,55 @@ export function waitingProposal(ctx) {
   }
 }
 
+// What an acceptance signature covers (#215): the text through its digest, the project and its
+// root (so another project's signed acceptance does not verify here), and when.
+const acceptanceStatement = (ctx, d, at) => canonicalJSON({ type: 'unknot.config-acceptance/v1', project_id: ctx.projectId, root: ctx.root, digest: d, at });
+
+/**
+ * Record `text` as the human-accepted configuration (spec §4.2: mode elevation requires
+ * explicit configuration and cannot be inferred), signed with the project's audit key from
+ * UNKNOT_HOME. Called only by `unknot config accept` at a terminal, and by tests and scripts
+ * through the runtime API.
+ */
 export function recordAcceptedConfig(ctx, text, actor) {
   const v = validateArtifact('config', parseConfigText(text, '<accepted>'));
   if (!v.valid) throw new UnknotError('UK_CONFIG_INVALID', `config invalid: ${v.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
   const d = digest(text);
+  const at = nowISO();
+  const signature = signAcceptance(ctx.projectId, acceptanceStatement(ctx, d, at));
   ctx.store.tx(() => {
     ctx.store.meta('accepted_config_digest', d);
     ctx.store.meta('accepted_config_text', text);
+    ctx.store.meta('accepted_config_at', at);
+    ctx.store.meta('accepted_config_signature', signature);
   });
   return d;
 }
+
+/**
+ * The acceptance recorded in the store: `{text, digest}` when its signature verifies against
+ * this project's key and is the one in force, `{invalid}` when a record is there but does not
+ * (unsigned: written by a release before #215 or straight into the store; forged; replayed;
+ * another project's), and null when there is none. Only a verified record unlocks anything.
+ */
+export function acceptedRecord(ctx) {
+  const meta = (k) => ctx.store?.meta?.(k) ?? null;
+  const text = meta('accepted_config_text');
+  const d = meta('accepted_config_digest');
+  if (!text && !d) return null;
+  const signature = meta('accepted_config_signature');
+  if (!signature) return { invalid: 'unsigned' };
+  if (!ctx.projectId || !text || d !== digest(text) || !verifyAcceptance(ctx.projectId, acceptanceStatement(ctx, d, meta('accepted_config_at')), signature)) return { invalid: 'signature' };
+  return { text, digest: d };
+}
+
+/** The verified accepted configuration text, or null. */
+export const acceptedConfigText = (ctx) => acceptedRecord(ctx)?.text ?? null;
+
+const INVALID_NOTICE = {
+  unsigned: 'the configuration acceptance in the store carries no signature (it was recorded by an earlier release, or written into the store directly), so it is not honoured',
+  signature: "the configuration acceptance in the store does not verify against this project's key in UNKNOT_HOME (forged, replayed, from another project or checkout path, or the key was replaced), so it is not honoured",
+};
 
 /**
  * Which configuration text to honour. A config file nobody accepted, or one changed
@@ -115,9 +151,9 @@ export function recordAcceptedConfig(ctx, text, actor) {
  */
 function acceptedView(ctx, file) {
   if (!file.text) return { raw: null, acceptance: 'none', notice: null };
-  const accepted = ctx.store?.meta?.('accepted_config_digest') ?? null;
-  if (accepted && accepted === digest(file.text)) return { raw: file.raw, acceptance: 'accepted', notice: null };
-  const snapshot = ctx.store?.meta?.('accepted_config_text') ?? null;
+  const record = acceptedRecord(ctx);
+  if (record?.digest && record.digest === digest(file.text)) return { raw: file.raw, acceptance: 'accepted', notice: null };
+  const snapshot = record?.text ?? null;
   if (snapshot) {
     // Changes that only tighten (a lower mode, smaller limits, more protected paths)
     // apply at once; anything that would loosen waits for acceptance. Approvers, commands
@@ -131,9 +167,9 @@ function acceptedView(ctx, file) {
   // turn it on: a hostile repository's first map would otherwise run its own code.
   const scipRunOverridden = Boolean(capped.adapters?.scip?.run);
   if (scipRunOverridden) capped.adapters = { ...capped.adapters, scip: { ...capped.adapters.scip, run: false } };
-  const notice = '.unknot/config.yaml has never been accepted; running in plan mode with no approvers until a human runs `unknot config accept`'
+  const notice = (record?.invalid ? `${INVALID_NOTICE[record.invalid]}; running in plan mode with no approvers until a person runs \`unknot config accept\` in a terminal once` : '.unknot/config.yaml has never been accepted; running in plan mode with no approvers until a human runs `unknot config accept`')
     + (scipRunOverridden ? '; adapters.scip.run: true was ignored because this configuration is unaccepted; run `unknot config accept` in a terminal to enable it' : '');
-  return { raw: capped, acceptance: 'unaccepted', notice };
+  return { raw: capped, acceptance: record?.invalid ? 'invalid' : 'unaccepted', notice };
 }
 
 /** Whether a write mode has left traces: slice worktrees on disk, or applied slices, approvals or lanes in the store. */
@@ -180,7 +216,7 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
   // but a write mode's traces left, the requirement is kept too: fail closed.
   let notice = view.notice;
   if (!overrideRaw && view.acceptance !== 'accepted' && !sandboxRequired(config)) {
-    const snapshot = ctx.store?.meta?.('accepted_config_text');
+    const snapshot = acceptedConfigText(ctx);
     const keep = snapshot ? sandboxRequired(overlay(structuredClone(DEFAULT_CONFIG), parseConfigText(snapshot, '<accepted snapshot>'))) : writeModeTraces(ctx);
     if (keep) {
       adjustments.push({ path: 'security.require_os_sandbox', from: config.security?.require_os_sandbox ?? null, to: true, by: snapshot ? 'accepted config.yaml (sandbox requirement kept)' : 'write-mode traces without an accepted config' });

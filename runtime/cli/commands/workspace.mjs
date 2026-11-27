@@ -7,7 +7,7 @@ import { isInside, realpathLenient } from '../../core/paths.mjs';
 import { parseYAML, stringifyYAML } from '../../core/yaml.mjs';
 import { listWorkspace, loadWorkspaceGraph, mapWorkspace, summarizeWorkspace } from '../../enterprise/workspace.mjs';
 import { readSources, writeSources } from '../../policy/config-diff.mjs';
-import { parseConfigText } from '../../policy/config.mjs';
+import { acceptedConfigText, parseConfigText } from '../../policy/config.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { historyNotice, humanCommand, output, table, withRun } from '../util.mjs';
 import { open } from './_shared.mjs';
@@ -43,7 +43,7 @@ async function editProposal(ctx, change) {
     proposed = parseYAML(text) ?? {};
     header = PROPOSAL_COMMENT.exec(text)?.[0] ?? '';
     sources = readSources(ctx.paths, text);
-  } else if (ctx.store.meta('accepted_config_text')) proposed = parseConfigText(ctx.store.meta('accepted_config_text'), '<accepted>');
+  } else if (acceptedConfigText(ctx)) proposed = parseConfigText(acceptedConfigText(ctx), '<accepted>');
   else {
     ({ proposed } = await baseProposal(ctx));
     header = '# repository.publishes_api: true treats public members as possible library API, so removing one is never a proven deletion.\n# Set it to false only if this repository publishes no library API and its public members are internal.\n';

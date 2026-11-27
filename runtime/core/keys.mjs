@@ -4,6 +4,7 @@
 //   projects/<project-id>/audit.pem      Ed25519 key that signs every ledger event
 //   projects/<project-id>/cache.key      AES-256-GCM key for the content-addressed cache
 //   projects/<project-id>/capability.key HMAC key for capability tokens
+//   projects/<project-id>/acceptance.sig the signature of the config acceptance in force (#215)
 //   approvers/<name>.pem                 Ed25519 approver key, encrypted with a passphrase
 //
 // Deleting a project's directory crypto-shreds its encrypted cache (spec §16.5).
@@ -108,6 +109,27 @@ export function signText(privateKey, text) {
 export function verifyText(publicKeyPem, text, signature) {
   try {
     return verify(null, Buffer.from(text), createPublicKey(publicKeyPem), Buffer.from(signature, 'base64'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sign a config acceptance with the project's audit key and make it the one in force: only the
+ * signature recorded here verifies, so an older signed acceptance copied back into the store
+ * (a replay) does not. Called only from the human-only `config accept` path.
+ */
+export function signAcceptance(projectId, statement) {
+  const signature = signText(auditPrivateKey(projectId), statement);
+  writeFileSync(join(projectKeyDir(projectId), 'acceptance.sig'), signature, { mode: 0o600 });
+  return signature;
+}
+
+/** Whether `signature` is the acceptance in force for this project and verifies over `statement`. */
+export function verifyAcceptance(projectId, statement, signature) {
+  try {
+    const inForce = readFileSync(join(projectKeyDir(projectId), 'acceptance.sig'), 'utf8');
+    return inForce === signature && verifyText(auditPublicKeyPem(projectId), statement, signature);
   } catch {
     return false;
   }
