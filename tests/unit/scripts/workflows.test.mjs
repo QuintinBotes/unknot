@@ -127,6 +127,9 @@ test('unknot-verify.yml: reusable; the slice runs read-only, attesting runs no r
   assert.equal(own.with.ref, '${{ job.workflow_sha }}', 'Unknot runs at this workflow\'s own pinned commit');
   assert.deepEqual(wf.jobs.verify.permissions, { 'id-token': 'write', attestations: 'write', checks: 'write' });
   assert.equal(wf.jobs.verify.needs, 'run');
+  // `--in-ci` exits 1 on a failed command, so the run fails; the evidence is still uploaded and attested.
+  assert.equal(wf.jobs.run.steps.find((s) => /upload-artifact@/.test(s.uses ?? '')).if, '${{ !cancelled() }}');
+  assert.equal(wf.jobs.verify.if, '${{ !cancelled() }}');
   assert.ok(!wf.jobs.verify.steps.some((s) => /actions\/checkout@/.test(s.uses ?? '')), 'the attesting job checks out nothing');
   assert.match(text, /actions\/attest-build-provenance@[0-9a-f]{40}/);
   assert.match(text, /conclusion=neutral/, 'obligations CI cannot run get a neutral check');

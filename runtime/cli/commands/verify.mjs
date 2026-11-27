@@ -27,7 +27,7 @@ export async function run({ positional, flags }) {
     }
     const ev = runInCi({ root: process.cwd(), out: flags.in_ci });
     output(`Wrote CI evidence for ${ev.slice_id} on ${ev.head} to ${flags.in_ci}.`);
-    return 0;
+    return ev.results.some((r) => !r.not_run && r.exit_code !== 0) ? 1 : 0;
   }
   if (flags.from_ci !== undefined) {
     if (typeof flags.from_ci !== 'string') throw new UnknotError('UK_CONFIG_INVALID', USAGE);

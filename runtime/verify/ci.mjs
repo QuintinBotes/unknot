@@ -54,7 +54,8 @@ const digestOf = (buf) => `sha256:${sha256(buf ?? Buffer.alloc(0))}`;
 
 /**
  * CI side (`unknot verify --in-ci <out>`): run the head commit's plan in `root` and write the
- * evidence file the workflow attests. No project state, no key. Exit codes come from the commands.
+ * evidence file the workflow attests. No project state, no key. Exit codes come from the commands;
+ * the caller exits 1 when one failed, so the run's conclusion carries what the file alone cannot.
  */
 export function runInCi({ root, out, env = process.env }) {
   const head = git(root, ['rev-parse', 'HEAD']).stdout.trim();
@@ -108,8 +109,12 @@ export async function importCiEvidence(ctx, { cfg, run, sliceId }) {
       results.push({ id: p.id, kind: p.kind, verdict: 'not_counted', detail: `CI ran ${Array.isArray(r?.command) ? r.command.join(' ') : 'nothing'}, not ${p.run.join(' ')}` });
       continue;
     }
-    const verdict = r.exit_code === 0 ? 'pass' : Number.isInteger(r.exit_code) ? 'fail' : 'inconclusive';
-    results.push({ id: p.id, kind: p.kind, verdict, detail: `${p.run.join(' ')} -> exit ${r.exit_code} in ${ci.run}` });
+    // The slice's code runs in the job that writes the file and can rewrite it, so an exit 0 there
+    // counts only when GitHub says the run succeeded: `--in-ci` exits 1 on any failed command.
+    const passed = r.exit_code === 0 && ci.conclusion === 'success';
+    const verdict = passed ? 'pass' : Number.isInteger(r.exit_code) && r.exit_code !== 0 ? 'fail' : 'inconclusive';
+    const why = r.exit_code === 0 && !passed ? `, but the run concluded ${ci.conclusion}, so it does not count` : '';
+    results.push({ id: p.id, kind: p.kind, verdict, detail: `${p.run.join(' ')} -> exit ${r.exit_code} in ${ci.run}${why}` });
     if (verdict !== 'pass') continue;
     const record = {
       id: `ci-${randomId(6)}`,

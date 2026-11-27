@@ -513,7 +513,7 @@ export function ciEvidence(ctx, { config, slice, current }) {
         || e.run_id !== run.id || e.run_attempt !== run.run_attempt || !Array.isArray(e.results)) {
         return { error: `run ${run.id}: the evidence is not for ${slice.id} at head ${head.slice(0, 12)} with the bound diff in that run` };
       }
-      return { evidence, run: want, workflow: wf.identity, digest: `sha256:${fileDigest}`, bytes, head, url };
+      return { evidence, run: want, conclusion: run.conclusion, workflow: wf.identity, digest: `sha256:${fileDigest}`, bytes, head, url };
     }
     return { error: `no attestation of run ${run.id}'s evidence counts: ${[...new Set(problems)].join('; ')}` };
   } catch (err) {

@@ -320,6 +320,15 @@ test('CI evidence counts only with an attestation from the pinned workflow on th
   assert.match(res.out, new RegExp(`${unit.id} .*fail`));
   assert.equal(ciRecorded().length, 0);
 
+  // The slice's code runs in the job that writes the file, so it can rewrite a failure to exit 0
+  // after Unknot wrote it. The attestation is then genuine, but the run failed: nothing counts.
+  serve({ runs: [wfRun({ conclusion: 'failure' })] });
+  res = await fromCi();
+  assert.equal(res.code, 1);
+  assert.match(res.out, new RegExp(`${unit.id} +[a-z-]+ +inconclusive`));
+  assert.match(res.out, /Nothing recorded\./);
+  assert.equal(ciRecorded().length, 0);
+
   // Scenario 3: the genuine attested evidence is recorded as passed by CI, bound to the run and head.
   serve();
   res = await fromCi();
@@ -356,6 +365,21 @@ test('the CI side runs only in GitHub Actions, never from an agent session: it r
     } finally {
       for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
+  }
+  // In Actions, a failed command fails the step, so the run's conclusion records it where the slice's code cannot rewrite it.
+  g(dir, ['init', '-q']);
+  const plan = { v: 1, slice: 'S-0001', diff_hash: 'x', obligations: [{ id: 'PO-1', kind: 'test', run: ['false'] }, { id: 'PO-2', kind: 'review', not_run: 'needs a person' }] };
+  g(dir, ['commit', '-q', '--allow-empty', '-m', `slice\n\nUnknot-CI: ${JSON.stringify(plan)}`]);
+  const saved = { a: process.env.GITHUB_ACTIONS, c: process.env.CLAUDECODE, e: process.env.CLAUDE_CODE_ENTRYPOINT };
+  process.env.GITHUB_ACTIONS = 'true';
+  delete process.env.CLAUDECODE;
+  delete process.env.CLAUDE_CODE_ENTRYPOINT;
+  try {
+    const res = await cli(verifyCmd, dir, [], { in_ci: join(dir, 'e.json') });
+    assert.equal(res.code, 1, 'a failed command fails the CI step');
+    assert.equal(JSON.parse(readFileSync(join(dir, 'e.json'), 'utf8')).results[0].exit_code, 1);
+  } finally {
+    for (const [k, v] of [['GITHUB_ACTIONS', saved.a], ['CLAUDECODE', saved.c], ['CLAUDE_CODE_ENTRYPOINT', saved.e]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
 });
 
