@@ -1,9 +1,10 @@
 # Published accuracy
 
 How often Unknot's findings are right, and how many planted defects it finds, measured on a
-pinned corpus of public repositories. This is the accuracy part of roadmap item 7. Earlier
-audits ([dogfood rounds 7 and 8](dogfood/README.md)) were done by hand on ad hoc repositories;
-this page is the repeatable version.
+pinned corpus of public repositories. This is the accuracy part of
+[roadmap item 6](roadmap.md#6-published-accuracy-release-channels-and-migrations). Earlier audits
+([dogfood rounds 7 and 8](dogfood/README.md)) were done by hand on ad hoc repositories; this page
+is the repeatable version.
 
 ## Method
 
