@@ -195,3 +195,30 @@ test('a slice patched before the list was narrowed cannot be accepted after it',
   assert.match(await accept(p.ctx, widened, K.loadSlice(p.ctx, id), satisfied, 'alice'), /ACCEPTED/);
   assert.equal(K.loadSlice(p.ctx, id).state, 'ACCEPTED');
 });
+
+test('a test slice planned after a refactor does not wait on it when the refactor is plan-only (#217)', { timeout: 120_000 }, async () => {
+  const { selectNext } = await import('../../runtime/plan/next.mjs');
+  // The proposal leaves the order implicit: refactor first, then the characterization test.
+  const drafts = [SLICES[2], SLICES[0]].map(({ preconditions, ...d }) => d);
+  const pre = (p, id) => K.loadSlice(p.ctx, id).body.preconditions;
+
+  // No restriction: the order is as before, the test slice follows the refactor.
+  const open = await project(null, {}, drafts);
+  assert.deepEqual(pre(open.p, open.ids[1]), [open.ids[0]]);
+
+  // Restricted: the test slice stands on its own, and next offers it.
+  const { p, cfg, ids } = await project(['tests', 'deletion'], {}, drafts);
+  const [refactor, tests] = ids;
+  assert.deepEqual(pre(p, tests), []);
+  const res = selectNext(p.ctx, { config: cfg.config });
+  assert.equal(res.next?.id, tests);
+  assert.deepEqual(res.plan_only.map((x) => x.id), [refactor]);
+
+  // A dependency the proposal states is kept, and next says which slice holds it and why.
+  const stated = await project(['tests', 'deletion'], {}, drafts);
+  const [r2, t2] = stated.ids;
+  stated.p.ctx.store.run('UPDATE slices SET body = json_set(body, \'$.preconditions\', json_array(?)) WHERE id = ?', r2, t2);
+  const held = selectNext(stated.p.ctx, { config: stated.cfg.config });
+  assert.equal(held.next, null);
+  assert.deepEqual(held.blocked, [{ id: t2, waiting_for: [r2], held_by: [{ id: r2, reason: 'plan-only: apply.allowed_kinds [tests, deletion] excludes refactor' }] }]);
+});
