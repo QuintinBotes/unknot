@@ -145,3 +145,49 @@ test('compact-edges rebuilds a store written before it: same rows, same ids, no 
   again.close();
   rmSync(dir, { recursive: true });
 });
+
+test('drop-unused-fact-indexes removes the facts indexes no query reads, without raising schema_version (#145)', () => {
+  const dir = tmp();
+  const file = join(dir, 's.db');
+  const factIndexes = (s) => s.all("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'facts' AND sql IS NOT NULL ORDER BY name").map((r) => r.name);
+  const fresh = new Store(file);
+  assert.deepEqual(factIndexes(fresh), ['facts_object'], 'a new store never has them');
+  fresh.close();
+  // A store an older release opened last: it created them again and left the name out of the list.
+  const db = new DatabaseSync(file);
+  db.exec('CREATE INDEX facts_subject ON facts(subject); CREATE INDEX facts_path ON facts(path); CREATE INDEX facts_generation ON facts(generation);');
+  db.prepare("UPDATE meta SET value = ? WHERE key = 'migrations'").run(JSON.stringify(['initial-schema', 'facts-digest', 'compact-edges']));
+  db.close();
+  const s = new Store(file);
+  assert.deepEqual(factIndexes(s), ['facts_object']);
+  assert.equal(s.meta('schema_version'), '3', 'older releases can still write the store');
+  assert.ok(JSON.parse(s.meta('migrations')).includes('drop-unused-fact-indexes'));
+  s.close();
+  rmSync(dir, { recursive: true });
+});
+
+test('decision-reason adds the column to a store written before it; old rejections read as other (#147)', async () => {
+  const dir = tmp();
+  const file = join(dir, 's.db');
+  new Store(file).close();
+  // The decisions table as releases up to 0.5 created it, with one rejection, recorded as migrated to drop-unused-fact-indexes.
+  const db = new DatabaseSync(file);
+  db.exec(`DROP TABLE decisions;
+    CREATE TABLE decisions (id TEXT PRIMARY KEY, finding_id TEXT, fingerprint TEXT NOT NULL, decision TEXT NOT NULL,
+      rationale TEXT NOT NULL, actor TEXT NOT NULL, suppress_until TEXT, at TEXT NOT NULL);`);
+  db.prepare("INSERT INTO decisions VALUES ('D-0001', 'F-0001', 'fp-1', 'reject', 'not for this codebase', 'human:x', NULL, '2026-01-01T00:00:00Z')").run();
+  db.prepare("UPDATE meta SET value = ? WHERE key = 'migrations'").run(JSON.stringify(['initial-schema', 'facts-digest', 'compact-edges', 'drop-unused-fact-indexes']));
+  db.close();
+
+  const s = new Store(file);
+  assert.equal(s.meta('schema_version'), '3', 'additive: older releases can still open the store');
+  assert.ok(JSON.parse(s.meta('migrations')).includes('decision-reason'));
+  assert.equal(s.get("SELECT reason FROM decisions WHERE id = 'D-0001'").reason, null);
+  const { rejectReasons } = await import('../../../runtime/diagnose/engine.mjs');
+  assert.equal(rejectReasons({ store: s }).get('fp-1'), 'other');
+  // An older release names its columns and leaves the reason empty.
+  s.run("INSERT INTO decisions(id, finding_id, fingerprint, decision, rationale, actor, suppress_until, at) VALUES ('D-0002', NULL, 'fp-2', 'reject', 'still not for us', 'human:x', NULL, '2026-01-02T00:00:00Z')");
+  assert.equal(rejectReasons({ store: s }).get('fp-2'), 'other');
+  s.close();
+  rmSync(dir, { recursive: true });
+});

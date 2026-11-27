@@ -204,6 +204,15 @@ describe('canonical JSON and digests', () => {
   test('toJSON values are canonicalised', () => {
     assert.equal(canonicalJSON({ d: new Date('2020-01-01T00:00:00Z') }), '{"d":"2020-01-01T00:00:00.000Z"}');
   });
+
+  test('a value already canonical, or canonical only in part, serialises as a sorted copy would (#145)', () => {
+    // Integer-like keys, undefined members and holes, deep unsorted parts under sorted ones.
+    const nested = { a: [1, { y: 1, x: [undefined, { b: 2, a: 1 }] }], b: { '10': 1, '9': 2 }, c: undefined, d: [, 1] }; // eslint-disable-line no-sparse-arrays
+    assert.equal(canonicalJSON(nested), '{"a":[1,{"x":[null,{"a":1,"b":2}],"y":1}],"b":{"9":2,"10":1},"d":[null,1]}');
+    const canonical = JSON.parse(canonicalJSON(nested));
+    assert.equal(canonicalJSON(canonical), JSON.stringify(canonical));
+    assert.equal(canonicalJSON({ a: { c: 1, b: 2 }, b: 1 }), '{"a":{"b":2,"c":1},"b":1}');
+  });
 });
 
 describe('clock', () => {

@@ -52,10 +52,7 @@ CREATE TABLE IF NOT EXISTS facts (
   predicate TEXT, object TEXT, attrs TEXT, source_type TEXT NOT NULL, source_ref TEXT,
   extractor TEXT NOT NULL, observed_at TEXT NOT NULL, commit_sha TEXT, confidence TEXT NOT NULL,
   scope TEXT, contradicts TEXT, path TEXT, expires_at TEXT);
-CREATE INDEX IF NOT EXISTS facts_subject ON facts(subject);
 CREATE INDEX IF NOT EXISTS facts_object ON facts(object);
-CREATE INDEX IF NOT EXISTS facts_path ON facts(path);
-CREATE INDEX IF NOT EXISTS facts_generation ON facts(generation);
 CREATE TABLE IF NOT EXISTS nodes (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, path TEXT, attrs TEXT NOT NULL,
   label TEXT NOT NULL, fact_ids TEXT NOT NULL);

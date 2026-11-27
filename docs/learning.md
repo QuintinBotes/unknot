@@ -16,20 +16,20 @@ It never disables a detector, never edits accepted configuration, and sends noth
 
 Every `accept` and `reject` of a finding is recorded in `.unknot/decisions.jsonl` and in the state database. For each finding fingerprint only the latest decision counts. Slice transitions, evidence records and policy decisions in the ledger supply the delivery and governance numbers. Nothing is learned from code content.
 
-A caveat on what a decision means: `reject` covers both "this is wrong" and "this is right but not worth doing". Unknot cannot tell them apart. The reported "false positive rate" is simply the rejection rate. Put the reason in `--rationale` so a person reading `decisions.jsonl` can.
+A rejection says why, with the same labels as the [accuracy corpus](accuracy.md): `unknot reject F-0001 --reason wrong --rationale "..."` for a finding that is factually not a problem, `--reason not-worth` for one that is true but not worth doing, and `--reason other` for anything else. Without `--reason` the rejection is `other`, and so is every rejection recorded before reasons existed. Only `wrong` counts as a false positive. `--rationale` is still required and says the rest in your words.
 
 ## `unknot learn report`
 
 ```
 $ unknot learn report
-Findings decided: 6 (accepted 0.167, rejected 0.833)
+Findings decided: 6 (accepted 0.167, rejected 0.833: wrong 0.667, not worth doing 0.167)
 Slices: 4; proof success 0.9; replan 0.25; rollback 0; escaped regressions 0
 Median hours from finding to review-ready: 26.5; policy block rate 0.04
 Outcomes (generation 12): cycles 3, duplicate groups 5, shared-writer tables 2 (was 4/5/2)
 
 Detector calibration from human decisions:
-detector             accepted  rejected  precision  rank_multiplier
-local.long-function  1         5         0.3        0.6
+detector             accepted  wrong  not_worth  other  precision  actionability  rank_multiplier
+local.long-function  1         4      1          0      0.333      0.5            0.667
 
 1 threshold proposal(s); write them with: unknot learn propose
 ```
@@ -41,6 +41,7 @@ local.long-function  1         5         0.3        0.6
 | Metric | How it is computed |
 |---|---|
 | Acceptance rate, rejection rate | Share of decided findings (latest decision per finding) |
+| False positive rate, not-worth rate | Share of decisions that rejected a finding as `wrong`, and as `not-worth` |
 | Median hours from finding to review-ready | For slices that name a finding as their source: time from the finding's creation to the slice first reaching `REVIEW_READY` |
 | Proof success rate | Share of executed (non-human) evidence records with verdict `pass` |
 | Replan rate | Slices that reached `NEEDS_REPLAN`, over all slices |
@@ -57,12 +58,15 @@ dependency cycles (and modules in cycles), public endpoints, privileged roles (w
 
 ## Calibration
 
-For each detector, with `a` findings accepted and `r` rejected,
+For each detector, with `a` findings accepted, `w` rejected as `wrong` and `n` rejected as `not-worth`,
 
 ```
-precision  = (a + 2) / (a + r + 4)
-multiplier = clamp(precision / 0.5, 0.3, 1.5)
+precision     = (a + 2) / (a + w + 4)
+actionability = (a + 2) / (a + n + 4)
+multiplier    = clamp(precision / 0.5, 0.3, 1.5)
 ```
+
+Precision says how often the detector is right; actionability how often what it finds is worth doing. They are reported side by side, and only precision moves the ranking. Rejections with reason `other` count in neither.
 
 The `+2` and `+4` are a neutral Beta(2,2) prior, so a detector with no decisions has precision 0.5 and multiplier 1.0, and a handful of decisions cannot swing it far. The multiplier is applied when `diagnose` orders its list. The findings' own priority score (the formula in [concepts.md](concepts.md#priority)) is untouched, so scores stay comparable between runs. A detector whose findings you reject keeps appearing, lower down; it is never silenced. To silence something on purpose, set `detectors.<id>.enabled: false` yourself.
 
@@ -82,13 +86,13 @@ Only the local-code detectors with a numeric threshold take part:
 
 A proposal is made for a detector when all of these hold:
 
-- at least 4 decisions;
+- at least 4 decisions that were acceptances or `wrong` rejections;
 - calibrated precision at or below 0.45;
-- at least 3 rejected findings that carried a measurement for that option;
-- the proposed value (just above the largest rejected measurement: rounded up to the next integer, or +0.05 capped at 0.95 for similarity) is below the smallest measurement you accepted, so it would not hide findings you said were real;
+- at least 3 findings rejected as `wrong` that carried a measurement for that option (a `not-worth` or `other` rejection says nothing about the threshold);
+- the proposed value (just above the largest measurement rejected as wrong: rounded up to the next integer, or +0.05 capped at 0.95 for similarity) is below the smallest measurement you accepted, so it would not hide findings you said were real;
 - and it is higher than the current setting.
 
-For the example above, rejected findings had 85, 90, 92, 95 and 100 lines and the one accepted had 180, so the proposal is `lines: 100`.
+For the example above, the findings rejected as wrong had 85, 90, 95 and 100 lines and the one accepted had 180, so the proposal is `lines: 100`.
 
 `unknot learn propose` writes the proposals into `.unknot/config.proposed.yaml` (a copy of your current `config.yaml` with `detectors.<id>.<option>` set), records a `config.proposed` ledger event, and prints each change with its reason. It replaces an existing proposal file, so accept or discard a pending proposal first.
 

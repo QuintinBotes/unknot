@@ -237,13 +237,13 @@ const handlers = {
   },
 
   decision: (c) => {
-    only(c.body, ['finding', 'decision', 'rationale', 'days']);
+    only(c.body, ['finding', 'decision', 'rationale', 'days', 'reason']);
     const decision = reqString(c.body, 'decision', { max: 16 });
     if (!['accept', 'reject'].includes(decision)) throw bad('decision must be accept or reject', { field: 'decision' });
     const days = c.body.days === undefined ? c.cfg.config.suppression.default_reject_days : c.body.days;
     if (!Number.isInteger(days) || days < 0 || days > 3650) throw bad('"days" must be an integer between 0 and 3650', { field: 'days' });
     const finding = getFinding(c.ctx, reqString(c.body, 'finding', { max: 128 }));
-    const rec = recordDecision(c.ctx, { finding, decision, rationale: optString(c.body, 'rationale', { max: 4096 }) ?? '', actor: c.principal.actor, days });
+    const rec = recordDecision(c.ctx, { finding, decision, rationale: optString(c.body, 'rationale', { max: 4096 }) ?? '', actor: c.principal.actor, days, reason: optString(c.body, 'reason', { max: 16 }) });
     return { status: 201, body: rec };
   },
 

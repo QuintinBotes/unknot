@@ -22,19 +22,22 @@ export const THRESHOLD_FOR = Object.freeze({
 });
 
 /**
- * Per-detector feedback: accepted/rejected counts and a calibrated precision estimate.
- * @returns {Map<string, {detector, accepted, rejected, precision, multiplier, rejectedValues: number[], acceptedValues: number[]}>}
+ * Per-detector feedback. A rejection carries a reason, as the accuracy corpus labels findings:
+ * `wrong` (factually not a problem) is a false positive and lowers precision; `not-worth` (true,
+ * but not worth doing) lowers actionability only; `other`, which is also every rejection from
+ * before reasons existed, lowers neither.
+ * @returns {Map<string, {detector, accepted, rejected, wrong, not_worth, other, precision, actionability, multiplier, wrongValues: number[], acceptedValues: number[]}>}
  */
 export function detectorFeedback(ctx) {
   const rows = ctx.store.all(`
-    SELECT d.decision, f.body FROM decisions d
+    SELECT d.decision, d.reason, f.body FROM decisions d
     JOIN findings f ON f.fingerprint = d.fingerprint
     WHERE d.at = (SELECT MAX(d2.at) FROM decisions d2 WHERE d2.fingerprint = d.fingerprint)`);
   const out = new Map();
   for (const r of rows) {
     const f = JSON.parse(r.body);
     const id = f.detector?.id ?? f.kind;
-    if (!out.has(id)) out.set(id, { detector: id, accepted: 0, rejected: 0, rejectedValues: [], acceptedValues: [] });
+    if (!out.has(id)) out.set(id, { detector: id, accepted: 0, rejected: 0, wrong: 0, not_worth: 0, other: 0, wrongValues: [], acceptedValues: [] });
     const e = out.get(id);
     const t = THRESHOLD_FOR[id];
     const v = t ? f.measurements?.[t.metric] : undefined;
@@ -43,11 +46,15 @@ export function detectorFeedback(ctx) {
       if (typeof v === 'number') e.acceptedValues.push(v);
     } else {
       e.rejected++;
-      if (typeof v === 'number') e.rejectedValues.push(v);
+      const reason = r.reason ?? 'other';
+      e[reason === 'not-worth' ? 'not_worth' : reason]++;
+      if (reason === 'wrong' && typeof v === 'number') e.wrongValues.push(v);
     }
   }
+  const calibrated = (bad, a) => +((a + PRIOR.accepted) / (a + bad + PRIOR.accepted + PRIOR.rejected)).toFixed(3);
   for (const e of out.values()) {
-    e.precision = +((e.accepted + PRIOR.accepted) / (e.accepted + e.rejected + PRIOR.accepted + PRIOR.rejected)).toFixed(3);
+    e.precision = calibrated(e.wrong, e.accepted);
+    e.actionability = calibrated(e.not_worth, e.accepted);
     // 0.5 is the prior; scale ranking by how far feedback moved it, within bounds so a
     // handful of decisions cannot bury or promote a detector entirely.
     e.multiplier = +Math.min(1.5, Math.max(0.3, e.precision / 0.5)).toFixed(3);
@@ -56,16 +63,17 @@ export function detectorFeedback(ctx) {
 }
 
 /**
- * Threshold proposals: when people keep rejecting findings just above a threshold and
- * accept the larger ones, the threshold is set too low for this codebase.
+ * Threshold proposals: when people keep rejecting findings just above a threshold as wrong
+ * and accept the larger ones, the threshold is set too low for this codebase. Only `wrong`
+ * rejections count: "true, but not worth doing" says nothing about the threshold.
  */
 export function thresholdProposals(feedback, config, { minDecisions = 4, maxPrecision = 0.45 } = {}) {
   const proposals = [];
   for (const e of feedback.values()) {
     const t = THRESHOLD_FOR[e.detector];
-    if (!t || e.accepted + e.rejected < minDecisions || e.precision > maxPrecision || e.rejectedValues.length < 3) continue;
+    if (!t || e.accepted + e.wrong < minDecisions || e.precision > maxPrecision || e.wrongValues.length < 3) continue;
     const current = config.detectors?.[e.detector]?.[t.option];
-    const rejectedMax = Math.max(...e.rejectedValues);
+    const rejectedMax = Math.max(...e.wrongValues);
     const acceptedMin = e.acceptedValues.length ? Math.min(...e.acceptedValues) : Infinity;
     // Raise the threshold to just above the largest rejected value, but never past a value
     // people accepted: that would hide findings they told us are real.
@@ -77,7 +85,7 @@ export function thresholdProposals(feedback, config, { minDecisions = 4, maxPrec
       option: t.option,
       current: current ?? 'default',
       proposed,
-      reason: `${e.rejected} of ${e.accepted + e.rejected} decisions rejected ${e.detector} findings (calibrated precision ${e.precision}); the largest rejected ${t.metric} was ${rejectedMax}${Number.isFinite(acceptedMin) ? `, the smallest accepted ${acceptedMin}` : ''}`,
+      reason: `${e.wrong} of ${e.accepted + e.wrong} decisions rejected ${e.detector} findings as wrong (calibrated precision ${e.precision}); the largest wrong ${t.metric} was ${rejectedMax}${Number.isFinite(acceptedMin) ? `, the smallest accepted ${acceptedMin}` : ''}`,
     });
   }
   return proposals;

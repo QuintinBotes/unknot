@@ -1,7 +1,7 @@
 ---
 name: reject
 description: Record that a finding is rejected and suppress it for a number of days, with the user's rationale. Use only when the user types /unknot:reject with a finding id and a rationale.
-argument-hint: '<F-id> --rationale "<why>" [--days N]'
+argument-hint: '<F-id> --rationale "<why>" [--reason wrong|not-worth|other] [--days N]'
 disable-model-invocation: true
 ---
 
@@ -17,12 +17,14 @@ decisions an agent initiates on its own, so this skill only relays the user's re
 
 Proceed only if the user typed an F-id and gave a rationale in their own words. If either is
 missing, ask; do not invent a rationale or infer an id. Use `--days N` only if the user gave
-a number of days; do not choose one for them. If they asked for "forever", explain that
+a number of days; do not choose one for them. Use `--reason` only if the user said which: `wrong`
+(the finding is factually not a problem), `not-worth` (true, but not worth doing) or `other`;
+do not infer it from the rationale. Without it the rejection is recorded as `other`. If they asked for "forever", explain that
 suppression always expires and ask for a number.
 
 ## 2. Run it
 
-`unknot reject $0 --rationale "<rationale verbatim>" --days N`. Pass the rationale exactly as
+`unknot reject $0 --rationale "<rationale verbatim>" [--reason <reason>] --days N`. Pass the rationale exactly as
 the user wrote it, without edits, summaries or additions, quoted safely for the shell.
 
 ## 3. Report

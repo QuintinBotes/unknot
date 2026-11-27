@@ -301,6 +301,14 @@ async function diagnoseInner(ctx, { config, run = null, scope = [], objective = 
   return { findings: named.findings, stats, errors, analysis, objective: named.objective, hidden: named.hidden, hidden_kinds: named.hidden_kinds };
 }
 
+/** Why a finding was rejected; mirrors the accuracy corpus labels (docs/accuracy.md). */
+export const REJECT_REASONS = Object.freeze(['wrong', 'not-worth', 'other']);
+
+/** Fingerprint → reason of its latest rejection; rejections from before reasons existed count as other. */
+export function rejectReasons(ctx) {
+  return new Map(ctx.store.all("SELECT fingerprint, reason FROM decisions WHERE decision = 'reject' ORDER BY at").map((d) => [d.fingerprint, d.reason ?? 'other']));
+}
+
 export function getFinding(ctx, id) {
   const row = ctx.store.get('SELECT * FROM findings WHERE id = ? OR fingerprint = ?', id, id);
   if (!row) throw new UnknotError('UK_NOT_FOUND', `no finding ${id}`);
@@ -312,12 +320,15 @@ export function getFinding(ctx, id) {
  * findings for a configured period"). Also appended to .unknot/decisions.jsonl so the
  * team shares decisions through version control.
  */
-export function recordDecision(ctx, { finding, decision, rationale, actor, days }) {
+export function recordDecision(ctx, { finding, decision, rationale, actor, days, reason }) {
   if (!['accept', 'reject'].includes(decision)) throw new UnknotError('UK_SCHEMA_INVALID', `bad decision ${decision}`);
+  if (decision === 'accept' && reason != null) throw new UnknotError('UK_SCHEMA_INVALID', 'a reason is given only when rejecting');
+  if (decision === 'reject') reason ??= 'other';
+  if (reason != null && !REJECT_REASONS.includes(reason)) throw new UnknotError('UK_SCHEMA_INVALID', `reason must be one of ${REJECT_REASONS.join(', ')}`);
   if (!rationale || rationale.trim().length < 10) throw new UnknotError('UK_SCHEMA_INVALID', 'a rationale of at least 10 characters is required');
   const at = nowISO();
   const suppress_until = decision === 'reject' ? new Date(Date.now() + days * 86_400_000).toISOString() : null;
-  const record = { schema_version: '1.0', id: `D-${ctx.store.nextId('D', 4).slice(2)}`, finding_id: finding.id, fingerprint: finding.fingerprint, decision, rationale: rationale.trim(), actor, suppress_until, at };
+  const record = { schema_version: '1.0', id: `D-${ctx.store.nextId('D', 4).slice(2)}`, finding_id: finding.id, fingerprint: finding.fingerprint, decision, ...(reason && { reason }), rationale: rationale.trim(), actor, suppress_until, at };
   const v = validateArtifact('decision', record);
   if (!v.valid) throw new UnknotError('UK_SCHEMA_INVALID', `decision invalid: ${v.errors[0].path} ${v.errors[0].message}`);
   ctx.store.tx(() => {
@@ -326,7 +337,7 @@ export function recordDecision(ctx, { finding, decision, rationale, actor, days 
     const row = ctx.store.get('SELECT version, body FROM findings WHERE id = ?', finding.id);
     const status = decision === 'accept' ? 'accepted' : 'rejected';
     ctx.store.update('findings', finding.id, row.version, { status, body: { ...JSON.parse(row.body), status }, updated_at: at });
-    appendEvent(ctx, { type: 'decision.recorded', actor, payload: { decision_id: record.id, finding: finding.id, decision, suppress_until } });
+    appendEvent(ctx, { type: 'decision.recorded', actor, payload: { decision_id: record.id, finding: finding.id, decision, ...(reason && { reason }), suppress_until } });
   });
   appendFileSync(ctx.paths.decisions, `${canonicalJSON(record)}\n`);
   return record;

@@ -76,7 +76,7 @@ export function renderExplain(out) {
   lines.push('', `Priority: ${out.priority.score}`);
   if (Object.keys(out.measurements).length) lines.push('', 'Measurements', fields(out.measurements));
   if (Object.keys(out.thresholds).length) lines.push('', 'Thresholds', fields(out.thresholds));
-  if (out.decisions.length) lines.push('', 'Earlier decisions', bullets(out.decisions.map((decision) => `${decision.decision}: ${decision.rationale} (${decision.actor}, ${decision.at})`)));
+  if (out.decisions.length) lines.push('', 'Earlier decisions', bullets(out.decisions.map((decision) => `${decision.decision}${decision.decision === 'reject' ? ` (${decision.reason ?? 'other'})` : ''}: ${decision.rationale} (${decision.actor}, ${decision.at})`)));
   return lines.join('\n');
 }
 
@@ -97,7 +97,7 @@ export async function run({ positional, flags }) {
       return p;
     }
   });
-  const decisions = ctx.store.all('SELECT decision, rationale, actor, suppress_until, at FROM decisions WHERE fingerprint = ? ORDER BY at', f.fingerprint);
+  const decisions = ctx.store.all('SELECT decision, reason, rationale, actor, suppress_until, at FROM decisions WHERE fingerprint = ? ORDER BY at', f.fingerprint);
   const out = {
     id: f.id,
     status: f.status,
