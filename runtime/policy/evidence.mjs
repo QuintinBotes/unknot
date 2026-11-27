@@ -91,3 +91,14 @@ export function assertEvidence(ctx, slice, config) {
     details: { policy: 'evidence.allow_weak', lexical: lex.lexical, modules: lex.modules, languages: lex.languages, ways_forward: ways },
   });
 }
+
+/** The refusal `assertEvidence` would throw for this slice, or null when apply would accept its evidence. */
+export function evidenceRefusal(ctx, slice, config) {
+  try {
+    assertEvidence(ctx, slice, config);
+    return null;
+  } catch (e) {
+    if (e.code === 'UK_INSUFFICIENT_EVIDENCE') return e;
+    throw e;
+  }
+}

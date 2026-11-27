@@ -48,6 +48,8 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     else proven.not_qualifying.push({ id: s.id, problems: v.problems });
   }
   const scopes = readMappedScopes(ctx.store);
+  const forYou = humanSteps(ctx, cfg, { checkCli: true, ...(unknotOnPath === undefined ? {} : { unknotOnPath }) });
+  const held = new Set(forYou.held.map((h) => h.slice));
   const status = {
     mode: config.mode,
     config_acceptance: cfg.acceptance,
@@ -57,12 +59,12 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     campaigns,
     slices,
     blockers: slices.filter((s) => s.state.startsWith('BLOCKED') || s.state === 'NEEDS_REPLAN' || s.state === 'VERIFICATION_FAILED'),
-    awaiting_approval: slices.filter((s) => s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY').map((s) => s.id),
+    awaiting_approval: slices.filter((s) => (s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY') && !held.has(s.id)).map((s) => s.id),
     open_obligations,
     proven_deletion: proven,
     stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx), reapproval: reapprovalSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
-    for_you: humanSteps(ctx, cfg, { checkCli: true, ...(unknotOnPath === undefined ? {} : { unknotOnPath }) }),
+    for_you: forYou,
   };
   if (flags.json) return output(status, { json: true });
   const lines = [
@@ -84,6 +86,10 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     for (const q of proven.not_qualifying) lines.push(`  ${q.id}: proven deletion: no (${q.problems.join('; ')})`);
   }
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (see the block at the end)`);
+  if (forYou.held.length) {
+    lines.push('', 'Not offered for approval (apply would refuse them; they stay plans):');
+    for (const h of forYou.held) lines.push(h.plan_only ? `  ${h.slice}: ${h.plan_only}` : `  ${h.slice}: waits on evidence: ${h.waits_on_evidence}`);
+  }
   for (const s of status.stale_evidence.slices) lines.push(`Stale evidence: slice ${s.slice_id} was planned from ${s.findings.map((f) => f.finding_id).join(', ')}, no longer reported by the current map; re-plan or abandon it.`);
   for (const s of status.stale_evidence.reapproval) lines.push(`Needs re-approval: slice ${s.slice_id}: ${s.reason}; its approvals no longer hold (unknot slice ${s.slice_id} shows the conventions).`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
