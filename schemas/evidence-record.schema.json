@@ -46,6 +46,7 @@
     "sandbox": {
       "enum": [
         "none",
+        "none (explicitly allowed)",
         "macos-sandbox-exec",
         "linux-bwrap"
       ]

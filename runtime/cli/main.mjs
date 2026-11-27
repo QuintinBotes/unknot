@@ -109,6 +109,6 @@ export async function main(argv) {
     if (args.flags.json) process.stdout.write(`${JSON.stringify({ error: e }, null, 2)}\n`);
     else process.stderr.write(`unknot ${name}: ${e.code}: ${e.message}\n`);
     if (process.env.UNKNOT_DEBUG && err?.stack) process.stderr.write(`${err.stack}\n`);
-    return ['UK_POLICY_DENIED', 'UK_APPROVAL_REQUIRED', 'UK_INSUFFICIENT_EVIDENCE'].includes(e.code) ? 3 : 1;
+    return ['UK_POLICY_DENIED', 'UK_APPROVAL_REQUIRED', 'UK_INSUFFICIENT_EVIDENCE', 'UK_SANDBOX_REQUIRED'].includes(e.code) ? 3 : 1;
   }
 }

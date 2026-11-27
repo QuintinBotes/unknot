@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadAdapters } from '../../../adapters/registry.mjs';
 import { scipChecks } from '../../../adapters/semantic/scip/locate.mjs';
-import { detectSandbox } from '../../broker/sandbox.mjs';
+import { detectSandbox, sandboxInstallHint, sandboxRequired } from '../../broker/sandbox.mjs';
 import { findProjectRoot, isInitialized, unknotHome } from '../../core/project.mjs';
 import { VERSION } from '../../core/version.mjs';
 import { hooksSeen } from '../../state/hooks-seen.mjs';
@@ -27,7 +27,7 @@ export async function run({ flags }) {
   const [major, minor] = process.versions.node.split('.').map(Number);
   add('node', major > 22 || (major === 22 && minor >= 13), `v${process.versions.node} (need >= 22.13 for node:sqlite)`);
   const sandbox = detectSandbox();
-  add('os sandbox', sandbox !== 'none', sandbox === 'none' ? 'none: brokered commands run unsandboxed (set security.require_os_sandbox to refuse)' : sandbox, sandbox === 'none' ? 'warn' : 'ok');
+  add('os sandbox', sandbox !== 'none', sandbox === 'none' ? `none: assist and higher modes refuse to run brokered commands; observe and plan run them unsandboxed with a private HOME. ${sandboxInstallHint()}` : sandbox, sandbox === 'none' ? 'warn' : 'ok');
   add('git', Boolean(tool('git')), tool('git') ?? 'missing');
   const py = tool('python3');
   add('python3', Boolean(py), py ? `${py} (Python AST extraction)` : 'missing: Python files use the lexical fallback', py ? 'ok' : 'warn');
@@ -61,6 +61,11 @@ export async function run({ flags }) {
       add('config acceptance', cfg.acceptance === 'accepted' || cfg.acceptance === 'none', cfg.notice ?? `accepted (${cfg.acceptance})`, cfg.acceptance === 'accepted' || cfg.acceptance === 'none' ? 'ok' : 'warn');
       const waiting = waitingProposal(ctx);
       if (waiting) add('config proposal', false, `a newer proposal is waiting (${waiting.path}, differs in ${waiting.differs.join(', ')}); it is not in force until a person reviews it (${humanCommand('config diff').split('\n')[0]}) and accepts it`, 'warn');
+      if (sandbox === 'none' && sandboxRequired(cfg.config)) {
+        add('os sandbox required', false, `mode ${cfg.config.mode} runs repository commands only inside an OS sandbox, and none is usable here; ${sandboxInstallHint()}. To run unsandboxed anyway, a person sets security.require_os_sandbox: false and accepts the config`);
+      } else if (sandbox === 'none' && cfg.config.security?.require_os_sandbox === false) {
+        add('os sandbox required', true, 'security.require_os_sandbox: false: brokered commands run unsandboxed (explicitly allowed), with a private HOME', 'warn');
+      }
       add('config', true, `mode ${cfg.config.mode}, digest ${cfg.digest.slice(0, 19)}…, sources ${cfg.sources.join(', ') || 'defaults'}`);
       for (const b of cfg.org) add('org policy', true, `${b.file} (${b.signed ? 'signed' : 'unsigned'})`, b.signed ? 'ok' : 'warn');
       if (cfg.adjustments.length) add('org adjustments', true, `${cfg.adjustments.length} repo value(s) tightened by org policy`, 'info');

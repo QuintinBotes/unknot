@@ -42,7 +42,8 @@ export const DEFAULT_CONFIG = Object.freeze({
     secrets_scan: 'required',
     sast: 'required_for_high_risk',
     dependency_changes: 'approval_required',
-    require_os_sandbox: false,
+    // null: required in write modes (assist and above), not in observe or plan (#148).
+    require_os_sandbox: null,
     sandbox_loopback: false,
     redact_patterns: [],
   },

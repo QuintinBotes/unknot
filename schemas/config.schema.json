@@ -245,7 +245,11 @@
           ]
         },
         "require_os_sandbox": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Run brokered commands only inside an OS sandbox. Unset (null): required in assist, governed and campaign, not in observe or plan. false runs them unsandboxed in every mode (recorded in evidence); organization policy can force true."
         },
         "redact_patterns": {
           "type": "array",
