@@ -21,6 +21,6 @@ export async function decide(decision, { positional, flags }) {
     who = 'human:prompt';
   }
   const days = Number(flags.days ?? config.suppression.default_reject_days);
-  const rec = recordDecision(ctx, { finding: f, decision, rationale: flags.rationale ?? '', actor: who, days });
-  output(flags.json ? rec : `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${f.id} (${rec.id})${rec.suppress_until ? `; suppressed until ${rec.suppress_until.slice(0, 10)}` : ''}. Recorded in .unknot/decisions.jsonl.`, { json: flags.json });
+  const rec = recordDecision(ctx, { finding: f, decision, rationale: flags.rationale ?? '', actor: who, days, reason: flags.reason });
+  output(flags.json ? rec : `${decision === 'accept' ? 'Accepted' : `Rejected (${rec.reason})`} ${f.id} (${rec.id})${rec.suppress_until ? `; suppressed until ${rec.suppress_until.slice(0, 10)}` : ''}. Recorded in .unknot/decisions.jsonl.`, { json: flags.json });
 }

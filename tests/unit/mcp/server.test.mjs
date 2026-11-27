@@ -92,6 +92,14 @@ before(() => {
     id: 'F-0001', fingerprint: 'fp-1', schema_version: '1.0', kind: 'cycle', category: 'architecture', status: 'open', priority: 0.8,
     body: { id: 'F-0001', title: 'a imports b imports c' }, created_at: now, updated_at: now,
   });
+  // Two rejected findings: one with a reason (#147), one rejected before reasons existed.
+  for (const [n, reason] of [['2', 'not-worth'], ['3', null]]) {
+    ctx.store.insert('findings', {
+      id: `F-000${n}`, fingerprint: `fp-${n}`, schema_version: '1.0', kind: 'cycle', category: 'architecture', status: 'rejected', priority: 0.5,
+      body: { id: `F-000${n}`, fingerprint: `fp-${n}`, status: 'rejected', title: `rejected ${n}`, priority: { score: 0.5 } }, created_at: now, updated_at: now,
+    });
+    ctx.store.insert('decisions', { id: `D-000${n}`, finding_id: `F-000${n}`, fingerprint: `fp-${n}`, decision: 'reject', reason, rationale: 'not for this codebase', actor: 'human:test', suppress_until: null, at: now });
+  }
   const body = { id: 'UK-0001', objective: 'Split module a', preconditions: [], blast_radius: 'local', recovery: { type: 'revert' }, owners: [], changes: [], scope: { include: ['src/a.ts'] }, sources: ['F-0001'] };
   ctx.store.insert('slices', {
     id: 'UK-0001', campaign_id: null, schema_version: '1.0', state: 'PLANNED', risk: 'low', body, slice_digest: 'sha256:x', created_at: now, updated_at: now,
@@ -172,6 +180,11 @@ test('read-only tools answer valid calls', async () => {
   assert.equal(f.structuredContent.title, 'a imports b imports c');
   const fl = await c.call('findings_list', { status: 'open', category: 'architecture', limit: 5 });
   assert.equal(fl.structuredContent.findings[0].id, 'F-0001');
+  assert.equal(fl.structuredContent.findings[0].reason, undefined, 'an open finding has no reason');
+  const rejected = await c.call('findings_list', { status: 'rejected' });
+  assert.deepEqual(rejected.structuredContent.findings.map((x) => [x.id, x.reason]).sort(), [['F-0002', 'not-worth'], ['F-0003', 'other']]);
+  assert.equal((await c.call('finding_get', { id: 'F-0002' })).structuredContent.reason, 'not-worth');
+  assert.equal((await c.call('finding_get', { id: 'F-0003' })).structuredContent.reason, 'other', 'a rejection from before reasons counts as other');
 
   const pi = await c.call('pattern_index');
   assert.ok(pi.structuredContent.patterns.length > 0);
