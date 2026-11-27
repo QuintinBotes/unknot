@@ -9,7 +9,7 @@ const file = (path, extra = {}) => ({ path, size: 10, kind: 'config', blob: 'x',
 
 test('adapter shape', () => {
   assert.equal(adapter.id, 'security');
-  assert.equal(adapter.version, '0.1.3');
+  assert.equal(adapter.version, '0.1.4');
   assert.equal(adapter.kind, 'security');
   assert.equal(adapter.capabilities.network, false);
   assert.deepEqual(adapter.capabilities.executes, ['gitleaks', 'semgrep', 'trivy', 'osv-scanner']);
@@ -22,7 +22,7 @@ test('extract records kind and line, never the value', () => {
   facts.forEach(assertFact);
   assert.equal(facts[0].id, 'file:conf/app.env');
   assert.deepEqual(facts[0].attrs.secrets, [{ kind: 'aws-access-key-id', line: 3 }]);
-  assert.equal(facts[0].provenance.extractor, 'security@0.1.3');
+  assert.equal(facts[0].provenance.extractor, 'security@0.1.4');
   assert.equal(facts[0].provenance.confidence, 'medium');
   assert.equal(facts[0].provenance.source_type, 'ast');
   assert.ok(!JSON.stringify(facts).includes(AWS));
@@ -35,6 +35,15 @@ test('extract skips clean text, lockfiles, binaries and large files', () => {
   assert.deepEqual(adapter.extract(file('yarn.lock'), AWS), []);
   assert.deepEqual(adapter.extract(file('x.bin', { kind: 'binary' }), AWS), []);
   assert.deepEqual(adapter.extract(file('big.txt', { size: 2 * 1024 * 1024 }), AWS), []);
+});
+
+test('an action input named *-token is a declaration, not a secret; literal values are still reported (#159)', () => {
+  const action = 'inputs:\n  launchdarkly-token:\n    description: "LaunchDarkly API access token"\n    required: true\n  api-secret:\n    description: Secret for the API service\n    default: \'\'\n  admin-password:\n    required: false\n';
+  assert.deepEqual(adapter.extract(file('.github/actions/x/action.yml'), action), []);
+  const workflow = 'steps:\n  - uses: ./a\n    with:\n      launchdarkly-token: ${{ secrets.LAUNCHDARKLY_TOKEN }}\n      token: ${{ inputs.launchdarkly-token }}\n';
+  assert.deepEqual(adapter.extract(file('.github/workflows/ci.yml'), workflow), []);
+  const literal = `api_token: ${'ghp_'}aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5\nauth:\n  password: ${['Kx9v', 'Q2mL', 'p7Zr'].join('')}\n`;
+  assert.deepEqual(adapter.extract(file('conf/app.yml'), literal)[0].attrs.secrets.map((s) => s.line), [1, 3]);
 });
 
 test('discover parses gitleaks output into scanner findings and records what ran', async () => {
