@@ -1,9 +1,9 @@
 // /unknot:init — detect the project's toolchain and propose a configuration. It writes
 // only .unknot/config.proposed.yaml (spec §4.1: config-only write); a human accepts it.
 
-import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
+import { git } from '../../apply/git.mjs';
 import { matchAny } from '../../core/glob.mjs';
 import { commandMatches, loadGuidance } from '../../core/guidance.mjs';
 import { stringifyYAML } from '../../core/yaml.mjs';
@@ -161,7 +161,7 @@ function commandSource(root, argv, pkg) {
 
 /** Whether git tracks a source file under `dir` (a folder named build/ can be code, not output). */
 function trackedSource(root, dir) {
-  const r = spawnSync('git', ['ls-files', '-z', '--', dir], { cwd: root, encoding: 'utf8' });
+  const r = git(root, ['ls-files', '-z', '--', dir], { check: false });
   return r.status === 0 && r.stdout.split('\0').some((f) => f && languageForPath(f));
 }
 
@@ -363,7 +363,7 @@ export async function run({ flags }) {
     appendEvent(ctx, { type: 'config.proposed', actor, payload: { commands: Object.keys(d.commands), ...(update && { added_commands: Object.keys(update.added_commands), added_protected_paths: update.added_protected_paths }) } });
   }
   // .unknot/ itself is ignored only when someone excluded it; its own .gitignore covers local state.
-  const ignored = spawnSync('git', ['check-ignore', '-q', '--', '.unknot/config.yaml'], { cwd: ctx.root, stdio: 'ignore' }).status === 0;
+  const ignored = git(ctx.root, ['check-ignore', '-q', '--', '.unknot/config.yaml'], { check: false }).status === 0;
   const state_dir = { path: '.unknot', ignored, exclude_line: '.unknot/' };
   const head = !update
     ? ['Wrote .unknot/config.proposed.yaml (mode: plan). Nothing else was changed, and nothing is activated.']
