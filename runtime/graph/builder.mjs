@@ -299,6 +299,10 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         notices: notices.length ? notices : undefined,
         cache: { hits: saved.cache.hits + saved.cache.extracted, extracted: 0, hit_rate: 1 },
         census: { files: cen.files.length, cached: cen.cached },
+        // Counts of this run: nothing was extracted, linked or scanned (#182).
+        adapters: Object.fromEntries(Object.entries(saved.adapters ?? {}).map(([id, a]) => [id, { ...a, extracted: 0, cached: a.files }])),
+        link: saved.link && Object.fromEntries(Object.entries(saved.link).map(([id, l]) => [id, { ...l, relinked: 0 }])),
+        discover_files: undefined,
         unchanged: true,
         duration_ms: Date.now() - t0,
         phases,
@@ -672,7 +676,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     config_digest: configDigest,
   };
   if (fastKey && !degradedAny && !failures.length && !stats.scip_blocked) {
-    ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, derived: undefined, duration_ms: undefined } }));
+    ctx.store.meta('map:last', JSON.stringify({ key: fastKey, summary: { ...summary, generated_at: observedAt, checkout: undefined, notices: baseNotes.length ? baseNotes : undefined, phases: undefined, derived: undefined, duration_ms: undefined } }));
   } else ctx.store.meta('map:last', '');
   appendEvent(ctx, { type: 'map.generation', run_id: run?.id, actor: 'runtime:mapper', payload: { ...summary, failures: undefined } });
   // Fold the write-ahead log into the database, so the store on disk is its size and not its size plus a log.
