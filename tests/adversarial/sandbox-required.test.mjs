@@ -4,9 +4,9 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import * as K from '../helpers/kernel.mjs';
 import { hide, restore } from '../helpers/no-sandbox.mjs';
@@ -108,14 +108,20 @@ describe('scenario 1: a write mode with no sandbox runs nothing', () => {
 describe('spoofing the sandbox does not get a command run', () => {
   const p = K.makeProject();
 
-  test('environment variables that look like a sandbox, and fake sandbox binaries on PATH', () => withoutSandbox(async () => {
+  // A fake sandbox: it drops its own flags and runs the command, so a command it "wraps" runs
+  // unconfined. With no `--` (the detection probe) it exits 0, so it looks usable.
+  function fakeSandboxes() {
     const fakes = mkTmp(join(tmpdir(), 'uk-fake-sandbox-'));
     for (const name of ['sandbox-exec', 'bwrap']) {
-      writeFileSync(join(fakes, name), '#!/bin/sh\nwhile [ "$1" != "--" ] && [ $# -gt 0 ]; do shift; done; shift; exec "$@"\n');
+      writeFileSync(join(fakes, name), '#!/bin/sh\nwhile [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done\n[ $# -gt 0 ] || exit 0\nshift; exec "$@"\n');
       chmodSync(join(fakes, name), 0o755);
     }
+    return fakes;
+  }
+
+  test('environment variables that look like a sandbox do not count', () => withoutSandbox(async () => {
     const saved = { ...process.env };
-    Object.assign(process.env, { PATH: `${fakes}${delimiter}${process.env.PATH}`, UNKNOT_SANDBOXED: '1', SANDBOX: '1', container: 'docker' });
+    Object.assign(process.env, { UNKNOT_SANDBOXED: '1', SANDBOX: '1', container: 'docker' });
     try {
       const req = marking(p);
       await assert.rejects(brokerExec(p.ctx, { ...req, config: K.cfg({ mode: 'assist' }) }), code('UK_SANDBOX_REQUIRED'));
@@ -124,15 +130,157 @@ describe('spoofing the sandbox does not get a command run', () => {
       for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
       Object.assign(process.env, saved);
     }
-    // Where bubblewrap is the sandbox, the wrapper runs it from a fixed location, never from PATH.
-    process.env.PATH = `${fakes}${delimiter}${process.env.PATH}`;
+  }));
+
+  // #170: the old test hid the sandbox as freebsd, where detection never looks for a binary.
+  test('linux: a fake bwrap first on PATH, with none at the fixed paths, is no sandbox', () => {
+    const fakes = fakeSandboxes();
+    const saved = process.env.PATH;
+    process.env.PATH = `${fakes}${delimiter}${saved}`;
     try {
+      assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [join(fakes, 'none', 'bwrap')] }), 'none');
+      // The wrapper never takes bwrap from PATH either.
       const w = wrap(['true'], { kind: 'linux-bwrap' });
       assert.ok(['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'].includes(w.file), w.file);
     } finally {
-      process.env.PATH = saved.PATH;
+      process.env.PATH = saved;
+    }
+  });
+
+  test('a sandbox binary at a fixed path is trusted only when root owns it and nobody else can write it', () => {
+    const fakes = fakeSandboxes();
+    const fake = join(fakes, 'bwrap');
+    // Owned by the test user, not root, even with safe permissions; then world-writable.
+    assert.equal(K.sandbox.trustedBinary(fake), null);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [fake] }), 'none');
+    chmodSync(fake, 0o777);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [fake] }), 'none');
+    // A root-owned, unwritable binary that starts is accepted: the check is not "never".
+    const real = '/usr/bin/true';
+    // Stubs are keyed by the real path: /usr/bin/true is a symlink on some Linux images.
+    const file = realpathSync(real);
+    const dir = dirname(file);
+    assert.equal(K.sandbox.trustedBinary(real), file);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [real] }), 'linux-bwrap');
+    // Root-owned but group- or world-writable, the file or a directory above it: not trusted.
+    const as = (target, over) => (d) => (d === target ? { ...statSync(d), uid: 0, ...over } : statSync(d));
+    for (const [target, mode] of [[file, 0o100775], [file, 0o100757], [dir, 0o40775], [dirname(dir), 0o42775], ['/', 0o40777]]) {
+      assert.equal(K.sandbox.trustedBinary(real, { stat: as(target, { mode }) }), null, `${target} ${mode.toString(8)}`);
+    }
+    // Not owned by root, the file or a directory above it (a /usr/local the staff group owns).
+    assert.equal(K.sandbox.trustedBinary(real, { stat: as(file, { uid: 1000, mode: 0o100755 }) }), null);
+    assert.equal(K.sandbox.trustedBinary(real, { stat: as(dir, { uid: 1000, mode: 0o40755 }) }), null);
+    // A symlink is judged where it points.
+    const link = join(fakes, 'link');
+    symlinkSync(fake, link);
+    assert.equal(K.sandbox.trustedBinary(link), null);
+  });
+
+  // Review of #209 (B1): a link to a trusted binary, put in a directory others can write
+  // (Debian's /usr/local/bin is root:staff 2775), passed because only the real path was checked.
+  test('a link to a trusted binary, in a writable directory, is not trusted, and the real path is what runs', () => {
+    const open = mkTmp(join(tmpdir(), 'uk-open-bin-'));
+    chmodSync(open, 0o777);
+    const link = join(open, 'bwrap');
+    symlinkSync('/usr/bin/true', link);
+    // The reviewer's reproduction: a link in a 0777 directory.
+    assert.equal(K.sandbox.trustedBinary(link), null);
+    assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [link] }), 'none');
+    // The Debian case exactly: everything above the link root-owned, its directory root:staff 2775.
+    const tree = (dirMode) => (d) => (d === link ? { uid: 0, mode: 0o120777 } : d === open ? { uid: 0, mode: dirMode } : { uid: 0, mode: 0o40755 });
+    assert.equal(K.sandbox.trustedBinary(link, { lstat: tree(0o42775) }), null);
+    assert.equal(K.sandbox.trustedBinary(link, { lstat: tree(0o40777) }), null);
+    assert.equal(K.sandbox.trustedBinary(link, { lstat: tree(0o40755), stat: () => ({ uid: 1000, mode: 0o40755 }) }), null, 'the real path is checked too');
+    // With the link's directory safe, the link is trusted, and what is returned (and run) is
+    // the checked real path, never the link that could be swapped after the check.
+    assert.equal(K.sandbox.trustedBinary(link, { lstat: tree(0o40755) }), realpathSync('/usr/bin/true'));
+  });
+
+  test('the wrapper never runs an untrusted file at a fixed path', () => {
+    const w = wrap(['true'], { kind: 'linux-bwrap' });
+    const trusted = K.sandbox.trustedBinary('/usr/bin/bwrap') ?? K.sandbox.trustedBinary('/bin/bwrap') ?? K.sandbox.trustedBinary('/usr/local/bin/bwrap');
+    if (trusted) assert.equal(w.file, trusted);
+    else assert.equal(K.sandbox.trustedBinary(w.file), null, 'nothing trusted, so the file named cannot be a sandbox either');
+  });
+
+  test('an unaccepted edit that lowers the mode keeps the accepted write mode\'s sandbox requirement', () => withoutSandbox(async () => {
+    for (const edit of ['version: 1\nmode: plan\n', 'version: 1\nmode: observe\n', 'version: 1\nmode: plan\nsecurity:\n  require_os_sandbox: false\n', null]) {
+      const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
+      if (edit === null) rmSync(q.ctx.paths.config);
+      else writeFileSync(q.ctx.paths.config, edit);
+      const loaded = K.configMod.loadConfig(q.ctx);
+      assert.equal(sandboxRequired(loaded.config), true, String(edit));
+      const req = marking(q);
+      await assert.rejects(brokerExec(q.ctx, { ...req, cwd: q.dir, config: loaded.config }), code('UK_SANDBOX_REQUIRED'), String(edit));
+      assert.equal(existsSync(req.mark), false, String(edit));
     }
   }));
+
+  test('a lowered mode a person accepted, an accepted plan mode, or an accepted opt-out still runs without a sandbox', () => {
+    const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
+    K.configMod.recordAcceptedConfig(q.ctx, 'version: 1\nmode: plan\n', 'human:test');
+    writeFileSync(q.ctx.paths.config, 'version: 1\nmode: plan\n');
+    assert.equal(sandboxRequired(K.configMod.loadConfig(q.ctx).config), false);
+    const r = K.makeProject({ config: 'version: 1\nmode: plan\n' });
+    writeFileSync(r.ctx.paths.config, 'version: 1\nmode: observe\n');
+    const loaded = K.configMod.loadConfig(r.ctx);
+    assert.equal(loaded.acceptance, 'changed');
+    assert.equal(sandboxRequired(loaded.config), false);
+    const o = K.makeProject({ config: 'version: 1\nmode: assist\nsecurity:\n  require_os_sandbox: false\n' });
+    writeFileSync(o.ctx.paths.config, 'version: 1\nmode: plan\n');
+    assert.equal(sandboxRequired(K.configMod.loadConfig(o.ctx).config), false);
+  });
+
+  // Review of #209 (B2): moving .unknot/state away (or `git clean -xfd`) drops the accepted
+  // snapshot; the unaccepted config then ran a slice worktree's code with no sandbox.
+  test('the CLI refuses exec when the state directory is gone but slice worktrees remain', () => {
+    const cli = (q) => spawnSync(process.execPath, ['--import', helper, bin, 'exec', 'test_unit', '--cwd', q.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: q.home, UNKNOT_TEST_HIDE_SANDBOX: '1' } });
+    const evil = (q) => {
+      const mark = join(q.dir, 'ran');
+      mkdirSync(join(q.ctx.paths.worktrees, 's1'), { recursive: true });
+      writeFileSync(join(q.ctx.paths.worktrees, 's1', 'evil.js'), `require('fs').writeFileSync(${JSON.stringify(mark)}, 'x')\n`);
+      return mark;
+    };
+    const config = `version: 1\nmode: assist\ncommands:\n  test_unit: [${JSON.stringify(process.execPath)}, .unknot/worktrees/s1/evil.js]\n`;
+    const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });
+    const mark = evil(q);
+    renameSync(q.ctx.paths.state, `${q.ctx.paths.state}.gone`);
+    writeFileSync(q.ctx.paths.config, config);
+    const r = cli(q);
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /UK_SANDBOX_REQUIRED/);
+    assert.match(r.stderr, /no accepted configuration/);
+    assert.equal(existsSync(mark), false, 'the slice code did not run');
+    // Control: a project that never ran a write mode still runs commands in plan mode without a
+    // sandbox (SC-001 of #148).
+    const fresh = K.makeProject();
+    writeFileSync(fresh.ctx.paths.config, config.replace('.unknot/worktrees/s1/evil.js', '-e, "require(\'fs\').writeFileSync(\'ran\', \'x\')"'));
+    const ok = cli(fresh);
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.equal(existsSync(join(fresh.dir, 'ran')), true);
+  });
+
+  test('approvals or an applied slice left in the store keep the requirement with no accepted config', () => withoutSandbox(async () => {
+    const q = K.makeProject();
+    q.ctx.store.run("INSERT INTO slices (id, schema_version, state, risk, body, slice_digest, worktree, created_at, updated_at) VALUES ('s1', '1', 'PATCHED', 'low', '{}', 'd', '/x', 'now', 'now')");
+    writeFileSync(q.ctx.paths.config, 'version: 1\nmode: plan\n');
+    const loaded = K.configMod.loadConfig(q.ctx);
+    assert.equal(loaded.acceptance, 'unaccepted');
+    assert.equal(sandboxRequired(loaded.config), true);
+    const req = marking(q);
+    await assert.rejects(brokerExec(q.ctx, { ...req, cwd: q.dir, config: loaded.config }), code('UK_SANDBOX_REQUIRED'));
+    assert.equal(existsSync(req.mark), false);
+  }));
+
+  test('the CLI refuses exec after an agent lowers an accepted assist config to plan', () => {
+    const cmd = `[${JSON.stringify(process.execPath)}, -e, "require('fs').writeFileSync('ran', 'x')"]`;
+    const q = K.makeProject({ config: `version: 1\nmode: assist\ncommands:\n  test_unit: ${cmd}\n` });
+    writeFileSync(q.ctx.paths.config, `version: 1\nmode: plan\ncommands:\n  test_unit: ${cmd}\n`);
+    const r = spawnSync(process.execPath, ['--import', helper, bin, 'exec', 'test_unit', '--cwd', q.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: q.home, UNKNOT_TEST_HIDE_SANDBOX: '1' } });
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /UK_SANDBOX_REQUIRED/);
+    assert.equal(existsSync(join(q.dir, 'ran')), false);
+  });
 
   test('an unaccepted edit cannot opt out', () => withoutSandbox(async () => {
     const q = K.makeProject({ config: 'version: 1\nmode: assist\n' });

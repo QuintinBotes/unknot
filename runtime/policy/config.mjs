@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { sandboxRequired } from '../broker/sandbox.mjs';
 import { digest } from '../core/canonical.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { verifyText } from '../core/keys.mjs';
@@ -135,6 +136,20 @@ function acceptedView(ctx, file) {
   return { raw: capped, acceptance: 'unaccepted', notice };
 }
 
+/** Whether a write mode has left traces: slice worktrees on disk, or applied slices, approvals or lanes in the store. */
+function writeModeTraces(ctx) {
+  try {
+    if (ctx.paths?.worktrees && existsSync(ctx.paths.worktrees) && readdirSync(ctx.paths.worktrees).length) return true;
+  } catch {
+    return true;
+  }
+  try {
+    return Boolean(ctx.store?.get?.('SELECT 1 FROM slices WHERE worktree IS NOT NULL UNION ALL SELECT 1 FROM approvals UNION ALL SELECT 1 FROM lanes LIMIT 1'));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param {{paths: object}} ctx
  * @returns {{config: object, digest: string, adjustments: object[], sources: string[], org: object[]}}
@@ -159,6 +174,20 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
     config = r.config;
     adjustments.push(...r.adjustments.map((a) => ({ ...a, by: 'unaccepted config.yaml (tighten-only)' })));
   }
+  // An edit or removal nobody accepted may lower the mode, never the OS sandbox requirement of
+  // the accepted configuration (#170): code a slice wrote in assist must not run unsandboxed
+  // because an agent set `mode: plan`. With the snapshot gone (the state directory removed)
+  // but a write mode's traces left, the requirement is kept too: fail closed.
+  let notice = view.notice;
+  if (!overrideRaw && view.acceptance !== 'accepted' && !sandboxRequired(config)) {
+    const snapshot = ctx.store?.meta?.('accepted_config_text');
+    const keep = snapshot ? sandboxRequired(overlay(structuredClone(DEFAULT_CONFIG), parseConfigText(snapshot, '<accepted snapshot>'))) : writeModeTraces(ctx);
+    if (keep) {
+      adjustments.push({ path: 'security.require_os_sandbox', from: config.security?.require_os_sandbox ?? null, to: true, by: snapshot ? 'accepted config.yaml (sandbox requirement kept)' : 'write-mode traces without an accepted config' });
+      config = { ...config, security: { ...config.security, require_os_sandbox: true } };
+      if (!snapshot) notice = `${notice ? `${notice}; ` : ''}this project has slice worktrees or approvals from a write mode but no accepted configuration (was .unknot/state removed?), so brokered commands run only inside an OS sandbox until a human runs \`unknot config accept\``;
+    }
+  }
   const org = loadOrgPolicy();
   for (const bundle of org) {
     const r = applyOrgPolicy(config, bundle.policy);
@@ -172,6 +201,6 @@ export function loadConfig(ctx, { overrideRaw } = {}) {
     sources: [source, ...org.map((b) => b.file)].filter(Boolean),
     org: org.map(({ file, signed, digest: d }) => ({ file, signed, digest: d })),
     acceptance: view.acceptance,
-    notice: view.notice,
+    notice,
   };
 }
