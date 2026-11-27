@@ -40,9 +40,8 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   g(dir, 'add', '-A');
   g(dir, 'commit', '-qm', 'init');
   const ctx = openProject(dir, { create: true });
-  // The unit test command records each run in a file outside the project.
-  const runs = join(mkTmp(join(tmpdir(), 'uk-nosandbox-runs-')), 'runs.log');
-  const config = { version: 1, mode: 'assist', protected_paths: [], commands: { test_unit: [process.execPath, '-e', `require('fs').appendFileSync(${JSON.stringify(runs)}, 'ran\\n')`] }, approvers: { alice: { roles: ['code-owner', 'affected-owner', 'security-owner', 'data-owner'], public_key: PUB } } };
+  // Whether a command ran is read from the ledger (exec.started), which the broker writes outside any sandbox.
+  const config = { version: 1, mode: 'assist', protected_paths: [], commands: { test_unit: [process.execPath, '-e', 'process.exit(0)'] }, approvers: { alice: { roles: ['code-owner', 'affected-owner', 'security-owner', 'data-owner'], public_key: PUB } } };
   writeFileSync(join(dir, '.unknot/config.yaml'), stringifyYAML(config));
   g(dir, 'add', '-A');
   g(dir, 'commit', '-qm', 'unknot config');
@@ -57,7 +56,8 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   await startApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
   writeFileSync(join(loadSlice(ctx, planned.id).worktree, 'src/ledger.mjs'), 'export const total = (xs) => xs.reduce((a, b) => a + b, 0); // sum\n');
   finishApply(ctx, { cfg, run, sliceId: planned.id, actor: 'model:main' });
-  const ranBefore = readFileSync(runs, 'utf8');
+  const started = () => ctx.store.all("SELECT * FROM events WHERE type = 'exec.started'").length;
+  const startedBefore = started();
 
   const verify = () => spawnSync(process.execPath, ['--import', helper, bin, 'verify', planned.id, '--json', '--cwd', dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_TEST_HIDE_SANDBOX: '1' } });
   const commandEvidence = () => ctx.store.all('SELECT record FROM evidence WHERE slice_id = ? AND obligation_id IS NOT NULL', planned.id).map((e) => JSON.parse(e.record)).filter((r) => r.kind === 'command');
@@ -65,7 +65,7 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   const refused = verify();
   assert.equal(refused.status, 3, refused.stderr + refused.stdout);
   assert.equal(JSON.parse(refused.stdout).error.code, 'UK_SANDBOX_REQUIRED');
-  assert.equal(readFileSync(runs, 'utf8'), ranBefore, 'the unit tests did not run');
+  assert.equal(started(), startedBefore, 'the unit tests did not run');
   assert.deepEqual(commandEvidence(), []);
   assert.equal(loadSlice(ctx, planned.id).state, 'VERIFYING');
 
@@ -73,7 +73,7 @@ test('verify refuses in assist and runs in plan when no OS sandbox is available'
   writeFileSync(join(dir, '.unknot/config.yaml'), stringifyYAML({ ...config, mode: 'plan' }));
   const ran = verify();
   assert.equal(ran.status, 0, ran.stderr + ran.stdout);
-  assert.equal(readFileSync(runs, 'utf8'), `${ranBefore}ran\n`);
+  assert.ok(started() > startedBefore, 'the unit tests ran');
   const evidence = commandEvidence();
   assert.ok(evidence.length > 0);
   for (const r of evidence) assert.equal(r.sandbox, 'none');
