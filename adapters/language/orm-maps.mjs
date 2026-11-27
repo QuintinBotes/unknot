@@ -143,6 +143,8 @@ export const ORM_SYNTAX = [
     access: {
       member: {
         [WRITE]: ['Add', 'AddAsync', 'AddRange', 'AddRangeAsync', 'Remove', 'RemoveRange', 'Update', 'UpdateRange', 'Attach'],
+        // The most arguments a set's verb takes (`Add(entity)`, `AddAsync(entity, ct)`): more is another type's method.
+        arity: { Add: 1, AddAsync: 2, Remove: 1, Update: 1, Attach: 1 },
         [READ]: ['Find', 'FindAsync', 'Where', 'FirstOrDefault', 'FirstOrDefaultAsync', 'First', 'Single', 'SingleOrDefault', 'ToList', 'ToListAsync', 'Any', 'AnyAsync', 'Count', 'CountAsync', 'Include', 'AsNoTracking', 'Select', 'OrderBy'],
       },
     },
@@ -418,7 +420,11 @@ export function mapEntities(view) {
       const c = row.collections;
       for (const m of view.matches?.(c.re) ?? []) {
         const entity = lastName(m[c.entity]);
-        members.push({ orm: row.orm, entity, member: m[c.member] });
+        const line = view.lineOf(m.index);
+        // The innermost type declaring the set, so a receiver of that type (or one inheriting it) reaches it.
+        const owner = (view.types ?? []).filter((t) => t.ref?.startLine <= line && line <= t.ref?.endLine)
+          .sort((a, b) => (a.ref.endLine - a.ref.startLine) - (b.ref.endLine - b.ref.startLine))[0]?.name;
+        members.push({ orm: row.orm, entity, member: m[c.member], ...(owner && { owner }) });
         if (seen.has(entity)) continue;
         push({ entity, table: CONVENTIONS[c.convention](m[c.member], view), basis: 'convention', line: view.lineOf(m.index) });
       }
@@ -466,13 +472,13 @@ const SEP = /\s*(?:\?\.|\.|::|->)\s*/;
 const CHAIN = /([A-Za-z_$][\w$]*(?:\s*(?:\?\.|\.|::|->)\s*[A-Za-z_$][\w$]*[!?]?)+)(\s*\()?/g;
 const ARG = /^\s*(?:&|new\s+)?(?:\(\s*)?([A-Z]\w*)(?=\s*[({),]|\.class\b|::class\b|\s*$)/;
 const MAX_ACCESS = 400;
-const NOT_TYPE = new Set(['return', 'await', 'yield', 'throw', 'new', 'in', 'is', 'as', 'case', 'else', 'out', 'ref', 'var', 'params', 'using']);
+const NOT_TYPE = new Set(['default', 'return', 'await', 'yield', 'throw', 'new', 'in', 'is', 'as', 'case', 'else', 'out', 'ref', 'var', 'params', 'using']);
 
-/** The type `name` is declared with in `text` (`List<string> Messages {`, `DbSet<T> Orders;`), or null. */
+/** The type `name` is declared with in `text` (`List<string> Messages {`, `DbSet<T> Orders;`, `Ctx db)`), or null. */
 function declaredType(text, name) {
   for (let i = text.indexOf(name); i >= 0; i = text.indexOf(name, i + 1)) {
     const end = i + name.length;
-    if (!/^\s*(?:[{;=]|\n|$)/.test(text.slice(end, end + 40)) || /\w/.test(text[end] ?? '')) continue;
+    if (!/^\s*(?:[{;=,)]|\n|$)/.test(text.slice(end, end + 40)) || /\w/.test(text[end] ?? '')) continue;
     const m = /([\w.]+(?:\s*<[^;{}()=]*>)?\??(?:\[\])?)\s+$/.exec(text.slice(Math.max(0, i - 200), i));
     if (m && !NOT_TYPE.has(m[1])) return m[1];
   }
@@ -487,19 +493,24 @@ function declaredType(text, name) {
  * A member called with no receiver (`Messages.Add(x)`, `this.Orders.Add(x)`) belongs to this
  * class, so its declaration here decides: an ORM set is a candidate, any other type
  * (`List<string> Messages`) is not, and no declaration in the file makes it `u` (unresolved).
+ * A member called through a variable (`db.Messages.Add(m)`) carries `rt`, the variable's type as
+ * declared in this file (field, property, parameter, local), for link to check against the types
+ * that declare the set; an undeclared receiver, or a longer chain, makes it `u`. A verb called
+ * with more arguments than the set's verb takes (`context.Messages.Add(a, b, c)`) is not one.
  */
 export function accessCandidates(text, lang, lineOf) {
   if (!ormLanguages(lang)) return [];
   const parenless = lang === L.RUBY;
   const setTypes = ormRowsFor(lang).map((r) => r.collections?.type).filter(Boolean);
+  const arity = Object.assign({}, ...ormRowsFor(lang).map((r) => r.access?.member?.arity ?? {}));
   const types = new Map(); // member name -> its declared type here, read once per name
   const out = [];
   const seen = new Set();
-  const add = (n, v, via, off, u) => {
-    const k = `${n}|${v}|${via}`;
+  const add = (n, v, via, off, u, rt) => {
+    const k = `${n}|${v}|${via}|${u ? 1 : 0}|${rt ?? ''}`;
     if (seen.has(k) || out.length >= MAX_ACCESS) return;
     seen.add(k);
-    out.push({ n, v, via, l: lineOf(off), ...(u && { u: 1 }) });
+    out.push({ n, v, via, l: lineOf(off), ...(u && { u: 1 }), ...(rt && { rt }) });
   };
   CHAIN.lastIndex = 0;
   for (const m of text.matchAll(CHAIN)) {
@@ -513,8 +524,13 @@ export function accessCandidates(text, lang, lineOf) {
       const own = setTypes.length && (segs.length === 2 || (segs.length === 3 && /^(?:this|base)$/.test(segs[0])));
       if (own && !types.has(name)) types.set(name, declaredType(text, name.replace(/[!?]$/, '')));
       const type = own ? types.get(name) : null;
-      if (!own || !type) add(name, v, '@member', m.index, own);
-      else if (setTypes.some((t) => t.test(type))) add(name, v, '@member', m.index);
+      if (arity[v] && m[2] && argCount(argsAfter(text, m.index + m[0].length)) > arity[v]) { /* another type's method */ } else if (own && type) {
+        if (setTypes.some((t) => t.test(type))) add(name, v, '@member', m.index);
+      } else if (setTypes.length && !own) {
+        if (!types.has(`@${segs[0]}`)) types.set(`@${segs[0]}`, segs.length === 3 ? declaredType(text, segs[0]) : null);
+        const rt = types.get(`@${segs[0]}`);
+        add(name, v, '@member', m.index, !rt, rt);
+      } else add(name, v, '@member', m.index, own);
     }
     if (m[2]) {
       const arg = ARG.exec(text.slice(m.index + m[0].length, m.index + m[0].length + 120));
@@ -522,6 +538,25 @@ export function accessCandidates(text, lang, lineOf) {
     }
   }
   return out;
+}
+
+/** Top-level arguments in an argument list. shortcut: a comma in generic arguments (`Make<A, B>()`) counts as one; fine for a set's verbs. */
+function argCount(args) {
+  if (!args.trim()) return 0;
+  let n = 1;
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (c === ',' && depth === 0) n++;
+  }
+  return n;
 }
 
 /** The link-only module attributes this rule uses; link removes them so they are never persisted. */
@@ -552,8 +587,14 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   const members = new Map(); // member name -> [entity name]
   const users = [];
   const classes = new Map(); // type name -> [{ path, lang, ...class record }]
+  const holders = new Map(); // member name -> the types that declare it as an ORM set
+  const typeBases = new Map(); // every declared type name -> its base names, from the type nodes
   for (const [path, facts] of factsByFile) {
     for (const f of facts) {
+      if (f.kind === 'node' && Array.isArray(f.attrs?.extends) && own(f)) {
+        const bs = [...f.attrs.extends, ...(f.attrs.implements ?? []), ...(f.attrs.bases ?? [])].map((b) => lastName(norm(b)));
+        typeBases.set(f.name, [...(typeBases.get(f.name) ?? []), ...bs]);
+      }
       if (f.kind !== 'node' || f.type !== 'module' || !own(f)) continue;
       const a = f.attrs;
       for (const e of a.orm_entities ?? []) {
@@ -563,6 +604,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
       for (const m of a.orm_members ?? []) {
         if (!members.has(m.n)) members.set(m.n, []);
         members.get(m.n).push(m.e);
+        if (m.c) holders.set(m.n, (holders.get(m.n) ?? new Set()).add(m.c));
       }
       if (a.orm_access?.length) users.push({ path, access: a.orm_access });
       for (const c of a.orm_classes ?? []) {
@@ -617,12 +659,28 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
     const ids = new Set((here.length ? here : all).map((e) => e.id));
     return ids.size === 1 ? (here.length ? here : all)[0] : null;
   };
+  // Whether type `t`, or a type it inherits from, declares member `n` as an ORM set.
+  const holds = (t, n, seen = new Set()) => {
+    if (seen.has(t)) return false;
+    seen.add(t);
+    return Boolean(holders.get(n)?.has(t)) || (typeBases.get(t) ?? []).some((b) => holds(b, n, seen));
+  };
   const out = [];
   const done = new Set();
   for (const { path, access } of users) {
-    for (const c of access) {
+    // A resolved call first, so a file's edge to a table keeps the better confidence.
+    for (const c of [...access].sort((x, y) => (x.u ?? 0) - (y.u ?? 0))) {
       let hit = null;
       let shape = null;
+      let low = Boolean(c.u);
+      if (c.rt) {
+        const rt = lastName(norm(c.rt));
+        // A receiver whose type is declared in the repository and holds no such set reaches another member of that name.
+        if (!holds(rt, c.n)) {
+          if (typeBases.has(rt)) continue;
+          low = true;
+        }
+      }
       if (c.via === '@member') {
         const names = [...new Set(members.get(c.n) ?? [])];
         const entity = names.length === 1 ? pick(names[0], path) : null;
@@ -639,7 +697,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
       const key = `${type}|${path}|${hit.id}`;
       if (done.has(key)) continue;
       done.add(key);
-      out.push(edgeFact(type, `module:${path}`, `table:${hit.id}`, { via: 'orm', orm: hit.orm, entity: c.n, kind: c.v, line: c.l }, c.u ? pv(path, c.l, 'low') : pv(path, c.l)));
+      out.push(edgeFact(type, `module:${path}`, `table:${hit.id}`, { via: 'orm', orm: hit.orm, entity: c.n, kind: c.v, line: c.l }, low ? pv(path, c.l, 'low') : pv(path, c.l)));
     }
   }
   return out;
