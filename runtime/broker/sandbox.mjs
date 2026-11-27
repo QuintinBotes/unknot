@@ -3,7 +3,8 @@
 // this is the layer that holds when a test suite itself is hostile.
 //
 // macOS: sandbox-exec with a generated SBPL profile. Linux: bubblewrap when installed.
-// Elsewhere: no sandbox, which `doctor` reports and `security.require_os_sandbox` refuses.
+// Elsewhere: no sandbox. Write modes (assist and above) then refuse to run brokered commands
+// unless a person explicitly set `security.require_os_sandbox: false` (sandboxRequired).
 
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, lstatSync } from 'node:fs';
@@ -81,12 +82,49 @@ function usableMacSandbox() {
   return macSandboxUsable;
 }
 
+// Fixed locations only: the wrapper runs the binary detection found, never one PATH names, so
+// a fake `bwrap` earlier on PATH cannot pass for the sandbox.
+const BWRAP_PATHS = ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'];
+const bwrapPath = () => BWRAP_PATHS.find(executable) ?? null;
+
+let bwrapUsable;
+
+// bubblewrap without unprivileged user namespaces (an AppArmor default on Ubuntu 24.04) is
+// installed but cannot start: that is no sandbox, not a sandbox that fails every command.
+function usableBwrap(path) {
+  if (bwrapUsable !== undefined) return bwrapUsable;
+  const result = spawnSync(path, ['--ro-bind', '/', '/', '--unshare-net', 'true'], { stdio: 'ignore', timeout: 2_000 });
+  bwrapUsable = result.status === 0 && !result.error;
+  return bwrapUsable;
+}
+
 export function detectSandbox() {
   if (process.platform === 'darwin' && executable('/usr/bin/sandbox-exec') && usableMacSandbox()) return 'macos-sandbox-exec';
   if (process.platform === 'linux') {
-    for (const p of ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap']) if (executable(p)) return 'linux-bwrap';
+    const p = bwrapPath();
+    if (p && usableBwrap(p)) return 'linux-bwrap';
   }
   return 'none';
+}
+
+/**
+ * Whether brokered commands must run inside an OS sandbox. An explicit `true` or `false` in the
+ * effective config decides (org policy can force `true`, and an unaccepted edit cannot set
+ * `false`); otherwise it is required in every mode that can change code. A missing config or an
+ * unknown mode counts as a write mode.
+ */
+export function sandboxRequired(config) {
+  const set = config?.security?.require_os_sandbox;
+  if (set === false) return false;
+  if (set != null) return true;
+  return !['observe', 'plan'].includes(config?.mode);
+}
+
+/** How to get an OS sandbox on this platform, for refusals and `doctor`. */
+export function sandboxInstallHint(platform = process.platform) {
+  if (platform === 'darwin') return 'macOS sandbox-exec (/usr/bin/sandbox-exec, part of macOS) is missing or cannot apply a profile here (a managed Mac or an already sandboxed parent process can forbid it); run Unknot outside that sandbox';
+  if (platform === 'linux') return 'install bubblewrap (apt install bubblewrap, or dnf install bubblewrap) and allow unprivileged user namespaces (on Ubuntu 24.04: sysctl kernel.apparmor_restrict_unprivileged_userns=0); check with: bwrap --ro-bind / / --unshare-net true';
+  return `no supported OS sandbox on ${platform}; use macOS, or Linux with bubblewrap (WSL2 on Windows)`;
 }
 
 // File names a sandbox profile can carry; a tracked name with quotes or control characters is
@@ -230,7 +268,8 @@ export function wrap(argv, { kind = detectSandbox(), writable = [], network = fa
     }
     args.push('--ro-bind', PLUGIN_ROOT, PLUGIN_ROOT); // after the tmpfs mounts: see macosProfile
     if (!network) args.push('--unshare-net');
-    return { file: 'bwrap', args: [...args, '--', ...argv], sandbox: kind };
+    // A missing binary fails to spawn: the command does not run.
+    return { file: bwrapPath() ?? BWRAP_PATHS[0], args: [...args, '--', ...argv], sandbox: kind };
   }
   if (requireSandbox) {
     throw new UnknotError('UK_POLICY_DENIED', 'security.require_os_sandbox is set but no OS sandbox is available (need sandbox-exec or bubblewrap)', {
