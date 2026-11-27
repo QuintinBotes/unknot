@@ -90,7 +90,10 @@ Run workflow). It runs the `--quick` line above on the corpus clones (cached on
 runs the cross-command consistency check over every repository the accuracy run mapped. The job
 has `contents: read` and `actions: read` only and a 60 minute limit. It fails when a repository
 cannot be analysed or when the commands disagree; it does **not** fail on precision or recall
-numbers, because there is no gate yet.
+numbers. The release workflow does: its accuracy gate fails a release on an unexplained
+per-detector precision or seeded-recall drop against the previous release's report, with the
+thresholds and the explanations file (`corpus/accuracy-explained.json`) described in
+`docs/release.md` under "Accuracy regressions".
 
 Results appear in two places. The run's step summary shows overall precision and factual
 accuracy, seeded recall, the change since the previous run and the consistency output. The
