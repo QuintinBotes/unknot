@@ -470,7 +470,8 @@ const NOT_TYPE = new Set(['return', 'await', 'yield', 'throw', 'new', 'in', 'is'
 
 /** The type `name` is declared with in `text` (`List<string> Messages {`, `DbSet<T> Orders;`), or null. */
 function declaredType(text, name) {
-  const re = new RegExp(`([\\w.]+(?:\\s*<[^;{}()=]*>)?\\??(?:\\[\\])?)\\s+${name}\\s*(?:[{;=]|$)`, 'gm');
+  const esc = name.replace(/[^\w]/g, '\\$&');
+  const re = new RegExp(`([\\w.]+(?:\\s*<[^;{}()=]*>)?\\??(?:\\[\\])?)\\s+${esc}\\s*(?:[{;=]|$)`, 'gm');
   for (const m of text.matchAll(re)) if (!NOT_TYPE.has(m[1])) return m[1];
   return null;
 }
