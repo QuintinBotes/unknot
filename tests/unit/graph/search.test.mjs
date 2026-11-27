@@ -32,6 +32,16 @@ test('definitions are told apart from uses across languages and config formats',
   assert.equal(definitionOn(`if (x == "${name}") return;`, name), null);
 });
 
+test('a doc comment is never a definition, and a type declaration is (#160)', async () => {
+  for (const line of ['/// <see cref="Foo"/>', '/// <param name="x"><paramref name="Foo"/></param>', '  /// <typeparamref name="Foo"/>', '// Name = "Foo";', '# name: "Foo"']) assert.equal(definitionOn(line, 'Foo'), null, line);
+  const { p, config, graph } = await mapAndSearch({
+    'src/Foo.cs': 'namespace Shop;\n/// <summary>See <see cref="Foo"/>.</summary>\npublic class Foo {\n    public const string Name = "Foo";\n}\n',
+  });
+  const r = searchText(p.dir, { config, graph, store: p.ctx.store, text: 'Foo', scan: true });
+  assert.deepEqual(r.definitions.map((h) => [h.line, h.definition]), [[3, { kind: 'type', name: 'Foo' }], [4, { kind: 'constant', name: 'Name' }]]);
+  assert.deepEqual(r.uses.map((h) => h.line), [2]);
+});
+
 test('search finds the constant, its uses through the constant name, config keys and owners', async () => {
   const p = K.makeProject({ files: {
     '.github/CODEOWNERS': 'src/orders/ @example/orders\n',
