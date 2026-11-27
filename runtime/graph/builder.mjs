@@ -302,6 +302,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         // Counts of this run: nothing was extracted, linked or scanned (#182).
         adapters: Object.fromEntries(Object.entries(saved.adapters ?? {}).map(([id, a]) => [id, { ...a, extracted: 0, cached: a.files }])),
         link: saved.link && Object.fromEntries(Object.entries(saved.link).map(([id, l]) => [id, { ...l, relinked: 0 }])),
+        projection: saved.projection && { ...saved.projection, hashed: 0 },
         discover_files: undefined,
         unchanged: true,
         duration_ms: Date.now() - t0,
