@@ -4,7 +4,8 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -88,7 +89,7 @@ describe('forged acceptance rows unlock nothing', () => {
     const statement = canonicalJSON({ type: 'unknot.config-acceptance/v1', project_id: p.ctx.projectId, root: p.ctx.root, digest: digest(LOOSE), at });
     const signature = K.keys.signText(K.keys.auditPrivateKey(other.ctx.projectId), statement);
     // Even with the in-force pointer in UNKNOT_HOME set to it, the key decides.
-    writeFileSync(join(p.home, 'projects', p.ctx.projectId, 'acceptance.sig'), signature);
+    writeFileSync(join(p.home, 'roots', createHash('sha256').update(p.ctx.root).digest('hex'), 'acceptance.json'), JSON.stringify({ project_id: p.ctx.projectId, signature }));
     setRows(p, { accepted_config_text: LOOSE, accepted_config_digest: digest(LOOSE), accepted_config_at: at, accepted_config_signature: signature });
     assertNotHonoured(p);
     // Another project's whole valid record, with this store claiming that project's id, is bound
@@ -107,6 +108,52 @@ describe('forged acceptance rows unlock nothing', () => {
     setRows(p, old);
     assertNotHonoured(p);
     assert.ok(old.accepted_config_signature, 'the replayed acceptance was itself validly signed');
+  });
+
+  // Review of #219: the in-force acceptance was kept per project id, which the store chooses. A
+  // store recreated under a new id left the old id's acceptance in force, so the old store put
+  // back after the person re-accepted verified again.
+  test('an older store put back after a re-accept under a new project id (CLI)', () => {
+    const p = K.makeProject({ config: LOOSE });
+    const saved = join(p.dir, '..', `${p.ctx.projectId}-state`);
+    p.ctx.store.close();
+    cpSync(p.ctx.paths.state, saved, { recursive: true });
+    rmSync(p.ctx.paths.state, { recursive: true, force: true });
+    const renewed = K.context.openProject(p.dir);
+    assert.notEqual(renewed.projectId, p.ctx.projectId);
+    writeFileSync(p.ctx.paths.config, TIGHT);
+    K.configMod.recordAcceptedConfig(renewed, TIGHT, 'human:test');
+    renewed.store.close();
+    rmSync(p.ctx.paths.state, { recursive: true, force: true });
+    cpSync(saved, p.ctx.paths.state, { recursive: true });
+    writeFileSync(p.ctx.paths.config, LOOSE);
+    const shown = JSON.parse(cli(p, 'config', 'show').stdout);
+    assert.equal(shown.acceptance, 'invalid');
+    assert.equal(shown.effective.mode, 'plan');
+  });
+
+  test('an older backup restored into the same checkout after a newer accept', async () => {
+    const { createBackup, restoreBackup } = await import(new URL('../../runtime/enterprise/backup.mjs', import.meta.url).href);
+    const p = K.makeProject({ config: LOOSE });
+    const file = join(p.dir, '..', `${p.ctx.projectId}.ukb`);
+    createBackup(p.ctx, file, 'a backup passphrase');
+    p.ctx.store.close();
+    rmSync(p.ctx.paths.state, { recursive: true, force: true });
+    const renewed = K.context.openProject(p.dir);
+    writeFileSync(p.ctx.paths.config, TIGHT);
+    K.configMod.recordAcceptedConfig(renewed, TIGHT, 'human:test');
+    renewed.store.close();
+    const restored = join(p.dir, '..', `${p.ctx.projectId}-restored`);
+    restoreBackup(file, 'a backup passphrase', restored);
+    rmSync(p.ctx.paths.state, { recursive: true, force: true });
+    cpSync(join(restored, '.unknot', 'state'), p.ctx.paths.state, { recursive: true });
+    writeFileSync(p.ctx.paths.config, LOOSE);
+    const back = K.context.openProject(p.dir);
+    assert.equal(back.projectId, p.ctx.projectId, 'the backup brought its own project id');
+    assertNotHonoured({ ...p, ctx: back });
+    // A person accepting again in a terminal makes it valid.
+    K.configMod.recordAcceptedConfig(back, LOOSE, 'human:test');
+    assert.equal(K.configMod.loadConfig(back).acceptance, 'accepted');
   });
 
   test('a removed key in UNKNOT_HOME (CLI)', () => {

@@ -108,7 +108,7 @@ export function recordAcceptedConfig(ctx, text, actor) {
   if (!v.valid) throw new UnknotError('UK_CONFIG_INVALID', `config invalid: ${v.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
   const d = digest(text);
   const at = nowISO();
-  const signature = signAcceptance(ctx.projectId, acceptanceStatement(ctx, d, at));
+  const signature = signAcceptance(ctx.projectId, ctx.root, acceptanceStatement(ctx, d, at));
   ctx.store.tx(() => {
     ctx.store.meta('accepted_config_digest', d);
     ctx.store.meta('accepted_config_text', text);
@@ -131,7 +131,7 @@ export function acceptedRecord(ctx) {
   if (!text && !d) return null;
   const signature = meta('accepted_config_signature');
   if (!signature) return { invalid: 'unsigned' };
-  if (!ctx.projectId || !text || d !== digest(text) || !verifyAcceptance(ctx.projectId, acceptanceStatement(ctx, d, meta('accepted_config_at')), signature)) return { invalid: 'signature' };
+  if (!ctx.projectId || !text || d !== digest(text) || !verifyAcceptance(ctx.projectId, ctx.root, acceptanceStatement(ctx, d, meta('accepted_config_at')), signature)) return { invalid: 'signature' };
   return { text, digest: d };
 }
 
