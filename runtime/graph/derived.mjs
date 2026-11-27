@@ -133,7 +133,7 @@ function sccBody(graph, view, members, strictHere) {
 function declaredRow(graph, e, comp) {
   const from = graph.node(e.from);
   const to = graph.node(e.to);
-  return { key: `${e.from}>${e.to}`, body: { from: e.from, to: e.to, member: e.attrs.unused_member ?? null, visibility: e.attrs.member_visibility ?? null, line: e.attrs.line ?? null, component: comp, modules: from?.type === 'module' && to?.type === 'module', test: isTest(from) || isTest(to) } };
+  return { key: `${e.from}>${e.to}`, body: { from: e.from, to: e.to, member: e.attrs.unused_member ?? null, visibility: e.attrs.member_visibility ?? null, line: e.attrs.line ?? null, ...(e.attrs.injected_by && { injected_by: e.attrs.injected_by }), component: comp, modules: from?.type === 'module' && to?.type === 'module', test: isTest(from) || isTest(to) } };
 }
 
 /** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key */

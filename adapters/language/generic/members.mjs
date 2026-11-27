@@ -196,6 +196,7 @@ function formAt(syn, code, off, name) {
       start,
       end,
       at: off + name.length + (a ? Math.max(0, a[0].indexOf(declared)) : 0),
+      wired: Boolean(f.wired),
     };
   }
   return null;
@@ -206,10 +207,11 @@ function formAt(syn, code, off, name) {
  * `{ name, startLine, endLine, bases }`). `declOnly` maps a type name to the member names of
  * that type that are never used (a type with a mention that is not an unused member or
  * parameter is left out); `declPublic` lists, per such name, the members not private to the
- * file and `publicMembers` every injected member visible outside it (used or not). `words` and `accessed` are the identifiers the
+ * file and `publicMembers` every injected member visible outside it (used or not). `declWired` maps a type name to the
+ * members among them that count only if a container registration injects them (member name → declaring type). `words` and `accessed` are the identifiers the
  * file contains, `acc` its receiver-typed member accesses and `calls` its resolved calls per type
  * (see memberAccess), so link can ask whether another file touches a member.
- * @returns {{ refs: string[], declOnly: Record<string, string>, declPublic: Record<string, string[]>, publicMembers: string[], publicOwners: Record<string, string>, words: string[], acc: object, calls: object, typeBases: Record<string, string[]> }}
+ * @returns {{ refs: string[], declOnly: Record<string, string>, declPublic: Record<string, string[]>, declWired: Record<string, Record<string, string>>, publicMembers: string[], publicOwners: Record<string, string>, words: string[], acc: object, calls: object, typeBases: Record<string, string[]> }}
  */
 export function memberRefs(lx, types, syn) {
   const code = syn.blank ? lx.code.replace(syn.blank, blank) : lx.code;
@@ -227,6 +229,7 @@ export function memberRefs(lx, types, syn) {
   }
   const declOnly = {};
   const declPublic = {};
+  const declWired = {};
   const publicMembers = new Set();
   const access = memberAccess(lx, types, code, syn);
   const publicOwners = {};
@@ -237,6 +240,7 @@ export function memberRefs(lx, types, syn) {
     const members = new Set();
     const pub = new Set();
     const params = new Set();
+    const wired = {};
     const spans = [];
     let ok = true;
     for (const off of offs) {
@@ -249,10 +253,12 @@ export function memberRefs(lx, types, syn) {
         members.add(f.name);
         if (f.pub) {
           pub.add(f.name);
-          // A member reachable only by convention (Go's unexported fields, Python's `_x`) is not public surface.
-          if (!f.weak) publicMembers.add(f.name);
+          // A member reachable only by convention (Go's unexported fields, Python's `_x`) is not public surface;
+          // a wired one is injected only if a registration says so, which link decides.
+          if (!f.weak && !f.wired) publicMembers.add(f.name);
           publicOwners[f.name] = access.enclosing(f.at);
         }
+        if (f.wired) wired[f.name] = access.enclosing(f.at);
       }
       if (f.kind !== 'member') params.add(f.name);
       spans.push([f.start, f.end]);
@@ -278,12 +284,13 @@ export function memberRefs(lx, types, syn) {
     if ([...params].some(used) || [...members].some(used)) continue;
     declOnly[name] = [...members].sort().join(', ');
     if (pub.size) declPublic[name] = [...pub].sort();
+    if (Object.keys(wired).length) declWired[name] = wired;
   }
   const refs = [...new Set([...heads.keys(), ...chains])].sort();
   const words = new Set(lx.plain.match(/[A-Za-z_]\w+/g));
   const typeBases = {};
   for (const t of types) typeBases[t.name] = [...new Set([...(typeBases[t.name] ?? []), ...t.bases])].sort();
-  return { refs, declOnly, declPublic, publicMembers: [...publicMembers].sort(), publicOwners, words: [...words].sort(), acc: access.acc, calls: access.calls, typeBases };
+  return { refs, declOnly, declPublic, declWired, publicMembers: [...publicMembers].sort(), publicOwners, words: [...words].sort(), acc: access.acc, calls: access.calls, typeBases };
 }
 
 /** The attributes memberRefs leaves on a module for link to read; link removes them again (dropMemberAttrs) so they are never persisted. */
@@ -291,6 +298,7 @@ export function memberAttrs(r) {
   const a = { refs: r.refs };
   if (Object.keys(r.declOnly).length) a.decl_only = r.declOnly;
   if (Object.keys(r.declPublic).length) a.decl_public = r.declPublic;
+  if (Object.keys(r.declWired ?? {}).length) a.decl_wired = r.declWired;
   a.words = r.words;
   a.acc = r.acc;
   a.member_calls = r.calls;
@@ -302,7 +310,7 @@ export function memberAttrs(r) {
 
 /** The link-only attributes of memberAttrs; `public_members` stays (the derived public surface reads it). */
 export function dropMemberAttrs(a) {
-  for (const k of ['refs', 'decl_only', 'decl_public', 'words', 'acc', 'member_calls', 'type_bases', 'public_owners']) delete a[k];
+  for (const k of ['refs', 'decl_only', 'decl_public', 'decl_wired', 'words', 'acc', 'member_calls', 'type_bases', 'public_owners']) delete a[k];
 }
 
 /**

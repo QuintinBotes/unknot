@@ -1,8 +1,9 @@
 // Incremental linking (#88, FR-001) stores exactly the graph a cold map of the same tree stores
 // (FR-002): after a body edit, a symbol rename, a change to a widely used type, a member read from
-// another file, a manifest change, and a file deleted and added. Each step is compared, row by row,
-// with a cold map of the tree as it then is, and the generic and quality linkers are shown to have
-// linked again only part of the files when nothing global changed.
+// another file, a registration that starts injecting properties, a manifest change, and a file
+// deleted and added. Each step is compared, row by row, with a cold map of the tree as it then is,
+// and the generic and quality linkers are shown to have linked again only part of the files when
+// nothing global changed.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,6 +44,8 @@ const tree = {
   'Svc/Notify.cs': cls('Shop.Svc', 'Notify', '        [Dependency]\n        public Mailer Mailer { get; set; }', 'using Shop.Core;\n'),
   'Svc/Billing.cs': cls('Shop.Svc', 'Billing', '        public int Bill(Order o) { var t = new Tool(); t.Run(); return o.Total(); }', 'using Shop.Core;\n'),
   'Svc/Leaf.cs': cls('Shop.Svc', 'Leaf', '        public int N() { return 2; }'),
+  'Svc/Report.cs': cls('Shop.Svc', 'Report', '        public Mailer Mail { get; set; }', 'using Shop.Core;\n'),
+  'Svc/Wiring.cs': cls('Shop.Svc', 'Wiring', '        void Load(ContainerBuilder b) { b.RegisterType<Report>().AsSelf(); }'),
   'Svc/Pair.cs': pair('return 1;'),
   'web/orders.js': clone('orders.js'),
   'web/invoices.js': clone('invoices.js'),
@@ -99,6 +102,12 @@ test('an incremental map links again only what a change reaches, and stores what
   assert.ok(reach.link.generic.relinked < reach.link.generic.modules);
   const notify = p.ctx.store.get("SELECT attrs FROM edges WHERE src = 'module:Svc/Notify.cs' AND dst = 'module:Core/Mailer.cs' AND type = 'IMPORTS'");
   assert.ok(notify && !JSON.parse(notify.attrs).declared_only, 'the unchanged Notify.cs was linked again: its member is now read');
+
+  await step('a registration starts injecting properties', (f) => {
+    f['Svc/Wiring.cs'] = cls('Shop.Svc', 'Wiring', '        void Load(ContainerBuilder b) { b.RegisterType<Report>().AsSelf().PropertiesAutowired(); }');
+  });
+  const report = p.ctx.store.get("SELECT attrs FROM edges WHERE src = 'module:Svc/Report.cs' AND dst = 'module:Core/Mailer.cs' AND type = 'IMPORTS'");
+  assert.equal(JSON.parse(report.attrs).declared_only, true, 'the unchanged Report.cs was linked again: its property is now injected');
 
   await step('a widely used type changes', (f) => { f['Core/Order.cs'] = cls('Shop.Core', 'Order', '        public int Total() { return 2; }\n        public int Tax() { return 1; }'); });
   await step('a symbol rename', (f) => {

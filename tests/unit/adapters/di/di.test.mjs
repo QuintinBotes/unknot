@@ -42,6 +42,7 @@ const CANDIDATES = [
   { name: 'autofac scoped spellings', lang: L.CSHARP, src: 'builder.RegisterType<OrderService>().As<IOrderService>().InstancePerLifetimeScope();\nbuilder.RegisterType<LedgerService>().As<ILedgerService>().InstancePerRequest();', expected: [reg('autofac', 'IOrderService', 'OrderService', 'scoped'), reg('autofac', 'ILedgerService', 'LedgerService', 'scoped')] },
   { name: 'autofac transient spellings', lang: L.CSHARP, src: 'builder.RegisterType<OrderService>().As<IOrderService>().InstancePerDependency();\nbuilder.RegisterType<LedgerService>().As<ILedgerService>();', expected: [reg('autofac', 'IOrderService', 'OrderService', 'transient'), reg('autofac', 'ILedgerService', 'LedgerService', 'transient')] },
   { name: 'autofac AsSelf', lang: L.CSHARP, src: 'builder.RegisterType<LedgerService>().AsSelf();', expected: [reg('autofac', 'LedgerService', 'LedgerService', 'transient')] },
+  { name: 'unity lifetimes', lang: L.CSHARP, src: 'container.RegisterType<IOrderService, OrderService>();\ncontainer.RegisterSingleton<IInvoiceService, InvoiceService>();\ncontainer.RegisterType<ILedgerService, LedgerService>(new ContainerControlledLifetimeManager());', expected: [reg('unity', 'IOrderService', 'OrderService', 'transient'), reg('unity', 'IInvoiceService', 'InvoiceService', 'singleton'), reg('unity', 'ILedgerService', 'LedgerService', 'singleton')] },
   { name: 'guice java singleton spellings', lang: L.JAVA, src: 'bind(IInvoiceService.class).to(InvoiceService.class).in(Singleton.class);\nbind(IOrderService.class).to(OrderService.class).in(Scopes.SINGLETON);\nbind(ILedgerService.class).to(LedgerService.class).asEagerSingleton();', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'singleton'), reg('guice', 'IOrderService', 'OrderService', 'singleton'), reg('guice', 'ILedgerService', 'LedgerService', 'singleton')] },
   { name: 'guice java default transient', lang: L.JAVA, src: 'bind(IInvoiceService.class).to(InvoiceService.class);', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'transient')] },
   { name: 'guice kotlin', lang: L.KOTLIN, src: 'bind(IInvoiceService::class.java).to(InvoiceService::class.java)', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'transient')] },
@@ -85,6 +86,14 @@ test('the table has a candidate case for every row', () => {
   for (const row of DI_SYNTAX) {
     assert.ok(row.languages.some((lang) => covered.has(`${row.container}|${lang}`)), `${row.container} (${row.kind}) has a case`);
   }
+});
+
+test('property injection: PropertiesAutowired is autowired, InjectionProperty names string literals only', () => {
+  const props = (src) => diCandidates('a.cs', src, L.CSHARP).map((c) => c.properties);
+  assert.deepEqual(props('builder.RegisterType<OrderService>().As<IOrderService>().PropertiesAutowired().SingleInstance();'), ['autowired']);
+  assert.deepEqual(props('builder.RegisterType<OrderService>().As<IOrderService>();'), [undefined]);
+  assert.deepEqual(props('container.RegisterType<IOrderService, OrderService>(new InjectionProperty("Log"), new InjectionProperty("Clock", new ResolvedParameter<IClock>()));'), [['Clock', 'Log']]);
+  assert.deepEqual(props('container.RegisterType<IOrderService, OrderService>(new InjectionProperty(nameof(OrderService.Clock)));'), [undefined]);
 });
 
 test('a registration in a comment or a string gives nothing', () => {
@@ -263,7 +272,7 @@ for (const c of LINKS) {
     assert.equal(edge.attrs.lifetime, c.lifetime);
     assert.equal(edge.attrs.registered_in, c.registeredIn);
     assert.ok(Number.isInteger(edge.attrs.line));
-    assert.equal(edge.provenance.extractor, 'di@0.1.0');
+    assert.equal(edge.provenance.extractor, 'di@0.1.1');
     assert.equal(edge.provenance.source_type, 'inference');
     assert.equal(edge.provenance.confidence, c.confidence ?? 'medium');
     const depends = diLinked.filter((f) => f.kind === 'edge' && f.type === 'DEPENDS_ON');
@@ -364,7 +373,7 @@ test('the dead-code detector does not report an implementation module only a reg
 
 test('the di adapter is a framework adapter registered right after contracts', () => {
   assert.equal(diAdapter.id, 'di');
-  assert.equal(diAdapter.version, '0.1.0');
+  assert.equal(diAdapter.version, '0.1.1');
   assert.equal(diAdapter.kind, 'framework');
   assert.deepEqual(diAdapter.capabilities.executes, []);
   assert.equal(diAdapter.capabilities.network, false);
