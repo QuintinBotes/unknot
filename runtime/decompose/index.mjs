@@ -151,6 +151,9 @@ function inferredShare(graph, modules) {
 }
 
 const LOWER = { high: 'medium', medium: 'low', low: 'low' };
+// CI configuration and its helper scripts build and ship the system; they are no part of it to split (#161).
+// They stay in the affinity graph, so the partition of everything else does not move; they only join no candidate.
+const TOOLING = /^module:\.(?:github|gitlab|circleci|buildkite|azure-pipelines|azuredevops|teamcity)\//;
 
 /** Client routes are a routable seam seen from the client side: served elsewhere until a workspace map names the repository. */
 function seamGaps(cand, signals) {
@@ -200,7 +203,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const affinity = units ? unitAffinity(fileAffinity, units.unitOf) : fileAffinity;
     const band = d.size_band ?? sizeBandFor(affinity.nodes.length);
     bandUsed[t] = `size_band=${band.join('-')}${d.size_band ? '' : ` (derived from ${affinity.nodes.length} modules)`}`;
-    const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units });
+    const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units, keep: (m) => !TOOLING.test(m) });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
     analyses[t] = { modules: affinity.nodes.length, ...(units && { units: affinity.nodes, files: modules.length }), affinity_edges: affinity.edges.length, components: { ...affinity.components, ...(historyGap && { evolutionary: 'unmeasured' }) }, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
@@ -228,9 +231,11 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
     const cap = capConfidence(cand.robust ? sel.confidence : 'low', sel.treatment, cand.details?.runtime);
     // heuristic: a boundary resting mostly on name-matched edges is one step less sure.
-    const byName = cand.robust && cap.confidence !== 'low' && inf.share >= 0.5;
-    const confidence = cand.robust ? (byName ? LOWER[cap.confidence] : cap.confidence) : 'low';
-    const lowered = byName ? `confidence lowered from ${cap.confidence} to ${confidence}: ${Math.round(inf.share * 100)}% of the ${inf.edges} import and call edges it rests on were matched by name (inferred), not resolved by a compiler or index` : null;
+    // heuristic: nothing crosses an isolated boundary, so perturbing its edges never tested it; its stability earns no confidence (#161).
+    const isolated = cand.robust && cand.metrics['module.consumers'] === 0 && !(cand.metrics['boundary.coupling'] > 0);
+    const byName = cand.robust && !isolated && cap.confidence !== 'low' && inf.share >= 0.5;
+    const confidence = cand.robust && !isolated ? (byName ? LOWER[cap.confidence] : cap.confidence) : 'low';
+    const lowered = isolated && cap.confidence !== 'low' ? `confidence lowered from ${cap.confidence} to low: no module outside the candidate uses it and no affinity crosses its boundary, so its stability was never tested` : byName ? `confidence lowered from ${cap.confidence} to ${confidence}: ${Math.round(inf.share * 100)}% of the ${inf.edges} import and call edges it rests on were matched by name (inferred), not resolved by a compiler or index` : null;
     const fingerprint = fingerprintOf({ target: t, drivers: allDrivers, modules: cand.modules });
     const existing = known.get(fingerprint) ?? null;
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
