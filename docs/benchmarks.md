@@ -299,6 +299,89 @@ generic linker relinks 10 of 4,400 files at 10k but the JavaScript and Python li
 incremental, and loading the kept results take the time. The third is about file size: the fixture
 files are a few hundred bytes each, so the store is 50 times the tree whatever the edge encoding.
 
+### Derived facts brought forward, cheaper hashing, fewer indexes (#145)
+
+What a changed re-map still did over the whole repository after the third part, and what changed:
+
+- **Derived facts** were recomputed from the whole graph: every node and edge read back from the
+  store, then every component. Projection now reports the node and edge rows it wrote or deleted.
+  Components depend only on IMPORTS edges, and the build check on packages, package containment and
+  DEPENDS_ON, so when none of those changed the components stand, and only the node-level rows of
+  changed modules, and the components and declared-only edges holding a module whose type, path, test
+  flag or language changed, are worked out again from the store. Otherwise everything is recomputed,
+  reading only the four edge types derived facts use. The summary's `derived` says which
+  (`updated`, `recomputed` or `kept`).
+- **Projection** still hashes every fact and reads every stored fact key, but a fact id no longer
+  copies attributes that are already in canonical form (cached facts are): about half the CPU of
+  hashing fact ids (1.5 to 1.9 s against 3.5 to 3.7 s for 376,000 facts, measured alternately in one
+  process).
+- **Reading cached facts**: an empty row (most rows of `contracts`, `di` and `security`) is not
+  parsed, and a linker's saved state is read only by a linker that keeps one.
+- **Store**: three indexes of the facts table that no query reads are dropped (migration 4, which
+  does not raise `schema_version`). They were 75 MB of the 50k store and 353 MB of the 3.1 GB
+  monolith store below; an existing store keeps the freed pages for later writes, a new one is smaller.
+
+`node scripts/bench.mjs --sizes 50k --gate`, `main` and this change back to back on the same machine,
+twice (Apple M5 Max, Node 26.13; other work kept the load average between 8 and 60, the second pair
+ran at 8 to 10):
+
+| Run | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Store / tree |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `main`, first pair | 51.7 s | 0.5 s | 12.5 s | 1,168 MB | 0.01 | 24.2 | 50.0 |
+| this change, first pair | 122.4 s | 1.0 s | 10.2 s | 1,092 MB | 0.008 | 10.5 | 46.8 |
+| `main`, second pair | 48.8 s | 0.5 s | 12.0 s | 1,168 MB | 0.011 | 23.3 | 50.0 |
+| this change, second pair | 49.3 s | 0.5 s | 8.8 s | 1,092 MB | 0.01 | 17.6 | 46.8 |
+
+The first pair's branch run met a load spike (its cold map took 122 s), so only the second pair
+compares. On a copy of the 50k fixture re-mapped five times after 10-file commits, a cold map of
+the same tree and history stores the same facts, nodes, edges and derived facts (hashed row by row). Where the second pair's 10-file re-maps spent their time:
+
+| Run | Census | Extraction | Link | Discovery | History | Coverage | Projection | Derived |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `main` | 0.3 s | 2.0 s | 3.3 s | 0.3 s | 0.1 s | 0.2 s | 2.9 s | about 2.9 s |
+| this change | 0.4 s | 2.0 s | 3.2 s | 0.3 s | 0.1 s | 0.2 s | 2.7 s | under 0.1 s |
+
+The bound of at most twice the no-change re-map is still far off. The no-change re-map is the census
+alone (0.4 to 0.5 s); a re-map after any change still reads every file's cached facts (2.0 s), links
+(3.2 s) and hashes every fact (2.7 s). These are not made proportional here, for these reasons:
+
+- Not reading every file's facts needs every consumer of them to work from a delta: the linkers
+  build their indexes (types, modules, exports, member reach) from every file's facts, and discovery
+  and coverage read them too.
+- Projecting only the facts of changed files is not sound with the linkers as they are: several of
+  them change other files' facts after loading them (the route-group and server-interface steps of
+  the JavaScript, Python and generic linkers rewrite or drop facts of any file that holds an affected
+  route or client, `contracts` replaces lists, and member attributes are dropped in place), so what a
+  file contributes to the graph is not a function of its own cache row. Skipping its hash would need
+  each of those steps to record what it changed per file.
+- Incremental JavaScript and Python linking in the `generic` pattern (each file's result kept with
+  the keys it read) would save at most their whole cost, about 0.5 s and 0.35 s of CPU in a 10-file
+  re-map at 50k, less the cost of reading the kept results back (the `generic` linker spends about
+  0.5 s of its 1.1 s doing that for 24,900 files). It would not change the ratio much, so it is not
+  done here.
+
+MewsSystems/mews (30.8k files, lexical C#, 210,713 nodes, 1,085,342 edges), `unknot map` from the
+CLI, a comment appended to `Enterprise.cs` and committed, `main` and this change alternating on two
+copies of the same store (load average 12 to 23):
+
+| Run | `main` | This change |
+| --- | ---: | ---: |
+| Re-map, no change | 0.7 s | 0.7 s |
+| Re-map, one file edited (three rounds) | 44 s, 30 s, 30 s | 27 s, 25 s, 23 s |
+| of which derived facts | 9.3 s, 5.6 s, 5.4 s | 4 ms, 2 ms, 16 ms |
+| of which link, projection, extraction, discovery | 11.8 to 12.4 s, 5.4 to 13.3 s, 3.6 to 5.5 s, 2.0 to 2.1 s | 11.0 to 12.1 s, 5.1 to 5.7 s, 3.5 to 3.9 s, 1.9 to 2.3 s |
+| Store after a cold map (`du` of `.unknot`) | 3.1 GiB (#88) | 2.75 GiB (the tree is about 0.37 GiB) |
+
+A cold map of the same tree has the same rows as the store after the four incremental maps: facts
+(1,374,200), nodes, edges and derived facts hash the same. What is left of a one-file edit there is
+mostly the `generic` linker (loading the kept per-file results and the global analyses: member reach,
+inheritance, partial types), hashing every fact, and reading every file's cached facts.
+
+The store stays about 47 times the tree on this fixture because each file is a few hundred bytes and
+yields about 18 facts, each kept in the per-file cache, the facts table and the merged nodes and
+edges. On the 50k store: per-file cache 347 MB, facts 323 MB plus its key and `object` index (63 MB),
+edges 150 MB with their index, nodes 116 MB with theirs, derived facts 22 MB.
+
 ## Real C# monolith: map, cold and warm
 
 `scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit

@@ -18,17 +18,17 @@ export async function run({ positional, flags }) {
   const feedback = detectorFeedback(ctx);
   if (sub === 'report') {
     const graph = Graph.fromStore(ctx.store);
-    const report = { product: productMetrics(ctx), outcomes: outcomeSnapshot(ctx, graph, { stronglyConnected }), detectors: [...feedback.values()].map(({ rejectedValues, acceptedValues, ...e }) => e), proposals: thresholdProposals(feedback, config) };
+    const report = { product: productMetrics(ctx), outcomes: outcomeSnapshot(ctx, graph, { stronglyConnected }), detectors: [...feedback.values()].map(({ wrongValues, acceptedValues, ...e }) => e), proposals: thresholdProposals(feedback, config) };
     if (flags.json) return output(report, { json: true });
     const p = report.product;
     output([
-      `Findings decided: ${p.findings.decided} (accepted ${p.findings.acceptance_rate ?? '—'}, rejected ${p.findings.rejection_rate ?? '—'})`,
+      `Findings decided: ${p.findings.decided} (accepted ${p.findings.acceptance_rate ?? '—'}, rejected ${p.findings.rejection_rate ?? '—'}: wrong ${p.findings.false_positive_rate ?? '—'}, not worth doing ${p.findings.not_worth_rate ?? '—'})`,
       `Slices: ${p.delivery.slices}; proof success ${p.delivery.proof_success_rate ?? '—'}; replan ${p.delivery.replan_rate ?? '—'}; rollback ${p.delivery.rollback_rate ?? '—'}; escaped regressions ${p.delivery.escaped_regression_rate ?? '—'}`,
       `Median hours from finding to review-ready: ${p.delivery.median_hours_finding_to_review_ready ?? '—'}; policy block rate ${p.governance.policy_block_rate ?? '—'}`,
       `Outcomes (generation ${report.outcomes.current.generation}): cycles ${report.outcomes.current.dependency_cycles}, duplicate groups ${report.outcomes.current.duplicate_groups}, shared-writer tables ${report.outcomes.current.shared_writer_tables}${report.outcomes.previous ? ` (was ${report.outcomes.previous.dependency_cycles}/${report.outcomes.previous.duplicate_groups}/${report.outcomes.previous.shared_writer_tables})` : ''}`,
       '',
       'Detector calibration from human decisions:',
-      table(report.detectors.map((e) => ({ detector: e.detector, accepted: e.accepted, rejected: e.rejected, precision: e.precision, rank_multiplier: e.multiplier })), ['detector', 'accepted', 'rejected', 'precision', 'rank_multiplier']),
+      table(report.detectors.map((e) => ({ detector: e.detector, accepted: e.accepted, wrong: e.wrong, not_worth: e.not_worth, other: e.other, precision: e.precision, actionability: e.actionability, rank_multiplier: e.multiplier })), ['detector', 'accepted', 'wrong', 'not_worth', 'other', 'precision', 'actionability', 'rank_multiplier']),
       '',
       report.proposals.length ? `${report.proposals.length} threshold proposal(s); write them with: unknot learn propose` : 'No threshold changes proposed.',
     ].join('\n'));

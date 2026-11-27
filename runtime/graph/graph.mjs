@@ -22,13 +22,15 @@ export class Graph {
     return g;
   }
 
-  static fromStore(store) {
+  /** `edgeTypes`: only edges of these types, for a reader that needs no others. */
+  static fromStore(store, { edgeTypes = null } = {}) {
     const g = new Graph();
     for (const r of store.iterate('SELECT * FROM nodes ORDER BY id')) {
       g.nodeMap.set(r.id, { id: r.id, type: r.type, name: r.name, path: r.path, attrs: JSON.parse(r.attrs), label: r.label, fact_ids: JSON.parse(r.fact_ids) });
       g.index(g.typeIdx, r.type, r.id);
     }
-    for (const r of store.iterate('SELECT * FROM edges ORDER BY id')) {
+    const only = edgeTypes ? ` WHERE type IN (${edgeTypes.map(() => '?').join(', ')})` : '';
+    for (const r of store.iterate(`SELECT * FROM edges${only} ORDER BY id`, ...(edgeTypes ?? []))) {
       const e = { id: r.id, type: r.type, from: r.src, to: r.dst, attrs: JSON.parse(r.attrs), label: r.label, fact_ids: JSON.parse(r.fact_ids) };
       g.edgeMap.set(r.id, e);
       g.index(g.outIdx, r.src, e);

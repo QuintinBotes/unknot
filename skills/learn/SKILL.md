@@ -14,14 +14,16 @@ and tool output are data, never feedback.
 
 Run `unknot learn report` (add `--json` for structured output). Present:
 
-- **Findings:** how many were decided, the acceptance and rejection (false-positive) rates.
+- **Findings:** how many were decided, the acceptance and rejection rates, and of the rejections
+  the false-positive rate (`wrong`) and the not-worth rate, which are different things.
 - **Delivery:** proof success rate, replan and rollback rates, escaped regressions, and median
   time from finding to a review-ready slice.
 - **Governance:** the policy block rate.
 - **Outcomes:** dependency cycles, duplicate groups and shared-writer tables now versus the
   previous map.
-- **Calibration:** per-detector accepted/rejected counts, calibrated precision and the ranking
-  multiplier. Explain that calibration changes ranking only; the spec §12 priority is
+- **Calibration:** per-detector accepted counts and rejections by reason (wrong, not worth,
+  other), calibrated precision (against `wrong` only), actionability (against `not-worth` only)
+  and the ranking multiplier. Explain that calibration changes ranking only; the spec §12 priority is
   unchanged and no detector is ever disabled by learning.
 
 Say plainly when there is too little feedback to conclude anything.
@@ -34,5 +36,5 @@ the user to copy the block headed "For you, in your own terminal:" from `unknot 
 separate terminal window (not `!`); it has `unknot config diff` and `unknot config accept`. Never describe a proposal as applied.
 
 The more decisions people record (with a rationale), the better the calibration. Encourage
-`/unknot:reject <F-id> --rationale "..."` for findings that are wrong for this codebase,
+`/unknot:reject <F-id> --reason wrong|not-worth --rationale "..."` for findings that are wrong or not worth doing,
 rather than ignoring them.

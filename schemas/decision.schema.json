@@ -33,6 +33,14 @@
         "reject"
       ]
     },
+    "reason": {
+      "description": "Why a finding was rejected, as the accuracy corpus labels it: wrong (factually not a problem), not-worth (true, but not worth doing) or other. Only on rejections; a rejection without it counts as other.",
+      "enum": [
+        "wrong",
+        "not-worth",
+        "other"
+      ]
+    },
     "rationale": {
       "type": "string",
       "minLength": 10

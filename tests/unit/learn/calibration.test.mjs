@@ -37,7 +37,7 @@ test('decisions calibrate the detector and propose a threshold between rejected 
   assert.equal(long.length, 6);
   for (const f of long) {
     const big = f.measurements['function.lines'] >= 200;
-    recordDecision(ctx, { finding: f, decision: big ? 'accept' : 'reject', rationale: big ? 'genuinely too long, worth splitting' : 'fine at this size for our codebase', actor: 'human:test', days: 30 });
+    recordDecision(ctx, { finding: f, decision: big ? 'accept' : 'reject', ...(!big && { reason: 'wrong' }), rationale: big ? 'genuinely too long, worth splitting' : 'fine at this size for our codebase', actor: 'human:test', days: 30 });
   }
   const fb = detectorFeedback(ctx).get('local.long-function');
   assert.equal(fb.accepted, 2);
@@ -64,5 +64,43 @@ test('no proposal without enough consistent feedback', async () => {
   const res = await diagnose(ctx, { config, graph: graph(), only: ['local'] });
   const f = res.findings.find((x) => x.kind === 'code.long-function');
   recordDecision(ctx, { finding: f, decision: 'reject', rationale: 'one data point is not a pattern', actor: 'human:test', days: 30 });
+  assert.deepEqual(thresholdProposals(detectorFeedback(ctx), config), []);
+});
+
+test('a rejection says why: only wrong is a false positive, not-worth lowers actionability (#147)', async () => {
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
+  const config = structuredClone(DEFAULT_CONFIG);
+  const long = (await diagnose(ctx, { config, graph: graph(), only: ['local'] })).findings.filter((f) => f.kind === 'code.long-function');
+  const decide = (f, decision, reason) => recordDecision(ctx, { finding: f, decision, reason, rationale: 'a reason of ten characters', actor: 'human:test', days: 30 });
+  assert.equal(decide(long[0], 'accept').reason, undefined, 'an acceptance has no reason');
+  assert.equal(decide(long[1], 'reject', 'wrong').reason, 'wrong');
+  assert.equal(decide(long[2], 'reject', 'not-worth').reason, 'not-worth');
+  assert.equal(decide(long[3], 'reject', 'other').reason, 'other');
+  assert.equal(decide(long[4], 'reject').reason, 'other', 'no reason stores other');
+  assert.throws(() => decide(long[5], 'reject', 'meh'), /reason must be one of wrong, not-worth, other/);
+  assert.throws(() => decide(long[5], 'accept', 'wrong'), /only when rejecting/);
+  assert.deepEqual(ctx.store.all('SELECT reason FROM decisions ORDER BY id').map((r) => r.reason), [null, 'wrong', 'not-worth', 'other', 'other']);
+
+  const fb = detectorFeedback(ctx).get('local.long-function');
+  assert.deepEqual([fb.accepted, fb.rejected, fb.wrong, fb.not_worth, fb.other], [1, 4, 1, 1, 2]);
+  assert.equal(fb.precision, 0.5, 'precision: accepted against wrong only, (1+2)/(1+1+4)');
+  assert.equal(fb.actionability, 0.5, 'actionability: accepted against not-worth only');
+  const m = productMetrics(ctx).findings;
+  assert.equal(m.false_positive_rate, 0.2, 'one wrong of five decisions');
+  assert.equal(m.not_worth_rate, 0.2);
+  assert.equal(m.rejection_rate, 0.8);
+});
+
+test('not worth doing never proposes a threshold, however many there are (#147)', async () => {
+  const ctx = openProject(mkTmp(join(tmpdir(), 'uk-proj-')), { create: true });
+  const config = structuredClone(DEFAULT_CONFIG);
+  const long = (await diagnose(ctx, { config, graph: graph(), only: ['local'] })).findings.filter((f) => f.kind === 'code.long-function');
+  for (const f of long) {
+    const big = f.measurements['function.lines'] >= 200;
+    recordDecision(ctx, { finding: f, decision: big ? 'accept' : 'reject', ...(!big && { reason: 'not-worth' }), rationale: 'true, but not worth our time', actor: 'human:test', days: 30 });
+  }
+  const fb = detectorFeedback(ctx).get('local.long-function');
+  assert.equal(fb.precision, 0.667, 'no false positives');
+  assert.equal(fb.actionability, 0.4);
   assert.deepEqual(thresholdProposals(detectorFeedback(ctx), config), []);
 });

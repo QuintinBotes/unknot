@@ -46,6 +46,12 @@ export const MIGRATIONS = [
       db.exec('INSERT OR IGNORE INTO edges(src, type, dst, attrs, label, fact_ids) SELECT src, type, dst, attrs, label, fact_ids FROM edges_v1; DROP TABLE edges_v1;');
     },
   },
+  // Indexes of the facts table no query reads (#145): about a tenth of a large store, and work on every fact written.
+  // Additive: an older release that creates them again on open loses nothing, and the next open here drops them.
+  { id: 4, name: 'drop-unused-fact-indexes', breaks: false, up: (db) => db.exec('DROP INDEX IF EXISTS facts_subject; DROP INDEX IF EXISTS facts_path; DROP INDEX IF EXISTS facts_generation;') },
+  // Why a finding was rejected (#147): wrong, not-worth or other. Rows from before it have none and
+  // count as other. Additive: older releases name their columns when they write decisions.
+  { id: 5, name: 'decision-reason', breaks: false, up: (db) => { if (!db.prepare('PRAGMA table_info(decisions)').all().some((c) => c.name === 'reason')) db.exec('ALTER TABLE decisions ADD COLUMN reason TEXT'); } },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;
