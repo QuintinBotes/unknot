@@ -208,7 +208,7 @@ Lists, shows or evaluates pattern cards against signals you supply. `fit` return
 
 ### `unknot status`
 
-Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval, open obligations and stale evidence (expired runtime facts, expired approvals). Flags: `--json`; `--read-only` opens the store read-only and writes nothing to the project (no migration, keys or `.gitignore`), as the campaign panel does.
+Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval (not those `apply` would refuse on `apply.allowed_kinds` or weak evidence: they are listed with the reason under "Not offered for approval", and in `for_you.held`), open obligations and stale evidence (expired runtime facts, expired approvals). Flags: `--json`; `--read-only` opens the store read-only and writes nothing to the project (no migration, keys or `.gitignore`), as the campaign panel does.
 
 ### `unknot workspace list | map [--no-history] | graph | add <name> <path> | remove <name>`
 
@@ -226,7 +226,7 @@ Creates a campaign and its slices. Needs mode `plan` or higher. The runtime, not
 
 ### `unknot next [campaign]`
 
-Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. `--json` supported.
+Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. A slice `unknot apply` would refuse is never selected: one whose kinds `apply.allowed_kinds` refuses is listed as `Plan-only` (`plan_only`), and one whose scope was mostly read lexically without `evidence.allow_weak` for its campaign as `Waits on evidence` (`waits_on_evidence`, with `ways_forward`). `--json` supported.
 
 ### `unknot slice <id>`
 
