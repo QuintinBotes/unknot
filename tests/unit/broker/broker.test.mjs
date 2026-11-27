@@ -307,14 +307,19 @@ describe('brokered environment', () => {
   });
 
   test('minimalEnv keeps the toolchain variables a private HOME needs (#170)', () => {
-    const vars = { RUSTUP_HOME: '/opt/rustup', PYTHONUSERBASE: '/opt/py', PIP_CONFIG_FILE: '/opt/pip.conf', MAVEN_ARGS: '-s /opt/settings.xml' };
+    const vars = { RUSTUP_HOME: '/opt/rustup', PYTHONUSERBASE: '/opt/py', PIP_CONFIG_FILE: '/opt/pip.conf' };
     const saved = { ...process.env };
     Object.assign(process.env, vars);
     try {
       const env = minimalEnv({ home: '/private-home' });
       for (const [k, v] of Object.entries(vars)) assert.equal(env[k], v, k);
+      // Not passed: Maven arguments can carry -D...password=, and a pip variable that is not a path.
+      Object.assign(process.env, { MAVEN_ARGS: '-Dserver.password=x', PIP_CONFIG_FILE: 'https://user:token@host/pip.conf' });
+      const strict = minimalEnv({ home: '/private-home' });
+      assert.ok(!('MAVEN_ARGS' in strict));
+      assert.ok(!('PIP_CONFIG_FILE' in strict));
     } finally {
-      for (const k of Object.keys(vars)) if (saved[k] === undefined) delete process.env[k];
+      for (const k of [...Object.keys(vars), 'MAVEN_ARGS']) if (saved[k] === undefined) delete process.env[k];
       Object.assign(process.env, saved);
     }
   });
@@ -325,7 +330,7 @@ describe('brokered environment', () => {
     try {
       const env = minimalEnv();
       assert.ok(!('UK_PROBE_VAR' in env));
-      for (const k of Object.keys(env)) assert.ok(/^(PATH|LANG|LC_ALL|LC_CTYPE|SHELL|USER|LOGNAME|JAVA_HOME|GOPATH|GOROOT|CARGO_HOME|RUSTUP_HOME|PYENV_ROOT|NVM_DIR|VOLTA_HOME|PNPM_HOME|VIRTUAL_ENV|PYTHONUSERBASE|PIP_CONFIG_FILE|MAVEN_ARGS|HOME|TERM|CI|NO_COLOR|FORCE_COLOR|UNKNOT_SANDBOXED)$/.test(k), k);
+      for (const k of Object.keys(env)) assert.ok(/^(PATH|LANG|LC_ALL|LC_CTYPE|SHELL|USER|LOGNAME|JAVA_HOME|GOPATH|GOROOT|CARGO_HOME|RUSTUP_HOME|PYENV_ROOT|NVM_DIR|VOLTA_HOME|PNPM_HOME|VIRTUAL_ENV|PYTHONUSERBASE|PIP_CONFIG_FILE|HOME|TERM|CI|NO_COLOR|FORCE_COLOR|UNKNOT_SANDBOXED)$/.test(k), k);
     } finally {
       if (saved === undefined) delete process.env.UK_PROBE_VAR;
       else process.env.UK_PROBE_VAR = saved;
