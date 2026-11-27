@@ -8,7 +8,7 @@ import { LADDERS, MODES, modeRank } from './defaults.mjs';
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 // Top-level keys with an explicit tighten-only rule below (or org-only metadata).
-const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed']);
+const HANDLED = new Set(['max_mode', 'mode', 'scope', 'protected_paths', 'generated_paths', 'limits', 'repository', 'quality', 'security', 'database', 'infrastructure', 'approvals', 'approvers', 'approvers_locked', 'mcp', 'network', 'telemetry', 'retention', 'forbid_executables', 'version', 'require_signed', 'evidence']);
 
 /** Deep-merge `over` onto `base` (plain override). Used for repo-over-defaults. */
 export function overlay(base, over) {
@@ -75,6 +75,9 @@ export function applyOrgPolicy(repo, org, { unruledKeys = 'replace' } = {}) {
   if (org.security?.require_os_sandbox) set('security.require_os_sandbox', true);
   if (org.security?.sandbox_loopback === false) set('security.sandbox_loopback', false);
   if (org.infrastructure?.require_saved_plan) set('infrastructure.require_saved_plan', true);
+  // An organization can forbid applying on weak evidence, never allow it (#146); its evidence files replace the repository's, key by key.
+  if (org.evidence?.allow_weak === false) set('evidence.allow_weak', false);
+  if (unruledKeys === 'replace') for (const [k, v] of Object.entries(org.evidence ?? {})) if (k !== 'allow_weak') set(`evidence.${k}`, structuredClone(v));
   if (org.quality?.max_complexity_increase != null) {
     set('quality.max_complexity_increase', minNum(c.quality.max_complexity_increase, org.quality.max_complexity_increase));
   }

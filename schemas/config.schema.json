@@ -464,6 +464,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "allow_weak": {
+          "description": "Let slices be applied although their scope was mostly read lexically: true for every campaign, or the campaign ids a person opted in. Takes effect only from an accepted config; an organization can forbid it with false.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string", "pattern": "^CMP-[0-9]+$" } }
+          ]
+        },
         "traces": {
           "type": "array",
           "items": {

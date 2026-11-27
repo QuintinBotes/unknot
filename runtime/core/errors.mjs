@@ -12,6 +12,7 @@ export const ERROR_CLASSES = Object.freeze({
   UK_BUDGET_EXCEEDED: { class: 'budget-exceeded', retryable: false },
   UK_TOOL_FAILED: { class: 'tool-execution-failed', retryable: true },
   UK_EVIDENCE_INCONCLUSIVE: { class: 'evidence-inconclusive', retryable: true },
+  UK_INSUFFICIENT_EVIDENCE: { class: 'policy-denied', retryable: false },
   UK_VERIFICATION_FAILED: { class: 'verification-failed', retryable: false },
   UK_STATE_CONFLICT: { class: 'state-conflict', retryable: true },
   UK_RECOVERY_REQUIRED: { class: 'recovery-required', retryable: false },
