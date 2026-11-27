@@ -268,6 +268,22 @@
     "declared_risk": {
       "$ref": "#/$defs/risk"
     },
+    "gaps": {
+      "type": "array",
+      "description": "What the slice's evidence does not show: its source findings' uncertainties and non-observed evidence, and the map's analysis-coverage holes in its scope.",
+      "items": { "type": "string" }
+    },
+    "evidence_strength": {
+      "type": "object",
+      "description": "The lowest confidence of the source findings and how many of their evidence entries are not observed; low confidence or mostly inferred evidence raises risk one level.",
+      "properties": {
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "inferred": { "type": "integer", "minimum": 0 },
+        "evidence": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["inferred", "evidence"],
+      "additionalProperties": false
+    },
     "rationale": {
       "type": "string"
     }
