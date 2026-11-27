@@ -230,6 +230,12 @@ Selects the smallest unblocked, highest-value slice and says why; lists other re
 
 A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
 
+`unknot slice patching [path...] [--session <id>]` lists the slices in `PATCHING` with their scope and change budget (`max_changed_files`, `max_diff_lines`, `files_left`, `lines_left`), and under `held` each given path the scope holds back, with the slice, the PDP rule and the reason. `applies` is false with no slice in `PATCHING`, or when the active run belongs to a session other than `--session`. Read-only; the scope guard of the mod asks it before every edit ([security-model.md](security-model.md#runs-and-when-hooks-apply)). JSON.
+
+### `/unknot-panel` (Claude Code 2.1.287 and later)
+
+A pane beside the chat with the mode, each campaign's slices by state, blockers, stale evidence, and the steps waiting for a person with the exact commands to type in their own terminal. It reads `unknot status --json` when opened, within seconds after an Unknot MCP tool call or `unknot` command, and every 30 seconds while open; when a read fails it shows the error beside the last good state, marked stale. It runs mid-turn and costs no turn. Display only: it never approves, attests, accepts configuration or signs a lane. In a repository without `.unknot` it says so and suggests `/unknot:init`.
+
 ## Approving, applying, verifying
 
 ### `unknot approve <slice> --role <role> --as <approver> [--stage plan|change|rollback]` (human)

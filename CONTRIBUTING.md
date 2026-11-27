@@ -34,6 +34,7 @@ npm run test:adversarial # tests/adversarial: shell, PDP and hook bypass attempt
 node --test tests/unit/broker/broker.test.mjs   # one file
 npm run bench            # scripts/bench.mjs; add --quick for the CI smoke size
 npm run validate         # claude plugin validate --strict .   (needs the claude CLI)
+npm run test:mod         # claude plugin test on the mod (hooks/register.jsx), copied apart from tests/fixtures
 ```
 
 CI runs `npm test` and the benchmark smoke on Ubuntu and macOS with Node 22, 24 and 26 (plus the `engines.node` floor, 22.13.0, on Ubuntu), and validates the plugin manifest. Tests create their own temporary repositories and `UNKNOT_HOME`; see `tests/helpers/kernel.mjs` for the kernel fixtures. A test file that runs git imports `tests/helpers/git-env.mjs` (the kernel helper does), so git ignores your global and system configuration; a test about repository hooks sets the configuration it needs itself. Create temporary directories with `mkTmp` from `tests/helpers/tmp.mjs`, never `mkdtemp`: it removes them when the test process ends (`UNKNOT_KEEP_TMP=1` keeps them for debugging). Use fixtures under `tests/fixtures/` for adapter and detector tests, and keep them small.

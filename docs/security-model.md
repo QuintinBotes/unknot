@@ -35,6 +35,11 @@ Hooks installed by the plugin (`hooks/hooks.json`):
 
 If a hook throws, the error is logged to `.unknot/state/hook-errors.log` and, in an initialised project, mutating tools (edit, write, Bash, web, agents, MCP) are denied until `unknot doctor` passes. Credential paths are denied too. Plain reads stay allowed. Hook decisions are stored in the `policy_results` table; denials are also written to the ledger.
 
+On Claude Code 2.1.287 and later the same `hooks/hooks.json` also loads a mod (`hooks/register.jsx`, under `modules`); older versions ignore that entry and keep the hooks above. The mod adds a second line of defence and a panel, and grants nothing:
+
+- **Scope guard.** Before an `Edit`, `Write` or `NotebookEdit` runs, it asks `unknot slice patching <path> --session <id>`, a read-only query that judges the path with the PDP's own slice-scope rule (`sliceScopeDenial` in `runtime/policy/pdp.mjs`: slice include and exclude, Unknot state, generated and vendored paths, `scope.exclude`, protected paths). When a slice is `PATCHING` and its scope holds the path back, the call is refused before it runs, naming the slice, its scope, the path and the change budget left. A path inside a slice's worktree is judged against that slice; any other path in the project against the run's slice, or every slice in `PATCHING` when no run names one, relative to the project root. With no slice in `PATCHING`, or when the active run belongs to another session, it does nothing. It only denies: anything it lets through still meets `PreToolUse` and the permission rules. If the query fails, times out or answers no JSON in an initialised project, the edit is refused (fail closed).
+- **Campaign panel** (`/unknot-panel`). Shows the output of `unknot status --json`; it never approves, attests, accepts configuration or signs a lane, and runs no command but `status` and `slice patching`. The approval commands it lists are for a person to type in their own terminal.
+
 ## Always-on rules
 
 These apply whenever the project is initialised, with or without a run:
