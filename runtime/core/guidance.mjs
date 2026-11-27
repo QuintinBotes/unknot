@@ -460,13 +460,15 @@ export function forbiddenCommand(guidance, argv) {
 }
 
 /**
- * The content digest of each guidance file a slice recorded, by file (null when it is gone), or null
- * for a slice planned before convention reports. Bound into approvals: an edit to one voids them.
+ * The content digest of each guidance file that applies to a slice's scope now, and of each it recorded
+ * at planning (null when gone), by file; null for a slice planned before convention reports. Bound into
+ * approvals and lanes: an edit, a new file in scope, or a removed one voids them.
  */
 export function guidanceDigests(root, body) {
   if (!Array.isArray(body?.conventions)) return null;
   const out = {};
-  for (const { file } of body.guidance ?? []) {
+  const files = new Set([...(body.guidance ?? []).map((g) => g.file), ...guidanceForScope(root, body.scope?.include).files.map((f) => f.file)]);
+  for (const file of [...files].sort()) {
     try {
       out[file] = `sha256:${createHash('sha256').update(readFileSync(join(root, file))).digest('hex')}`;
     } catch {
