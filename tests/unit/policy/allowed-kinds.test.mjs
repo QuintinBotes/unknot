@@ -103,6 +103,10 @@ test('the kind comes from paths, the declared surface and the diff, not the slic
   assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ scope: { include: ['{docs/**/*.md,src/**}'] }, changes: [] }))), ['refactor']);
   assert.deepEqual(refusedKinds(only(['tests']), plannedKinds(null, body({ scope: { include: ['{src/,test/}**'] }, changes: [] }))), ['refactor'], 'a brace glob reaching src is not test-only');
   assert.deepEqual(refusedKinds(only(['tests']), plannedKinds(null, body({ scope: { include: ['test/**/*.test.js'] }, changes: [] }))), []);
+  // MDX can import and run code at build time, so it is not documentation (#173).
+  const mdx = body({ kind: 'documentation', scope: { include: ['docs/intro.mdx'] }, changes: [{ path: 'docs/intro.mdx', operation: 'modify', description: 'x' }] });
+  assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, mdx)), ['refactor']);
+  assert.deepEqual(refusedKinds(only(['documentation']), diffKinds(mdx, { paths: ['docs/intro.mdx'], added: 1 })), ['refactor']);
   // The staged diff: deleting lines from a Dockerfile is still an infrastructure change.
   assert.deepEqual(refusedKinds(only(['deletion']), diffKinds(body(), { paths: ['Dockerfile'], added: 0 })), ['infrastructure']);
   assert.deepEqual(refusedKinds(only(['tests', 'deletion']), diffKinds(body(), { paths: ['src/a.js'], added: 3 })), ['refactor']);

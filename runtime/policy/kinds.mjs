@@ -28,7 +28,8 @@ function reachKinds(body, paths) {
 }
 
 // Documentation is judged by the files, never by a slice's `kind` label.
-const DOC_FILES = ['**/*.md', '**/*.mdx', '**/*.markdown', '**/*.rst', '**/*.adoc'];
+// MDX is not documentation: it can import and export, and runs code at build time (#173).
+const DOC_FILES = ['**/*.md', '**/*.markdown', '**/*.rst', '**/*.adoc'];
 const isDoc = (p) => matchAny(p, DOC_FILES, { nocase: true });
 
 /** Whether every file a plan names passes `test`: its planned changes, else the paths its scope can reach. */
