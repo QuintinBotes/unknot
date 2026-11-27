@@ -410,6 +410,34 @@ fact by fact still cannot, but it now runs only on a store without the stamp.
 The facts table's `path` column is no longer written: no query reads it and it repeats the head of
 `source_ref` (18 MB of the 50k store). Rows written before keep theirs.
 
+Projection also ended every map by counting the nodes and edges tables: 4 to 12 s of a one-file re-map
+on MewsSystems/mews (1.08M edges), more than the rest of projection. The counts are now kept with the
+generation they describe and moved by the rows projection adds and deletes.
+
+MewsSystems/mews (30.8k files, 1,372,768 facts, 210,714 nodes, 1,083,908 edges), `unknot map --json`
+through `bin/unknot`, a comment appended to `Enterprise.cs` and committed, `main` and this change
+alternating on two copy-on-write copies of one store. Both first re-mapped the copy once (the store was
+older than both: 60,234 cache rows extracted again, everything linked; 1,645 s and 665 s at load 45 to
+85), then:
+
+| Round (load) | `main` | This change | `main` projection | This change's projection | Facts hashed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 (45 to 60) | 260 s | 174 s | 62.4 s | 21.3 s | 136 |
+| 2 (19 to 28) | 102 s | 31 s | 24.8 s | 6.5 s | 86 |
+| 3 (15 to 18) | 21 s | 34 s | 4.7 s | 6.0 s | 86 |
+| 4, with the kept counts (17 to 22) | 83 s | 30 s | 7.2 s | 4.5 s | 86 |
+| 5 (21 to 23) | 52 s | 31 s | 8.1 s | 2.1 s | 86 |
+| 6 (12 to 16) | 22.1 s | 18.5 s | 4.5 s | 2.5 s | 86 |
+
+Rounds 1 to 3 ran before the counts were kept; in round 3 counting took the branch's projection over
+`main`'s. Three rounds with a profiler on, between rounds 3 and 4, are left out. Every round ends with the same node, edge and fact counts on both sides. The store after the
+rounds: 2,814 MB of pages in use on `main`'s copy and 2,725 MB on this change's (the kept keys take 31 MB
+in 35,275 rows; the facts the first re-map rewrote lost their `path`), against a tree of about 0.37 GB.
+Both files stay 4.08 GB because SQLite keeps freed pages for later writes (1.1 to 1.2 GB of each).
+What is left of a one-file edit there at load 10 (19.6 s with a profiler on): the `generic` linker
+5.3 s, reading every file's cached facts 3.6 s, projection 2.3 s (1.2 s of it serialising and hashing the
+runs), discovery 1.7 s.
+
 50k fixture, the kept store of a `main` run copied twice, `main` and this change alternating on the same
 10-file commits (`process.cpuUsage` of the map; other work kept the load average between 17 and 140, so
 wall times are not comparable across rows; the first commit warms the branch's kept runs):
@@ -425,12 +453,20 @@ reading every file's cached facts 1.6 s (point reads and `JSON.parse`), git 0.6 
 checkout), garbage collection 0.9 s, projection 0.9 s (of which 0.4 s serialising and hashing the runs),
 the `generic` linker 0.9 s, the JavaScript linker 0.5 s, the Python linker 0.3 s.
 
-`node scripts/bench.mjs --sizes 50k --gate`, `main` then this change (load 60 to 140 throughout):
+`node scripts/bench.mjs --sizes 50k --gate`, `main` and this change (with the kept counts) back to back,
+twice, at load 8 to 25:
 
 | Run | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Store / tree |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `main` | 449.6 s | 3.8 s | 45.5 s | 1,092 MB | 0.008 | 12.1 | 46.8 |
-| this change | 638.0 s | 5.7 s | 56.9 s | 1,104 MB | 0.009 | 9.9 | 47.3 |
+| `main`, first pair | 183.9 s | 0.55 s | 9.3 s | 1,092 MB | 0.003 | 16.8 | 46.8 |
+| this change, first pair | 59.6 s | 0.48 s | 6.3 s | 1,104 MB | 0.008 | 13.0 | 47.3 |
+| `main`, second pair | 93.5 s | 0.55 s | 8.8 s | 1,092 MB | 0.006 | 16.0 | 46.8 |
+| this change, second pair | 47.9 s | 0.51 s | 6.4 s | 1,104 MB | 0.011 | 12.6 | 47.3 |
+
+The 10-file re-map's projection went from 2.6 s to 0.9 to 1.0 s, extraction (reading the cache) stayed
+at 1.8 to 2.1 s and linking at 2.4 to 3.5 s. The cold maps met other work and do not compare (an
+earlier pair at load 60 to 140: 449.6 s and 638.0 s, changed / no change 12.1 and 9.9). The store grows
+by the kept keys (about 25 MB at 50k, 24 bytes per fact and a row per run) less the `path` column (18 MB).
 
 The same at 10k, the tier `--release-gate` reads (load 85 to 95; cold-map projection 27.7 s and 27.8 s,
 so keeping the runs costs a cold map nothing measurable):
@@ -440,10 +476,7 @@ so keeping the runs costs a cold map nothing measurable):
 | `main` | 94.3 s | 1.0 s | 20.2 s | 217 MB | 0.011 | 19.9 | 0.215 | 46.0 |
 | this change | 113.6 s | 1.1 s | 14.6 s | 219 MB | 0.010 | 13.0 | 0.129 | 46.5 |
 
-The 10-file re-map's projection went from 6.7 s to 1.8 s there.
-
-The store grows by the kept keys (about 25 MB at 50k, 24 bytes per fact and a row per run) less the
-`path` column (18 MB).
+The 10-file re-map's projection went from 6.7 s to 1.8 s there (before the kept counts).
 
 What still runs over the whole repository on a changed re-map, and why it is not made proportional here:
 
@@ -465,7 +498,13 @@ times the no-change re-map; the bound of twice needs the redesign above.
 
 The store bound cannot be met on this fixture whatever is cut from the caches: the graph itself (nodes
 and edges with their indexes, 270 MB) is 11 times the 24 MB tree, because each file of a few hundred bytes
-yields about 18 facts. On a real repository the floor is lower (see the monolith below).
+yields about 18 facts. On MewsSystems/mews (above) the nodes and edges with their indexes are about
+860 MB, 2.3 times the tree, and the pages in use 2.7 GB, about 7 times: the facts table (788 to 921 MB
+plus 171 MB of indexes) and the per-file cache (784 MB) are most of the rest. Meeting three times there
+needs those two restructured, for example keeping a fact's attributes only once (they are in the per-file
+cache and in the merged nodes and edges, and only `DEFINES` and `REFERENCES` edges' are read from the
+facts table) and its time and commit once per generation; and reclaiming the 1.1 GB of free pages an old
+store keeps needs a compaction step. Neither is done here.
 
 ## Real C# monolith: map, cold and warm
 
