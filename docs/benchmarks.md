@@ -416,6 +416,25 @@ the old code puts about 3.5 s of self time in `graph.edges`); the rest is store 
 It needs `git` and network access for the first fetch, and spends nothing else. Run it on an idle
 machine: numbers from a shared one are an upper bound.
 
+### `architecture` on MewsSystems/mews (#157)
+
+`unknot architecture` on a mapped store of MewsSystems/mews at 30b35157 (30.8k files, C# read
+lexically; 210,715 nodes, 1,085,344 edges), `/usr/bin/time -l`, back to back on the same store:
+
+| Node 22, darwin arm64, load average about 40-50 | Wall | CPU (user + sys) | Peak RSS |
+|---|---|---|---|
+| before (origin/main e0e4d2b) | 1,428 s | 481 s | 1,355 MB |
+| after (parent index) | 47 s | 12 s | 1,583 MB |
+
+The output (12 files) is byte-identical (`diff -r`). A CPU profile of the old container model
+(`unitEdges` over every edge, 329 s on its own) put 324 of 370 s in the `CONTAINS` filter inside
+`Graph.parent`: each edge into a hub such as `dependency:NUnit` (29,088 in-edges) rescanned all of
+them. After the fix the views take 2.6 s together (the summary prints each one) and most of the
+rest is reading the store into memory. The machine was shared and heavily loaded, so compare the
+CPU column; peak RSS is a single sample and moves with garbage collection timing.
+`tests/unit/artifacts/architecture.test.mjs` counts the in-edges the views scan on a 3,000-module
+graph with one hub (108 million before, under ten times the edge count now).
+
 ## Reading the results against the targets
 
 - **Cold map of 100,000 files, resumable and bounded by configured workers:** 5.5 minutes and

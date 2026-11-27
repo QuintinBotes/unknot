@@ -44,9 +44,7 @@ export function scopedGraph(graph, scope) {
   for (const e of graph.edgeMap.values()) {
     if (!g.nodeMap.has(e.from) || !g.nodeMap.has(e.to)) continue;
     g.edgeMap.set(e.id, e);
-    g.index(g.outIdx, e.from, e);
-    g.index(g.inIdx, e.to, e);
-    g.index(g.edgeTypeIdx, e.type, e);
+    g.indexEdge(e);
   }
   return g;
 }

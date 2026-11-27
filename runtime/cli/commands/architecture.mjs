@@ -44,7 +44,10 @@ export async function run({ positional, flags }) {
     const { pages, ...rest } = res;
     return output({ ...rest, note: res.wrote ? null : `mode ${res.mode} does not permit writing documentation; nothing was written` }, { json: true });
   }
-  const lines = [`Styles: ${res.styles.map((s) => `${s.style} (${s.label})`).join(', ')}`];
+  const lines = [
+    `Styles: ${res.styles.map((s) => `${s.style} (${s.label})`).join(', ')}`,
+    `Time per view: ${Object.entries(res.timings).map(([v, ms]) => `${v} ${ms} ms`).join(', ')}`,
+  ];
   if (res.wrote) {
     lines.push('', `Wrote ${res.written.length} file(s):`, ...res.written.map((w) => `  ${w}`));
     return output(lines.join('\n'));

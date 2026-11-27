@@ -12,6 +12,7 @@ export class Graph {
     this.inIdx = new Map();
     this.typeIdx = new Map();
     this.edgeTypeIdx = new Map(); // edge type -> edges in insertion order
+    this.parentIdx = new Map(); // node id -> its first incoming CONTAINS edge, so parent() does not scan a hub's in-edges (#157)
   }
 
   /** Merge node/edge facts. Repeated observations of the same node merge their attrs. */
@@ -33,11 +34,17 @@ export class Graph {
     for (const r of store.iterate(`SELECT * FROM edges${only} ORDER BY id`, ...(edgeTypes ?? []))) {
       const e = { id: r.id, type: r.type, from: r.src, to: r.dst, attrs: JSON.parse(r.attrs), label: r.label, fact_ids: JSON.parse(r.fact_ids) };
       g.edgeMap.set(r.id, e);
-      g.index(g.outIdx, r.src, e);
-      g.index(g.inIdx, r.dst, e);
-      g.index(g.edgeTypeIdx, r.type, e);
+      g.indexEdge(e);
     }
     return g;
+  }
+
+  /** Add an edge already in edgeMap to every edge index. */
+  indexEdge(e) {
+    this.index(this.outIdx, e.from, e);
+    this.index(this.inIdx, e.to, e);
+    this.index(this.edgeTypeIdx, e.type, e);
+    if (e.type === 'CONTAINS' && !this.parentIdx.has(e.to)) this.parentIdx.set(e.to, e);
   }
 
   index(map, key, value) {
@@ -69,9 +76,7 @@ export class Graph {
     }
     const e = { id, type, from, to, attrs: { ...attrs }, label: 'observed', provenance: provenance ? [provenance] : [] };
     this.edgeMap.set(id, e);
-    this.index(this.outIdx, from, e);
-    this.index(this.inIdx, to, e);
-    this.index(this.edgeTypeIdx, type, e);
+    this.indexEdge(e);
     return e;
   }
 
@@ -104,7 +109,7 @@ export class Graph {
   }
 
   parent(id) {
-    const e = this.in(id, 'CONTAINS')[0];
+    const e = this.parentIdx.get(id);
     return e ? this.node(e.from) : null;
   }
 

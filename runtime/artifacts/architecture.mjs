@@ -652,22 +652,29 @@ function buildDeployCoupling(graph, maxNodes) {
 export function architectureViews(graph, { scope = [], maxNodes = 60, container = null } = {}) {
   const g = scopedGraph(graph, scope);
   const max = Math.max(4, Number(maxNodes) || 60);
-  return {
-    styles: classifyStyles(g),
-    views: {
-      landscape: landscape(g, max),
-      context: context(g),
-      containers: containers(g, max),
-      components: components(g, max, container),
-      deployment: deployment(g, max),
-      sequences: sequences(g),
-      data_ownership: dataOwnership(g, max),
-      trust_boundaries: trustBoundaries(g, max),
-      cycles: cycles(g),
-      build_deploy_coupling: buildDeployCoupling(g, max),
-    },
-    labels: tally([...g.nodes(), ...g.edges()]),
+  const timings = {};
+  const timed = (name, fn) => {
+    const t0 = performance.now();
+    const v = fn();
+    timings[name] = Math.round(performance.now() - t0);
+    return v;
   };
+  const styles = timed('styles', () => classifyStyles(g));
+  const builders = {
+    landscape: () => landscape(g, max),
+    context: () => context(g),
+    containers: () => containers(g, max),
+    components: () => components(g, max, container),
+    deployment: () => deployment(g, max),
+    sequences: () => sequences(g),
+    data_ownership: () => dataOwnership(g, max),
+    trust_boundaries: () => trustBoundaries(g, max),
+    cycles: () => cycles(g),
+    build_deploy_coupling: () => buildDeployCoupling(g, max),
+  };
+  const views = {};
+  for (const [name, build] of Object.entries(builders)) views[name] = timed(name, build);
+  return { styles, views, labels: tally([...g.nodes(), ...g.edges()]), timings };
 }
 
 export const VIEW_TITLES = {
