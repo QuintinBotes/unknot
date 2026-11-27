@@ -20,6 +20,16 @@ export function agentSession(env = process.env) {
 // Flags that are only ever on or off: the word after one is a positional, not its value
 // (`unknot diagnose --all src`, `unknot map --replace src/b`).
 const SWITCHES = new Set(['json', 'all', 'replace', 'scan', 'regex', 'supersede', 'dry_run', 'no_history', 'summary', 'verbose', 'detected_only', 'keep', 'quick', 'include_large', 'no_recall', 'progress', 'read_only']);
+// Flags that only make sense with a value: given bare they are a usage error, never `true` (#186).
+const VALUED = new Map(Object.entries({
+  adapter: '<id>[,<id>...]', findings: '<F-id>[,<F-id>...]', proposal: '<file>', scope: '<path>', from: '<id>', to: '<id>',
+  rationale: '"<text>"', reason: '<reason>', days: '<days>', session: '<id>', as: '<approver>', role: '<role>', result: 'pass|fail',
+  note: '"<text>"', limit: '<n>', slice: '<UK-id>', run: '<run-id>', cwd: '<dir>', objective: '"<text>"', fail_on: 'new:<severity>',
+  lane: '<LN-id>', kinds: '<kind>[,<kind>...]', only: '<id>[,<id>...]', max: '<n>', max_files: '<n>', max_lines: '<n>', max_cycles: '<n>',
+  max_nodes: '<n>', expires: '<time>', stage: 'plan|change|rollback', target: '<target>', treatment: '<treatment>', category: '<category>',
+  drivers_file: '<file>', passphrase_file: '<file>', direction: 'in|out|both', budget_seconds: '<n>', port: '<port>',
+  signals: '<json>', container: '<id>', outcome: '<outcome>', after: '<seq>', path: '<glob>',
+}));
 
 export function parseArgs(argv) {
   const positional = [];
@@ -36,6 +46,10 @@ export function parseArgs(argv) {
       if (eq !== -1) flags[key] = a.slice(eq + 1);
       else if (!SWITCHES.has(key) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
       else flags[key] = true;
+      if (VALUED.has(key) && flags[key] === true) {
+        const flag = `--${key.replace(/_/g, '-')}`;
+        throw new UnknotError('UK_CONFIG_INVALID', `${flag} needs a value: ${flag} ${VALUED.get(key)}`);
+      }
       if (Array.isArray(flags[`${key}[]`])) flags[`${key}[]`].push(flags[key]);
       else flags[`${key}[]`] = [flags[key]];
     } else positional.push(a);

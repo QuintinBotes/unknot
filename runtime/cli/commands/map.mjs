@@ -1,3 +1,5 @@
+import { ADAPTERS } from '../../../adapters/registry.mjs';
+import { UnknotError } from '../../core/errors.mjs';
 import { mapRepository } from '../../graph/builder.mjs';
 import { impossibleWarning, rowsGeneration } from '../../graph/derived.mjs';
 import { historyNotice, output, withRun } from '../util.mjs';
@@ -8,12 +10,17 @@ import { constantsLine } from './status.mjs';
 const coverLine = (s) => (s.whole ? 'the whole repository' : s.covered.join(', '));
 
 export async function run({ positional, flags }) {
+  // An unknown id would map with no adapter and replace the graph with an empty one (#186).
+  const only = flags.adapter ? String(flags.adapter).split(',') : null;
+  const ids = ADAPTERS.map((a) => a.id);
+  const unknown = (only ?? []).filter((id) => !ids.includes(id));
+  if (unknown.length) throw new UnknotError('UK_CONFIG_INVALID', `unknown adapter ${unknown.join(', ')}; the adapters are ${ids.join(', ')}`);
   const { ctx, cfg, config, actor } = open(flags);
   // `--replace B` parses as a flag value: it is the first scope.
   const replace = flags.replace !== undefined && flags.replace !== 'false';
   const scope = typeof flags.replace === 'string' && replace ? [flags.replace, ...positional] : positional;
   const summary = await withRun(ctx, cfg, 'map', { actor, scope }, (r) =>
-    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only: flags.adapter ? String(flags.adapter).split(',') : null, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null, onProgress: progressFor(flags) }),
+    mapRepository(ctx, { config, configDigest: cfg.digest, run: r, scope, replace, only, history: !flags.no_history, branchOk: typeof flags.branch_ok === 'string' ? flags.branch_ok : null, onProgress: progressFor(flags) }),
   );
   // A cycle the build forbids is an analysis artifact: say so where it is seen first (#72).
   // Read straight from the stored components: mapRepository has written them for this generation.

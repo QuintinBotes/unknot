@@ -98,8 +98,9 @@ export async function main(argv) {
     }
     return 0;
   }
-  const args = parseArgs(rest);
+  let args = { flags: { json: rest.includes('--json') } };
   try {
+    args = parseArgs(rest);
     const mod = await import(`./commands/${name}.mjs`);
     const code = await mod.run(args);
     return typeof code === 'number' ? code : 0;
