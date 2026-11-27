@@ -387,6 +387,86 @@ yields about 18 facts, each kept in the per-file cache, the facts table and the 
 edges. On the 50k store: per-file cache 347 MB, facts 323 MB plus its key and `object` index (63 MB),
 edges 150 MB with their index, nodes 116 MB with theirs, derived facts 22 MB.
 
+### Projection keeps the keys of unchanged runs of facts (#145)
+
+Projection hashed every fact (its id and signature) and read every stored fact key on every changed
+re-map. The keys are a function of a fact's content, so projection now cuts the fact list into runs at
+content-defined points (where the subject changes to one whose hash ends in four zero bits, at most 256
+facts) and keeps each run's keys in the per-file cache table (`projection:keys`, 24 bytes per fact,
+keyed by a hash of the run's JSON). A run whose JSON hashes as one did in the last map takes its keys
+from there. While the kept runs describe the facts table exactly (a stamp names the generation they were
+written with, in the same transaction), new and stale facts are found from the runs hashed now, the runs
+no longer present and the contents held by another number of runs, without reading the facts table; a
+store without the stamp (an older release mapped it) is matched fact by fact as before, once. Facts
+extracted by this map are taken as the cache will give them back (canonical JSON, parsed), so the next
+map's runs match. The summary's `projection` says how many facts were hashed and how they were matched
+(`runs` or `store`).
+
+This also fixes a case where a re-map differed from a cold map: a fact held one more or one fewer time
+with the same id and signature (a second copy elsewhere) did not rebuild the node or edge that merges its
+copies, so its `fact_ids` and an edge's `count` kept the old number. The runs see the copies; matching
+fact by fact still cannot, but it now runs only on a store without the stamp.
+
+The facts table's `path` column is no longer written: no query reads it and it repeats the head of
+`source_ref` (18 MB of the 50k store). Rows written before keep theirs.
+
+50k fixture, the kept store of a `main` run copied twice, `main` and this change alternating on the same
+10-file commits (`process.cpuUsage` of the map; other work kept the load average between 17 and 140, so
+wall times are not comparable across rows; the first commit warms the branch's kept runs):
+
+| Commit | `main` CPU | Branch CPU | `main` projection | Branch projection | Branch facts hashed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 51 (load 27 to 44) | 16.6 s | 13.8 s | 17.0 s | 3.3 s | 1,142 of 893,377 |
+| 52 (load 28 to 42) | 15.4 s | 12.4 s | 3.8 s | 1.3 s | 1,496 of 893,377 |
+
+The two stores hold the same rows afterwards, except the churn facts of the 30 touched files, whose
+commit times differ between the copies. A profile of a later branch re-map at load 16 (7.9 s wall):
+reading every file's cached facts 1.6 s (point reads and `JSON.parse`), git 0.6 s (census and
+checkout), garbage collection 0.9 s, projection 0.9 s (of which 0.4 s serialising and hashing the runs),
+the `generic` linker 0.9 s, the JavaScript linker 0.5 s, the Python linker 0.3 s.
+
+`node scripts/bench.mjs --sizes 50k --gate`, `main` then this change (load 60 to 140 throughout):
+
+| Run | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Store / tree |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `main` | 449.6 s | 3.8 s | 45.5 s | 1,092 MB | 0.008 | 12.1 | 46.8 |
+| this change | 638.0 s | 5.7 s | 56.9 s | 1,104 MB | 0.009 | 9.9 | 47.3 |
+
+The same at 10k, the tier `--release-gate` reads (load 85 to 95; cold-map projection 27.7 s and 27.8 s,
+so keeping the runs costs a cold map nothing measurable):
+
+| Run | Cold | No change | 10 changed | Store | No change / cold | Changed / no change | Changed / cold | Store / tree |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `main` | 94.3 s | 1.0 s | 20.2 s | 217 MB | 0.011 | 19.9 | 0.215 | 46.0 |
+| this change | 113.6 s | 1.1 s | 14.6 s | 219 MB | 0.010 | 13.0 | 0.129 | 46.5 |
+
+The 10-file re-map's projection went from 6.7 s to 1.8 s there.
+
+The store grows by the kept keys (about 25 MB at 50k, 24 bytes per fact and a row per run) less the
+`path` column (18 MB).
+
+What still runs over the whole repository on a changed re-map, and why it is not made proportional here:
+
+- **Reading every file's cached facts** (1.6 s of the 7.9 s): every linker builds its indexes from every
+  file's facts, and projection needs every fact to merge the nodes and edges a change touches. Not reading
+  them needs the linkers to keep their indexes between maps and projection to merge from stored rows, a
+  redesign of the pipeline.
+- **Serialising the facts into runs** (0.4 s): a run is recognised by its JSON. Skipping unchanged runs
+  without serialising them needs each producer to say which facts it left as they were, which the
+  in-place rewrites of the linkers (route groups, server interfaces, member attributes, fingerprints)
+  prevent today.
+- **JavaScript and Python linking** (0.5 s and 0.3 s): the `generic` linker, which keeps each file's
+  result and links only what a change reaches, takes 0.9 s at 50k, most of it reading its kept results
+  back for 24,900 files; the same pattern for these two would cost about what they cost now.
+
+With all three gone the changed re-map would still take about 5 of those 7.9 s (the `generic` linker and
+the other linkers, the rest of projection, the census, discovery, history and garbage collection), several
+times the no-change re-map; the bound of twice needs the redesign above.
+
+The store bound cannot be met on this fixture whatever is cut from the caches: the graph itself (nodes
+and edges with their indexes, 270 MB) is 11 times the 24 MB tree, because each file of a few hundred bytes
+yields about 18 facts. On a real repository the floor is lower (see the monolith below).
+
 ## Real C# monolith: map, cold and warm
 
 `scripts/bench-map.mjs` fetches a repository from `scripts/corpus.json` at its pinned commit
