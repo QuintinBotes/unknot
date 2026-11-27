@@ -1,0 +1,32 @@
+name: Review Voice
+
+# Shadow mode: every pull request is reviewed and the findings go to the job
+# summary only. Posting needs post: true here and writes.github_posting_enabled
+# in .review-voice/config.yaml. Without the ANTHROPIC_API_KEY secret the action
+# skips and exits 0.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: review-voice-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: QuintinBotes/review-voice@6fcd6d47b2e72c8b403a4ca789438f379ee0734d # review-voice--v1.29.2
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          post: false
+          fail-open: true
