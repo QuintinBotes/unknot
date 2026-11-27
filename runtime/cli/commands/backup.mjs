@@ -29,8 +29,8 @@ export async function run({ positional, flags }) {
     const r = createBackup(ctx, file, passphrase(flags, { confirm: true }));
     return output(flags.json ? r : `Backup written to ${r.file}: ${r.files} files, ${r.bytes} bytes, ledger ${r.ledger.count} events.\nThe project key directory is NOT in the backup; escrow it separately (see docs/operations.md).`, { json: flags.json });
   }
-  if (flags.anchor !== undefined && typeof flags.anchor !== 'string') throw new UnknotError('UK_CONFIG_INVALID', '--anchor needs a path');
-  const anchor = flags.anchor ? readCheckpoint(flags.anchor) : null;
+  // Present means required: an empty or bare --anchor is refused, never read as "no anchor".
+  const anchor = flags.anchor === undefined ? null : readCheckpoint(flags.anchor);
   const checked = (l) => (l.checked_against === 'anchor' ? 'checked against the anchor' : 'checked only against the backup\'s own manifest; pass --anchor to check it against an independent checkpoint');
   if (sub === 'verify') {
     const r = verifyBackup(file, passphrase(flags), { anchor });

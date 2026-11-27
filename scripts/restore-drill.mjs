@@ -97,7 +97,7 @@ try {
   const aheadFile = join(T, 'ahead.json');
   writeFileSync(aheadFile, JSON.stringify(ahead));
   r = cli(T, 'backup', 'restore', backup, '--to', join(T, 'refused'), '--anchor', aheadFile, '--passphrase-file', passFile);
-  step('restore against a later anchor is refused', r.status !== 0 && /truncated/.test(r.stdout + r.stderr) && !existsSync(join(T, 'refused/.unknot')), said(r));
+  step('restore against a later anchor is refused', r.status !== 0 && /truncated/.test(r.stdout + r.stderr) && !existsSync(join(T, 'refused')), said(r));
 } catch (err) {
   step('drill', false, err.stack ?? String(err));
 } finally {

@@ -10,7 +10,6 @@ export async function run({ positional, flags }) {
   const sub = positional[0] ?? 'verify';
   const { ctx } = open(flags);
   if (sub === 'verify' && flags.anchor !== undefined) {
-    if (typeof flags.anchor !== 'string') throw new UnknotError('UK_CONFIG_INVALID', '--anchor needs a path');
     // An exported checkpoint is the trust root: neither the database nor UNKNOT_HOME is consulted for the key.
     const r = verifyAgainstAnchor(ctx.store, readCheckpoint(flags.anchor));
     output(flags.json ? r : r.ok ? `ledger intact and extends the anchor: ${r.count} events, head ${r.head} (anchor at event ${r.anchored.count})` : `LEDGER FAILS THE ANCHOR (${r.reason}): ${r.detail}`, { json: flags.json });
@@ -38,6 +37,8 @@ export async function run({ positional, flags }) {
     return r.ok ? 0 : 4;
   }
   if (sub === 'checkpoint') {
+    // A checkpoint signed off by the database's own key copy would anchor nothing independent.
+    if (anchor !== 'UNKNOT_HOME key') throw new UnknotError('UK_INTEGRITY', 'no audit key for this project in UNKNOT_HOME; restore the project key directory before taking a checkpoint');
     // Head, count and key of the verified ledger; useful only if stored where the agent cannot write.
     const text = `${JSON.stringify(ledgerCheckpoint(ctx.store, pub), null, 2)}\n`;
     if (typeof flags.out === 'string') writeFileSync(flags.out, text, { flag: 'wx', mode: 0o600 });

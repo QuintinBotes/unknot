@@ -384,6 +384,7 @@ describe('independent anchor (audit checkpoint)', () => {
       assert.throws(() => readCheckpoint(file), (e) => e.code === 'UK_CONFIG_INVALID');
     }
     assert.throws(() => readCheckpoint(join(p.dir, 'missing.json')), (e) => e.code === 'UK_NOT_FOUND');
+    for (const empty of ['', true, undefined]) assert.throws(() => readCheckpoint(empty), (e) => e.code === 'UK_CONFIG_INVALID', String(empty));
     assert.throws(() => ledgerCheckpoint(p.ctx.store, null), (e) => e.code === 'UK_INTEGRITY');
   });
 });

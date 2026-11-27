@@ -123,6 +123,7 @@ export function ledgerCheckpoint(store, publicKeyPem) {
 
 /** Read an anchor file; refuses anything that is not a well-formed checkpoint. */
 export function readCheckpoint(path) {
+  if (typeof path !== 'string' || !path) throw new UnknotError('UK_CONFIG_INVALID', '--anchor needs a path');
   let text;
   try {
     text = readFileSync(path, 'utf8');

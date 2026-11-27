@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { mkTmp } from '../../helpers/tmp.mjs';
 
 process.env.UNKNOT_HOME = mkTmp(join(tmpdir(), 'uk-home-'));
@@ -15,6 +16,7 @@ const { casGet, casPut } = await import('../../../runtime/state/cas.mjs');
 const { ledgerCheckpoint, verifyLedger } = await import('../../../runtime/state/ledger.mjs');
 const { createBackup, readPassphraseFile, restoreBackup, safeRel, verifyBackup } = await import('../../../runtime/enterprise/backup.mjs');
 
+const BIN = new URL('../../../bin/unknot', import.meta.url).pathname;
 const PASS = 'a long enough passphrase';
 const KDF = { kdfN: 1 << 14 }; // the minimum the reader accepts; keeps the tests quick
 
@@ -148,7 +150,7 @@ test('restore with an anchor: refused unless the restored ledger extends the anc
   assert.ok(newer.count > anchor.count);
   const target = restoreTo();
   assert.throws(() => restoreBackup(honest, PASS, target, { anchor: newer }), (e) => e.code === 'UK_INTEGRITY' && /truncated/.test(e.message));
-  assert.ok(!existsSync(join(target, '.unknot')));
+  assert.ok(!existsSync(target), 'refused before writing: the target directory is never created');
 
   // An attacker who controls the store (and the backup passphrase) truncates the ledger and
   // takes a fresh backup: its manifest attests to the shortened ledger, so it verifies on its
@@ -161,10 +163,49 @@ test('restore with an anchor: refused unless the restored ledger extends the anc
   const v = verifyBackup(forged, PASS, { anchor: newer });
   assert.equal(v.ok, false);
   assert.match(v.reason, /anchor \(truncated\)/);
-  assert.throws(() => restoreBackup(forged, PASS, restoreTo(), { anchor: newer }), (e) => e.code === 'UK_INTEGRITY');
+  const forgedTarget = restoreTo();
+  assert.throws(() => restoreBackup(forged, PASS, forgedTarget, { anchor: newer }), (e) => e.code === 'UK_INTEGRITY');
+  assert.ok(!existsSync(forgedTarget));
 
   // A tampered anchor fails as well.
   assert.match(verifyBackup(honest, PASS, { anchor: { ...anchor, head: 'sha256:00' } }).reason, /anchor \(rewritten\)/);
+});
+
+test('CLI: an empty or bare --anchor is refused, never read as no anchor', () => {
+  const { dir, ctx } = fixture();
+  const T = mkTmp(join(tmpdir(), 'uk-anchor-cli-'));
+  const old = join(T, 'old.ukb');
+  createBackup(ctx, old, PASS, KDF);
+  const cfg = loadConfig(ctx);
+  endRun(ctx, startRun(ctx, { command: 'map', actor: 'model:main', config: cfg.config, configDigest: cfg.digest }).id, { outcome: 'completed' });
+  const anchorFile = join(T, 'anchor.json');
+  writeFileSync(anchorFile, JSON.stringify(ledgerCheckpoint(ctx.store, ctx.store.meta('audit_public_key'))));
+  const pf = join(T, 'pass');
+  writeFileSync(pf, `${PASS}\n`, { mode: 0o600 });
+  const cli = (...argv) => spawnSync(process.execPath, [BIN, ...argv, '--passphrase-file', pf], { cwd: dir, encoding: 'utf8', env: process.env });
+
+  assert.equal(cli('backup', 'verify', old).status, 0, 'without --anchor the rolled-back backup verifies on its own');
+  for (const form of [['--anchor', ''], ['--anchor='], ['--anchor']]) {
+    const v = cli('backup', 'verify', old, ...form);
+    assert.notEqual(v.status, 0, `verify ${form.join(' ')}`);
+    assert.match(v.stderr + v.stdout, /--anchor needs a path/);
+    const target = join(T, `r-${form.length}-${form[0].length}`);
+    const r = cli('backup', 'restore', old, '--to', target, ...form);
+    assert.notEqual(r.status, 0, `restore ${form.join(' ')}`);
+    assert.ok(!existsSync(target), `restore ${form.join(' ')} wrote nothing`);
+    const a = cli('audit', 'verify', ...form);
+    assert.notEqual(a.status, 0, `audit verify ${form.join(' ')}`);
+  }
+  const refused = join(T, 'refused');
+  const r = cli('backup', 'restore', old, '--to', refused, '--anchor', anchorFile);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /anchor \(truncated\)/);
+  assert.ok(!existsSync(refused));
+
+  // Without this project's key in UNKNOT_HOME there is nothing independent to checkpoint.
+  const elsewhere = spawnSync(process.execPath, [BIN, 'audit', 'checkpoint', '--out', join(T, 'cp.json')], { cwd: dir, encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: mkTmp(join(tmpdir(), 'uk-otherhome-')) } });
+  assert.notEqual(elsewhere.status, 0);
+  assert.ok(!existsSync(join(T, 'cp.json')));
 });
 
 test('passphrase files must be private and long enough', { skip: process.platform === 'win32' }, () => {

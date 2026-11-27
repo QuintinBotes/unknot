@@ -159,6 +159,12 @@ audit public key and time of the verified ledger; store it where the agent canno
 does not extend that head under that key, and `audit verify --anchor <file>` checks a live or
 restored project the same way, naming `key`, `truncated` or `rewritten` on failure. A restore
 without `--anchor` says that the ledger was checked only against the backup's manifest.
+The anchor proves the **ledger** (the events table) and nothing else: slice and campaign
+YAML, `config.yaml`, `decisions.jsonl`, the cache and the other database tables are
+protected only by the passphrase and the manifest, so someone holding the passphrase can
+alter them in a backup that still passes `--anchor`. `--anchor` given empty or without a
+path is refused, never treated as absent. `audit checkpoint` refuses when `UNKNOT_HOME` has
+no key for the project, rather than anchoring the database's own copy of the key.
 Take a checkpoint with every backup, and keep the latest one beside the escrowed keys.
 
 ### Key escrow caveat
