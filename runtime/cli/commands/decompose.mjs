@@ -68,9 +68,10 @@ function showText(rec) {
   }
   // The full table is in the record (--json); the text view shows the two extraction steps.
   const rows = (rec.readiness ?? []).filter((r) => r.treatment === 'T3' || r.treatment === 'T2')
-    .map((r) => ({ treatment: r.treatment, kind: r.kind, signal: r.signal, value: cell(r.value), need: `${r.op} ${r.threshold}`, met: r.met === null ? '?' : r.met ? 'yes' : 'no', missing_evidence: r.missing_evidence ?? '' }));
-  if (rows.length) lines.push('', 'Readiness (contraindications are met when the predicate holds):', table(rows, ['treatment', 'kind', 'signal', 'value', 'need', 'met', 'missing_evidence']));
-  if (rec.evidence_gaps.length) lines.push('', 'Evidence gaps:', ...rec.evidence_gaps.map((g) => `  ${g}`));
+    .map((r) => ({ treatment: r.treatment, kind: r.kind, signal: r.signal, value: cell(r.value), need: `${r.op} ${r.threshold}`, met: r.met === null ? '?' : r.met ? 'yes' : 'no', age: r.age_days === undefined ? '' : `${r.age_days ?? 'unknown'}${r.age_days === null ? '' : 'd'}${r.stale ? ' (expired)' : ''}`, missing_evidence: r.missing_evidence ?? '' }));
+  if (rows.length) lines.push('', 'Readiness (contraindications are met when the predicate holds; age is of the imported evidence):', table(rows, ['treatment', 'kind', 'signal', 'value', 'need', 'met', 'age', 'missing_evidence']));
+  const aged = Object.entries(rec.evidence_age ?? {});
+  if (aged.length) lines.push('', 'Evidence age:', ...aged.map(([k, f]) => `  ${k}: ${f.age_days === null ? 'age unknown' : `${f.age_days} day(s) old`}${f.expires_at ? `, ${f.stale ? 'expired' : 'expires'} ${f.expires_at}` : ''}${f.stale ? ' (stale)' : ''}`));  if (rec.evidence_gaps.length) lines.push('', 'Evidence gaps:', ...rec.evidence_gaps.map((g) => `  ${g}`));
   return lines.join('\n');
 }
 

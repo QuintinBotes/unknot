@@ -41,3 +41,17 @@ test('frontend without a driver prefers the modular monolith over micro-frontend
   const r = selectTreatment({ target: 'frontend', signals: { ...base, 'frontend.routes': 30, 'frontend.cross_feature_imports': 12, 'frontend.teams': 1, 'driver.any': 0 }, drivers: [] });
   assert.notEqual(r.treatment, 'T7');
 });
+
+test('a treatment favoured only by stale signals is not chosen, and the rejection says why (#239)', () => {
+  const signals = { ...base, 'driver.any': 0 };
+  const fresh = selectTreatment({ target: 'backend', signals, drivers: [] });
+  assert.equal(fresh.treatment, 'T1');
+  assert.deepEqual(fresh.favoring_signals.map((f) => f.signal), ['layer.violations']);
+  const stale = selectTreatment({ target: 'backend', signals, drivers: [], stale: new Set(['layer.violations']) });
+  assert.notEqual(stale.treatment, 'T1');
+  assert.match(stale.rejected_treatments.find((x) => x.treatment === 'T1').reason, /favoured only by expired evidence: layer.violations/);
+  // Beside a fresh favouring signal a stale one still counts, marked stale.
+  const mixed = selectTreatment({ target: 'backend', signals: { ...signals, 'cycle.boundary_edges': 2 }, drivers: [], stale: new Set(['layer.violations']) });
+  assert.equal(mixed.treatment, 'T1');
+  assert.deepEqual(mixed.favoring_signals.map((f) => [f.signal, f.stale ?? false]), [['cycle.boundary_edges', false], ['layer.violations', true]]);
+});

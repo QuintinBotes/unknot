@@ -18,7 +18,7 @@ import { workspaceLinks } from '../enterprise/workspace.mjs';
 import { disambiguate, findCandidates, sizeBandFor, topFiles } from './candidates.mjs';
 import { analyzeFrontend, isFrontendModule } from './frontend.mjs';
 import { fingerprintIndex, fingerprintOf, currentGeneration, loadRecords, predecessorOf } from './records.mjs';
-import { capConfidence, runtimeSummary } from './runtime-evidence.mjs';
+import { capConfidence, daysBetween, runtimeSummary } from './runtime-evidence.mjs';
 import { readinessFor, selectTreatment } from './select.mjs';
 
 const OBLIGATION_KINDS = new Set(['characterization', 'parse', 'lint', 'typecheck', 'unit', 'integration', 'contract', 'architecture-fitness', 'security-scan', 'secrets-scan', 'migration-rehearsal', 'reconciliation', 'infra-plan', 'performance', 'smoke', 'rollback-rehearsal', 'human-review', 'api-compatibility', 'no-new-cycles', 'diff-budget', 'scope-check']);
@@ -166,9 +166,10 @@ function seamGaps(cand, signals) {
 
 /**
  * @param {object} ctx
- * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[], driverProvenance?: {source?: string, quote?: string}, dryRun?: boolean}} opts
+ * @param {{config: object, run?: object, scope?: string[], target?: 'auto'|'backend'|'frontend', drivers?: string[], driverProvenance?: {source?: string, quote?: string}, dryRun?: boolean, now?: string}} opts
+ *   `now` is the reference time the age and expiry of imported evidence are measured against.
  */
-export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false, onProgress = null }) {
+export async function decompose(ctx, { config, run = null, scope = [], target = 'auto', drivers = [], driverProvenance = null, dryRun = false, onProgress = null, now = new Date().toISOString() }) {
   const graph = Graph.fromStore(ctx.store);
   // Co-change the map could not measure (shallow, too short or no history) is unmeasured, never 0 (#78).
   const historyGap = ((h) => (h ? `co-change history unmeasured: ${h}` : null))(JSON.parse(ctx.store.meta('mapped_history') ?? 'null')?.unmeasured);
@@ -203,7 +204,7 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const affinity = units ? unitAffinity(fileAffinity, units.unitOf) : fileAffinity;
     const band = d.size_band ?? sizeBandFor(affinity.nodes.length);
     bandUsed[t] = `size_band=${band.join('-')}${d.size_band ? '' : ` (derived from ${affinity.nodes.length} modules)`}`;
-    const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units, keep: (m) => !TOOLING.test(m) });
+    const found = findCandidates(graph, affinity, { sizeBand: band, robustness: d.thresholds.robustness, eligible: modules, workspace, units, keep: (m) => !TOOLING.test(m), now });
     let fe = null;
     if (t === 'frontend') fe = analyzeFrontend(graph, { scopeFilter: inScope });
     analyses[t] = { modules: affinity.nodes.length, ...(units && { units: affinity.nodes, files: modules.length }), affinity_edges: affinity.edges.length, components: { ...affinity.components, ...(historyGap && { evolutionary: 'unmeasured' }) }, modularity: found.modularity, robustness: found.stats, top_coupling: found.coupling.slice(0, 10), frontend: fe ? { groups: fe.groups.length, violations: fe.violations.length, shared_modules: fe.shared.length } : undefined };
@@ -228,14 +229,23 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
     const signals = { ...global, ...cand.metrics, 'boundary.robust': cand.robust ? 1 : 0, 'boundary.inferred_share': inf.share, ...(fe?.signals ?? {}) };
     if (cand.teams) signals['frontend.teams'] = cand.teams.length || signals['frontend.teams'];
     delete signals.gaps;
-    const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds });
+    // Runtime and data signals measured on expired evidence: still reported, but marked stale (#239).
+    const freshness = Object.fromEntries(Object.entries(cand.details?.freshness ?? {}).filter(([k]) => signals[k] !== undefined));
+    const stale = Object.entries(freshness).filter(([, f]) => f.stale);
+    const sel = selectTreatment({ target: t, signals, drivers: allDrivers, thresholds: d.thresholds, stale: new Set(stale.map(([k]) => k)) });
     const cap = capConfidence(cand.robust ? sel.confidence : 'low', sel.treatment, cand.details?.runtime);
     // heuristic: a boundary resting mostly on name-matched edges is one step less sure.
     // heuristic: nothing crosses an isolated boundary, so perturbing its edges never tested it; its stability earns no confidence (#161).
     const isolated = cand.robust && cand.metrics['module.consumers'] === 0 && !(cand.metrics['boundary.coupling'] > 0);
     const byName = cand.robust && !isolated && cap.confidence !== 'low' && inf.share >= 0.5;
-    const confidence = cand.robust && !isolated ? (byName ? LOWER[cap.confidence] : cap.confidence) : 'low';
-    const lowered = isolated && cap.confidence !== 'low' ? `confidence lowered from ${cap.confidence} to low: no module outside the candidate uses it and no affinity crosses its boundary, so its stability was never tested` : byName ? `confidence lowered from ${cap.confidence} to ${confidence}: ${Math.round(inf.share * 100)}% of the ${inf.edges} import and call edges it rests on were matched by name (inferred), not resolved by a compiler or index` : null;
+    const named = cand.robust && !isolated ? (byName ? LOWER[cap.confidence] : cap.confidence) : 'low';
+    // Expired evidence lowers one step per record, however many signals it stands behind (#239).
+    const confidence = stale.length ? LOWER[named] : named;
+    const expiredText = stale.length ? `${stale.map(([k]) => k).join(', ')} rest on evidence that expired ${daysBetween(stale.map(([, f]) => f.expires_at).sort()[0], now)} day(s) ago` : null;
+    const lowered = [
+      isolated && cap.confidence !== 'low' ? `confidence lowered from ${cap.confidence} to low: no module outside the candidate uses it and no affinity crosses its boundary, so its stability was never tested` : byName ? `confidence lowered from ${cap.confidence} to ${named}: ${Math.round(inf.share * 100)}% of the ${inf.edges} import and call edges it rests on were matched by name (inferred), not resolved by a compiler or index` : null,
+      expiredText && named !== confidence ? `confidence lowered from ${named} to ${confidence}: ${expiredText}` : null,
+    ].filter(Boolean).join('; ') || null;
     const fingerprint = fingerprintOf({ target: t, drivers: allDrivers, modules: cand.modules });
     const existing = known.get(fingerprint) ?? null;
     // A rerun overwrites its own record; only a new boundary takes a new id (never on a dry run).
@@ -291,10 +301,11 @@ export async function decompose(ctx, { config, run = null, scope = [], target = 
       ...(sel.drivers_not_served.length ? { drivers_not_served: sel.drivers_not_served } : {}),
       contraindications_checked: sel.contraindications_checked,
       rejected_treatments: rejectedTreatments,
-      readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'] }),
+      readiness: readinessFor({ target: t, signals, thresholds: d.thresholds, treatments: [...rejectedTreatments.map((r) => r.treatment), 'T3', 'T2'], freshness }),
       evidence_gaps: [...new Set([...(cand.metrics.gaps ?? []), ...seamGaps(cand, signals), ...(fe?.gaps ?? []), ...sel.evidence_gaps.map((g) => `${g} not measured`), ...(cap.capped ? [cap.reason] : []), ...(lowered ? [lowered] : []), ...(historyGap ? [historyGap] : [])])],
       confidence,
       ...(historyGap && { unmeasured: ['evolutionary'] }),
+      ...(Object.keys(freshness).length ? { evidence_age: freshness } : {}),
       ...(cand.details?.runtime && cand.metrics['runtime.cross_boundary_calls'] !== undefined ? { runtime_evidence: runtimeSummary(cand.details.runtime, cand.metrics) } : {}),
       ...(cand.details?.transactions ? { transaction_evidence: cand.details.transactions } : {}),
       ...(cand.details?.delivery?.window ? { delivery_evidence: cand.details.delivery } : {}),

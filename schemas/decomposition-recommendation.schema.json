@@ -382,7 +382,8 @@
             },
             "maxItems": 20,
             "description": "Module or edge ids the signal was measured on"
-          }
+          },
+          "stale": { "type": "boolean", "description": "The signal was measured on expired evidence" }
         },
         "required": [
           "signal",
@@ -631,7 +632,21 @@
     },
     "confidence_lowered": {
       "type": "string",
-      "description": "Present when the confidence was lowered one step because at least half of the import and call edges the boundary rests on were matched by name (inferred): why."
+      "description": "Present when the confidence was lowered one step because at least half of the import and call edges the boundary rests on were matched by name (inferred), or because runtime or data evidence it uses has expired (naming the signals and how long ago): why."
+    },
+    "evidence_age": {
+      "type": "object",
+      "description": "Per runtime or data signal: the age of the imported evidence it was measured on. Expired evidence is still reported, never favours a treatment on its own, and lowers the confidence one step per record.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "age_days": { "type": ["integer", "null"] },
+          "expires_at": { "type": ["string", "null"] },
+          "stale": { "type": "boolean" }
+        },
+        "required": ["age_days", "expires_at", "stale"],
+        "additionalProperties": false
+      }
     },
     "first_slice": {
       "type": "object"
@@ -773,7 +788,10 @@
               "string",
               "null"
             ]
-          }
+          },
+          "age_days": { "type": ["integer", "null"], "description": "Runtime or data signal: whole days from the earliest observed window end among the facts used to the run's reference time; null when no fact has a window" },
+          "expires_at": { "type": ["string", "null"], "description": "Runtime or data signal: the earliest expiry among the facts used" },
+          "stale": { "type": "boolean", "description": "Runtime or data signal: its evidence is past its expiry" }
         },
         "required": [
           "treatment",
