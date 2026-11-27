@@ -281,7 +281,7 @@ function ormTables(lx, an, lang, path) {
     });
   }
   const entities = mappings.map((m) => ({ n: m.entity.split(/::|\./).pop(), t: m.table, o: m.orm }));
-  const exposed = members.map((m) => ({ n: m.member, e: m.entity, ...(m.owner && { c: m.owner }) }));
+  const exposed = members.map((m) => ({ n: m.member, e: m.entity, ...(m.owner && { c: m.owner }), ...(m.nav && { nav: 1 }) }));
   return { tables, links: ormAttrs(entities, exposed, accessCandidates(lx.plain, lang, (off) => lx.lineOf(off)), classes) };
 }
 

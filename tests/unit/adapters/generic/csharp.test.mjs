@@ -211,6 +211,54 @@ test('Entity Framework: a receiver-qualified Add resolves through the receiver\'
   assert.deepEqual(writes('S/Arity.cs'), []);
 });
 
+test('Entity Framework: commas inside generic arguments, initializers and literals are not extra arguments (#212)', () => {
+  const svc = (name, call) => cls('Shop.Services', name, `        private readonly Ctx _db;\n        public void Post() { ${call}; }`);
+  const g = build({
+    'D/Message.cs': cls('Shop.Data', 'Message'),
+    'D/Ctx.cs': 'namespace Shop.Data\n{\n    public class Ctx : DbContext\n    {\n        public DbSet<Message> Messages { get; set; }\n    }\n}\n',
+    'S/Generic.cs': svc('Generic', '_db.Messages.Add(Make<A, B>())'),
+    'S/Nested.cs': svc('Nested', '_db.Messages.Add(Make<Dictionary<A, B>, C>(x, y))'),
+    'S/Init.cs': svc('Init', '_db.Messages.Add(new Message { Lines = new List<Line> { a, b }, Tags = new[] { "x", "y" } })'),
+    'S/Literals.cs': svc('Literals', '_db.Messages.Add(Make("a, b", \',\', @"c:\\, ""d, e""", $"{f(", ")}, {g[1, 2]}", """raw, "x" """))'),
+    'S/Less.cs': svc('Less', '_db.Messages.Add(a < b, c > d)'),
+    'S/Three.cs': svc('Three', '_db.Messages.Add(Make<A, B>(), "x, y", c)'),
+    'S/Async.cs': svc('Async', '_db.Messages.AddAsync(Make<A, B>(), ct)'),
+  });
+  const writes = (from) => g.edges('MUTATES', from).filter((e) => e.to === 'table:messages').length;
+  // Scenarios 1 and 2: one argument, however many commas it holds.
+  assert.equal(writes('S/Generic.cs'), 1);
+  assert.equal(writes('S/Nested.cs'), 1);
+  assert.equal(writes('S/Init.cs'), 1);
+  assert.equal(writes('S/Literals.cs'), 1);
+  assert.equal(writes('S/Async.cs'), 1);
+  // A comparison has spaces around `<`, so its comma still separates arguments; three real arguments are another method.
+  assert.equal(writes('S/Less.cs'), 0);
+  assert.equal(writes('S/Three.cs'), 0);
+});
+
+test('Entity Framework: adding to a collection navigation of a mapped entity is an inferred write to its table (#212)', () => {
+  const g = build({
+    'D/Reservation.cs': cls('Shop.Data', 'Reservation', '        public virtual ICollection<Companionship> Companionships { get; set; }\n        public List<string> Notes { get; set; }'),
+    'D/Companionship.cs': cls('Shop.Data', 'Companionship'),
+    'D/Draft.cs': cls('Shop.Data', 'Draft', '        public List<Companionship> Companionships { get; set; }'),
+    'D/Ctx.cs': 'namespace Shop.Data\n{\n    public class Ctx : DbContext\n    {\n        public DbSet<Reservation> Reservations { get; set; }\n        public DbSet<Companionship> Companionships { get; set; }\n    }\n}\n',
+    'S/AddRange.cs': cls('Shop.Services', 'AddRange', '        public void Post(Reservation reservation, Companionship[] xs) { reservation.Companionships.AddRange(xs); }'),
+    'S/Remove.cs': cls('Shop.Services', 'Remove', '        public void Post(Reservation reservation, Companionship x) { reservation.Companionships.Remove(x); }'),
+    'S/Read.cs': cls('Shop.Services', 'Read', '        public void Post(Reservation reservation) { reservation.Companionships.Where(x => x.On); }'),
+    'S/Draft.cs': cls('Shop.Services', 'DraftUser', '        public void Post(Draft draft, Companionship x) { draft.Companionships.Add(x); }'),
+    'S/Notes.cs': cls('Shop.Services', 'Notes', '        public void Post(Reservation reservation) { reservation.Notes.Add("x"); }'),
+  });
+  const writes = (from) => g.edges('MUTATES', from).filter((e) => e.to === 'table:companionships');
+  for (const f of ['S/AddRange.cs', 'S/Remove.cs']) {
+    assert.equal(writes(f).length, 1, f);
+    assert.deepEqual([writes(f)[0].provenance.source_type, writes(f)[0].provenance.confidence], ['inference', 'low']);
+  }
+  // Only adding and removing write; a type no context maps (a DTO) holds a plain list.
+  assert.deepEqual(g.edges('QUERIES', 'S/Read.cs'), []);
+  assert.deepEqual(writes('S/Draft.cs'), []);
+  assert.deepEqual(g.edges('MUTATES', 'S/Notes.cs'), []);
+});
+
 test('link-only name sets are not left in persisted module attrs', () => {
   const g = build({ 'A/X.cs': cls('N', 'X'), 'A/Y.cs': cls('N', 'Y', '        X x;') });
   for (const facts of g.factsByFile.values()) {

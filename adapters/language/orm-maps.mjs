@@ -140,6 +140,8 @@ export const ORM_SYNTAX = [
       },
     ],
     collections: { re: /\bDbSet<\s*([\w.]+)\s*>\s+(\w+)/g, entity: 1, member: 2, convention: 'snake', type: /^I?DbSet\s*</ },
+    // A collection navigation property (`virtual ICollection<Line> Lines { get; set; }`): adding to it on a tracked entity writes `Line`'s table.
+    navigations: { re: /\b(?:I?Collection|I?List|HashSet|I?Set|IEnumerable|IReadOnlyCollection|IReadOnlyList)<\s*([\w.]+)\s*>\s+(\w+)\s*(?:\{|=>)/g, entity: 1, member: 2, verbs: ['Add', 'AddRange', 'Remove'] },
     access: {
       member: {
         [WRITE]: ['Add', 'AddAsync', 'AddRange', 'AddRangeAsync', 'Remove', 'RemoveRange', 'Update', 'UpdateRange', 'Attach'],
@@ -416,14 +418,21 @@ export function mapEntities(view) {
         else if (!tx.follow) push({ entity, table: conv(tx.model ? m[tx.model] : entity), basis: 'convention', line, deferred: tx.deferred });
       }
     }
+    // The innermost type declaring a member at `line`, so a receiver of that type (or one inheriting it) reaches it.
+    const ownerAt = (line) => (view.types ?? []).filter((t) => t.ref?.startLine <= line && line <= t.ref?.endLine)
+      .sort((a, b) => (a.ref.endLine - a.ref.startLine) - (b.ref.endLine - b.ref.startLine))[0]?.name;
+    if (row.navigations) {
+      const c = row.navigations;
+      for (const m of view.matches?.(c.re) ?? []) {
+        const owner = ownerAt(view.lineOf(m.index));
+        if (owner) members.push({ orm: row.orm, entity: lastName(m[c.entity]), member: m[c.member], owner, nav: true });
+      }
+    }
     if (row.collections) {
       const c = row.collections;
       for (const m of view.matches?.(c.re) ?? []) {
         const entity = lastName(m[c.entity]);
-        const line = view.lineOf(m.index);
-        // The innermost type declaring the set, so a receiver of that type (or one inheriting it) reaches it.
-        const owner = (view.types ?? []).filter((t) => t.ref?.startLine <= line && line <= t.ref?.endLine)
-          .sort((a, b) => (a.ref.endLine - a.ref.startLine) - (b.ref.endLine - b.ref.startLine))[0]?.name;
+        const owner = ownerAt(view.lineOf(m.index));
         members.push({ orm: row.orm, entity, member: m[c.member], ...(owner && { owner }) });
         if (seen.has(entity)) continue;
         push({ entity, table: CONVENTIONS[c.convention](m[c.member], view), basis: 'convention', line: view.lineOf(m.index) });
@@ -524,7 +533,7 @@ export function accessCandidates(text, lang, lineOf) {
       const own = setTypes.length && (segs.length === 2 || (segs.length === 3 && /^(?:this|base)$/.test(segs[0])));
       if (own && !types.has(name)) types.set(name, declaredType(text, name.replace(/[!?]$/, '')));
       const type = own ? types.get(name) : null;
-      if (arity[v] && m[2] && argCount(argsAfter(text, m.index + m[0].length)) > arity[v]) { /* another type's method */ } else if (own && type) {
+      if (arity[v] && m[2] && argCount(text, m.index + m[0].length) > arity[v]) { /* another type's method */ } else if (own && type) {
         if (setTypes.some((t) => t.test(type))) add(name, v, '@member', m.index);
       } else if (setTypes.length && !own) {
         if (!types.has(`@${segs[0]}`)) types.set(`@${segs[0]}`, segs.length === 3 ? declaredType(text, segs[0]) : null);
@@ -540,23 +549,64 @@ export function accessCandidates(text, lang, lineOf) {
   return out;
 }
 
-/** Top-level arguments in an argument list. shortcut: a comma in generic arguments (`Make<A, B>()`) counts as one; fine for a set's verbs. */
-function argCount(args) {
-  if (!args.trim()) return 0;
-  let n = 1;
+/** Top-level arguments of the call whose `(` ends just before `from`; commas inside brackets, generic arguments and literals do not count. */
+function argCount(text, from) {
+  let commas = 0;
+  const close = closeOf(text, from, Math.min(text.length, from + 4000), () => commas++);
+  return text.slice(from, close).trim() ? commas + 1 : 0;
+}
+
+/**
+ * The index of the bracket closing the one opened just before `from` (or `end`), skipping nested
+ * brackets, generic arguments (`Make<A, B>`) and string and char literals; `comma` is called for
+ * each comma at the top level.
+ * shortcut: a `<` straight after a name opens generic arguments, so `a<b, c` reads as one argument (never fewer writes); a C# parser would tell.
+ */
+function closeOf(text, from, end, comma) {
   let depth = 0;
-  let quote = null;
-  for (let i = 0; i < args.length; i++) {
-    const c = args[i];
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = null;
-    } else if (c === '"' || c === "'") quote = c;
+  let angle = 0;
+  for (let i = from; i < end; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'") i = literalEnd(text, i, end) - 1;
     else if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') depth--;
-    else if (c === ',' && depth === 0) n++;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) return i; depth--; }
+    else if (c === '<' && /\w/.test(text[i - 1] ?? '') && text[i + 1] !== '=' && text[i + 1] !== '<') angle++;
+    else if (c === '>' && angle > 0 && text[i - 1] !== '=') angle--;
+    else if (c === ',' && depth === 0 && angle === 0) comma?.();
   }
-  return n;
+  return end;
+}
+
+/** The index after the C# string or char literal starting at `i`: regular, verbatim (`@"`), interpolated (`$"`, holes included) or raw (`"""`). */
+function literalEnd(text, i, end) {
+  if (text[i] === "'") {
+    for (let j = i + 1; j < end; j++) {
+      if (text[j] === '\\') j++;
+      else if (text[j] === "'" || text[j] === '\n') return j + 1;
+    }
+    return end;
+  }
+  let run = 0;
+  while (text[i + run] === '"') run++;
+  if (run >= 3) {
+    const close = text.indexOf('"'.repeat(run), i + run);
+    return close < 0 ? end : close + run;
+  }
+  const prefix = text.slice(Math.max(0, i - 2), i);
+  const verbatim = prefix.endsWith('@') || prefix === '@$';
+  const interpolated = prefix.endsWith('$') || prefix === '$@';
+  for (let j = i + 1; j < end; j++) {
+    const c = text[j];
+    if (c === '\\' && !verbatim) j++;
+    else if (c === '"') {
+      if (!verbatim || text[j + 1] !== '"') return j + 1;
+      j++;
+    } else if (c === '{' && interpolated) {
+      if (text[j + 1] === '{') j++;
+      else j = closeOf(text, j + 1, end);
+    } else if (c === '\n' && !verbatim) return j;
+  }
+  return end;
 }
 
 /** The link-only module attributes this rule uses; link removes them so they are never persisted. */
@@ -588,6 +638,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
   const users = [];
   const classes = new Map(); // type name -> [{ path, lang, ...class record }]
   const holders = new Map(); // member name -> the types that declare it as an ORM set
+  const navs = new Map(); // member name -> [{ e: element entity, c: the type declaring it as a collection navigation }]
   const typeBases = new Map(); // every declared type name -> its base names, from the type nodes
   for (const [path, facts] of factsByFile) {
     for (const f of facts) {
@@ -602,6 +653,7 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
         entities.get(e.n).push({ path, id: e.t, orm: e.o });
       }
       for (const m of a.orm_members ?? []) {
+        if (m.nav) { navs.set(m.n, [...(navs.get(m.n) ?? []), { e: m.e, c: m.c }]); continue; }
         if (!members.has(m.n)) members.set(m.n, []);
         members.get(m.n).push(m.e);
         if (m.c) holders.set(m.n, (holders.get(m.n) ?? new Set()).add(m.c));
@@ -665,6 +717,13 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
     seen.add(t);
     return Boolean(holders.get(n)?.has(t)) || (typeBases.get(t) ?? []).some((b) => holds(b, n, seen));
   };
+  const setMapped = new Set([...members.values()].flat()); // entity types a context maps with a set
+  // The entity type that collection navigation `n` of type `t` (or a type it inherits from) holds.
+  const navOf = (t, n, seen = new Set()) => {
+    if (seen.has(t)) return null;
+    seen.add(t);
+    return navs.get(n)?.find((x) => x.c === t)?.e ?? (typeBases.get(t) ?? []).reduce((e, b) => e ?? navOf(b, n, seen), null);
+  };
   const out = [];
   const done = new Set();
   for (const { path, access } of users) {
@@ -673,15 +732,22 @@ export function ormAccess(factsByFile, extractorPrefix, pv, opts = {}) {
       let hit = null;
       let shape = null;
       let low = Boolean(c.u);
+      let nav = null;
       if (c.rt) {
         const rt = lastName(norm(c.rt));
-        // A receiver whose type is declared in the repository and holds no such set reaches another member of that name.
+        // A receiver whose type is declared in the repository and holds no such set reaches another member of that name,
+        // unless the receiver is a mapped entity and the member one of its collection navigations: an inferred write to the element's table.
         if (!holds(rt, c.n)) {
-          if (typeBases.has(rt)) continue;
+          nav = setMapped.has(rt) ? navOf(rt, c.n) : null;
+          if (!nav && typeBases.has(rt)) continue;
           low = true;
         }
       }
-      if (c.via === '@member') {
+      if (nav) {
+        hit = pick(nav, path);
+        if (!hit || !rowOf(hit.orm)?.navigations?.verbs.includes(c.v)) continue;
+        shape = 'member';
+      } else if (c.via === '@member') {
         const names = [...new Set(members.get(c.n) ?? [])];
         const entity = names.length === 1 ? pick(names[0], path) : null;
         if (entity) { hit = entity; shape = 'member'; }
