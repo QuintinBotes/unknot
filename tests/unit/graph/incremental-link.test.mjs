@@ -59,25 +59,28 @@ const write = (dir, path, body) => {
   writeFileSync(join(dir, path), body);
 };
 
+/** Edit `files` (the tree of project `p`), commit, re-map, and compare every stored row with a cold map of the result. */
+const stepper = (p, files) => async (name, edit) => {
+  edit(files);
+  for (const [path, body] of Object.entries(files)) write(p.dir, path, body);
+  K.git(p.dir, 'add', '-A');
+  K.git(p.dir, 'commit', '-q', '-m', name);
+  const delta = await map(p);
+  const cold = K.makeProject({ files });
+  await map(cold);
+  const a = dump(p.ctx);
+  const b = dump(cold.ctx);
+  for (const k of Object.keys(b)) assert.deepEqual(a[k], b[k], `${name}: ${k} match a cold map`);
+  return delta;
+};
+
 test('an incremental map links again only what a change reaches, and stores what a cold map stores', async () => {
   const files = { ...tree };
   const p = K.makeProject({ files });
   const first = await map(p);
   assert.equal(first.link?.generic?.relinked, first.link?.generic?.modules, 'the first map links every file');
 
-  const step = async (name, edit) => {
-    edit(files);
-    for (const [path, body] of Object.entries(files)) write(p.dir, path, body);
-    K.git(p.dir, 'add', '-A');
-    K.git(p.dir, 'commit', '-q', '-m', name);
-    const delta = await map(p);
-    const cold = K.makeProject({ files });
-    await map(cold);
-    const a = dump(p.ctx);
-    const b = dump(cold.ctx);
-    for (const k of Object.keys(b)) assert.deepEqual(a[k], b[k], `${name}: ${k} match a cold map`);
-    return delta;
-  };
+  const step = stepper(p, files);
   const del = (path) => (f) => {
     delete f[path];
     rmSync(join(p.dir, path));
@@ -116,4 +119,43 @@ test('an incremental map links again only what a change reaches, and stores what
     f['java/com/x/Repo.java'] = 'package com.x;\n\npublic class Repo { public int save() { return 2; } public int load() { return 3; } }\n';
     f['pkg/a/a.go'] = 'package a\n\nfunc A() int { return 2 }\n';
   });
+});
+
+// Import cycles in three languages, one across build units the build forbids, and owners.
+const cyclic = {
+  'A/A.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="$(RepoRoot)Other/Other.csproj" /></ItemGroup></Project>\n',
+  'A/Ledger.cs': cls('Shop.A', 'Ledger', '        Invoice i;', 'using Shop.B;\n'),
+  'B/B.csproj': csproj(['../A/A.csproj']),
+  'B/Invoice.cs': cls('Shop.B', 'Invoice', '        Ledger l;', 'using Shop.A;\n'),
+  'web/a.js': "import { b } from './b.js';\nexport const a = () => b();\n",
+  'web/b.js': "import { c } from './c.js';\nexport const b = () => c();\n",
+  'web/c.js': "import { a } from './a.js';\nexport const c = () => a();\n",
+  'web/plain.js': 'const local = 1;\nconsole.log(local);\n',
+  'app/x.py': 'from app.y import y\n\n\ndef x():\n    return y()\n',
+  'app/y.py': 'from app.x import x\n\n\ndef y():\n    return x()\n',
+  '.github/CODEOWNERS': 'web/ @example/web\n',
+};
+
+test('derived facts are brought forward where the import graph did not change, and match a cold map (#145)', async () => {
+  const files = { ...cyclic };
+  const p = K.makeProject({ files });
+  await map(p);
+  const step = stepper(p, files);
+  const sccs = () => p.ctx.store.all("SELECT key FROM derived WHERE kind = 'scc' ORDER BY key").map((r) => r.key);
+  assert.equal(sccs().length, 3, 'a C#, a JavaScript and a Python cycle');
+
+  assert.equal((await step('a body edit in a cycle member', (f) => { f['web/b.js'] += 'export const extra = 1;\n'; })).derived, 'updated');
+  assert.equal((await step('a module gains its first export', (f) => { f['web/plain.js'] += 'export const shown = local;\n'; })).derived, 'updated');
+  assert.equal((await step('a Python and a C# body edit', (f) => {
+    f['app/y.py'] += '\n\ndef z():\n    return 1\n';
+    f['A/Ledger.cs'] = cls('Shop.A', 'Ledger', '        Invoice i;\n        public int N() { return 1; }', 'using Shop.B;\n');
+  })).derived, 'updated');
+  assert.equal((await step('owners change', (f) => { f['.github/CODEOWNERS'] = 'web/ @example/web\napp/ @example/py\n'; })).derived, 'updated');
+  assert.equal((await step('a module loses its exports', (f) => { f['web/plain.js'] = 'const local = 1;\nconsole.log(local);\n'; })).derived, 'updated');
+  assert.equal((await step('an import closes a new cycle', (f) => {
+    f['web/plain.js'] = "import { a } from './a.js';\nexport const p = () => a();\n";
+    f['web/c.js'] = "import { a } from './a.js';\nimport { p } from './plain.js';\nexport const c = () => a() + p();\n";
+  })).derived, 'recomputed');
+  assert.equal((await step('a cycle is broken', (f) => { f['app/y.py'] = '\n\ndef y():\n    return 1\n'; })).derived, 'recomputed');
+  assert.equal(sccs().length, 2);
 });
