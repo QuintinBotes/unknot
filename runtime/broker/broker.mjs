@@ -18,7 +18,7 @@ import { charge } from '../policy/budget.mjs';
 import { editablePathsFor, trackedRootFiles } from '../apply/worktree.mjs';
 import { casPut } from '../state/cas.mjs';
 import { appendEvent } from '../state/ledger.mjs';
-import { detectSandbox, wrap } from './sandbox.mjs';
+import { detectSandbox, sandboxInstallHint, sandboxRequired, wrap } from './sandbox.mjs';
 import { INDEXER_EXECUTABLES, pinnedIndexerInvocation } from '../../adapters/semantic/scip/indexers.mjs';
 
 const OUTPUT_CAP = 16 * 1024 * 1024;
@@ -209,11 +209,11 @@ export function which(file, pathEnv = process.env.PATH ?? '') {
 }
 
 /** The environment a brokered process sees: enough to run toolchains, no credentials. */
-export function minimalEnv({ tmp, extra = {} } = {}) {
+export function minimalEnv({ tmp, home = homedir(), extra = {} } = {}) {
   const keep = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME', 'JAVA_HOME', 'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'PYENV_ROOT', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'VIRTUAL_ENV'];
   const env = {};
   for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k];
-  Object.assign(env, { HOME: homedir(), TERM: 'dumb', CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', UNKNOT_SANDBOXED: '1' });
+  Object.assign(env, { HOME: home, TERM: 'dumb', CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', UNKNOT_SANDBOXED: '1' });
   if (tmp) Object.assign(env, { TMPDIR: tmp, TMP: tmp, TEMP: tmp });
   for (const [k, v] of Object.entries(extra)) {
     if (/TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY$|^AWS_|^AZURE_|^GOOGLE_|^GCP_|^GH_|^GITHUB_|^NPM_|^DATABASE_URL$/i.test(k)) {
@@ -272,6 +272,13 @@ export async function brokerExec(ctx, req) {
   if (network && (config?.limits?.max_network_requests ?? 0) === 0) {
     throw new UnknotError('UK_POLICY_DENIED', 'network is disabled for this project', { details: { policy: 'limits.max_network_requests' } });
   }
+  const sandboxKind = detectSandbox();
+  const requireSandbox = sandboxRequired(config);
+  if (sandboxKind === 'none' && requireSandbox) {
+    throw new UnknotError('UK_SANDBOX_REQUIRED', `no OS sandbox is available, and mode ${config?.mode ?? '(unknown)'} runs repository commands only inside one: ${sandboxInstallHint()}. To run unsandboxed anyway, a person sets security.require_os_sandbox: false and runs \`unknot config accept\` in a terminal`, {
+      details: { policy: 'security.require_os_sandbox', mode: config?.mode ?? null, platform: process.platform, argv },
+    });
+  }
   if (run) charge(ctx, run, 'commands', 1);
 
   const resolved = which(argv[0].includes('/') ? resolvePath(cwd, argv[0]) : argv[0], process.env.PATH);
@@ -284,16 +291,18 @@ export async function brokerExec(ctx, req) {
   // round 3: circuit-breaker's suite failed only under Unknot for this reason).
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const tmp = mkdtempSync(join(tmpdir(), `unknot-${(run?.id ?? 'adhoc').replace(/[^a-z0-9-]/gi, '')}-`));
-  const sandboxKind = detectSandbox();
   const wt = /^(.*\/\.unknot\/worktrees\/[^/]+)(\/|$)/.exec(realCwd);
   const rootFiles = wt ? trackedRootFiles(ctx.root) : [];
   // SCIP indexers get precisely their one fresh output file. The command log is appended by
   // the broker after the child exits, and indexers do not receive a writable temp directory.
   const childWritable = writeAccess.strictWritable ? writeAccess.writable : [...writeAccess.writable, runDir, tmp];
-  const wrapped = wrap(argv, { kind: sandboxKind, writable: childWritable, sockets: childWritable, hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox: config?.security?.require_os_sandbox ?? false, strictWritable: writeAccess.strictWritable });
+  const wrapped = wrap(argv, { kind: sandboxKind, writable: childWritable, sockets: childWritable, hideRoot: ctx.root, rootFiles, cwd: realCwd, network, loopback: config?.security?.sandbox_loopback === true, requireSandbox, strictWritable: writeAccess.strictWritable });
   const unsandboxed = unsandboxedBuildProblem(argv, writeAccess, wrapped.sandbox);
   if (unsandboxed) throw new UnknotError('UK_POLICY_DENIED', unsandboxed, { details: { argv } });
-  const env = minimalEnv({ tmp });
+  // Unsandboxed, nothing hides ~/.ssh or ~/.aws: the command gets an empty private HOME instead.
+  const home = wrapped.sandbox === 'none' ? join(tmp, 'home') : undefined;
+  if (home) mkdirSync(home, { mode: 0o700 });
+  const env = minimalEnv({ tmp, home });
   // In a slice worktree, editable Python installs must resolve to the worktree's code.
   if (wt) {
     const paths = editablePathsFor(ctx.root, wt[1]);
@@ -378,7 +387,7 @@ export async function brokerExec(ctx, req) {
     stdout_digest: `sha256:${result.streams.stdout.hash.digest('hex')}`,
     stderr_digest: `sha256:${result.streams.stderr.hash.digest('hex')}`,
     artifact_refs: [stdoutRef, stderrRef],
-    sandbox: wrapped.sandbox,
+    sandbox: wrapped.sandbox === 'none' && config?.security?.require_os_sandbox === false ? 'none (explicitly allowed)' : wrapped.sandbox,
     timed_out: result.timedOut,
     ...(Number.isFinite(memoryMb) && memoryMb > 0 && { memory_limit_mb: memoryMb, peak_rss_kb: result.memory?.peakRssKb ?? 0, memory_exceeded: result.memory?.exceeded === true }),
     truncated: result.streams.stdout.truncated || result.streams.stderr.truncated,

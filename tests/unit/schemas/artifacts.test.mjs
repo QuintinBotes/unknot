@@ -337,7 +337,7 @@ const CASES = {
       ['bad status', set('status', 'passed')], ['empty command element', set('command', [''])], ['bad id', set('id', 'PO17')]],
   },
   'evidence-record': {
-    valid: [evidence, { ...evidence, exit_code: null, timed_out: true, truncated: true, verdict: 'inconclusive', sandbox: 'none' }],
+    valid: [evidence, { ...evidence, exit_code: null, timed_out: true, truncated: true, verdict: 'inconclusive', sandbox: 'none' }, { ...evidence, sandbox: 'none (explicitly allowed)' }],
     invalid: [['missing required', del('stdout_digest')], ['unknown property', set('extra', 1)], ['bad verdict', set('verdict', 'ok')],
       ['bad sandbox', set('sandbox', 'docker')], ['negative duration', set('duration_ms', -1)], ['bad digest', set('stderr_digest', 'sha256:...')],
       ['string command', set('command', 'pnpm test')]],
