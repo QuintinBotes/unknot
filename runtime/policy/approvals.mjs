@@ -22,7 +22,7 @@ export function sliceDigest(body) {
   return digest(rest);
 }
 
-export function bindingFor({ slice, stage, commit, policyDigest, diffHash = null, planHash = null, stateSerial = null, environment = 'local', expiry = '72h' }) {
+export function bindingFor({ slice, stage, commit, policyDigest, diffHash = null, planHash = null, stateSerial = null, environment = 'local', expiry = '72h', guidanceDigests = null }) {
   if (!STAGES.includes(stage)) throw new UnknotError('UK_SCHEMA_INVALID', `bad approval stage ${stage}`);
   if (stage !== 'plan' && !diffHash) throw new UnknotError('UK_APPROVAL_REQUIRED', `${stage} approval needs a diff hash`);
   return {
@@ -36,6 +36,8 @@ export function bindingFor({ slice, stage, commit, policyDigest, diffHash = null
     policy_digest: policyDigest,
     environment,
     stage,
+    // Content of the guidance files the slice's convention report came from (null before reports existed).
+    ...(guidanceDigests && { guidance_digests: guidanceDigests }),
     expires_at: addMs(nowISO(), parseDuration(expiry)),
   };
 }
@@ -86,6 +88,14 @@ export function recordApproval(ctx, { config, slice, binding, role, approver, pr
   return row;
 }
 
+/** The guidance files whose content digest differs between two bindings' `guidance_digests`. */
+export function conventionChanges(bound, current) {
+  if (!bound && !current) return [];
+  const a = bound ?? {};
+  const b = current ?? {};
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((f) => (a[f] ?? null) !== (b[f] ?? null)).sort();
+}
+
 const BOUND_FIELDS = ['commit', 'slice_id', 'slice_version', 'slice_digest', 'diff_hash', 'plan_hash', 'state_serial', 'policy_digest', 'environment', 'stage'];
 
 /**
@@ -104,6 +114,7 @@ export function evaluateApprovals(ctx, { config, slice, current, needed }) {
     else if (!holdsRole(reg, r.role)) reasons.push('approver no longer holds the role');
     else if (!verifyText(reg.public_key, statement(binding, r.role, r.approver), r.signature)) reasons.push('signature does not verify');
     for (const f of BOUND_FIELDS) if ((binding[f] ?? null) !== (current[f] ?? null)) reasons.push(`${f} changed`);
+    for (const file of conventionChanges(binding.guidance_digests, current.guidance_digests)) reasons.push(`conventions changed (${file})`);
     if (new Date(binding.expires_at) <= now()) reasons.push('expired');
     if (reasons.length) stale.push({ id: r.id, role: r.role, approver: r.approver, reasons });
     else valid.push({ id: r.id, role: r.role, approver: r.approver });

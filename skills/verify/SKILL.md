@@ -37,7 +37,9 @@ the evidence shows. Missing evidence is "unknown".
 - Attestations pending: list them; the slice cannot advance until a person records them.
 - REVIEW_READY: point to the proof bundle path in the output and give the change-approval
   command for a person: `unknot approve <slice> --stage change --role <role> --as <approver>`.
-  Merging is a human decision; Unknot pushes nothing.
+  To review it as a pull request instead, a person runs `unknot pr <slice>` in their own
+  terminal: it pushes the slice branch and opens a draft with the review summary. Never run
+  it yourself. Merging is a human decision; Unknot never merges.
 
 ## Guardrails
 

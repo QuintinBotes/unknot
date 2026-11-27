@@ -40,8 +40,8 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
 
-1. *TTY check inside the command.* `approve`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
-2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
+1. *TTY check inside the command.* `approve`, `pr`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
+2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `pr`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
 
 ## Command summary
 
@@ -70,6 +70,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | `exec` | Runs a configured command in the sandbox | no | none |
 | `pattern`, `graph`, `slice` | Read-only | no | none |
 | `approve` | Records a signed approval | yes | none |
+| `pr` | Pushes the slice branch and opens or updates a draft pull request | yes | none |
 | `attest` | Records a signed human attestation | yes | none |
 | `keys` | Creates an approver key | yes | none |
 | `config` | `accept` replaces the config | `accept` yes; all subcommands blocked from an agent's shell | none |
@@ -228,7 +229,7 @@ Selects the smallest unblocked, highest-value slice and says why; lists other re
 
 ### `unknot slice <id>`
 
-A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
+A slice with its obligations, approvals, worktree, baseline and diff hash. JSON. `unknot slice show <id>` is the same. `conventions` is the slice's convention report grouped by status (`enforced`, `conflict`, `documented`, `flagged`, `default`), nearest scope first, with `note` when no repository guidance applies and `needs_reapproval` when an applicable guidance file changed since an approval ([concepts.md](concepts.md#campaigns-slices-and-the-state-machine)); a slice planned before reports existed reads `not recorded`.
 
 `unknot slice patching [--session <id>] [--] [path...]` lists the slices in `PATCHING` with their scope and change budget (`max_changed_files`, `max_diff_lines`, `files_left`, `lines_left`), and under `held` each given path the scope holds back, with the slice, the PDP rule and the reason. `applies` is false with no slice in `PATCHING`, or when the active run belongs to a session other than `--session`; then nothing else is read, the configuration included. When a slice is `PATCHING` and the configuration or policy does not load, the error's `details.patching` lists the slices. Paths after `--` are never read as flags. It opens the project read-only; the scope guard of the mod asks it before every edit ([security-model.md](security-model.md#runs-and-when-hooks-apply)). JSON.
 
@@ -262,6 +263,12 @@ Exit 3 with `UK_APPROVAL_REQUIRED` lists missing roles and stale approvals.
 ### `unknot verify <slice>`
 
 Executes the slice's proof obligations: built-in checks (scope, diff budget, parse, secrets, cycles, API, complexity) and configured commands through the broker. Obligations that need a person are listed as waiting. If all pass the slice becomes `REVIEW_READY` and a proof bundle is written under `.unknot/runs/<run-id>/`. Exit 0 only for `REVIEW_READY`. `--json` supported.
+
+### `unknot pr <slice>` (human)
+
+Opens a draft pull request for a verified slice (`REVIEW_READY` or `ACCEPTED`), so it is reviewed like any other change. It commits the worktree's staged change on the approved baseline and pushes it to `unknot/<slice>` on the `origin` remote (or the only remote), as your own `git push` would but with the repository's hooks off, never with force; then it runs `gh pr create --draft`. The body comes only from the latest proof bundle: the objective and the finding with its evidence, the slice's convention report (#155), what ran and passed, what failed, what was not run and why, the evidence gaps and uncertainties, the security delta and how to revert. Bundle text is quoted in code blocks as data, long sections are collapsed and secrets are redacted. The body is also written to `.unknot/runs/<run-id>/pr.md`.
+
+Run it again after the slice is patched again: it pushes a new commit on top of the last one, updates the body with `gh pr edit`, and the body says the verification is stale until `unknot verify` runs again. Without `gh` on `PATH` or without a remote it pushes nothing and prints the `git push` and `gh pr create --draft` commands to run by hand. `gh` is only called with `pr create --draft` or `pr edit`: Unknot never merges, marks a pull request ready, approves or force-pushes. The ledger records `pr.opened` and `pr.updated`.
 
 ### `unknot attest <PO-id> --result pass|fail --note "..." --as <approver>` (human)
 

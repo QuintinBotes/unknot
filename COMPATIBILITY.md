@@ -20,10 +20,10 @@ A change to any of these is governed by the semver policy below.
 
 Every command in `unknot --help` and every skill is public API, except `exec`, `run` and `daemon`,
 which skills and agents call as plumbing: they may change in any minor release. The human-only
-commands (`approve`, `attest`, `keys`) are public. A test keeps these lists in step with `COMMANDS`
+commands (`approve`, `attest`, `keys`, `pr`) are public. A test keeps these lists in step with `COMMANDS`
 and `skills/`, so a new command or skill must be classified here.
 
-**Public commands**: `init`, `map`, `import`, `diagnose`, `explain`, `decompose`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `cli`, `lane`, `search`, `doctor`, `pattern`, `graph`, `slice`, `approve`, `attest`, `keys`, `config`, `audit`, `policy`, `backup`, `workspace`, `gc`, `learn`
+**Public commands**: `init`, `map`, `import`, `diagnose`, `explain`, `decompose`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `cli`, `lane`, `search`, `doctor`, `pattern`, `graph`, `slice`, `approve`, `pr`, `attest`, `keys`, `config`, `audit`, `policy`, `backup`, `workspace`, `gc`, `learn`
 
 **Internal commands**: `exec`, `run`, `daemon`
 

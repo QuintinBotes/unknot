@@ -13,11 +13,12 @@ import { isInside, realpathLenient, toPosix } from '../../core/paths.mjs';
 import { sliceScopeDenial } from '../../policy/pdp.mjs';
 import { activeRun } from '../../state/runs.mjs';
 import { redact } from '../../core/redact.mjs';
-import { staleEvidence } from '../../plan/staleness.mjs';
+import { conventionDrift, staleEvidence } from '../../plan/staleness.mjs';
 import { output } from '../util.mjs';
 import { open, sliceRow } from './_shared.mjs';
 
-export async function run({ positional, flags }) {
+export async function run({ positional: args, flags }) {
+  const positional = args[0] === 'show' ? args.slice(1) : args;
   if (positional[0] === 'patching') return output(patching(positional.slice(1), flags), { json: true });
   const { ctx, config } = open(flags);
   const s = sliceRow(ctx, positional[0]);
@@ -37,7 +38,20 @@ export async function run({ positional, flags }) {
   const { sliceStanding } = await import('../../policy/lanes.mjs');
   const st = sliceStanding(s, config, ctx);
   const stale = staleEvidence(ctx, s.body);
-  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
+  output({ id: s.id, state: s.state, risk: s.risk, risk_reasons: st.risk_reasons, required_approvals: st.approvals, lane: st.lane, ...(st.proven_deletion && { proven_deletion: st.proven_deletion }), ...(stale.length && { stale_evidence: stale }), conventions: conventionsView(ctx, s), worktree: s.worktree, baseline: s.baseline_commit, diff_hash: s.diff_hash, slice: s.body, obligations, approvals }, { json: true });
+}
+
+const STATUS_ORDER = ['enforced', 'conflict', 'documented', 'flagged', 'default'];
+
+/** The slice's convention report grouped by status (nearest scope first within each), and what changed since approval. */
+function conventionsView(ctx, s) {
+  if (!Array.isArray(s.body.conventions)) return 'not recorded (planned before convention reports)';
+  const changed = conventionDrift(ctx, s);
+  return {
+    ...(!(s.body.guidance ?? []).length && { note: 'no repository guidance applies; only Unknot defaults' }),
+    ...(changed.length && { needs_reapproval: changed.map((f) => `conventions changed (${f})`) }),
+    by_status: Object.fromEntries(STATUS_ORDER.map((k) => [k, s.body.conventions.filter((c) => c.status === k)]).filter(([, v]) => v.length)),
+  };
 }
 
 /**

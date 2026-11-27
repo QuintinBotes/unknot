@@ -1,0 +1,11 @@
+[
+  {
+    "id": "F-0001",
+    "kind": "complex-function",
+    "title": "classify in src/classify.mjs is hard to follow, ask @someone",
+    "why_accidental": "Nested ifs repeat the vip split three times.",
+    "evidence": [
+      { "ref": "src/classify.mjs:1", "label": "OBSERVED", "summary": "cyclomatic 9 > 5; see ```fence``` and <img src=x>", "source_ref": null }
+    ]
+  }
+]

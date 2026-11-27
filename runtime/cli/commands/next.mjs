@@ -9,5 +9,5 @@ export async function run({ positional, flags }) {
   const res = selectNext(ctx, { campaign: positional[0] ?? null });
   if (flags.json) return output(res, { json: true });
   if (!res.next) return output(`No unblocked slice.${res.blocked.length ? ` Blocked: ${res.blocked.map((b) => `${b.id} (waiting for ${b.waiting_for.join(', ')})`).join('; ')}` : ''}`);
-  output([`Next: ${res.next.id} [${res.next.state}, ${res.next.risk} risk] ${res.next.objective}`, `Why: ${res.next.why.join('; ')}`, ...(res.alternatives.length ? ['Also ready: ' + res.alternatives.map((a) => a.id).join(', ')] : [])].join('\n'));
+  output([`Next: ${res.next.id} [${res.next.state}, ${res.next.risk} risk] ${res.next.objective}`, `Why: ${res.next.why.join('; ')}`, ...[res.next, ...res.alternatives].filter((x) => x.needs_reapproval).map((x) => `Needs re-approval: ${x.id}: ${x.needs_reapproval}`), ...(res.alternatives.length ? ['Also ready: ' + res.alternatives.map((a) => a.id).join(', ')] : [])].join('\n'));
 }
