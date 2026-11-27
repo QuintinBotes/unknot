@@ -24,11 +24,21 @@ const { generateApproverKey, loadApproverKey } = await import('../../runtime/cor
 const { recordApproval } = await import('../../runtime/policy/approvals.mjs');
 const { approvalStatus, currentBinding, finishApply, loadSlice, startApply } = await import('../../runtime/apply/apply.mjs');
 const { verifySlice } = await import('../../runtime/verify/verify.mjs');
+const { parseArgs } = await import('../../runtime/cli/util.mjs');
 const { startRun, endRun } = await import('../../runtime/state/runs.mjs');
 const { decide, toOperation } = await import('../../runtime/policy/pdp.mjs');
 const { transitionSlice } = await import('../../runtime/state/machine.mjs');
 const { stringifyYAML } = await import('../../runtime/core/yaml.mjs');
 const { head } = await import('../../runtime/apply/git.mjs');
+
+// The `unknot apply ...` commands a message names, parsed as the CLI parses them: [slice, step].
+function applyHints(message) {
+  return [...message.matchAll(/`unknot apply ([^`]*)`/g)].map((m) => {
+    const [slice, step = 'start'] = parseArgs(m[1].split(' ')).positional;
+    assert.ok(['start', 'finish', 'replan', 'abandon'].includes(step), `apply step ${step} in: ${message}`);
+    return [slice, step];
+  });
+}
 
 const BRANCHY = `export function classify(order) {
   let label = 'unknown';
@@ -123,6 +133,11 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
 
   const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: sliceId, config, configDigest: cfg.digest });
   await assert.rejects(startApply(ctx, { cfg, run, sliceId, actor: 'model:main' }), (e) => e.code === 'UK_APPROVAL_REQUIRED', 'no approval → no patching');
+  // The refusal names approval and `apply <slice>`, in the CLI's order, never `finish` (#177).
+  await assert.rejects(verifySlice(ctx, { cfg, run, sliceId, actor: 'model:main' }), (e) => {
+    assert.deepEqual(applyHints(e.message), [[sliceId, 'start'], [sliceId, 'finish']]);
+    return /unknot approve /.test(e.message);
+  });
 
   const key = loadApproverKey('alice', 'correct horse battery');
   for (const role of slice.body.approvals) {
@@ -132,6 +147,10 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
   assert.equal(started.baseline.verdict, 'pass', 'baseline tests pass before the change');
   slice = loadSlice(ctx, sliceId);
   assert.equal(slice.state, 'PATCHING');
+  await assert.rejects(verifySlice(ctx, { cfg, run, sliceId, actor: 'model:main' }), (e) => {
+    assert.deepEqual(applyHints(e.message), [[sliceId, 'finish']]);
+    return true;
+  });
 
   // The policy confines writes to the worktree and the slice scope.
   const write = (p) => decide({ ctx, config, run, slice, op: toOperation('Write', { file_path: p }, dir), pluginRoot: null }).decision;
