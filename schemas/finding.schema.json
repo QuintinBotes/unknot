@@ -162,7 +162,7 @@
       }
     },
     "confidence": {
-      "description": "How sure the detector is of the finding as a whole (absent on findings stored before 0.3.3).",
+      "description": "How sure Unknot is of the finding as a whole, from the evidence it rests on (absent on findings stored before 0.3.3; set on every finding since #179).",
       "enum": ["low", "medium", "high"]
     },
     "blast_radius": {
