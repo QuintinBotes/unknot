@@ -5,9 +5,10 @@
 // concurrency); the events table is append-only, enforced by triggers, and is the source
 // of truth the other tables are projections of.
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { UnknotError } from '../core/errors.mjs';
 import { hooksSeen } from './hooks-seen.mjs';
 import { EDGES_DDL, LATEST_SCHEMA_VERSION, runMigrations } from './migrations.mjs';
@@ -126,12 +127,27 @@ CREATE TABLE IF NOT EXISTS derived (
 // Tables whose rows are entities with a `version` column and a JSON `body`.
 const VERSIONED = new Set(['runs', 'findings', 'campaigns', 'slices', 'proof_obligations']);
 
+// A read-only open of a WAL database creates the -wal and -shm side files when it can, and fails
+// when the directory is not writable. With no -wal file no writer is live, so the main file holds
+// every commit and is read as immutable; with one, the live WAL is shared as before.
+function openReadOnly(file) {
+  if (file === ':memory:' || existsSync(`${file}-wal`)) return new DatabaseSync(file, { readOnly: true });
+  const url = pathToFileURL(file);
+  url.searchParams.set('immutable', '1');
+  try {
+    return new DatabaseSync(url, { readOnly: true });
+  } catch {
+    // shortcut: Node before 22.15 takes no URL and opens as before, side files and all; drop when engines is >=22.15.
+    return new DatabaseSync(file, { readOnly: true });
+  }
+}
+
 export class Store {
   /** @param {string} file absolute path, or ':memory:' */
   constructor(file, { readOnly = false } = {}) {
     if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.file = file;
-    this.db = new DatabaseSync(file, { readOnly });
+    this.db = readOnly ? openReadOnly(file) : new DatabaseSync(file);
     // recursive_triggers makes REPLACE fire the delete trigger too.
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = ON;');
     if (!readOnly) {
