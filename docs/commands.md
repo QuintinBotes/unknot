@@ -118,7 +118,7 @@ Builds or refreshes the graph. Scope arguments are path prefixes. Scopes accumul
 
 | Flag | Meaning |
 |---|---|
-| `--adapter a,b` | Run only these adapters. |
+| `--adapter a,b` | Run only these adapters. An id no adapter has is refused (`UK_CONFIG_INVALID`, listing the ids) and nothing is mapped. |
 | `--replace` | Map only the given scopes and forget the earlier ones. |
 | `--no-history` | Skip git history (co-change facts); decompose then reports co-change as `unmeasured`. |
 | `--json` | Summary as JSON. |
