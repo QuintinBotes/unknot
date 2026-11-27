@@ -28,6 +28,8 @@ const L = LANGUAGE_IDS;
  *   lifetimeNamed  { arg, values } for a named argument that spells the lifetime
  *   defaultLifetime  the lifetime when the code names none
  *   lifetimeArgs  for 'call': { TypeName: lifetime } for an argument `new TypeName(...)`
+ *   fileMarker  code (comments and strings hidden) the file must contain for the row to
+ *               apply, where the call names are common words of other libraries
  *   propertyArg   for 'call': the type of an argument `new TypeName("Prop")` that injects
  *               the named property (a name that is not a string literal is left out)
  * A registration with property injection carries `properties`: 'autowired' or the names.
@@ -59,6 +61,8 @@ export const DI_SYNTAX = [
     service: { typeArg: 0 }, implementation: { typeArg: 1 },
     lifetimeArgs: { ContainerControlledLifetimeManager: 'singleton' },
     propertyArg: 'InjectionProperty',
+    // RegisterType/RegisterSingleton are also home-grown container wrappers: only a file that uses Unity counts.
+    fileMarker: /\busing\s+(?:Microsoft\.Practices\.)?Unity\b|\bI?UnityContainer\b/,
   },
   {
     container: 'guice', languages: [L.JAVA, L.KOTLIN], kind: 'fluent',
@@ -404,9 +408,9 @@ const TRIGGER = new RegExp(`\\b(?:${[...triggerNames()].join('|')})\\b`);
 
 export function diCandidates(path, text, lang) {
   if (!TRIGGER.test(text)) return [];
-  const rows = DI_SYNTAX.filter((r) => r.languages.includes(lang));
-  if (!rows.length) return [];
+  if (!DI_SYNTAX.some((r) => r.languages.includes(lang))) return [];
   const lx = view(text, lang);
+  const rows = DI_SYNTAX.filter((r) => r.languages.includes(lang) && (!r.fileMarker || r.fileMarker.test(lx.code)));
   const out = [];
   const seen = new Set();
   const push = (row, serviceRaw, implRaw, lifetime, index, properties) => {

@@ -42,7 +42,7 @@ const CANDIDATES = [
   { name: 'autofac scoped spellings', lang: L.CSHARP, src: 'builder.RegisterType<OrderService>().As<IOrderService>().InstancePerLifetimeScope();\nbuilder.RegisterType<LedgerService>().As<ILedgerService>().InstancePerRequest();', expected: [reg('autofac', 'IOrderService', 'OrderService', 'scoped'), reg('autofac', 'ILedgerService', 'LedgerService', 'scoped')] },
   { name: 'autofac transient spellings', lang: L.CSHARP, src: 'builder.RegisterType<OrderService>().As<IOrderService>().InstancePerDependency();\nbuilder.RegisterType<LedgerService>().As<ILedgerService>();', expected: [reg('autofac', 'IOrderService', 'OrderService', 'transient'), reg('autofac', 'ILedgerService', 'LedgerService', 'transient')] },
   { name: 'autofac AsSelf', lang: L.CSHARP, src: 'builder.RegisterType<LedgerService>().AsSelf();', expected: [reg('autofac', 'LedgerService', 'LedgerService', 'transient')] },
-  { name: 'unity lifetimes', lang: L.CSHARP, src: 'container.RegisterType<IOrderService, OrderService>();\ncontainer.RegisterSingleton<IInvoiceService, InvoiceService>();\ncontainer.RegisterType<ILedgerService, LedgerService>(new ContainerControlledLifetimeManager());', expected: [reg('unity', 'IOrderService', 'OrderService', 'transient'), reg('unity', 'IInvoiceService', 'InvoiceService', 'singleton'), reg('unity', 'ILedgerService', 'LedgerService', 'singleton')] },
+  { name: 'unity lifetimes', lang: L.CSHARP, src: 'using Unity;\ncontainer.RegisterType<IOrderService, OrderService>();\ncontainer.RegisterSingleton<IInvoiceService, InvoiceService>();\ncontainer.RegisterType<ILedgerService, LedgerService>(new ContainerControlledLifetimeManager());', expected: [reg('unity', 'IOrderService', 'OrderService', 'transient'), reg('unity', 'IInvoiceService', 'InvoiceService', 'singleton'), reg('unity', 'ILedgerService', 'LedgerService', 'singleton')] },
   { name: 'guice java singleton spellings', lang: L.JAVA, src: 'bind(IInvoiceService.class).to(InvoiceService.class).in(Singleton.class);\nbind(IOrderService.class).to(OrderService.class).in(Scopes.SINGLETON);\nbind(ILedgerService.class).to(LedgerService.class).asEagerSingleton();', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'singleton'), reg('guice', 'IOrderService', 'OrderService', 'singleton'), reg('guice', 'ILedgerService', 'LedgerService', 'singleton')] },
   { name: 'guice java default transient', lang: L.JAVA, src: 'bind(IInvoiceService.class).to(InvoiceService.class);', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'transient')] },
   { name: 'guice kotlin', lang: L.KOTLIN, src: 'bind(IInvoiceService::class.java).to(InvoiceService::class.java)', expected: [reg('guice', 'IInvoiceService', 'InvoiceService', 'transient')] },
@@ -88,12 +88,18 @@ test('the table has a candidate case for every row', () => {
   }
 });
 
+test('unity: a RegisterSingleton in a file that does not use Unity is another container, not unity', () => {
+  assert.deepEqual(diCandidates('a.cs', 'services.RegisterSingleton<IOrderService, OrderService>();', L.CSHARP), []);
+  assert.deepEqual(diCandidates('a.cs', '// using Unity;\nservices.RegisterSingleton<IOrderService, OrderService>();', L.CSHARP), []);
+  assert.deepEqual(brief(diCandidates('a.cs', 'void Configure(IUnityContainer c) { c.RegisterSingleton<IOrderService, OrderService>(); }', L.CSHARP)), [reg('unity', 'IOrderService', 'OrderService', 'singleton')]);
+});
+
 test('property injection: PropertiesAutowired is autowired, InjectionProperty names string literals only', () => {
   const props = (src) => diCandidates('a.cs', src, L.CSHARP).map((c) => c.properties);
   assert.deepEqual(props('builder.RegisterType<OrderService>().As<IOrderService>().PropertiesAutowired().SingleInstance();'), ['autowired']);
   assert.deepEqual(props('builder.RegisterType<OrderService>().As<IOrderService>();'), [undefined]);
-  assert.deepEqual(props('container.RegisterType<IOrderService, OrderService>(new InjectionProperty("Log"), new InjectionProperty("Clock", new ResolvedParameter<IClock>()));'), [['Clock', 'Log']]);
-  assert.deepEqual(props('container.RegisterType<IOrderService, OrderService>(new InjectionProperty(nameof(OrderService.Clock)));'), [undefined]);
+  assert.deepEqual(props('using Unity;\ncontainer.RegisterType<IOrderService, OrderService>(new InjectionProperty("Log"), new InjectionProperty("Clock", new ResolvedParameter<IClock>()));'), [['Clock', 'Log']]);
+  assert.deepEqual(props('using Unity;\ncontainer.RegisterType<IOrderService, OrderService>(new InjectionProperty(nameof(OrderService.Clock)));'), [undefined]);
 });
 
 test('a registration in a comment or a string gives nothing', () => {
