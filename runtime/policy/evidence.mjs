@@ -66,9 +66,6 @@ export function weakEvidenceReasons(strength) {
   return why;
 }
 
-/** A slice that only reaches test code changes no behaviour, so weak evidence does not stop it. */
-export const testOnly = (body) => (body.scope?.include ?? []).length > 0 && body.scope.include.every((g) => isTestFile(g.replace(/\*+/g, 'x')));
-
 /** Whether the accepted config lets this slice's campaign be applied on weak evidence. */
 const allowedWeak = (config, campaignId) => {
   const a = config.evidence?.allow_weak;
@@ -77,8 +74,12 @@ const allowedWeak = (config, campaignId) => {
 
 /** Refuse to apply a non-test slice whose scope rests mostly on lexical reads. */
 export function assertEvidence(ctx, slice, config) {
-  if (testOnly(slice.body) || allowedWeak(config, slice.campaign_id)) return;
-  const lex = lexicalShare(scopeModules(ctx, slice.body.scope));
+  if (allowedWeak(config, slice.campaign_id)) return;
+  const modules = scopeModules(ctx, slice.body.scope);
+  // A slice that only reaches test code changes no behaviour. Judged by the modules the scope
+  // matches, not by the glob text, which brace alternatives can dress up as a test path.
+  if (modules.every((m) => isTestFile(m.path))) return;
+  const lex = lexicalShare(modules);
   if (!lex.lexical || lex.lexical * 2 <= lex.modules) return;
   const langs = lex.languages.join(', ') || 'its language';
   const ways = [

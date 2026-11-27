@@ -129,6 +129,12 @@ test('a test-only slice is applied on weak evidence', async () => {
   assert.equal(res.slice.state, 'PATCHING');
 });
 
+test('a scope dressed up as test paths but reaching production code is still refused', async () => {
+  const { p, cfg } = await planned(CSHARP);
+  const { slices } = createCampaign(p.ctx, { config: cfg.config, actor: 'model:main', objective: 'Remove dead code', proposal: { slices: [{ objective: 'Trim Legacy', kind: 'code', scope: { include: ['{Shop/,Shop.Tests/}**'] } }] } });
+  await assert.rejects(apply(p, cfg, slices[0].id, 'code-owner'), (e) => e.code === 'UK_INSUFFICIENT_EVIDENCE');
+});
+
 test('an organization can forbid allow_weak, never grant it', () => {
   const repo = K.cfg({ evidence: { allow_weak: ['CMP-1'], traces: ['t.json'] } });
   const forbid = K.merge.applyOrgPolicy(repo, { evidence: { allow_weak: false } }).config;
