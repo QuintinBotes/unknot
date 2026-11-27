@@ -246,6 +246,12 @@ Container and deployment files (Dockerfiles, compose files, Helm charts) are inf
 | `approvals.proven_deletion` | `[any-approver]` | Roles that must approve a proven deletion: a one-file removal whose source findings are observed, live and not public (see below). `any-approver` is satisfied by any registered approver; a repository can tighten it, for example to `[code-owner]`. |
 | `approvals.critical_min_approvers` | `2` (minimum 2) | |
 | `approvals.expiry` | `72h` | How long an approval stays valid. |
+| `approvals.via` | `local` | Where change approvals come from: `local` signatures, GitHub pull request reviews (`forge`), or either (`both`). See [forge-approvals.md](forge-approvals.md). |
+| `approvals.forge.repository` | none | The `owner/repo` whose pull request reviews count. Required: while unset no review counts. |
+| `approvals.forge.base` | the repository's default branch | The base branch a pull request must target. |
+| `approvals.forge.agent_accounts` | none | Numeric GitHub user ids agents act as (`[]` for none). Required: while unset no review counts. |
+| `approvals.forge.gh` | first of `/opt/homebrew/bin/gh`, `/usr/local/bin/gh`, `/usr/bin/gh`, … | Absolute path of the `gh` binary; `PATH` is never searched. |
+| `approvals.forge.roles` | none | With `via: forge` or `both`, who holds each role on GitHub: `users` (numeric user ids), `teams` (`org/team`), or `codeowners: true` for a code owner of every changed path in the baseline's CODEOWNERS. |
 
 Role names are lowercase words with hyphens. A role in `approvals` is satisfied only by an approver who holds it; the one exception is `any-approver`, which any registered approver satisfies.
 
@@ -263,7 +269,18 @@ approvers:
       -----END PUBLIC KEY-----
 ```
 
-`unknot keys generate <name>` prints this block. `roles` and `public_key` are required; names match `^[A-Za-z0-9._-]{1,64}$`. `teams` and `paths` are recorded but not used in approval checks in this version.
+`unknot keys generate <name>` prints this block. `roles` and `public_key` are required; names match `^[A-Za-z0-9._-]{1,64}$`. `teams` and `paths` are recorded but not used in approval checks in this version. `github_id: <numeric id>` links an approver to a GitHub account: a review by a listed agent account counts only together with the local signature of the approver linked to it, and only for the roles that signature holds.
+
+```yaml
+approvals:
+  via: forge                       # local (default) | forge | both
+  forge:
+    roles:
+      code-owner: { codeowners: true }
+      affected-owner: { users: [5044], teams: [acme/checkout] }  # user ids: gh api users/<login> --jq .id
+    repository: acme/checkout        # reviews count only here
+    agent_accounts: [5011]           # the accounts agents act as; [] for none
+```
 
 `unknot init` proposes only `approvals: { expiry: '72h' }` and leaves approval roles to the built-in defaults above, so a proposal never starts looser. Read the proposal before accepting.
 

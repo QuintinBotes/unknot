@@ -23,7 +23,7 @@ which skills and agents call as plumbing: they may change in any minor release. 
 commands (`approve`, `attest`, `keys`, `pr`) are public. A test keeps these lists in step with `COMMANDS`
 and `skills/`, so a new command or skill must be classified here.
 
-**Public commands**: `init`, `map`, `import`, `diagnose`, `explain`, `decompose`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `cli`, `lane`, `search`, `doctor`, `pattern`, `graph`, `slice`, `approve`, `pr`, `attest`, `keys`, `config`, `audit`, `policy`, `backup`, `workspace`, `gc`, `learn`
+**Public commands**: `init`, `map`, `import`, `diagnose`, `explain`, `decompose`, `plan`, `next`, `apply`, `verify`, `architecture`, `database`, `infrastructure`, `security`, `status`, `rollback`, `accept`, `reject`, `cli`, `lane`, `search`, `doctor`, `pattern`, `graph`, `slice`, `approve`, `approvals`, `pr`, `attest`, `keys`, `config`, `audit`, `policy`, `backup`, `workspace`, `gc`, `learn`
 
 **Internal commands**: `exec`, `run`, `daemon`
 

@@ -40,8 +40,8 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 
 **Human-only commands.** Two mechanisms keep commands out of an agent's hands.
 
-1. *TTY check inside the command.* `approve`, `pr`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
-2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `pr`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
+1. *TTY check inside the command.* `approve`, `approvals`, `pr`, `attest`, `keys generate`, `config accept`, `cli install|uninstall`, `run end`, `policy keygen`, `policy sign` and `gc --shred` refuse unless stdin and stdout are a terminal and `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` are unset. Secrets (passphrases, confirmations) are read from `/dev/tty`.
+2. *Shell rule.* While Claude Code runs a command through its Bash tool, the command rules refuse the verbs `approve`, `approvals`, `pr`, `attest`, `keys`, `config` (all subcommands, including `show` and `diff`), `run`, `policy`, `gc`, `daemon`, `backup` and `audit`. Run these in your own terminal. `backup`, `audit`, `daemon`, `policy verify|effective|trust`, `gc` without `--shred` and `config show|diff` have no TTY check of their own, so a script or CI job you control can run them.
 
 ## Command summary
 
@@ -70,6 +70,7 @@ Codes: `UK_CONFIG_INVALID`, `UK_SCHEMA_INVALID`, `UK_NOT_FOUND`, `UK_NOT_INITIAL
 | `exec` | Runs a configured command in the sandbox | no | none |
 | `pattern`, `graph`, `slice` | Read-only | no | none |
 | `approve` | Records a signed approval | yes | none |
+| `approvals` | Reads approvals and pull request reviews; accepts a slice whose reviews complete its change stage | yes | none |
 | `pr` | Pushes the slice branch and opens or updates a draft pull request | yes | none |
 | `attest` | Records a signed human attestation | yes | none |
 | `keys` | Creates an approver key | yes | none |
@@ -108,7 +109,7 @@ Reaches the CLI from a normal terminal. `status` prints the CLI path, the launch
 
 ### `unknot doctor`
 
-Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. Each detected language with a SCIP indexer-table row gets an indexer line; one without its project marker says which marker is needed. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools are warnings or info, not failures. A missing OS sandbox is a warning in `observe` and `plan` and a failure (`os sandbox required`) in `assist`, `governed` and `campaign`, unless a person set `security.require_os_sandbox: false`. Flag: `--json`.
+Checks the Node version, OS sandbox, git, python3, helm, kustomize, terraform, tofu, semgrep and gitleaks; and, in an initialised project, config acceptance, the effective config, org policy signatures, the ledger chain and signatures, the CLI path, launcher and `PATH`, registered approvers, adapters and the hook error log. With `approvals.via: forge` or `both`: that the remote is on github.com, that the default branch requires pull request reviews and code-owner review (failures), whether `approvals.forge.repository` is set and is the remote, whether `approvals.forge.agent_accounts` is set, and whether any agent account can push to it without a review (all failures), and warns when the `gh` binary or a directory above it is writable by the current user. Each detected language with a SCIP indexer-table row gets an indexer line; one without its project marker says which marker is needed. Prints `ok`, warning, failure or info lines. Exit 1 if any check failed. Missing optional tools are warnings or info, not failures. A missing OS sandbox is a warning in `observe` and `plan` and a failure (`os sandbox required`) in `assist`, `governed` and `campaign`, unless a person set `security.require_os_sandbox: false`. Flag: `--json`.
 
 ## Understanding the system
 
@@ -241,7 +242,7 @@ A pane beside the chat with the mode, each campaign's slices by state, blockers,
 
 ### `unknot approve <slice> --role <role> --as <approver> [--stage plan|change|rollback]` (human)
 
-Shows the objective, risk, required roles, scope, commit or diff hash, policy digest and expiry. You type the slice id to confirm, then the approver key's passphrase. Records an Ed25519 signature over that binding. Stage defaults from the slice state: `plan` while awaiting approval, `change` when `REVIEW_READY`, `rollback` when `ACCEPTED`. When the `change` stage is fully approved the slice becomes `ACCEPTED`; in `governed` or `campaign` mode Unknot also commits in the slice worktree. It never pushes or merges. A high or critical slice cannot be approved by the person who proposed it.
+Shows the objective, risk, required roles, scope, commit or diff hash, policy digest and expiry. You type the slice id to confirm, then the approver key's passphrase. Records an Ed25519 signature over that binding. Stage defaults from the slice state: `plan` while awaiting approval, `change` when `REVIEW_READY`, `rollback` when `ACCEPTED`. With forge approvals it also shows, before the passphrase, the pull request reviews the change approval would accept on. When the `change` stage is fully approved the slice becomes `ACCEPTED`; in `governed` or `campaign` mode Unknot also commits in the slice worktree. It never pushes or merges. A high or critical slice cannot be approved by the person who proposed it.
 
 ### `unknot approve --lane <LN-id> --as <approver> [--role <role>]` (human)
 
@@ -268,7 +269,11 @@ Executes the slice's proof obligations: built-in checks (scope, diff budget, par
 
 Opens a draft pull request for a verified slice (`REVIEW_READY` or `ACCEPTED`), so it is reviewed like any other change. It commits the worktree's staged change on the approved baseline and pushes it to `unknot/<slice>` on the `origin` remote (or the only remote), as your own `git push` would but with the repository's hooks off, never with force; then it runs `gh pr create --draft`. The body comes only from the latest proof bundle: the objective and the finding with its evidence, the slice's convention report (#155), what ran and passed, what failed, what was not run and why, the evidence gaps and uncertainties, the security delta and how to revert. Bundle text is quoted in code blocks as data, long sections are collapsed and secrets are redacted. The body is also written to `.unknot/runs/<run-id>/pr.md`.
 
-Run it again after the slice is patched again: it pushes a new commit on top of the last one, updates the body with `gh pr edit`, and the body says the verification is stale until `unknot verify` runs again. Without `gh` on `PATH` or without a remote it pushes nothing and prints the `git push` and `gh pr create --draft` commands to run by hand. `gh` is only called with `pr create --draft` or `pr edit`: Unknot never merges, marks a pull request ready, approves or force-pushes. The ledger records `pr.opened` and `pr.updated`.
+Run it again after the slice is patched again: it pushes a new commit on top of the last one, updates the body with `gh pr edit`, and the body says the verification is stale until `unknot verify` runs again. Without `gh` on `PATH` or without a remote it pushes nothing and prints the `git push` and `gh pr create --draft` commands to run by hand. `gh` is only called with `pr create --draft` or `pr edit`: Unknot never merges, marks a pull request ready, approves or force-pushes. The ledger records `pr.opened` and `pr.updated`. With `approvals.via: forge` or `both` it pushes only to the pinned `approvals.forge.repository`, runs the configured `gh` (never one on `PATH`) with `--repo`, refuses a pull request URL outside that repository, and also posts the binding comment (the change binding signed with the project audit key) through `gh api --hostname github.com`, and records `forge.binding_posted`.
+
+### `unknot approvals <slice> [--stage plan|change|rollback]` (human)
+
+Shows where a slice's approvals stand: the roles and number of approvers needed, the local approvals that count or are stale and why, and with `approvals.via: forge` or `both` (change stage) the pull request, its head and each reviewer's latest review with whether it counts or why not. It reads reviews and never writes them. A review counts when it is `APPROVED` on the current head, the head's diff against the baseline hashes to the bound diff, the posted binding still matches, the reviewer is not the author and holds the role; a review from the account `gh` acts as needs that person's local signature too ([forge-approvals.md](forge-approvals.md)). When the reviews complete the change stage of a `REVIEW_READY` slice, it shows the pull request, its base and head and each counted reviewer and role, and asks you to type the slice id; only then is it accepted as `approve` would, and each counted review is then recorded once as `approval.recorded` with `via: forge`, the review id, reviewer, reviewer id, head and binding. Human only, like `approve`. Stage defaults from the slice state, like `approve`. `--json` supported.
 
 ### `unknot attest <PO-id> --result pass|fail --note "..." --as <approver>` (human)
 

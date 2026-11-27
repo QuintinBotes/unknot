@@ -1,6 +1,7 @@
 // Git as the runtime drives it. Every invocation disables the repository-controlled ways
 // git can run code: hooks, fsmonitor, external diff and textconv drivers, pagers, and
-// network transports. A repository under analysis must not get execution from `git status`.
+// network transports. A repository under analysis must not get execution from `git status`, and
+// replace refs are ignored, so an object id always means its own content.
 
 import { spawnSync } from 'node:child_process';
 import { UnknotError } from '../core/errors.mjs';
@@ -20,7 +21,8 @@ export const SAFE_GIT = Object.freeze([
 const ENV_KEEP = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR'];
 
 function gitEnv() {
-  const env = { GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0' };
+  // Replace refs (refs/replace/*) would let a local ref swap one commit's content for another's.
+  const env = { GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1' };
   for (const k of ENV_KEEP) if (process.env[k]) env[k] = process.env[k];
   return env;
 }
