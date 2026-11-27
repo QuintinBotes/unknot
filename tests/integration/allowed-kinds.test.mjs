@@ -11,6 +11,7 @@ import { mapRepository } from '../../runtime/graph/builder.mjs';
 import { createCampaign } from '../../runtime/plan/campaign.mjs';
 import { currentBinding, finishApply, startApply } from '../../runtime/apply/apply.mjs';
 import { sliceStanding } from '../../runtime/policy/lanes.mjs';
+import { accept } from '../../runtime/cli/commands/approve.mjs';
 import { stringifyYAML } from '../../runtime/core/yaml.mjs';
 
 after(() => K.cleanup());
@@ -31,7 +32,7 @@ const SLICES = [
   { objective: 'Slim the image', kind: 'code', scope: { include: ['Dockerfile'] }, changes: [{ path: 'Dockerfile', operation: 'modify', description: 'smaller base' }], preconditions: [] },
 ];
 
-async function project(allowed, extra = {}) {
+async function project(allowed, extra = {}, drafts = SLICES) {
   const p = K.makeProject({ files: FILES });
   const text = stringifyYAML({ ...BASE, ...extra, ...(allowed && { apply: { allowed_kinds: allowed } }) });
   writeFileSync(join(p.ctx.paths.base, 'config.yaml'), text);
@@ -40,7 +41,7 @@ async function project(allowed, extra = {}) {
   K.configMod.recordAcceptedConfig(p.ctx, text, 'human:test');
   const cfg = K.configMod.loadConfig(p.ctx);
   await mapRepository(p.ctx, { config: cfg.config, configDigest: cfg.digest, history: false });
-  const { slices } = createCampaign(p.ctx, { config: cfg.config, actor: 'model:main', objective: 'Pilot', proposal: { slices: SLICES } });
+  const { slices } = createCampaign(p.ctx, { config: cfg.config, actor: 'model:main', objective: 'Pilot', proposal: { slices: drafts } });
   return { p, cfg, ids: slices.map((s) => s.id) };
 }
 
@@ -51,6 +52,13 @@ async function step(p, cfg, id, fn) {
   } finally {
     K.runs.endRun(p.ctx, run.id);
   }
+}
+
+function setConfig(p, allowed) {
+  const text = stringifyYAML({ ...BASE, ...(allowed && { apply: { allowed_kinds: allowed } }) });
+  writeFileSync(join(p.ctx.paths.base, 'config.yaml'), text);
+  K.configMod.recordAcceptedConfig(p.ctx, text, 'human:test');
+  return K.configMod.loadConfig(p.ctx);
 }
 
 function approve(p, cfg, id) {
@@ -133,4 +141,57 @@ test('a "refactor" that removes a public export is refused when public-interface
   await finish(p, cfg, id);
   s = K.loadSlice(p.ctx, id);
   assert.equal(s.state, 'VERIFYING');
+});
+
+test('a "documentation" label does not let a code change through, and does not skip the code checks', { timeout: 120_000 }, async () => {
+  const slices = [
+    { objective: 'Document price', kind: 'documentation', scope: { include: ['src/**'] }, preconditions: [] },
+    { objective: 'Fix the README', kind: 'documentation', scope: { include: ['README.md'] }, changes: [{ path: 'README.md', operation: 'modify', description: 'typo' }], preconditions: [] },
+  ];
+  const { p, cfg, ids } = await project(['tests', 'deletion', 'documentation'], {}, slices);
+  const [labelled, readme] = ids;
+  const kinds = (id) => p.ctx.store.all('SELECT kind FROM proof_obligations WHERE slice_id = ?', id).map((o) => o.kind);
+  for (const k of ['unit', 'architecture-fitness', 'api-compatibility']) assert.ok(kinds(labelled).includes(k), `${k} applies to a documentation-labelled slice reaching src/**`);
+  assert.ok(!kinds(readme).includes('architecture-fitness'), 'a README-only slice keeps the documentation obligations');
+  assert.match(sliceStanding(K.loadSlice(p.ctx, labelled), cfg.config, p.ctx).plan_only, /excludes refactor/);
+  approve(p, cfg, labelled);
+  await assert.rejects(start(p, cfg, labelled), (e) => e.code === 'UK_KIND_NOT_ALLOWED' && e.details.refused.includes('refactor'));
+  // Even if the plan named only a Markdown file, the patch is judged by what it changes.
+  const { diffKinds } = await import('../../runtime/policy/kinds.mjs');
+  assert.deepEqual(diffKinds({ kind: 'documentation' }, { paths: ['src/price.js'], added: 1 }).shape, ['refactor']);
+  approve(p, cfg, readme);
+  const s = (await start(p, cfg, readme)).slice;
+  writeFileSync(join(s.worktree, 'README.md'), '# fixed\n');
+  await finish(p, cfg, readme);
+  assert.equal(K.loadSlice(p.ctx, readme).state, 'VERIFYING');
+});
+
+test('the reviewer case: a documentation-labelled slice that adds a fetch to src/price.js is refused at finish', { timeout: 120_000 }, async () => {
+  // Planned when no list was set, so it gets past start; the list is narrowed before the patch is finished.
+  const slices = [{ objective: 'Document price', kind: 'documentation', scope: { include: ['src/**'] }, preconditions: [] }];
+  const { p, cfg, ids } = await project(null, {}, slices);
+  approve(p, cfg, ids[0]);
+  const s = (await start(p, cfg, ids[0])).slice;
+  writeFileSync(join(s.worktree, 'src/price.js'), `${FILES['src/price.js']}fetch('https://example.invalid');\n`);
+  const narrowed = setConfig(p, ['tests', 'deletion', 'documentation']);
+  await assert.rejects(finish(p, narrowed, ids[0]), (e) => e.code === 'UK_KIND_NOT_ALLOWED' && e.details.refused.includes('refactor'));
+  assert.equal(K.loadSlice(p.ctx, ids[0]).state, 'PATCHING');
+});
+
+test('a slice patched before the list was narrowed cannot be accepted after it', { timeout: 120_000 }, async () => {
+  const { p, cfg, ids } = await project(null);
+  const id = ids[2];
+  approve(p, cfg, id);
+  const s = (await start(p, cfg, id)).slice;
+  writeFileSync(join(s.worktree, 'src/price.js'), 'export function price(items) {\n  let s = 0;\n  for (const i of items) s += i.p;\n  return s;\n}\n');
+  await finish(p, cfg, id);
+  K.machine.transitionSlice(p.ctx, { slice: K.loadSlice(p.ctx, id), to: 'REVIEW_READY', actor: 'runtime:verifier', reason: 'test: proven' });
+  const satisfied = { satisfied: true, valid: [] };
+  // The single-slice and the lane change approval both end in accept().
+  const narrowed = setConfig(p, ['tests', 'deletion']);
+  await assert.rejects(accept(p.ctx, narrowed, K.loadSlice(p.ctx, id), satisfied, 'alice'), (e) => e.code === 'UK_KIND_NOT_ALLOWED' && e.details.refused.includes('refactor'));
+  assert.equal(K.loadSlice(p.ctx, id).state, 'REVIEW_READY', 'nothing accepted or committed');
+  const widened = setConfig(p, ['refactor']);
+  assert.match(await accept(p.ctx, widened, K.loadSlice(p.ctx, id), satisfied, 'alice'), /ACCEPTED/);
+  assert.equal(K.loadSlice(p.ctx, id).state, 'ACCEPTED');
 });

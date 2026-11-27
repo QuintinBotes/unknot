@@ -4,6 +4,7 @@
 // the rest require a human attestation and say so.
 
 import { matchAny } from '../core/glob.mjs';
+import { plannedDocsOnly } from '../policy/kinds.mjs';
 import { DEP_MANIFESTS } from '../policy/risk.mjs';
 import { detectHookSystems, onPath } from './hooks.mjs';
 
@@ -32,7 +33,8 @@ export function generateObligations(slice, { config, risk, root = null }) {
     const description = `Repository hook checks (${h.system}) pass ${where}; slice commits skip git hooks, so they run here without network access`;
     out.push({ ...(h.argv[0] === 'sh' || onPath(h.argv[0]) ? ob('lint', description, { command: h.argv }) : ob('lint', `${description} (not run: ${h.argv[0]} is not installed; a person confirms)`, { requires_human: true })), hook: h.system });
   }
-  if (slice.kind !== 'documentation') {
+  // Judged by the files the plan reaches, not the label: a documentation slice that reaches code gets the code checks (#149).
+  if (!plannedDocsOnly(slice)) {
     if (config.quality.forbid_new_cycles) out.push(ob('no-new-cycles', 'No dependency cycle exists after the change that did not exist before', { builtin: 'cycles' }));
     if (config.quality.public_api_compatibility === 'required') out.push(ob('api-compatibility', 'Exported symbols and endpoints of touched modules are unchanged or only added to', { builtin: 'api' }));
     out.push(ob('architecture-fitness', 'Complexity of touched functions does not increase beyond quality.max_complexity_increase', { builtin: 'complexity' }));

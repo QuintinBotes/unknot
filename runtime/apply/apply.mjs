@@ -159,6 +159,21 @@ async function publicSurfaceRemoved(ctx, { config, slice }) {
   return CHECKS.api({ pair, changes }).verdict === 'fail';
 }
 
+/**
+ * Refuse a staged patch whose kinds apply.allowed_kinds does not accept (#149): at finish, and again
+ * before a change is accepted, since the list may have narrowed after the patch was made. The diff and
+ * the API check decide, not the slice's label. Exports are a declared public interface unless a person
+ * set repository.publishes_api: false; the graph pair is only built when the list could refuse that.
+ */
+export async function assertPatchKinds(ctx, { config, slice, stat = stagedStat(slice.worktree, slice.baseline_commit) }) {
+  const allowed = config.apply?.allowed_kinds;
+  if (!Array.isArray(allowed)) return;
+  assertKindsAllowed(config, plannedKinds(ctx, slice.body), { sliceId: slice.id, from: 'its plan' });
+  const checkApi = !allowed.includes('public-interface') && config.repository?.publishes_api !== false;
+  const removed = checkApi ? await publicSurfaceRemoved(ctx, { config, slice }) : false;
+  assertKindsAllowed(config, diffKinds(slice.body, stat, { publicSurfaceRemoved: removed }), { sliceId: slice.id, from: 'the staged diff' });
+}
+
 /** Stage the patch, bind its hash, move to VERIFYING. */
 export async function finishApply(ctx, { cfg, run, sliceId, actor }) {
   let slice = loadSlice(ctx, sliceId);
@@ -169,13 +184,7 @@ export async function finishApply(ctx, { cfg, run, sliceId, actor }) {
   // hashed and approved, whatever the worktree's own history says.
   const stat = stagedStat(slice.worktree, slice.baseline_commit);
   const budget = checkDiffBudget({ ...cfg.config.limits, ...slice.body.budgets }, stat);
-  // The diff and the API check decide the kind, not the slice's label (#149). Exports are a declared
-  // public interface unless a person set repository.publishes_api: false; the graph pair is only
-  // built when the list could refuse public-interface.
-  const allowed = cfg.config.apply?.allowed_kinds;
-  const checkApi = Array.isArray(allowed) && !allowed.includes('public-interface') && cfg.config.repository?.publishes_api !== false;
-  const removed = checkApi ? await publicSurfaceRemoved(ctx, { config: cfg.config, slice }) : false;
-  assertKindsAllowed(cfg.config, diffKinds(slice.body, stat, { publicSurfaceRemoved: removed }), { sliceId, from: 'the staged diff' });
+  await assertPatchKinds(ctx, { config: cfg.config, slice, stat });
   // Under a lane the patch itself must fit: only deletions or only tests, within its caps.
   const lane = laneOfSlice(ctx, sliceId);
   if (lane) {

@@ -92,6 +92,12 @@ test('the kind comes from paths, the declared surface and the diff, not the slic
   assert.deepEqual(refusedKinds(only(['refactor']), plannedKinds(null, body({ changes: [{ path: 'db/migrations/1.sql', operation: 'modify', description: 'x' }] }))), ['migration']);
   assert.deepEqual(refusedKinds(only(['refactor']), plannedKinds(null, body({ surfaces: { public_api: true } }))), ['public-interface']);
   assert.deepEqual(refusedKinds(only(['refactor']), plannedKinds(null, body({ treatment: 'T1' }))), ['extraction']);
+  // A UI charts folder is not a Helm chart; a chart's templates are.
+  assert.deepEqual(refusedKinds(only(['refactor']), plannedKinds(null, body({ changes: [{ path: 'src/components/charts/Bar.tsx', operation: 'modify', description: 'x' }] }))), []);
+  assert.deepEqual(refusedKinds(only(['refactor']), plannedKinds(null, body({ changes: [{ path: 'deploy/charts/web/templates/d.yaml', operation: 'modify', description: 'x' }] }))), ['infrastructure']);
+  // Documentation is the files, not the label.
+  assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ kind: 'documentation', scope: { include: ['src/**'] }, changes: [] }))), ['refactor']);
+  assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ kind: 'code', scope: { include: ['docs/**/*.md'] }, changes: [] }))), []);
   // The staged diff: deleting lines from a Dockerfile is still an infrastructure change.
   assert.deepEqual(refusedKinds(only(['deletion']), diffKinds(body(), { paths: ['Dockerfile'], added: 0 })), ['infrastructure']);
   assert.deepEqual(refusedKinds(only(['tests', 'deletion']), diffKinds(body(), { paths: ['src/a.js'], added: 3 })), ['refactor']);

@@ -11,17 +11,33 @@ import { CONTAINER_PATHS, DB_PATHS, INFRA_PATHS } from './risk.mjs';
 
 export const CHANGE_KINDS = Object.freeze(['tests', 'deletion', 'documentation', 'refactor', 'extraction', 'migration', 'infrastructure', 'public-interface']);
 
+// A bare `charts/` folder is as often UI code as a Helm chart; Helm charts are matched by CONTAINER_PATHS.
+const INFRA_KIND_PATHS = [...INFRA_PATHS.filter((g) => g !== '**/charts/**'), ...CONTAINER_PATHS];
+
 const has = (paths, globs) => paths.some((p) => matchAny(p, globs, { nocase: true }));
 
 // Kinds every one of which must be allowed: what the change reaches, whatever else it is.
 function reachKinds(body, paths) {
   const k = [];
-  if (body.kind === 'infrastructure' || has(paths, [...INFRA_PATHS, ...CONTAINER_PATHS])) k.push('infrastructure');
+  if (body.kind === 'infrastructure' || has(paths, INFRA_KIND_PATHS)) k.push('infrastructure');
   if (body.kind === 'database' || has(paths, DB_PATHS)) k.push('migration');
   if (body.kind === 'decomposition' || body.treatment) k.push('extraction');
   if (body.surfaces?.public_api) k.push('public-interface');
   return k;
 }
+
+// Documentation is judged by the files, never by a slice's `kind` label.
+const DOC_FILES = ['**/*.md', '**/*.mdx', '**/*.markdown', '**/*.rst', '**/*.adoc'];
+const isDoc = (p) => matchAny(p, DOC_FILES, { nocase: true });
+
+/** The files a plan names: its planned changes, else its scope globs with each wildcard made a literal segment. */
+const namedPaths = (body) => ((body.changes ?? []).length ? body.changes.map((c) => c.path) : (body.scope?.include ?? []).map((p) => p.replace(/\*+/g, 'x'))).filter(Boolean);
+
+/** Whether a plan only reaches documentation files (a scope like `src/**` does not, whatever its label). */
+export const plannedDocsOnly = (body) => {
+  const named = namedPaths(body);
+  return named.length > 0 && named.every(isDoc) && (body.scope?.include ?? []).every((g) => isDoc(g.replace(/\*+/g, 'x')));
+};
 
 const removalSources = (ctx, body) => (body.sources ?? []).length > 0 && body.sources.every((s) => PROVEN_KINDS.includes(ctx?.store?.get('SELECT kind FROM findings WHERE id = ?', s)?.kind));
 
@@ -30,11 +46,11 @@ export function plannedKinds(ctx, body) {
   const changes = body.changes ?? [];
   const paths = [...changes.map((c) => c.path), ...(body.scope?.include ?? [])].filter(Boolean);
   // Planned files when there are any, else the scope; the staged diff is judged again at finish.
-  const named = changes.length ? changes.map((c) => c.path) : paths.map((p) => p.replace(/\*+/g, 'x'));
+  const named = namedPaths(body);
   const shape = [];
   if (named.length && named.every((p) => isTestCode(p))) shape.push('tests');
   if ((changes.length && changes.every((c) => c.operation === 'delete')) || ((body.kind ?? 'code') === 'code' && !body.treatment && removalSources(ctx, body))) shape.push('deletion');
-  if (body.kind === 'documentation') shape.push('documentation');
+  if (plannedDocsOnly(body)) shape.push('documentation');
   if (!shape.length) shape.push('refactor');
   return { reach: reachKinds(body, paths), shape };
 }
@@ -46,7 +62,8 @@ export function diffKinds(body, stat, { publicSurfaceRemoved = false } = {}) {
   const shape = [];
   if (stat.paths.length && stat.paths.every((p) => isTestCode(p))) shape.push('tests');
   if (stat.added === 0) shape.push('deletion');
-  if (!shape.length) shape.push(body.kind === 'documentation' ? 'documentation' : 'refactor');
+  if (stat.paths.length && stat.paths.every(isDoc)) shape.push('documentation');
+  if (!shape.length) shape.push('refactor');
   return { reach, shape };
 }
 
