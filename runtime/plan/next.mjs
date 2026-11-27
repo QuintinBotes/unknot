@@ -2,6 +2,8 @@
 // lower blast radius, stronger reversibility, earlier risk retirement, reduced future
 // migration cost and less cross-team coordination — in that order.
 
+import { conventionDrift } from './staleness.mjs';
+
 const BLAST = { local: 0, bounded: 1, moderate: 2, high: 3 };
 const REVERSIBILITY = { revert: 0, compensate: 1, roll_forward: 2, fail_over: 2, recreate: 3, restore: 4 };
 const READY = new Set(['AWAITING_APPROVAL', 'PLANNED', 'NEEDS_REPLAN', 'VERIFICATION_FAILED']);
@@ -37,7 +39,9 @@ export function selectNext(ctx, { campaign = null } = {}) {
       blocked.push({ id: s.id, waiting_for: open });
       continue;
     }
+    const drift = conventionDrift(ctx, s);
     candidates.push({
+      ...(drift.length && { reapproval: drift.map((f) => `conventions changed (${f})`).join(', ') }),
       id: s.id,
       state: s.state,
       objective: s.body.objective,
@@ -59,8 +63,8 @@ export function selectNext(ctx, { campaign = null } = {}) {
   });
   const pick = candidates[0] ?? null;
   return {
-    next: pick && { id: pick.id, state: pick.state, objective: pick.objective, risk: pick.risk, why: explain(pick.key) },
-    alternatives: candidates.slice(1, 5).map(({ id, objective, risk }) => ({ id, objective, risk })),
+    next: pick && { id: pick.id, state: pick.state, objective: pick.objective, risk: pick.risk, why: explain(pick.key), ...(pick.reapproval && { needs_reapproval: pick.reapproval }) },
+    alternatives: candidates.slice(1, 5).map(({ id, objective, risk, reapproval }) => ({ id, objective, risk, ...(reapproval && { needs_reapproval: reapproval }) })),
     blocked,
   };
 }

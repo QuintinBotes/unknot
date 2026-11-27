@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { matchAny } from '../core/glob.mjs';
+import { guidanceDigests } from '../core/guidance.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/approvals.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
@@ -41,6 +42,7 @@ export function currentBinding(ctx, slice, stage, { cfg, commit, diffHash = null
     stateSerial: slice.body.infra?.state_serial ?? null,
     environment: slice.body.infra?.environment ?? 'local',
     expiry: cfg.config.approvals.expiry,
+    guidanceDigests: guidanceDigests(ctx.root, slice.body),
   });
 }
 

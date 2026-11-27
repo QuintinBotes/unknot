@@ -90,6 +90,21 @@
         "expires_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "guidance_digests": {
+          "type": "object",
+          "description": "Content digest of each guidance file the slice's convention report came from (null when the file is gone); absent for slices planned before convention reports.",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       },
       "required": [

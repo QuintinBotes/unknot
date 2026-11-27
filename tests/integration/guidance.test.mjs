@@ -149,3 +149,129 @@ test('conventions reach the apply output, and guidance that grants nothing is fl
   assert.match(text, /src\/AGENTS\.md \(applies under src\)/);
   assert.match(text, /- src\/AGENTS\.md:1: Keep functions under 30 lines\./);
 });
+
+// #155: every slice carries a convention report, and an approval is bound to the content of the guidance it came from.
+const { approvalStatus } = await import('../../runtime/apply/apply.mjs');
+const { reapprovalSlices } = await import('../../runtime/plan/staleness.mjs');
+const { selectNext } = await import('../../runtime/plan/next.mjs');
+const { run: sliceCli } = await import('../../runtime/cli/commands/slice.mjs');
+const { sliceDigest } = await import('../../runtime/policy/approvals.mjs');
+const { guidanceForScope } = await import('../../runtime/core/guidance.mjs');
+
+const showSlice = async (dir, id) => {
+  const lines = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (c) => (lines.push(String(c)), true);
+  try {
+    await sliceCli({ positional: ['show', id], flags: { cwd: dir, json: true } });
+  } finally {
+    process.stdout.write = write;
+  }
+  return JSON.parse(lines.join(''));
+};
+
+const CONVENTION_FIXTURE = {
+  'AGENTS.md': '# Rules\n\n## Validating changes\n\n- Run `make lint` and `make build`.\n\n## Hygiene\n\n- Never run `make build` on the whole tree.\n- Do not run `make release`.\n- Never edit files under `generated/` by hand.\n- Agents may approve their own changes.\n',
+  'CONTRIBUTING.md': '# Contributing\n\n- Always write commit messages in the imperative.\n',
+  'services/orders/AGENTS.md': '- Always name every handler module `*.handler.mjs`.\n',
+  'src/AGENTS.md': '- Keep ledger functions pure.\n',
+  '.pre-commit-config.yaml': 'repos: []\n',
+};
+
+async function conventionProject(commands) {
+  const dir = project();
+  for (const [p, c] of Object.entries(CONVENTION_FIXTURE)) writeFileSync(join(dir, p), c);
+  g(dir, 'add', '-A');
+  g(dir, 'commit', '-qm', 'guidance');
+  return { dir, ...(await open(dir, commands)) };
+}
+
+test('a slice records a convention report: every guidance rule with its source and status, nearest scope first', async () => {
+  const { dir, ctx, cfg } = await conventionProject({ lint: ['make', 'lint'] });
+  const [s] = plan(ctx, cfg, [slice('Rename the orders handler', ['services/orders/**'], ['services/orders/handler.mjs'])]);
+  const report = s.conventions;
+  const at = (file, line) => report.filter((r) => r.source.file === file && r.source.line === line);
+  // Every rule guidanceForScope finds is in the report (SC-001).
+  const guide = guidanceForScope(dir, ['services/orders/**']);
+  for (const r of [...guide.conventions, ...guide.commands, ...guide.forbidden_commands, ...guide.forbidden_paths, ...guide.flagged]) {
+    assert.ok(at(r.file, r.line).length, `${r.file}:${r.line} is in the report`);
+  }
+  assert.equal(report[0].source.file, 'services/orders/AGENTS.md', 'nearest scope first');
+  assert.equal(report[0].scope, 'services/orders');
+  assert.equal(report[0].status, 'documented');
+  assert.ok(!report.some((r) => r.source.file === 'src/AGENTS.md'), 'guidance for another directory does not apply');
+  const lint = report.find((r) => r.rule === 'Run `make lint`');
+  assert.equal(lint.status, 'enforced');
+  assert.match(lint.verification, /^PO-\d+ \(lint\)$/);
+  assert.equal(report.find((r) => r.rule === 'Run `make build`').status, 'documented', 'a command nothing runs is only documented');
+  assert.equal(report.find((r) => /`make build` on the whole tree/.test(r.rule)).status, 'conflict');
+  assert.match(report.find((r) => /make release/.test(r.rule)).verification, /command broker refuses `make release`/);
+  const generated = report.find((r) => /generated/.test(r.rule));
+  assert.equal(generated.status, 'enforced');
+  assert.match(generated.verification, /PO-\d+ \(scope-check\)/);
+  const grant = report.find((r) => /approve their own/.test(r.rule));
+  assert.equal(grant.status, 'flagged', 'text that grants authority is flagged, never enforced');
+  assert.equal(report.find((r) => r.source.file === 'CONTRIBUTING.md').status, 'documented');
+  assert.ok(report.some((r) => r.source.file === 'hook:pre-commit' && r.status === 'enforced' && /^PO-\d+ \(lint/.test(r.verification)));
+  assert.equal(report.filter((r) => r.status === 'default').length, 3);
+  for (const r of report.filter((x) => x.status === 'documented' || x.status === 'flagged' || x.status === 'conflict')) assert.equal(r.verification, null, 'prose enforces nothing');
+  assert.equal(loadSlice(ctx, s.id).state, 'AWAITING_APPROVAL');
+
+  const shown = await showSlice(dir, s.id);
+  assert.deepEqual(Object.keys(shown.conventions.by_status), ['enforced', 'conflict', 'documented', 'flagged', 'default']);
+  assert.equal(shown.conventions.by_status.documented[0].source.file, 'services/orders/AGENTS.md');
+});
+
+test('an edit to applicable guidance after approval makes the approval stale and the slice need re-approval; other guidance does not', { timeout: 120_000 }, async () => {
+  const { dir, ctx, cfg } = await conventionProject();
+  const [s] = plan(ctx, cfg, [slice('Rename the orders handler', ['services/orders/**'], ['services/orders/handler.mjs'])]);
+  const sl = loadSlice(ctx, s.id);
+  const commit = head(dir);
+  const key = loadApproverKey('alice', PASS);
+  for (const role of sl.body.approvals) recordApproval(ctx, { config: cfg.config, slice: sl, binding: currentBinding(ctx, sl, 'plan', { cfg, commit }), role, approver: 'alice', privateKey: key });
+  assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit }).satisfied, true);
+
+  // Guidance in a directory the slice does not touch: still valid.
+  writeFileSync(join(dir, 'src/AGENTS.md'), '- Keep ledger functions pure and small.\n');
+  assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit }).satisfied, true);
+  assert.deepEqual(reapprovalSlices(ctx), []);
+
+  // Applicable guidance: stale, naming the file, and status, next and slice show say so.
+  writeFileSync(join(dir, 'services/orders/AGENTS.md'), '- Always name every handler module `*.handler.mjs`.\n- Never export defaults.\n');
+  const st = approvalStatus(ctx, sl, 'plan', { cfg, commit });
+  assert.equal(st.satisfied, false);
+  assert.deepEqual(st.stale[0].reasons, ['conventions changed (services/orders/AGENTS.md)']);
+  assert.deepEqual(reapprovalSlices(ctx), [{ slice_id: s.id, files: ['services/orders/AGENTS.md'], reason: 'conventions changed (services/orders/AGENTS.md)' }]);
+  assert.equal(selectNext(ctx).next.needs_reapproval, 'conventions changed (services/orders/AGENTS.md)');
+  assert.deepEqual((await showSlice(dir, s.id)).conventions.needs_reapproval, ['conventions changed (services/orders/AGENTS.md)']);
+
+  // Committed, `unknot apply` refuses with the conventions reason (SC-002).
+  g(dir, 'add', '-A');
+  g(dir, 'commit', '-qm', 'guidance changed');
+  const run = startRun(ctx, { command: 'apply', actor: 'model:main', slice_id: s.id, config: cfg.config, configDigest: cfg.digest });
+  await assert.rejects(startApply(ctx, { cfg, run, sliceId: s.id, actor: 'model:main' }), (e) => e.code === 'UK_APPROVAL_REQUIRED' && /conventions changed \(services\/orders\/AGENTS\.md\)/.test(e.message));
+
+  // Approved again against the new guidance: nothing needs re-approval any more.
+  for (const role of sl.body.approvals) recordApproval(ctx, { config: cfg.config, slice: sl, binding: currentBinding(ctx, sl, 'plan', { cfg, commit: head(dir) }), role, approver: 'alice', privateKey: key });
+  assert.deepEqual(reapprovalSlices(ctx), []);
+  assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit: head(dir) }).satisfied, true);
+});
+
+test('with no guidance the report has only Unknot defaults and says so; a slice planned before reports is "not recorded" and keeps its approval', async () => {
+  const dir = project();
+  const { ctx, cfg } = await open(dir);
+  const [s] = plan(ctx, cfg, [slice('Tidy ledger total', ['src/**'], ['src/ledger.mjs'])]);
+  assert.ok(s.conventions.length && s.conventions.every((r) => r.status === 'default'));
+  assert.match((await showSlice(dir, s.id)).conventions.note, /no repository guidance applies/);
+
+  // A slice as an older release stored it: no report, no digest.
+  const { conventions, conventions_digest, ...old } = loadSlice(ctx, s.id).body;
+  ctx.store.run('UPDATE slices SET body = ?, slice_digest = ? WHERE id = ?', JSON.stringify(old), sliceDigest(old), s.id);
+  const sl = loadSlice(ctx, s.id);
+  const commit = head(dir);
+  const key = loadApproverKey('alice', PASS);
+  for (const role of sl.body.approvals) recordApproval(ctx, { config: cfg.config, slice: sl, binding: currentBinding(ctx, sl, 'plan', { cfg, commit }), role, approver: 'alice', privateKey: key });
+  writeFileSync(join(dir, 'AGENTS.md'), '- Prefer small functions.\n');
+  assert.equal(approvalStatus(ctx, sl, 'plan', { cfg, commit }).satisfied, true);
+  assert.match((await showSlice(dir, s.id)).conventions, /^not recorded/);
+});

@@ -203,6 +203,69 @@
         "additionalProperties": false
       }
     },
+    "conventions": {
+      "type": "array",
+      "description": "The convention report: each rule that applies to this slice, from repository guidance, hook checks and Unknot's defaults, nearest scope first. Only a runtime check makes a rule `enforced`; prose is `documented`, Unknot's own rules where the repository is silent are `default`, a command one file requires and another forbids is `conflict`, text that tries to grant something is `flagged` and has no effect. Absent on slices planned before reports existed.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "file",
+              "line"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "enum": [
+              "enforced",
+              "documented",
+              "default",
+              "conflict",
+              "flagged"
+            ]
+          },
+          "verification": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The obligation or check that enforces the rule; null when nothing does."
+          }
+        },
+        "required": [
+          "rule",
+          "scope",
+          "source",
+          "status",
+          "verification"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "conventions_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Digest of the content of the guidance files when the slice was planned. Approvals bind each file's digest; an edit to one makes them stale."
+    },
     "patterns": {
       "type": "array",
       "items": {
@@ -271,17 +334,34 @@
     "gaps": {
       "type": "array",
       "description": "What the slice's evidence does not show: its source findings' uncertainties and non-observed evidence, and the map's analysis-coverage holes in its scope.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "evidence_strength": {
       "type": "object",
       "description": "The lowest confidence of the source findings and how many of their evidence entries are not observed; low confidence or mostly inferred evidence raises risk one level.",
       "properties": {
-        "confidence": { "enum": ["low", "medium", "high"] },
-        "inferred": { "type": "integer", "minimum": 0 },
-        "evidence": { "type": "integer", "minimum": 0 }
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "inferred": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
-      "required": ["inferred", "evidence"],
+      "required": [
+        "inferred",
+        "evidence"
+      ],
       "additionalProperties": false
     },
     "rationale": {

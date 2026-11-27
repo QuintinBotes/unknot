@@ -228,7 +228,7 @@ Selects the smallest unblocked, highest-value slice and says why; lists other re
 
 ### `unknot slice <id>`
 
-A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
+A slice with its obligations, approvals, worktree, baseline and diff hash. JSON. `unknot slice show <id>` is the same. `conventions` is the slice's convention report grouped by status (`enforced`, `conflict`, `documented`, `flagged`, `default`), nearest scope first, with `note` when no repository guidance applies and `needs_reapproval` when an applicable guidance file changed since an approval ([concepts.md](concepts.md#campaigns-slices-and-the-state-machine)); a slice planned before reports existed reads `not recorded`.
 
 `unknot slice patching [--session <id>] [--] [path...]` lists the slices in `PATCHING` with their scope and change budget (`max_changed_files`, `max_diff_lines`, `files_left`, `lines_left`), and under `held` each given path the scope holds back, with the slice, the PDP rule and the reason. `applies` is false with no slice in `PATCHING`, or when the active run belongs to a session other than `--session`; then nothing else is read, the configuration included. When a slice is `PATCHING` and the configuration or policy does not load, the error's `details.patching` lists the slices. Paths after `--` are never read as flags. It opens the project read-only; the scope guard of the mod asks it before every edit ([security-model.md](security-model.md#runs-and-when-hooks-apply)). JSON.
 

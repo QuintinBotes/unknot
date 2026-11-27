@@ -2,7 +2,7 @@
 
 import { head } from '../../apply/git.mjs';
 import { checkoutNote, checkoutNotice } from '../../graph/checkout.mjs';
-import { staleSlices } from '../../plan/staleness.mjs';
+import { reapprovalSlices, staleSlices } from '../../plan/staleness.mjs';
 import { waitingProposal } from '../../policy/config.mjs';
 import { humanSteps } from '../../policy/human-steps.mjs';
 import { provenDeletion } from '../../policy/proven.mjs';
@@ -60,7 +60,7 @@ export async function run({ flags }, { unknotOnPath } = {}) {
     awaiting_approval: slices.filter((s) => s.state === 'AWAITING_APPROVAL' || s.state === 'REVIEW_READY').map((s) => s.id),
     open_obligations,
     proven_deletion: proven,
-    stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx) },
+    stale_evidence: { expired_runtime_facts: expired, expired_approvals: stale, slices: staleSlices(ctx), reapproval: reapprovalSlices(ctx) },
     proposal_waiting: waitingProposal(ctx),
     for_you: humanSteps(ctx, cfg, { checkCli: true, ...(unknotOnPath === undefined ? {} : { unknotOnPath }) }),
   };
@@ -85,6 +85,7 @@ export async function run({ flags }, { unknotOnPath } = {}) {
   }
   if (status.awaiting_approval.length) lines.push('', `Awaiting human approval: ${status.awaiting_approval.join(', ')} (see the block at the end)`);
   for (const s of status.stale_evidence.slices) lines.push(`Stale evidence: slice ${s.slice_id} was planned from ${s.findings.map((f) => f.finding_id).join(', ')}, no longer reported by the current map; re-plan or abandon it.`);
+  for (const s of status.stale_evidence.reapproval) lines.push(`Needs re-approval: slice ${s.slice_id}: ${s.reason}; its approvals no longer hold (unknot slice ${s.slice_id} shows the conventions).`);
   if (expired) lines.push(`Stale evidence: ${expired} runtime/plan facts past their TTL; re-import evidence.`);
   if (behindNote) lines.push(`Graph: ${behindNote}`);
   if (status.proposal_waiting) lines.push(`A newer configuration proposal is waiting (${status.proposal_waiting.path}, differs in ${status.proposal_waiting.differs.join(', ')}); it is not in force until a person reviews and accepts it (see the block at the end)`);
