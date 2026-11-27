@@ -458,6 +458,11 @@
               "type": "string",
               "minLength": 1
             },
+            "ci_workflow": {
+              "description": "The reusable evidence workflow whose attested CI evidence counts, pinned by commit: owner/repo/.github/workflows/<file>@<40-hex sha>. Unset: no CI evidence counts. See docs/forge-approvals.md.",
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}/\\.github/workflows/[A-Za-z0-9._-]{1,100}\\.ya?ml@[0-9a-f]{40}$"
+            },
             "agent_accounts": {
               "description": "Numeric GitHub user ids that agents act as ([] for none). Required for any review to count. A review by one of them counts only with the local signature of the approver whose github_id it is.",
               "type": "array",

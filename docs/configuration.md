@@ -252,6 +252,7 @@ Container and deployment files (Dockerfiles, compose files, Helm charts) are inf
 | `approvals.forge.base` | the repository's default branch | The base branch a pull request must target. |
 | `approvals.forge.agent_accounts` | none | Numeric GitHub user ids agents act as (`[]` for none). Required: while unset no review counts. |
 | `approvals.forge.gh` | first of `/opt/homebrew/bin/gh`, `/usr/local/bin/gh`, `/usr/bin/gh`, … | Absolute path of the `gh` binary; `PATH` is never searched. |
+| `approvals.forge.ci_workflow` | none | The reusable evidence workflow whose attested CI evidence counts, pinned by commit: `owner/repo/.github/workflows/<file>@<40-hex sha>`. While unset no CI evidence counts and `unknot pr` adds no CI plan. See [forge-approvals.md](forge-approvals.md#as-built-phase-3). |
 | `approvals.forge.roles` | none | With `via: forge` or `both`, who holds each role on GitHub: `users` (numeric user ids), `teams` (`org/team`), or `codeowners: true` for a code owner of every changed path in the baseline's CODEOWNERS. |
 
 Role names are lowercase words with hyphens. A role in `approvals` is satisfied only by an approver who holds it; the one exception is `any-approver`, which any registered approver satisfies.
@@ -281,6 +282,7 @@ approvals:
       affected-owner: { users: [5044], teams: [acme/checkout] }  # user ids: gh api users/<login> --jq .id
     repository: acme/checkout        # reviews count only here
     agent_accounts: [5011]           # the accounts agents act as; [] for none
+    ci_workflow: QuintinBotes/unknot/.github/workflows/unknot-verify.yml@<commit sha>  # optional: attested CI evidence
 ```
 
 `unknot init` proposes only `approvals: { expiry: '72h' }` and leaves approval roles to the built-in defaults above, so a proposal never starts looser. Read the proposal before accepting.

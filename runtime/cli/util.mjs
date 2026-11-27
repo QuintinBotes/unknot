@@ -29,6 +29,7 @@ const VALUED = new Map(Object.entries({
   max_nodes: '<n>', expires: '<time>', stage: 'plan|change|rollback', target: '<target>', treatment: '<treatment>', category: '<category>',
   drivers_file: '<file>', passphrase_file: '<file>', direction: 'in|out|both', budget_seconds: '<n>', port: '<port>',
   signals: '<json>', container: '<id>', outcome: '<outcome>', after: '<seq>', path: '<glob>',
+  from_ci: '<pull request url or number>', in_ci: '<evidence file>',
 }));
 
 export function parseArgs(argv) {

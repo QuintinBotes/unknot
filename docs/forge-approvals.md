@@ -1,6 +1,6 @@
 # Forge approvals and CI verification (design)
 
-Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phases 1 and 2 (controls 1 to 4 and 6) are implemented: `unknot pr <slice>` opens a draft pull request per slice with the review summary from the proof bundle and posts the binding comment, and `unknot approvals <slice>` checks the reviews ([commands.md](commands.md#unknot-pr-slice-human)). GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
+Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phases 1 to 3 (controls 1 to 6) are implemented: `unknot pr <slice>` opens a draft pull request per slice with the review summary from the proof bundle and posts the binding comment, `unknot approvals <slice>` checks the reviews ([commands.md](commands.md#unknot-pr-slice-human)), and `unknot verify --from-ci <pr>` records attested CI evidence. GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
 
 ## Goal
 
@@ -50,7 +50,7 @@ Campaign state and the ledger move to a git ref in the repository (`refs/unknot/
 
 1. Human-only rule extended to forge reviews (control 1). Small; ships first on its own.
 2. Draft pull request per slice, binding comment, reading and checking reviews (controls 2 to 4), `approvals.via`, role mapping, doctor checks (control 6). GitHub only. Done; see "As built" below.
-3. Attested CI evidence (control 5).
+3. Attested CI evidence (control 5). Done; see "As built (phase 3)" below.
 4. Shared state in the repository.
 5. A second forge behind the same interface, passing the same tests.
 
@@ -68,6 +68,40 @@ Each phase gets an adversarial review before release.
 - **Acceptance.** `unknot approvals <slice>` is human only, like `approve` (a terminal, no agent session, and the shell rule refuses it from an agent). When the reviews complete the change stage of a `REVIEW_READY` slice it asks the person to confirm by typing the slice id (a bare `y` from a pty an agent drives does nothing), naming the pull request, its base and head and each counted reviewer with their roles, then moves it to `ACCEPTED` and only then records each counted review as `approval.recorded` with `via: forge`, the review id, reviewer and reviewer id, head and binding. Reading the status records nothing. This keeps the same-user limit stated in SECURITY.md: an agent running as the same OS user could still replace the `gh` binary or the person's gh configuration itself.
 - **`unknot approve`.** A change approval that would complete acceptance on forge reviews (`approve <slice>` or `approve --lane`) shows the same pull request, base, head and counted reviewers before asking for the passphrase.
 - **Doctor.** Missing review or code-owner protection on the default branch is a failure, not a warning (the issue asks to fail); an agent account (each of `agent_accounts`) that can push without review is a failure too, and so is an unset `agent_accounts` or `repository`, or a remote that is not the pinned repository. A `gh` binary in a directory the current user can write (Homebrew's `/opt/homebrew/bin` is one) is a warning: an agent running as that user could replace it.
+
+## As built (phase 3)
+
+- **Setup.** Pin the evidence workflow in the accepted config, by commit: `approvals.forge.ci_workflow: QuintinBotes/unknot/.github/workflows/unknot-verify.yml@<sha>`. On the pinned repository's base branch, add a caller workflow that runs on a push to the slice branches, in a job named `unknot`, calling the same file at the same commit:
+
+  ```yaml
+  name: unknot
+  on:
+    push:
+      branches: ['unknot/**']
+  permissions: {}
+  jobs:
+    unknot:
+      uses: QuintinBotes/unknot/.github/workflows/unknot-verify.yml@<sha>
+      permissions:
+        contents: read
+        id-token: write
+        attestations: write
+        checks: write
+  ```
+
+  Then require the status check `unknot / verify` on the base branch (Settings > Branches). `unknot doctor` fails while it is not required, or while `ci_workflow` is not pinned by SHA. Artifact attestations need a public repository, or GitHub Enterprise Cloud for a private one.
+- **What CI runs.** `unknot pr` ends the pushed commit's message with an `Unknot-CI:` line: for each obligation, the command `unknot verify` would run (hook checks scoped to the changed files), or why CI does not run it (a person must, or it is a built-in check that needs Unknot's graph and runs locally). The reusable workflow's `run` job checks out that commit and Unknot at the workflow's own commit (`job.workflow_sha`), runs `unknot verify --in-ci`, and uploads `unknot-evidence.json` (head, slice, diff hash, run id and attempt, and per obligation its command, exit code, timing and output digests). That job holds only `contents: read`: no OIDC token, no key, no Unknot state. The `verify` job runs no repository code: it downloads the file, attests it with `actions/attest-build-provenance`, fails if any command failed, and posts a neutral check `unknot / not run in CI` listing the obligations CI did not run, so they are never shown green.
+- **What counts.** `unknot verify --from-ci <pr>` on a `REVIEW_READY` slice counts the evidence only when all of these hold, and records nothing otherwise:
+  - the binding `unknot pr` posted verifies against the audit key and is current, and the pull request is open in the pinned repository at exactly the bound head, whose diff hashes to the bound diff (the #152 repository and head pins);
+  - the head's `.github/workflows` tree is the one on the base branch on GitHub (a workflow changed in the pull request, or committed to the local baseline, ran instead of the base's);
+  - the evidence comes from the newest push run on the head (in the pinned repository, not a fork) that uploaded it, no newer run of the same caller workflow exists, the attempt is the run's latest, and the run completed (an older run's or attempt's attestation is a replay);
+  - `gh attestation verify` verifies the file against Sigstore and GitHub's OIDC identity with `--repo <pinned>`, `--signer-workflow` and `--signer-digest` (the pinned workflow at its pinned commit), `--source-digest <head>`, `--source-ref refs/heads/<slice branch>` and `--deny-self-hosted-runners`;
+  - Unknot then checks the certificate itself: issuer GitHub Actions, source repository the pinned one, signer identity and signer digest the pinned workflow, source and build-config digest the head, ref the slice branch, trigger `push` (never `pull_request_target`, a fork's `pull_request` or a dispatch), a GitHub-hosted runner, the run URI the latest run's, and a subject whose digest is the downloaded file's;
+  - the file names that head, the slice, the bound diff, the pinned repository and that run and attempt.
+
+  Then each command obligation whose CI command is exactly the one this clone would run and exited 0 is recorded as passed (`evidence.recorded` with actor `ci:<workflow>`, an evidence record of kind `ci` naming the pull request, head, run, workflow and file digest, and the file in the content store), and the proof bundle is written again. Human obligations and built-in checks are never recorded from CI, whatever the file says. A failed command is reported (exit 1) and records nothing.
+- **Transport.** Unknot runs the configured `gh` as `gh api --hostname github.com`, `gh run download --repo github.com/<owner>/<repo>` and `gh attestation verify --hostname github.com`, with the same environment cleaning as phase 2. gh's credentials go only to GitHub; `gh attestation verify` fetches Sigstore's trust root from Sigstore and GitHub's TUF repositories.
+- **Limits.** CI evidence is as strong as the job it ran in: the slice head's own commands run in the `run` job and could change what that job reports for the obligations after them. That code is the bound change a reviewer reads; a test that games CI is in the reviewed diff. The `run` job is not OS-sandboxed like the local broker. A base branch whose workflows change after `unknot pr` makes the evidence refuse until the slice is planned again on the new base.
 
 ## Decisions
 

@@ -12,9 +12,9 @@
 // accepted (`approvals.forge.agent_accounts`, numeric ids), never whatever account gh holds now.
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
-import { userInfo } from 'node:os';
-import { dirname, isAbsolute } from 'node:path';
+import { accessSync, constants, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir, userInfo } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
 import { parseCodeowners } from '../../adapters/ownership/codeowners.mjs';
 import { git } from '../apply/git.mjs';
 import { canonicalJSON, digest, sha256 } from '../core/canonical.mjs';
@@ -87,10 +87,15 @@ export function ghBinary(config) {
 }
 
 /** A `gh api` client against github.com for this config. Each call throws on any failure. */
-export function ghClient(config) {
-  const gh = ghBinary(config);
+function ghEnv() {
   const env = { ...process.env };
   for (const k of GH_ENV_DROP) delete env[k];
+  return env;
+}
+
+export function ghClient(config) {
+  const gh = ghBinary(config);
+  const env = ghEnv();
   return (path, { method = 'GET', fields = {} } = {}) => {
     const args = ['api', '--hostname', HOST, '--method', method, '-H', 'Accept: application/vnd.github+json', path];
     for (const [k, v] of Object.entries(fields)) args.push('-f', `${k}=${v}`);
@@ -224,6 +229,58 @@ function latestEvent(ctx, type, sliceId) {
 const headDiff = (root, base, head, extra = []) => git(root, ['-c', 'diff.ignoreSubmodules=none', 'diff', '--ignore-submodules=none', '--no-ext-diff', '--no-textconv', ...extra, base, head], { check: false });
 
 /**
+ * The pull request and binding `unknot pr` posted for a slice, from the ledger: the recorded pull
+ * request is in the pinned repository and the binding verifies against the project audit key and
+ * matches the current one. `{error}`, with what was found so far, when any of that fails.
+ */
+function boundPull(ctx, { config, slice, current }) {
+  const pin = pinnedRepo(config);
+  if (!pin) return { error: 'approvals.forge.repository is not set: name the owner/repo whose pull request reviews count, and accept the config' };
+  const opened = latestEvent(ctx, 'pr.opened', slice.id);
+  if (!opened) return { error: `no pull request; run unknot pr ${slice.id}` };
+  const url = opened.url;
+  const pr = githubRepo(url);
+  if (!pr?.number) return { url, error: `${url} is not a github.com pull request` };
+  if (!inPinnedRepo(config, url)) return { url, error: `${url} is not in ${pin.slug} (approvals.forge.repository); nothing counts` };
+  const posted = latestEvent(ctx, 'forge.binding_posted', slice.id);
+  if (!posted || posted.url !== url) return { url, error: `no binding comment on ${url}; run unknot pr ${slice.id}` };
+  const binding = posted.binding;
+  if (binding?.slice_id !== slice.id || binding?.stage !== current.stage || !str(posted.head, SHA) || !verifyText(auditPublicKeyPem(ctx.projectId), STATEMENT(binding, posted.head), posted.signature)) {
+    return { url, error: 'the posted binding does not verify against the project audit key' };
+  }
+  const found = { url, pr, pin, binding, binding_hash: posted.binding_hash, head: posted.head };
+  const stale = bindingStaleReasons(binding, current);
+  return stale.length ? { ...found, error: `the posted binding is stale (${stale.join(', ')}); run unknot pr ${slice.id} to post a fresh one` } : found;
+}
+
+/**
+ * The pull request as GitHub has it, checked against the bound head: open, head `<pinned>:<slice
+ * branch>` at exactly the commit `unknot pr` pushed and signed, base the pinned base branch, and
+ * the head's diff hashing to the bound diff. `between` runs between two reads of the head, which
+ * must agree. `{error}`, with head and base when known, when any of that fails.
+ */
+function pullAtBoundHead(ctx, api, { config, slice, bound }, between = () => {}) {
+  const { pr, pin, binding } = bound;
+  const pull = readPull(api, pr);
+  between();
+  // Read the head again: a push while the reviews were read must not pass for the old head.
+  if (readPull(api, pr).head !== pull.head) return { error: 'the pull request head moved while its reviews were read; check again' };
+  const out = { pull, head: pull.head };
+  if (pull.state !== 'open') return { ...out, error: `the pull request is ${pull.state}` };
+  if (pull.ref !== slice.branch || pull.repo !== pin.slug) return { ...out, error: `the pull request head is ${pull.repo}:${pull.ref}, not ${slice.branch} in ${pin.slug}` };
+  // The base decides whose CODEOWNERS apply: it must be the pinned repository's protected branch.
+  const baseRef = config.approvals?.forge?.base ?? api(`repos/${pin.owner}/${pin.repo}`)?.default_branch;
+  out.base = baseRef;
+  if (typeof baseRef !== 'string' || pull.baseRepo !== pin.slug || pull.baseRef !== baseRef) return { ...out, error: `the pull request base is ${pull.baseRepo}:${pull.baseRef}, not ${pin.slug}:${baseRef}; nothing counts` };
+  // The head must be the one `unknot pr` pushed and signed; any other push needs a new binding.
+  if (pull.head !== bound.head) return { ...out, error: `the pull request head ${pull.head.slice(0, 12)} is not the bound head ${bound.head.slice(0, 12)} that unknot pr pushed; run unknot pr ${slice.id} to bind the new head` };
+  const diff = headDiff(ctx.root, slice.baseline_commit, pull.head, ['--binary', '--full-index']);
+  if (diff.status !== 0) return { ...out, error: `head ${pull.head} is not in this repository; git fetch the ${slice.branch} branch and check again` };
+  if (`sha256:${sha256(diff.stdout)}` !== binding.diff_hash) return { ...out, error: `the diff of head ${pull.head.slice(0, 12)} against the baseline does not hash to the bound ${binding.diff_hash}` };
+  return out;
+}
+
+/**
  * The forge approvals of a slice's change stage. Pure: it reads GitHub and records nothing (the
  * ledger records counted reviews when a person accepts, see recordForgeApprovals). `local` are the
  * valid local approvals of the same binding, which a review from an agent account needs
@@ -235,43 +292,17 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
   try {
     const agents = config.approvals?.forge?.agent_accounts;
     if (!Array.isArray(agents) || !agents.every(id)) return { ...out, error: 'approvals.forge.agent_accounts is not set: list the numeric GitHub user ids agents act as ([] for none) and accept the config' };
-    const pin = pinnedRepo(config);
-    if (!pin) return { ...out, error: 'approvals.forge.repository is not set: name the owner/repo whose pull request reviews count, and accept the config' };
-    const opened = latestEvent(ctx, 'pr.opened', slice.id);
-    if (!opened) return { ...out, error: `no pull request; run unknot pr ${slice.id}` };
-    out.url = opened.url;
-    const pr = githubRepo(opened.url);
-    if (!pr?.number) return { ...out, error: `${opened.url} is not a github.com pull request` };
-    if (!inPinnedRepo(config, opened.url)) return { ...out, error: `${opened.url} is not in ${pin.slug} (approvals.forge.repository); nothing counts` };
-    const posted = latestEvent(ctx, 'forge.binding_posted', slice.id);
-    if (!posted || posted.url !== opened.url) return { ...out, error: `no binding comment on ${opened.url}; run unknot pr ${slice.id}` };
-    const binding = posted.binding;
-    if (binding?.slice_id !== slice.id || binding?.stage !== current.stage || !str(posted.head, SHA) || !verifyText(auditPublicKeyPem(ctx.projectId), STATEMENT(binding, posted.head), posted.signature)) {
-      return { ...out, error: 'the posted binding does not verify against the project audit key' };
-    }
-    out.binding = binding;
-    out.binding_hash = posted.binding_hash;
-    const stale = bindingStaleReasons(binding, current);
-    if (stale.length) return { ...out, error: `the posted binding is stale (${stale.join(', ')}); run unknot pr ${slice.id} to post a fresh one` };
+    const bound = boundPull(ctx, { config, slice, current });
+    Object.assign(out, { url: bound.url ?? null, binding: bound.binding ?? null, binding_hash: bound.binding_hash ?? null });
+    if (bound.error) return { ...out, error: bound.error };
+    const { pr } = bound;
 
     const api = ghClient(config);
-    const pull = readPull(api, pr);
-    const raw = readReviews(api, pr);
-    // Read the head again: a push while the reviews were read must not pass for the old head.
-    if (readPull(api, pr).head !== pull.head) return { ...out, error: 'the pull request head moved while its reviews were read; check again' };
-    out.head = pull.head;
-    if (pull.state !== 'open') return { ...out, error: `the pull request is ${pull.state}` };
-    if (pull.ref !== slice.branch || pull.repo !== pin.slug) return { ...out, error: `the pull request head is ${pull.repo}:${pull.ref}, not ${slice.branch} in ${pin.slug}` };
-    // The base decides whose CODEOWNERS apply: it must be the pinned repository's protected branch.
-    const baseRef = config.approvals?.forge?.base ?? api(`repos/${pin.owner}/${pin.repo}`)?.default_branch;
-    out.base = baseRef;
-    if (typeof baseRef !== 'string' || pull.baseRepo !== pin.slug || pull.baseRef !== baseRef) return { ...out, error: `the pull request base is ${pull.baseRepo}:${pull.baseRef}, not ${pin.slug}:${baseRef}; nothing counts` };
-
-    // The head must be the one `unknot pr` pushed and signed; any other push needs a new binding.
-    if (pull.head !== posted.head) return { ...out, error: `the pull request head ${pull.head.slice(0, 12)} is not the bound head ${posted.head.slice(0, 12)} that unknot pr pushed; run unknot pr ${slice.id} to bind the new head` };
-    const diff = headDiff(ctx.root, slice.baseline_commit, pull.head, ['--binary', '--full-index']);
-    if (diff.status !== 0) return { ...out, error: `head ${pull.head} is not in this repository; git fetch the ${slice.branch} branch and check again` };
-    if (`sha256:${sha256(diff.stdout)}` !== binding.diff_hash) return { ...out, error: `the diff of head ${pull.head.slice(0, 12)} against the baseline does not hash to the bound ${binding.diff_hash}` };
+    const raw = [];
+    const at = pullAtBoundHead(ctx, api, { config, slice, bound }, () => raw.push(...readReviews(api, pr)));
+    Object.assign(out, { head: at.head ?? null, base: at.base ?? null });
+    if (at.error) return { ...out, error: at.error };
+    const { pull } = at;
 
     const paths = headDiff(ctx.root, slice.baseline_commit, pull.head, ['--name-only', '--no-renames']).stdout.split('\n').filter(Boolean);
     const cache = new Map();
@@ -361,6 +392,137 @@ export function withForge(ctx, status, { config, slice, current }) {
   return { ...status, satisfied: missing.length === 0 && people >= status.needed.min_approvers, valid, missing_roles: missing, approvers: people, forge };
 }
 
+// Attested CI evidence (#153; control 5). The pinned evidence workflow is the reusable workflow
+// `owner/repo/.github/workflows/<file>@<commit>`, by SHA, so the attestation's signer is exact code.
+const CI_WORKFLOW = /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/(\.github\/workflows\/[A-Za-z0-9._-]{1,100}\.ya?ml)@([0-9a-f]{40})$/;
+const RUN_URI = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100})\/actions\/runs\/(\d{1,20})\/attempts\/(\d{1,5})$/;
+const OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
+/** The required check the reusable workflow reports, for a caller job named `unknot`. */
+export const CI_CHECK = 'unknot / verify';
+export const CI_ARTIFACT = 'unknot-evidence';
+export const CI_FILE = 'unknot-evidence.json';
+const CI_MAX_BYTES = 8 * 1024 * 1024;
+
+/** The pinned evidence workflow (`approvals.forge.ci_workflow`, accepted config), or null. */
+export function ciWorkflowPin(config) {
+  const m = CI_WORKFLOW.exec(String(config.approvals?.forge?.ci_workflow ?? ''));
+  if (!m || m[2] === '.' || m[2] === '..') return null;
+  return { signer: `${m[1]}/${m[2]}/${m[3]}`, sha: m[4], identity: `https://github.com/${m[1]}/${m[2]}/${m[3]}@${m[4]}`.toLowerCase() };
+}
+
+/** Why a verified attestation's certificate is not the pinned workflow's run on the bound head; null when it is. */
+function certProblem(cert, { pin, wf, head, branch }) {
+  const lc = (v) => String(v ?? '').toLowerCase();
+  if (cert?.issuer !== OIDC_ISSUER) return `issued by ${cert?.issuer}, not GitHub Actions`;
+  if (lc(cert.sourceRepositoryURI) !== `https://github.com/${pin.slug}`) return `made in ${cert.sourceRepositoryURI}, not ${pin.slug}`;
+  if (lc(cert.subjectAlternativeName) !== wf.identity || lc(cert.buildSignerURI) !== wf.identity || cert.buildSignerDigest !== wf.sha) return `signed by ${cert.subjectAlternativeName}, not the pinned workflow ${wf.identity}`;
+  if (cert.sourceRepositoryDigest !== head || cert.buildConfigDigest !== head) return `made on commit ${String(cert.sourceRepositoryDigest).slice(0, 12)}, not the bound head ${head.slice(0, 12)}`;
+  if (cert.sourceRepositoryRef !== `refs/heads/${branch}`) return `made on ${cert.sourceRepositoryRef}, not refs/heads/${branch}`;
+  // Only a push to the slice branch in the pinned repository: never pull_request_target, a fork's pull request or a dispatch.
+  if (cert.buildTrigger !== 'push' || cert.githubWorkflowTrigger !== 'push') return `triggered by ${cert.buildTrigger}, not a push`;
+  if (cert.runnerEnvironment !== 'github-hosted') return `ran on a ${cert.runnerEnvironment} runner, not a GitHub-hosted one`;
+  const run = RUN_URI.exec(String(cert.runInvocationURI ?? ''));
+  if (!run || lc(run[1]) !== pin.slug) return `run ${cert.runInvocationURI} is not in ${pin.slug}`;
+  return null;
+}
+
+/**
+ * Attested CI evidence for a slice (control 5). Fails closed: the evidence counts only when the
+ * latest run of the caller workflow on the bound head uploaded it, `gh attestation verify` verifies
+ * it against Sigstore and GitHub's OIDC identity for the pinned repository, the pinned workflow at
+ * its pinned commit, the bound head and the slice branch, Unknot re-checks each certificate field
+ * itself, the run was a push on a GitHub-hosted runner, and the head's `.github/workflows` is the
+ * base branch's on GitHub (so neither the pull request nor a local baseline commit changed what ran).
+ * @returns {{evidence?: object, run?: string, workflow?: string, digest?: string, bytes?: Buffer, head?: string, url?: string, error?: string}}
+ */
+export function ciEvidence(ctx, { config, slice, current }) {
+  let tmp = null;
+  try {
+    const wf = ciWorkflowPin(config);
+    if (!wf) return { error: 'approvals.forge.ci_workflow is not set: name the evidence workflow as owner/repo/.github/workflows/<file>@<commit sha>, and accept the config' };
+    const bound = boundPull(ctx, { config, slice, current });
+    if (bound.error) return { error: bound.error };
+    const { pin } = bound;
+    const api = ghClient(config);
+    const at = pullAtBoundHead(ctx, api, { config, slice, bound });
+    if (at.error) return { error: at.error };
+    const head = at.head;
+    const { url } = bound;
+
+    // What ran on the push is the head's workflows: they must be the base branch's own, on GitHub.
+    const local = git(ctx.root, ['rev-parse', '--verify', '--quiet', `${head}:.github/workflows`], { check: false }).stdout.trim() || null;
+    const listing = api(`repos/${pin.owner}/${pin.repo}/contents/.github?ref=${at.pull.base}`);
+    const remote = Array.isArray(listing) ? listing.find((e) => e?.name === 'workflows' && e?.type === 'dir')?.sha ?? null : fail('.github on the base branch: malformed response');
+    if (local !== remote) return { error: `the head's .github/workflows (${local?.slice(0, 12) ?? 'none'}) is not the base branch's (${remote?.slice(0, 12) ?? 'none'}): a changed workflow ran, so no CI evidence counts` };
+
+    const runsRes = api(`repos/${pin.owner}/${pin.repo}/actions/runs?head_sha=${head}&event=push&per_page=100`);
+    if (!Array.isArray(runsRes?.workflow_runs)) fail('workflow runs: malformed response');
+    const runs = runsRes.workflow_runs.filter((r) => id(r?.id) && r.head_sha === head && r.event === 'push' && String(r.head_repository?.full_name).toLowerCase() === pin.slug && typeof r.path === 'string' && id(r.run_attempt)).sort((a, b) => b.id - a.id);
+    const run = runs.find((r) => {
+      const arts = api(`repos/${pin.owner}/${pin.repo}/actions/runs/${r.id}/artifacts?name=${CI_ARTIFACT}`)?.artifacts;
+      return Array.isArray(arts) && arts.some((a) => a?.name === CI_ARTIFACT && a?.expired === false);
+    });
+    if (!run) return { error: `no push run on head ${head.slice(0, 12)} uploaded ${CI_ARTIFACT}; is the evidence workflow installed (docs/forge-approvals.md)?` };
+
+    tmp = mkdtempSync(join(tmpdir(), 'unknot-ci-'));
+    const gh = ghBinary(config);
+    const env = ghEnv();
+    const dl = spawnSync(gh, ['run', 'download', String(run.id), '--name', CI_ARTIFACT, '--dir', tmp, '--repo', `${HOST}/${pin.owner}/${pin.repo}`], { encoding: 'utf8', shell: false, env, timeout: 120_000 });
+    if (dl.status !== 0) fail(`gh run download ${run.id} failed: ${(dl.stderr || dl.error?.message || '').trim().split('\n').slice(-2).join(' ')}`);
+    const file = join(tmp, CI_FILE);
+    if (!existsSync(file) || statSync(file).size > CI_MAX_BYTES) return { error: `run ${run.id}: ${CI_ARTIFACT} has no ${CI_FILE} of at most ${CI_MAX_BYTES} bytes` };
+    const bytes = readFileSync(file);
+    const fileDigest = sha256(bytes);
+
+    // gh checks the Sigstore signature, the transparency log and the identity flags; the fields are checked again below.
+    const v = spawnSync(gh, ['attestation', 'verify', file, '--hostname', HOST, '--repo', `${pin.owner}/${pin.repo}`, '--signer-workflow', wf.signer, '--signer-digest', wf.sha,
+      '--source-digest', head, '--source-ref', `refs/heads/${slice.branch}`, '--cert-oidc-issuer', OIDC_ISSUER, '--deny-self-hosted-runners', '--format=json'], { encoding: 'utf8', shell: false, env, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+    if (v.status !== 0) return { error: `the evidence of run ${run.id} has no valid attestation from ${wf.signer}@${wf.sha.slice(0, 12)} on head ${head.slice(0, 12)}: ${(v.stderr || v.error?.message || '').trim().split('\n').slice(-1)[0]}` };
+    let verified;
+    try {
+      verified = JSON.parse(v.stdout);
+    } catch {
+      verified = null;
+    }
+    if (!Array.isArray(verified) || !verified.length) return { error: `gh attestation verify for run ${run.id} returned no verified attestation` };
+    const want = `https://github.com/${pin.slug}/actions/runs/${run.id}/attempts/${run.run_attempt}`;
+    const problems = [];
+    for (const entry of verified) {
+      const cert = entry?.verificationResult?.signature?.certificate;
+      const subjects = entry?.verificationResult?.statement?.subject;
+      const problem = certProblem(cert, { pin, wf, head, branch: slice.branch })
+        ?? (Array.isArray(subjects) && subjects.some((s) => s?.digest?.sha256 === fileDigest) ? null : 'its subject is not this evidence file')
+        // Only the latest run and attempt of the workflow counts: an older run's attestation is a replay.
+        ?? (String(cert.runInvocationURI).toLowerCase() === want.toLowerCase() ? null : `it is from ${cert.runInvocationURI}, not the latest run ${want}`);
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+      const caller = String(cert.buildConfigURI ?? '').slice(`https://github.com/${pin.slug}/`.length).split('@')[0];
+      const newer = runs.find((r) => r.path === caller && r.id > run.id);
+      if (newer || run.path !== caller) return { error: `run ${newer?.id ?? run.id} of ${caller} on head ${head.slice(0, 12)} is newer than the attested evidence (or not that workflow's); only the latest run counts` };
+      if (run.status !== 'completed') return { error: `run ${run.id} has not completed` };
+      let evidence;
+      try {
+        evidence = JSON.parse(bytes.toString('utf8'));
+      } catch {
+        return { error: `run ${run.id}: ${CI_FILE} is not JSON` };
+      }
+      const e = evidence;
+      if (e?.schema !== 'unknot-ci-evidence-v1' || e.head !== head || e.slice_id !== slice.id || e.diff_hash !== bound.binding.diff_hash || String(e.repository).toLowerCase() !== pin.slug
+        || e.run_id !== run.id || e.run_attempt !== run.run_attempt || !Array.isArray(e.results)) {
+        return { error: `run ${run.id}: the evidence is not for ${slice.id} at head ${head.slice(0, 12)} with the bound diff in that run` };
+      }
+      return { evidence, run: want, workflow: wf.identity, digest: `sha256:${fileDigest}`, bytes, head, url };
+    }
+    return { error: `no attestation of run ${run.id}'s evidence counts: ${[...new Set(problems)].join('; ')}` };
+  } catch (err) {
+    return { error: err.message };
+  } finally {
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 /** The first of `file` and its parent directories that the current user can write, or null. */
 function writableOnPath(file) {
   for (let p = file; ; p = dirname(p)) {
@@ -416,6 +578,14 @@ export function forgeChecks(root, config) {
     add('forge code owners', reviews?.require_code_owner_reviews === true ? 'ok' : 'fail', reviews?.require_code_owner_reviews === true
       ? `${base} requires a code owner's review`
       : `${base} does not require review from code owners; turn on "Require review from Code Owners"`);
+    if (config.approvals?.forge?.ci_workflow !== undefined) {
+      const wf = ciWorkflowPin(config);
+      const sc = prot?.required_status_checks;
+      const required = [...(sc?.contexts ?? []), ...(sc?.checks ?? []).map((c) => c?.context)].includes(CI_CHECK);
+      add('forge ci check', wf && required ? 'ok' : 'fail', !wf
+        ? 'approvals.forge.ci_workflow is not owner/repo/.github/workflows/<file>@<commit sha>; the evidence workflow must be pinned by SHA'
+        : required ? `${base} requires the ${CI_CHECK} check from ${wf.signer}@${wf.sha.slice(0, 12)}` : `${base} does not require the status check "${CI_CHECK}", so a pull request can merge with it failing or missing; add it under Settings > Branches`);
+    }
     for (const uid of Array.isArray(agents) ? agents : []) {
       let login = null;
       let permission = null;
