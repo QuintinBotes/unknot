@@ -91,8 +91,9 @@ const REMOTE_CODEOWNERS = '* @carol-gh\n/src/ @bob-gh\n';
 const g = (cwd, args, input) => execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8', input }).trim();
 
 /** Run a CLI command module in-process; a person at a terminal unless `env` says otherwise. */
-async function cli(mod, dir, positional, { flags = {}, env = {} } = {}) {
-  const saved = { cwd: process.cwd(), env: { ...process.env }, in: process.stdin.isTTY, out: process.stdout.isTTY, write: process.stdout.write };
+async function cli(mod, dir, positional, { flags = {}, env = {}, ask = () => 'y' } = {}) {
+  // Set and restore keys one by one: a replaced process.env object no longer reaches child processes.
+  const saved = { cwd: process.cwd(), env: Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]])), in: process.stdin.isTTY, out: process.stdout.isTTY, write: process.stdout.write };
   let out = '';
   process.chdir(dir);
   Object.assign(process.env, env);
@@ -100,12 +101,12 @@ async function cli(mod, dir, positional, { flags = {}, env = {} } = {}) {
   process.stdout.isTTY = true;
   process.stdout.write = (s) => { out += s; return true; };
   try {
-    await mod.run({ positional, flags });
+    await mod.run({ positional, flags }, { ask });
     return out;
   } finally {
     process.stdout.write = saved.write;
     process.chdir(saved.cwd);
-    process.env = saved.env;
+    for (const [k, v] of Object.entries(saved.env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     process.stdin.isTTY = saved.in;
     process.stdout.isTTY = saved.out;
   }
@@ -143,7 +144,7 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
     protected_paths: [],
     commands: { test_unit: ['node', '--test'] },
     detectors: { 'local.complex-function': { cyclomatic: 5, cognitive: 5 }, 'local.deep-nesting': { max_nesting: 2 } },
-    approvals: { via: 'forge', forge: { gh: gh.bin, agent_accounts: [AGENT], roles } },
+    approvals: { via: 'forge', forge: { gh: gh.bin, repository: 'acme/demo', agent_accounts: [AGENT], roles } },
     approvers: { alice: { roles: ['code-owner', 'affected-owner'], public_key: pub, github_id: AGENT } },
   }));
   g(dir, ['add', '-A']);
@@ -173,10 +174,31 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   // Scenario 1: unknot pr posts the signed binding comment; the slice shows as pending.
   const remote = mkTmp(join(tmpdir(), 'uk-remote-'));
   g(remote, ['init', '-q', '--bare']);
-  g(dir, ['remote', 'add', 'origin', remote]);
+  // Exploit (blocker 1, second route): origin pointed at a repository the agent controls.
+  g(dir, ['remote', 'add', 'origin', 'https://github.com/mallory/demo.git']);
+  g(dir, ['remote', 'set-url', '--push', 'origin', remote]);
+  await assert.rejects(cli(prCmd, dir, [sliceId]), /remote origin is not acme\/demo/);
+  g(dir, ['remote', 'set-url', 'origin', 'https://github.com/acme/demo.git']);
+  g(dir, ['remote', 'set-url', '--push', 'origin', remote]);
   gh.routes({ 'POST repos/acme/demo/issues/7/comments': fixture('comment') });
-  let out = await cli(prCmd, dir, [sliceId]);
+  const opened = () => ctx.store.all("SELECT payload FROM events WHERE type = 'pr.opened' AND slice_id = ?", sliceId).length;
+  // Exploit (blocker 1): gh reports a pull request in another repository; it is refused, nothing recorded.
+  process.env.FAKE_GH_PR_URL = 'https://github.com/mallory/demo/pull/1';
+  try {
+    await assert.rejects(cli(prCmd, dir, [sliceId]), /mallory\/demo\/pull\/1, which is not a pull request in acme\/demo/);
+  } finally {
+    process.env.FAKE_GH_PR_URL = 'https://github.com/acme/demo/pull/7';
+  }
+  assert.equal(opened(), 0);
+  // ...and a gh shim first on PATH printing that URL is never run: unknot pr uses the configured gh.
+  const urlShim = mkTmp(join(tmpdir(), 'uk-urlshim-'));
+  writeFileSync(join(urlShim, 'gh'), `#!/bin/sh\necho ran >> "${join(urlShim, 'ran')}"\necho https://github.com/mallory/demo/pull/1\n`);
+  chmodSync(join(urlShim, 'gh'), 0o755);
+  let out = await cli(prCmd, dir, [sliceId], { env: { PATH: `${urlShim}:${process.env.PATH}` } });
+  assert.equal(existsSync(join(urlShim, 'ran')), false, 'the gh shim on PATH never ran');
+  assert.match(out, /Opened draft pull request https:\/\/github.com\/acme\/demo\/pull\/7/);
   assert.match(out, /Posted the approval binding/);
+  assert.ok(gh.calls().some((c) => c[0] === 'pr' && c[1] === 'create' && c.at(-1) === 'acme/demo'), 'gh pr create names the pinned repository');
   const post = gh.calls().find((c) => c.includes('POST'));
   const body = post[post.indexOf('-f') + 1];
   assert.match(body, /^body=\*\*Unknot approval binding\*\*/);
@@ -193,6 +215,7 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   const perms = (over = {}) => Object.fromEntries(Object.keys(ID).map((l) => [`GET repos/acme/demo/collaborators/${l}/permission`, fixture('permission', { permission: over[l] ?? 'write' })]));
   const serve = (reviews, { pr = pull(), me = 'alice-gh', perm = {}, owners = REMOTE_CODEOWNERS, extra = {} } = {}) => gh.routes({
     'GET user': fixture('user', user(me)),
+    'GET repos/acme/demo': fixture('repo'),
     'GET repos/acme/demo/pulls/7': pr,
     'GET repos/acme/demo/pulls/7/reviews?per_page=100&page=1': reviews,
     'GET orgs/acme/teams/reviewers/memberships/erin-gh': fixture('membership'),
@@ -201,6 +224,7 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
     ...extra,
   });
   const check = (c = cfg) => approvalStatus(ctx, loadSlice(ctx, sliceId), 'change', { cfg: c, commit: slice.baseline_commit, diffHash: slice.diff_hash });
+  const withForgeConfig = (forge) => ({ ...cfg, config: { ...config, approvals: { ...config.approvals, forge: { ...config.approvals.forge, ...forge } } } });
   const why = (st, login) => st.forge.reviews.find((r) => r.login === login)?.reasons.join('; ');
   const forgeEvents = () => ctx.store.all("SELECT payload FROM events WHERE type = 'approval.recorded' AND slice_id = ?", sliceId).map((e) => JSON.parse(e.payload)).filter((p) => p.via === 'forge');
 
@@ -211,7 +235,7 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   assert.equal(st.forge.head, head);
   out = await cli(approvalsCmd, dir, [sliceId]);
   assert.match(out, new RegExp(`${sliceId} change approval: pending`));
-  assert.match(out, /pull request: https:\/\/github.com\/acme\/demo\/pull\/7, head /);
+  assert.match(out, /pull request: https:\/\/github.com\/acme\/demo\/pull\/7, base main, head /);
 
   // Stale head: approved the baseline, not the head.
   serve([review(81, 'bob-gh', 'APPROVED', slice.baseline_commit)]);
@@ -323,6 +347,22 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   serve([review(101, 'bob-gh')], { pr: pull({ head: { ...pull().head, repo: { full_name: 'mallory/demo' } } }) });
   assert.match(check().forge.error, /not unknot\//);
 
+  // Exploit (blocker 2): the base retargeted to an agent branch whose CODEOWNERS names the agent.
+  const agentBase = { ...fixture('pull').base, ref: 'agent-branch', sha: '2'.repeat(40) };
+  const agentOwners = { [`GET repos/acme/demo/contents/.github/CODEOWNERS?ref=${'2'.repeat(40)}`]: fixture('contents', { content: Buffer.from('* @agent-alt\n').toString('base64') }) };
+  serve([review(112, 'agent-alt')], { pr: pull({ base: agentBase }), extra: agentOwners });
+  st = check();
+  assert.match(st.forge.error, /base is acme\/demo:agent-branch, not acme\/demo:main/);
+  assert.deepEqual(st.forge.valid, []);
+  // ...or to a branch of another repository.
+  serve([review(113, 'bob-gh')], { pr: pull({ base: { ...fixture('pull').base, repo: { full_name: 'mallory/demo' } } }) });
+  assert.match(check().forge.error, /base is mallory\/demo:main/);
+  // A pull request outside the pinned repository counts nothing.
+  serve([review(114, 'bob-gh')]);
+  st = check(withForgeConfig({ repository: 'other/repo' }));
+  assert.match(st.forge.error, /is not in other\/repo/);
+  assert.deepEqual(st.forge.valid, []);
+
   // Scenario 2: a code owner of every touched path and a team member, both on the head.
   const good = [review(102, 'bob-gh'), review(103, 'erin-gh')];
   serve(good);
@@ -346,7 +386,6 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   } finally {
     resetClock();
   }
-  const withForgeConfig = (forge) => ({ ...cfg, config: { ...config, approvals: { ...config.approvals, forge: { ...config.approvals.forge, ...forge } } } });
   st = check(withForgeConfig({ roles: { 'affected-owner': { users: [ID['dave-gh']] } } }));
   assert.match(why(st, 'bob-gh'), /holds no mapped role/);
   assert.match(why(st, 'erin-gh'), /holds no mapped role/);
@@ -377,6 +416,12 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   st = check();
   assert.equal(why(st, 'alice-gh'), '');
   assert.ok(st.valid.every((x) => x.via === 'forge'), 'under via: forge a local signature does not count on its own');
+  // Small fix: the agent account's review counts only for the role its person signed (affected-owner),
+  // not for code-owner, even where GitHub's CODEOWNERS names that account.
+  serve([review(115, 'alice-gh')], { pr: pull({ user: user('pr-bot') }), owners: '* @alice-gh\n' });
+  st = check();
+  assert.deepEqual(st.forge.reviews.find((r) => r.login === 'alice-gh').roles, ['affected-owner', 'any-approver']);
+  assert.ok(!st.forge.valid.some((x) => x.role === 'code-owner'));
 
   // Exploit (B1): an agent session cannot accept, by the command or by the shell rule...
   serve(good);
@@ -396,8 +441,15 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   assert.equal(existsSync(shimLog), false, 'the shim on PATH never ran');
   assert.equal(loadSlice(ctx, sliceId).state, 'REVIEW_READY');
 
-  // The person's approvals command accepts a slice the reviews complete, and only then records them.
+  // The person's approvals command asks before accepting; the default is no.
   serve(good);
+  let asked = '';
+  out = await cli(approvalsCmd, dir, [sliceId], { ask: (q) => { asked = q; return ''; } });
+  assert.match(asked, new RegExp(`Accept ${sliceId} on https://github.com/acme/demo/pull/7 \\(base main\\) as approved by bob-gh \\(code-owner\\), erin-gh \\(affected-owner\\)\\? \\[y/N\\]`));
+  assert.match(out, /Not accepted; nothing recorded/);
+  assert.equal(loadSlice(ctx, sliceId).state, 'REVIEW_READY');
+  assert.deepEqual(forgeEvents(), []);
+  // Confirmed: accepted, and only then are the reviews recorded.
   out = await cli(approvalsCmd, dir, [sliceId]);
   assert.match(out, /change approval: satisfied/);
   assert.match(out, /ACCEPTED/);
@@ -431,7 +483,7 @@ test('approvals.via: local (the default) never reaches the forge', () => {
 test('doctor: base branch protection and the agent accounts\' push (scenario 7)', () => {
   const dir = mkTmp(join(tmpdir(), 'uk-doc-'));
   g(dir, ['init', '-q']);
-  const config = { approvals: { via: 'forge', forge: { gh: gh.bin, agent_accounts: [AGENT] } } };
+  const config = { approvals: { via: 'forge', forge: { gh: gh.bin, repository: 'acme/demo', agent_accounts: [AGENT] } } };
   const level = (checks) => Object.fromEntries(checks.map((c) => [c.name, c.level]));
   assert.deepEqual(forgeChecks(dir, { approvals: {} }), []);
   assert.deepEqual(level(forgeChecks(dir, config)), { 'forge remote': 'fail' });
@@ -446,11 +498,16 @@ test('doctor: base branch protection and the agent accounts\' push (scenario 7)'
     ...over,
   });
   routes();
-  assert.deepEqual(level(forgeChecks(dir, config)), { 'forge gh': 'ok', 'forge reviews': 'ok', 'forge code owners': 'ok', 'forge agent push': 'ok' });
-  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { gh: gh.bin } } }))['forge agents'], 'fail');
-  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { gh: '/nonexistent/gh', agent_accounts: [] } } })).forge, 'fail');
+  // The fake gh sits in a temporary directory this user can write: doctor warns.
+  const ok = forgeChecks(dir, config);
+  assert.deepEqual(level(ok), { 'forge repository': 'ok', 'forge gh': 'warn', 'forge reviews': 'ok', 'forge code owners': 'ok', 'forge agent push': 'ok' });
+  assert.match(ok.find((c) => c.name === 'forge gh').detail, /is writable by/);
+  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { ...config.approvals.forge, repository: 'other/repo' } } }))['forge repository'], 'fail');
+  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { ...config.approvals.forge, repository: undefined } } }))['forge repository'], 'fail');
+  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { gh: gh.bin, repository: 'acme/demo' } } }))['forge agents'], 'fail');
+  assert.equal(level(forgeChecks(dir, { approvals: { via: 'forge', forge: { gh: '/nonexistent/gh', repository: 'acme/demo', agent_accounts: [] } } })).forge, 'fail');
   routes({ 'GET repos/acme/demo/branches/main/protection': undefined });
-  assert.deepEqual(level(forgeChecks(dir, config)), { 'forge gh': 'ok', 'forge reviews': 'fail', 'forge code owners': 'fail', 'forge agent push': 'fail' });
+  assert.deepEqual(level(forgeChecks(dir, config)), { 'forge repository': 'ok', 'forge gh': 'warn', 'forge reviews': 'fail', 'forge code owners': 'fail', 'forge agent push': 'fail' });
   const prot = fixture('protection');
   routes({ 'GET repos/acme/demo/branches/main/protection': { ...prot, required_pull_request_reviews: { ...prot.required_pull_request_reviews, require_code_owner_reviews: false } } });
   assert.equal(level(forgeChecks(dir, config))['forge code owners'], 'fail');

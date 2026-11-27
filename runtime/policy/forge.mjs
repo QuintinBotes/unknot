@@ -13,7 +13,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { userInfo } from 'node:os';
+import { dirname, isAbsolute } from 'node:path';
 import { parseCodeowners } from '../../adapters/ownership/codeowners.mjs';
 import { git } from '../apply/git.mjs';
 import { canonicalJSON, digest, sha256 } from '../core/canonical.mjs';
@@ -32,14 +33,36 @@ const DECISIVE = new Set(['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED']);
 const CODEOWNERS_FILES = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'];
 // Where package managers install gh. PATH is never searched.
 const GH_PATHS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh', '/home/linuxbrew/.linuxbrew/bin/gh', '/snap/bin/gh'];
-// gh settings that could send a call elsewhere or change what it reads; the rest of the env stays.
-const GH_ENV_DROP = ['GH_HOST', 'GH_CONFIG_DIR', 'GH_REPO', 'GH_DEBUG', 'GH_PATH'];
+// Settings that could send a gh call elsewhere, through a proxy or under another CA, or make gh read
+// another config. Dropping them is defence in depth: the same OS user can still edit gh's own config.
+const GH_ENV_DROP = ['GH_HOST', 'GH_CONFIG_DIR', 'GH_REPO', 'GH_DEBUG', 'GH_PATH', 'XDG_CONFIG_HOME',
+  'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'];
+const REPO = /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})$/;
 
 const str = (v, re) => typeof v === 'string' && re.test(v);
 const id = (v) => Number.isSafeInteger(v) && v > 0;
 const fail = (msg) => { throw new UnknotError('UK_TOOL_FAILED', msg); };
 
 export const forgeVia = (config) => config.approvals?.via ?? 'local';
+
+/** The repository forge approvals are pinned to (`approvals.forge.repository`, accepted config), lower-cased, or null. */
+export function pinnedRepo(config) {
+  const m = REPO.exec(String(config.approvals?.forge?.repository ?? ''));
+  return m && m[2] !== '.' && m[2] !== '..' ? { owner: m[1], repo: m[2], slug: `${m[1]}/${m[2]}`.toLowerCase() } : null;
+}
+
+/** The pinned repository, or a refusal naming the setting. */
+export function requirePinnedRepo(config) {
+  return pinnedRepo(config) ?? fail('approvals.forge.repository is not set: name the owner/repo whose pull request reviews count, and accept the config');
+}
+
+/** Whether a pull request URL is in the pinned repository. */
+export const inPinnedRepo = (config, url) => {
+  const pin = pinnedRepo(config);
+  const pr = githubRepo(url);
+  return Boolean(pin && pr?.number && `${pr.owner}/${pr.repo}`.toLowerCase() === pin.slug);
+};
 
 /** `{owner, repo, number}` of a github.com remote or pull request URL; null for anything else. */
 export function githubRepo(url) {
@@ -86,8 +109,8 @@ const userOf = (u) => (id(u?.id) && str(u?.login, LOGIN) ? { uid: u.id, login: u
 function readPull(api, { owner, repo, number }) {
   const p = api(`repos/${owner}/${repo}/pulls/${number}`);
   const author = userOf(p?.user);
-  if (!str(p?.head?.sha, SHA) || !str(p?.base?.sha, SHA) || !author || typeof p?.head?.ref !== 'string' || typeof p?.state !== 'string') fail(`pull request ${number}: malformed response`);
-  return { head: p.head.sha, base: p.base.sha, author, state: p.state, ref: p.head.ref, repo: String(p.head.repo?.full_name ?? '').toLowerCase() };
+  if (!str(p?.head?.sha, SHA) || !str(p?.base?.sha, SHA) || !author || typeof p?.head?.ref !== 'string' || typeof p?.base?.ref !== 'string' || typeof p?.state !== 'string') fail(`pull request ${number}: malformed response`);
+  return { head: p.head.sha, base: p.base.sha, baseRef: p.base.ref, baseRepo: String(p.base.repo?.full_name ?? '').toLowerCase(), author, state: p.state, ref: p.head.ref, repo: String(p.head.repo?.full_name ?? '').toLowerCase() };
 }
 
 function readReviews(api, { owner, repo, number }) {
@@ -175,7 +198,7 @@ const STATEMENT = (binding) => canonicalJSON({ binding, purpose: 'unknot-forge-b
  */
 export function postBinding(ctx, { config, slice, url, binding, actor }) {
   const pr = githubRepo(url);
-  if (!pr?.number) fail(`${url} is not a github.com pull request; forge approvals are GitHub only`);
+  if (!inPinnedRepo(config, url)) fail(`${url} is not a pull request in ${requirePinnedRepo(config).slug} (approvals.forge.repository); no binding posted`);
   const signature = signText(auditPrivateKey(ctx.projectId), STATEMENT(binding));
   const body = [
     `**Unknot approval binding** for \`${slice.id}\`, stage \`${binding.stage}\`.`,
@@ -206,15 +229,18 @@ const headDiff = (root, base, head, extra = []) => git(root, ['-c', 'diff.ignore
  * @returns {{valid: object[], reviews: object[], url: string|null, head: string|null, binding: object|null, binding_hash: string|null, error: string|null}}
  */
 export function forgeApprovals(ctx, { config, slice, current, local }) {
-  const out = { valid: [], reviews: [], url: null, head: null, binding: null, binding_hash: null, error: null };
+  const out = { valid: [], reviews: [], url: null, head: null, base: null, binding: null, binding_hash: null, error: null };
   try {
     const agents = config.approvals?.forge?.agent_accounts;
     if (!Array.isArray(agents) || !agents.every(id)) return { ...out, error: 'approvals.forge.agent_accounts is not set: list the numeric GitHub user ids agents act as ([] for none) and accept the config' };
+    const pin = pinnedRepo(config);
+    if (!pin) return { ...out, error: 'approvals.forge.repository is not set: name the owner/repo whose pull request reviews count, and accept the config' };
     const opened = latestEvent(ctx, 'pr.opened', slice.id);
     if (!opened) return { ...out, error: `no pull request; run unknot pr ${slice.id}` };
     out.url = opened.url;
     const pr = githubRepo(opened.url);
     if (!pr?.number) return { ...out, error: `${opened.url} is not a github.com pull request` };
+    if (!inPinnedRepo(config, opened.url)) return { ...out, error: `${opened.url} is not in ${pin.slug} (approvals.forge.repository); nothing counts` };
     const posted = latestEvent(ctx, 'forge.binding_posted', slice.id);
     if (!posted || posted.url !== opened.url) return { ...out, error: `no binding comment on ${opened.url}; run unknot pr ${slice.id}` };
     const binding = posted.binding;
@@ -233,7 +259,11 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
     if (readPull(api, pr).head !== pull.head) return { ...out, error: 'the pull request head moved while its reviews were read; check again' };
     out.head = pull.head;
     if (pull.state !== 'open') return { ...out, error: `the pull request is ${pull.state}` };
-    if (pull.ref !== slice.branch || pull.repo !== `${pr.owner}/${pr.repo}`.toLowerCase()) return { ...out, error: `the pull request head is ${pull.repo}:${pull.ref}, not ${slice.branch} in ${pr.owner}/${pr.repo}` };
+    if (pull.ref !== slice.branch || pull.repo !== pin.slug) return { ...out, error: `the pull request head is ${pull.repo}:${pull.ref}, not ${slice.branch} in ${pin.slug}` };
+    // The base decides whose CODEOWNERS apply: it must be the pinned repository's protected branch.
+    const baseRef = config.approvals?.forge?.base ?? api(`repos/${pin.owner}/${pin.repo}`)?.default_branch;
+    out.base = baseRef;
+    if (typeof baseRef !== 'string' || pull.baseRepo !== pin.slug || pull.baseRef !== baseRef) return { ...out, error: `the pull request base is ${pull.baseRepo}:${pull.baseRef}, not ${pin.slug}:${baseRef}; nothing counts` };
 
     const diff = headDiff(ctx.root, slice.baseline_commit, pull.head, ['--binary', '--full-index']);
     if (diff.status !== 0) return { ...out, error: `head ${pull.head} is not in this repository; git fetch the ${slice.branch} branch and check again` };
@@ -243,7 +273,12 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
     const cache = new Map();
     const ctxRoles = { roleMap: config.approvals?.forge?.roles ?? {}, owners: ownersOf(remoteCodeowners(api, pr, pull.base), paths), member: (t, l) => teamMember(api, cache, t, l) };
     const canWrite = (login) => lookup(cache, `write ${login}`, () => ['admin', 'write'].includes(api(`repos/${pr.owner}/${pr.repo}/collaborators/${login}/permission`)?.permission));
-    const signedBy = new Set(local.map((v) => config.approvers?.[v.approver]?.github_id).filter(id));
+    // The roles each agent account's linked approver signed locally for this binding.
+    const signed = new Map();
+    for (const v of local) {
+      const uid = config.approvers?.[v.approver]?.github_id;
+      if (id(uid)) signed.set(uid, new Set([...(signed.get(uid) ?? []), v.role]));
+    }
 
     // Each reviewer's latest decisive review (ids increase over time) is the one that stands.
     const latest = new Map();
@@ -262,9 +297,15 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
       if (review.state !== 'APPROVED') reasons.push(`latest review is ${review.state.toLowerCase()}`);
       else if (review.commit !== pull.head) reasons.push(`approved ${review.commit.slice(0, 12)}, not the head`);
       if (review.uid === pull.author.uid) reasons.push('pull request author');
-      if (!reasons.length && agents.includes(review.uid) && !signedBy.has(review.uid)) reasons.push('an agent account (approvals.forge.agent_accounts); counts only with the linked approver\'s local signature for this binding');
+      const agent = agents.includes(review.uid);
+      if (!reasons.length && agent && !signed.has(review.uid)) reasons.push('an agent account (approvals.forge.agent_accounts); counts only with the linked approver\'s local signature for this binding');
       if (!reasons.length && !canWrite(review.login)) reasons.push('no write access to the repository');
-      const roles = reasons.length ? [] : rolesOf(review, ctxRoles);
+      let roles = reasons.length ? [] : rolesOf(review, ctxRoles);
+      // An agent account's review counts only for the roles its person signed locally, as in local mode.
+      if (agent && roles.length) {
+        roles = roles.filter((r) => r !== ANY_APPROVER && signed.get(review.uid).has(r));
+        if (roles.length) roles.push(ANY_APPROVER);
+      }
       if (!reasons.length && !roles.length) reasons.push('holds no mapped role');
       out.reviews.push({ id: review.id, login: review.login, uid: review.uid, counted: !reasons.length, reasons, roles });
       if (reasons.length) continue;
@@ -310,6 +351,19 @@ export function withForge(ctx, status, { config, slice, current }) {
   return { ...status, satisfied: missing.length === 0 && people >= status.needed.min_approvers, valid, missing_roles: missing, approvers: people, forge };
 }
 
+/** The first of `file` and its parent directories that the current user can write, or null. */
+function writableOnPath(file) {
+  for (let p = file; ; p = dirname(p)) {
+    try {
+      accessSync(p, constants.W_OK);
+      return p;
+    } catch {
+      // not writable
+    }
+    if (dirname(p) === p) return null;
+  }
+}
+
 /** Doctor checks for forge approvals (control 6): gh, base branch protection, and the agent accounts' push. */
 export function forgeChecks(root, config) {
   if (forgeVia(config) === 'local') return [];
@@ -323,12 +377,21 @@ export function forgeChecks(root, config) {
       add('forge remote', 'fail', `approvals.via is ${forgeVia(config)} but ${remote ? `remote ${remote} is not on github.com` : 'there is no git remote'}; forge approvals are GitHub only`);
       return checks;
     }
+    const pin = pinnedRepo(config);
+    if (!pin) {
+      add('forge repository', 'fail', `approvals.forge.repository is not set, so no review counts; set it to ${repo.owner}/${repo.repo} and accept the config`);
+      return checks;
+    }
+    const remoteSlug = `${repo.owner}/${repo.repo}`.toLowerCase();
+    add('forge repository', remoteSlug === pin.slug ? 'ok' : 'fail', remoteSlug === pin.slug ? pin.slug : `remote ${remote} is ${remoteSlug}, not the pinned ${pin.slug}; pull requests there never count`);
     const agents = config.approvals?.forge?.agent_accounts;
     if (!Array.isArray(agents)) add('forge agents', 'fail', 'approvals.forge.agent_accounts is not set, so no review counts: list the numeric GitHub user ids agents act as (gh api user --jq .id), or [] for none');
     const api = ghClient(config);
-    add('forge gh', 'ok', ghBinary(config));
-    const slug = `${repo.owner}/${repo.repo}`;
-    const base = api(`repos/${slug}`)?.default_branch;
+    const bin = ghBinary(config);
+    const writable = writableOnPath(bin);
+    add('forge gh', writable ? 'warn' : 'ok', writable ? `${bin}: ${writable} is writable by ${userInfo().username}, so an agent running as this user could replace gh; install gh where only root can write, or run agents as another user` : bin);
+    const slug = pin.slug;
+    const base = config.approvals?.forge?.base ?? api(`repos/${slug}`)?.default_branch;
     if (typeof base !== 'string' || !base) fail(`repos/${slug}: no default branch`);
     let prot = null;
     try {

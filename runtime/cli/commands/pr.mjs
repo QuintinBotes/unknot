@@ -11,7 +11,7 @@ import { git } from '../../apply/git.mjs';
 import { stagePatch } from '../../apply/worktree.mjs';
 import { which } from '../../broker/broker.mjs';
 import { UnknotError } from '../../core/errors.mjs';
-import { forgeVia, postBinding } from '../../policy/forge.mjs';
+import { forgeVia, ghBinary, githubRepo, inPinnedRepo, postBinding, requirePinnedRepo } from '../../policy/forge.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { renderPullRequestBody } from '../../verify/bundle.mjs';
 import { currentActor, output, requireHumanTTY } from '../util.mjs';
@@ -57,7 +57,16 @@ export async function run({ positional, flags }) {
 
   const remotes = git(ctx.root, ['remote']).stdout.split('\n').filter(Boolean);
   const remote = remotes.includes('origin') ? 'origin' : remotes[0];
-  const gh = which('gh');
+  // Forge approvals pin the repository and the gh binary: a shim on PATH or a remote pointed elsewhere
+  // must not decide which pull request (and whose CODEOWNERS) the reviews are read from.
+  const forge = forgeVia(cfg.config) !== 'local';
+  const pin = forge ? requirePinnedRepo(cfg.config) : null;
+  if (forge) {
+    const at = remote ? githubRepo(git(ctx.root, ['remote', 'get-url', remote]).stdout) : null;
+    if (remote && (!at || `${at.owner}/${at.repo}`.toLowerCase() !== pin.slug)) throw new UnknotError('UK_POLICY_DENIED', `remote ${remote} is not ${pin.slug} (approvals.forge.repository); nothing pushed`, { slice_id: slice.id });
+    if (opened && !inPinnedRepo(cfg.config, JSON.parse(opened.payload).url)) throw new UnknotError('UK_POLICY_DENIED', `the recorded pull request ${JSON.parse(opened.payload).url} is not in ${pin.slug}; nothing pushed`, { slice_id: slice.id });
+  }
+  const gh = forge ? ghBinary(cfg.config) : which('gh');
   const refspec = `${commit}:refs/heads/${slice.branch}`;
   if (!remote || !gh) {
     output([
@@ -78,12 +87,14 @@ export async function run({ positional, flags }) {
   const args = opened
     ? ['pr', 'edit', slice.branch, '--body-file', file]
     : ['pr', 'create', '--draft', '--head', slice.branch, '--title', title, '--body-file', file];
+  if (pin) args.push('--repo', `${pin.owner}/${pin.repo}`);
   const r = spawnSync(gh, args, { cwd: ctx.root, encoding: 'utf8', shell: false });
   if (r.status !== 0) throw new UnknotError('UK_TOOL_FAILED', `gh ${args.slice(0, 3).join(' ')} failed: ${(r.stderr || r.error?.message || '').trim().split('\n').slice(-3).join(' ')}. The body is in ${bundle}/pr.md`, { slice_id: slice.id });
   const url = opened ? JSON.parse(opened.payload).url : r.stdout.trim().split('\n').pop();
+  if (forge && !inPinnedRepo(cfg.config, url)) throw new UnknotError('UK_POLICY_DENIED', `gh reported ${url}, which is not a pull request in ${pin.slug} (approvals.forge.repository); nothing recorded`, { slice_id: slice.id });
   appendEvent(ctx, { type: opened ? 'pr.updated' : 'pr.opened', slice_id: slice.id, actor: currentActor(), payload: { url, remote, branch: slice.branch, commit, bundle, stale: Boolean(stale) } });
   // Forge approvals: the change a review approves is the binding posted with it.
-  const bound = forgeVia(cfg.config) !== 'local' && !stale && slice.state === 'REVIEW_READY';
+  const bound = forge && !stale && slice.state === 'REVIEW_READY';
   if (bound) postBinding(ctx, { config: cfg.config, slice, url, binding: currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash }), actor: currentActor() });
   output([
     `${opened ? 'Updated' : 'Opened draft'} pull request ${url} for ${slice.id} (${commit === pushed ? 'no new commit' : `pushed ${commit.slice(0, 12)} to ${remote}/${slice.branch}`}).`,
