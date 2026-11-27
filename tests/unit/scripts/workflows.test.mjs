@@ -84,6 +84,22 @@ test('release.yml: notes come from the CHANGELOG section, not generated', () => 
   assert.doesNotMatch(text, /--generate-notes/);
 });
 
+test('release.yml: the consistency gate hands its accuracy report to the notes and the release assets (#246)', () => {
+  const wf = parseYAML(read('release.yml'), { filename: 'release.yml' });
+  const up = wf.jobs.consistency.steps.find((s) => /actions\/upload-artifact@/.test(s.uses ?? ''));
+  assert.equal(up.with.name, 'accuracy');
+  assert.match(up.with.path, /accuracy\/accuracy\.json/);
+  assert.match(up.with.path, /accuracy\/accuracy\.md/);
+  assert.equal(up.with['if-no-files-found'], 'error');
+  const steps = wf.jobs.release.steps;
+  const down = steps.findIndex((s) => /actions\/download-artifact@/.test(s.uses ?? ''));
+  const create = steps.findIndex((s) => /gh release create/.test(s.run ?? ''));
+  assert.ok(down >= 0 && down < create, 'the report is downloaded before the release is created');
+  assert.equal(steps[down].with.name, 'accuracy');
+  assert.match(steps[create].run, /release-notes\.mjs "\$TAG" --accuracy "\$RUNNER_TEMP\/accuracy"/);
+  assert.match(steps[create].run, /gh release create "\$TAG" [^\n]*"\$RUNNER_TEMP\/accuracy\/accuracy\.json"/);
+});
+
 test('release.yml: a restore drill runs before anything is published', () => {
   const text = read('release.yml');
   assert.match(text, /run: node scripts\/restore-drill\.mjs\n/);
