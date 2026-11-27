@@ -8,6 +8,9 @@
 //     verdict under the policy digest the approval was signed with: signature, approver, role,
 //     commit, slice digest and expiry, all checked by this runtime. `satisfied` is the verdict
 //     under today's digest, which a release that changes the effective config moves.
+//   node upgrade-slice.mjs accept <runtime dir> <project>   what a person does once after an upgrade
+//     from a release that did not sign config acceptances (#215): accept .unknot/config.yaml
+//     again, through the runtime API (a terminal accept needs a TTY); prints {acceptance}
 //
 // UNKNOT_HOME comes from the caller, so both sides find the same approver key.
 
@@ -67,7 +70,11 @@ if (mode === 'build') {
   const now = approvalStatus(ctx, slice, 'plan', { cfg, commit });
   const then = approvalStatus(ctx, slice, 'plan', { cfg: { ...cfg, digest: signed[0] }, commit });
   process.stdout.write(`${JSON.stringify({ satisfied: now.satisfied, stale: now.stale, bound: then.satisfied, bound_stale: then.stale, approvals: signed.length, state: slice.state })}\n`);
+} else if (mode === 'accept') {
+  const ctx = openProject(project);
+  recordAcceptedConfig(ctx, readFileSync(join(project, '.unknot/config.yaml'), 'utf8'), 'human:upgrade');
+  process.stdout.write(`${JSON.stringify({ acceptance: loadConfig(ctx).acceptance })}\n`);
 } else {
-  process.stderr.write('usage: upgrade-slice.mjs build|check <runtime dir> <project> [slice]\n');
+  process.stderr.write('usage: upgrade-slice.mjs build|check|accept <runtime dir> <project> [slice]\n');
   process.exit(2);
 }

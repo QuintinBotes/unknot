@@ -57,7 +57,7 @@ function proposalListsRepositories(ctx) {
 export function humanSteps(ctx, cfg, { unknotOnPath, checkCli = false } = {}) {
   const steps = [];
   const proposal = existsSync(ctx.paths.proposedConfig);
-  if (proposal || ['unaccepted', 'changed'].includes(cfg.acceptance)) {
+  if (proposal || ['unaccepted', 'changed', 'invalid'].includes(cfg.acceptance)) {
     const workspace = proposal && !(cfg.config.workspace?.repositories ?? []).length && proposalListsRepositories(ctx);
     steps.push({ step: 'accept_config', commands: ['unknot config diff', 'unknot config accept'], note: workspace ? 'review the proposal, then accept it: it lists workspace repositories, and `unknot workspace list` and `map` need it accepted' : proposal ? 'review the proposal, then accept it' : 'review the configuration file, then accept it' });
   }
