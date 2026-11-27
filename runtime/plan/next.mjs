@@ -54,7 +54,13 @@ export function selectNext(ctx, { campaign = null, config = loadConfig(ctx).conf
       return !pre || pre.state !== 'ACCEPTED';
     });
     if (open.length) {
-      blocked.push({ id: s.id, waiting_for: open });
+      // Say which dependency apply would refuse, and why, so the wait is not silent (#217).
+      const heldBy = open.flatMap((p) => {
+        const pre = byId.get(p);
+        const hold = pre && READY.has(pre.state) && applyHold(ctx, pre, config);
+        return hold ? [{ id: p, reason: hold.plan_only ?? hold.waits_on_evidence }] : [];
+      });
+      blocked.push({ id: s.id, waiting_for: open, ...(heldBy.length && { held_by: heldBy }) });
       continue;
     }
     const hold = applyHold(ctx, s, config);
