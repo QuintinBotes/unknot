@@ -56,5 +56,30 @@
   "permission": { "permission": "write", "role_name": "write", "user": { "login": "alice-gh", "id": 5011, "type": "User" } },
   "membership": { "url": "https://api.github.com/teams/42/memberships/erin-gh", "role": "member", "state": "active" },
   "comment": { "id": 9100, "user": { "login": "alice-gh", "id": 5011, "type": "User" }, "body": "(the binding comment)" },
-  "contents": { "type": "file", "encoding": "base64", "size": 0, "name": "CODEOWNERS", "path": ".github/CODEOWNERS", "sha": "3d21ec53a331a6f037a91c368710b99387d012c1", "content": "" }
+  "contents": { "type": "file", "encoding": "base64", "size": 0, "name": "CODEOWNERS", "path": ".github/CODEOWNERS", "sha": "3d21ec53a331a6f037a91c368710b99387d012c1", "content": "" },
+  "contents_dir_entry": { "name": "workflows", "path": ".github/workflows", "sha": "0000000000000000000000000000000000000000", "size": 0, "url": "https://api.github.com/repos/acme/demo/contents/.github/workflows?ref=main", "type": "dir" },
+  "workflow_run": {
+    "id": 901,
+    "name": "unknot",
+    "head_branch": "unknot/S-0001",
+    "head_sha": "0000000000000000000000000000000000000000",
+    "path": ".github/workflows/unknot.yml",
+    "run_number": 12,
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success",
+    "workflow_id": 4401,
+    "run_attempt": 1,
+    "html_url": "https://github.com/acme/demo/actions/runs/901",
+    "repository": { "id": 700, "name": "demo", "full_name": "acme/demo" },
+    "head_repository": { "id": 700, "name": "demo", "full_name": "acme/demo" }
+  },
+  "artifact": {
+    "id": 55001,
+    "name": "unknot-evidence",
+    "size_in_bytes": 1024,
+    "archive_download_url": "https://api.github.com/repos/acme/demo/actions/artifacts/55001/zip",
+    "expired": false,
+    "workflow_run": { "id": 901, "repository_id": 700, "head_repository_id": 700, "head_branch": "unknot/S-0001", "head_sha": "0000000000000000000000000000000000000000" }
+  }
 }

@@ -21,18 +21,18 @@ import { CHECKS, changedPaths, graphPair } from './checks.mjs';
 import { scopedHookArgv } from '../plan/hooks.mjs';
 import { emitProofBundle } from './bundle.mjs';
 
-function obligationsOf(ctx, sliceId) {
+export function obligationsOf(ctx, sliceId) {
   return ctx.store.all('SELECT * FROM proof_obligations WHERE slice_id = ? ORDER BY CAST(substr(id, 4) AS INTEGER)', sliceId).map((o) => ({ ...o, body: JSON.parse(o.body) }));
 }
 
-function recordEvidence(ctx, { run, slice, obligation, record, verdict }) {
+export function recordEvidence(ctx, { run, slice, obligation, record, verdict, actor = 'runtime:verifier' }) {
   ctx.store.tx(() => {
     ctx.store.insert('evidence', { id: record.id, obligation_id: obligation.id, slice_id: slice.id, run_id: run.id, record, verdict, diff_hash: slice.diff_hash, at: nowISO() });
     const status = verdict === 'pass' ? 'pass' : verdict === 'fail' ? 'fail' : 'inconclusive';
     ctx.store.run('UPDATE proof_obligations SET status = ?, evidence_id = ?, version = version + 1 WHERE id = ?', status, record.id, obligation.id);
     // The record's digest goes into the signed, chained ledger; evidence counts only if it
     // still matches, so a row written straight into the database proves nothing.
-    appendEvent(ctx, { type: 'evidence.recorded', run_id: run.id, slice_id: slice.id, actor: 'runtime:verifier', payload: { obligation: obligation.id, kind: obligation.kind, verdict, evidence: record.id, record_digest: digest(record), diff_hash: slice.diff_hash } });
+    appendEvent(ctx, { type: 'evidence.recorded', run_id: run.id, slice_id: slice.id, actor, payload: { obligation: obligation.id, kind: obligation.kind, verdict, evidence: record.id, record_digest: digest(record), diff_hash: slice.diff_hash } });
   });
 }
 

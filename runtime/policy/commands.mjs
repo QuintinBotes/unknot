@@ -139,6 +139,8 @@ function judgeUnknot(rest) {
     break;
   }
   if (sub && HUMAN_ONLY_SUBCOMMANDS.has(sub)) return `\`unknot ${sub}\` is for a human in their own terminal`;
+  // The CI side runs the head commit's commands outside the broker's sandbox; it is for GitHub Actions only.
+  if (words.some((w) => w === '--in-ci' || w.startsWith('--in-ci='))) return '`unknot verify --in-ci` runs commands without the sandbox and is for the CI workflow only';
   return null;
 }
 

@@ -117,6 +117,29 @@ test('release.yml: stable advance names the owner command instead of a bare 403'
   assert.ok(text.indexOf('git diff --quiet') < text.indexOf('gh api -X PATCH'), 'check runs before the API call');
 });
 
+test('unknot-verify.yml: reusable; the slice runs read-only, attesting runs no repository code, no key anywhere (#153)', () => {
+  const text = read('unknot-verify.yml');
+  const wf = parseYAML(text, { filename: 'unknot-verify.yml' });
+  assert.deepEqual(Object.keys(wf.on), ['workflow_call']);
+  assert.deepEqual(wf.jobs.run.permissions, { contents: 'read' }, 'the job that runs the slice\'s commands can only read');
+  assert.match(wf.jobs.run.steps.map((s) => s.run ?? '').join('\n'), /bin\/unknot" verify --in-ci /);
+  const own = wf.jobs.run.steps.find((s) => s.with?.path === 'unknot');
+  assert.equal(own.with.ref, '${{ job.workflow_sha }}', 'Unknot runs at this workflow\'s own pinned commit');
+  assert.deepEqual(wf.jobs.verify.permissions, { 'id-token': 'write', attestations: 'write', checks: 'write' });
+  assert.equal(wf.jobs.verify.needs, 'run');
+  // `--in-ci` exits 1 on a failed command, so the run fails; the evidence is still uploaded and attested.
+  assert.equal(wf.jobs.run.steps.find((s) => /upload-artifact@/.test(s.uses ?? '')).if, '${{ !cancelled() }}');
+  assert.equal(wf.jobs.verify.if, '${{ !cancelled() }}');
+  const report = wf.jobs.verify.steps.find((s) => s.name === 'Report the obligations');
+  assert.equal(report.env.RUN_RESULT, '${{ needs.run.result }}', 'the required check fails when the run job failed, whatever the file says');
+  assert.match(report.run, /\[ "\$RUN_RESULT" = success \] \|\| \{[^}]*failed=1/);
+  assert.ok(!wf.jobs.verify.steps.some((s) => /actions\/checkout@/.test(s.uses ?? '')), 'the attesting job checks out nothing');
+  assert.match(text, /actions\/attest-build-provenance@[0-9a-f]{40}/);
+  assert.match(text, /conclusion=neutral/, 'obligations CI cannot run get a neutral check');
+  assert.doesNotMatch(text, /secrets\.|_KEY|passphrase/i, 'no signing key or secret reaches CI (SC-002)');
+  for (const step of wf.jobs.run.steps.filter((s) => /actions\/checkout@/.test(s.uses ?? ''))) assert.equal(step.with['persist-credentials'], false);
+});
+
 test('bump-claude-pin.yml: weekly and manual, writes only on its job, one fixed branch', () => {
   const text = read('bump-claude-pin.yml');
   const wf = parseYAML(text, { filename: 'bump-claude-pin.yml' });

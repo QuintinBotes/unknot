@@ -14,6 +14,7 @@ import { UnknotError } from '../../core/errors.mjs';
 import { forgeVia, ghBinary, githubRepo, inPinnedRepo, postBinding, requirePinnedRepo } from '../../policy/forge.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { renderPullRequestBody } from '../../verify/bundle.mjs';
+import { ciTrailer } from '../../verify/ci.mjs';
 import { currentActor, output, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
@@ -51,9 +52,11 @@ export async function run({ positional, flags }) {
   const tree = git(slice.worktree, ['write-tree']).stdout.trim();
   const parent = pushed ?? slice.baseline_commit;
   const title = `${slice.id}: ${slice.body.objective}`;
+  // With an evidence workflow pinned, the commit carries the plan CI runs (#153).
+  const ci = cfg.config.approvals?.forge?.ci_workflow !== undefined;
   const commit = git(ctx.root, ['rev-parse', `${parent}^{tree}`]).stdout.trim() === tree
     ? parent
-    : git(ctx.root, ['-c', 'user.name=unknot', '-c', 'user.email=unknot@localhost', 'commit-tree', tree, '-p', parent, '-m', `${title}\n\nProof bundle: ${bundle}\nDiff: ${current}`]).stdout.trim();
+    : git(ctx.root, ['-c', 'user.name=unknot', '-c', 'user.email=unknot@localhost', 'commit-tree', tree, '-p', parent, '-m', `${title}\n\nProof bundle: ${bundle}\nDiff: ${current}${ci ? `\n${ciTrailer(ctx, slice)}` : ''}`]).stdout.trim();
 
   const remotes = git(ctx.root, ['remote']).stdout.split('\n').filter(Boolean);
   const remote = remotes.includes('origin') ? 'origin' : remotes[0];
