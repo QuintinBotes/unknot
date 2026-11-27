@@ -1,5 +1,5 @@
 // Cross-command consistency: the commands that read the shared derived facts agree on cycles,
-// declared-only members, the public surface and test code, over the golden fixtures and a C#
+// declared-only members, the public surface, test code and layers, over the golden fixtures and a C#
 // fixture with an injected-but-unused member inside a cycle.
 
 import assert from 'node:assert/strict';
@@ -13,6 +13,7 @@ const { Graph } = await import('../../runtime/graph/graph.mjs');
 const { readDerived } = await import('../../runtime/graph/derived.mjs');
 const { mapRepository } = await import('../../runtime/graph/builder.mjs');
 const { CHECKS } = await import('../../runtime/verify/checks.mjs');
+const { diagnose } = await import('../../runtime/diagnose/engine.mjs');
 
 // A test module far over the module-size threshold, so the exclusion is exercised.
 const bigTest = `namespace Shop.Orders.Tests\n{\n    public class BulkTests\n    {\n${Array.from({ length: 1100 }, (_, i) => `        public int Case${i}() { return ${i}; }`).join('\n')}\n    }\n}\n`;
@@ -33,6 +34,29 @@ for (const name of readdirSync(FIXTURES).sort()) {
     }
   });
 }
+
+test('layered-monolith: one layer per module, configured or by directory, read by diagnose, architecture and MCP (#245)', async () => {
+  const LAYERS = ['src/controllers/**', 'src/services/**', 'src/repositories/**'];
+  for (const [config, source, first] of [[{}, 'directory', 'presentation'], [{ detectors: { 'module.layer-bypass': { layers: LAYERS } } }, 'configured', LAYERS[0]]]) {
+    const a = await analyse('layered-monolith', { config, skipDiagnose: true });
+    const rows = readDerived(a.ctx, 'layers', { graph: Graph.fromStore(a.ctx.store) });
+    assert.equal(rows.length, 7, 'every controller, service and repository; not app.js, legacy or the test');
+    assert.ok(rows.every((r) => r.body.source === source));
+    assert.deepEqual(rows.find((r) => r.key === 'module:src/controllers/orderController.js').body, { layer: first, index: 0, source });
+    const r = await checkConsistency(a.ctx, { config: a.config });
+    assert.deepEqual(r.disagreements, []);
+    assert.equal(r.counts.layer_modules, 7);
+    if (source === 'configured') assert.ok((await diagnose(a.ctx, { config: a.config, only: ['module'] })).findings.some((f) => f.kind === 'module.layer-bypass'), 'the configured run has layer-bypass findings to check');
+  }
+});
+
+test('the checker reports a module whose stored layer differs from what the graph and commands give', async () => {
+  const a = await analyse('layered-monolith', { skipDiagnose: true });
+  a.ctx.store.run("UPDATE derived SET body = json_set(body, '$.layer', 'data', '$.index', 2) WHERE kind = 'layers' AND key = 'module:src/controllers/orderController.js'");
+  const r = await checkConsistency(a.ctx, { config: a.config });
+  assert.ok(r.disagreements.some((d) => d.check === 'layers' && /orderController\.js is stored in data \(directory\), the graph and config give presentation/.test(d.detail)), JSON.stringify(r.disagreements));
+  assert.ok(r.disagreements.some((d) => d.check === 'layers' && /architecture reports/.test(d.detail)), 'architecture read the stored row');
+});
 
 test('cycle-injection: removing the unused public member for real passes the API check and ends the cycle', async () => {
   const a = await analyse('cycle-injection', { skipDiagnose: true });

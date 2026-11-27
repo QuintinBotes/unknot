@@ -31,7 +31,7 @@ import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { templateLanguageIds } from './languages.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
-import { DERIVED_EDGE_TYPES, derivedDone, updateDerived, writeDerived } from './derived.mjs';
+import { configuredLayers, DERIVED_EDGE_TYPES, derivedDone, updateDerived, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LIST_ARGS, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
@@ -283,7 +283,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const last = fastKey && ctx.store.meta('map:last');
   if (last) {
     const { key, summary: saved } = JSON.parse(last);
-    if (key === fastKey && saved.generation === Number(ctx.store.meta('generation')) && derivedDone(ctx, saved.generation)) {
+    if (key === fastKey && saved.generation === Number(ctx.store.meta('generation')) && derivedDone(ctx, saved.generation, configuredLayers(config))) {
       const checkout = checkoutState(ctx.root);
       const stale = checkoutNotice(checkout, { expected: branchOk });
       if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
@@ -636,10 +636,12 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   // Derived facts are a function of the graph: an unchanged graph keeps the stored ones, and a changed
   // one works out again only what the rows projection changed reach, when it can (#145).
+  // A change to the configured layers recomputes them (#245).
   let derived = 'kept';
-  if (projection.changed || !derivedDone(ctx, projection.generation)) {
-    derived = projection.delta && projection.from !== null && updateDerived(ctx, projection.delta, projection.from, projection.generation) ? 'updated' : 'recomputed';
-    if (derived === 'recomputed') writeDerived(ctx, Graph.fromStore(ctx.store, { edgeTypes: DERIVED_EDGE_TYPES }), projection.generation);
+  const layers = configuredLayers(config);
+  if (projection.changed || !derivedDone(ctx, projection.generation, layers)) {
+    derived = projection.delta && projection.from !== null && updateDerived(ctx, projection.delta, projection.from, projection.generation, layers) ? 'updated' : 'recomputed';
+    if (derived === 'recomputed') writeDerived(ctx, Graph.fromStore(ctx.store, { edgeTypes: DERIVED_EDGE_TYPES }), projection.generation, layers);
   }
   lap('derived_ms');
   const summary = {

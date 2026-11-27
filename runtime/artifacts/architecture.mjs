@@ -647,9 +647,9 @@ function buildDeployCoupling(graph, maxNodes) {
 /**
  * Build every view plus the style classification for a graph.
  * @param {import('../graph/graph.mjs').Graph} graph
- * @param {{scope?: string[], maxNodes?: number, container?: string}} [opts]
+ * @param {{scope?: string[], maxNodes?: number, container?: string, layers?: {key: string, body: object}[]}} [opts] `layers`: the layers fact of `graph`
  */
-export function architectureViews(graph, { scope = [], maxNodes = 60, container = null } = {}) {
+export function architectureViews(graph, { scope = [], maxNodes = 60, container = null, layers } = {}) {
   const g = scopedGraph(graph, scope);
   const max = Math.max(4, Number(maxNodes) || 60);
   const timings = {};
@@ -659,7 +659,7 @@ export function architectureViews(graph, { scope = [], maxNodes = 60, container 
     timings[name] = Math.round(performance.now() - t0);
     return v;
   };
-  const styles = timed('styles', () => classifyStyles(g));
+  const styles = timed('styles', () => classifyStyles(g, layers));
   const builders = {
     landscape: () => landscape(g, max),
     context: () => context(g),

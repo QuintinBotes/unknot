@@ -12,22 +12,31 @@
 //   public_surface per module: exported symbols and public members
 //   test_code    modules that are test code
 //   ownership    module -> owners (OWNED_BY)
+//   layers       per non-test module in a layer: its layer, the layer's place in the order (`index`, top
+//                first) and the `source` of the assignment: the layers configured for `module.layer-bypass`
+//                (`configured`), else the directory names the layered style knows (`directory`)
 
 import { cycleBreakdown, stronglyConnected } from './algorithms.mjs';
 import { language } from './languages.mjs';
+import { globToRegExp } from '../core/glob.mjs';
 import { packageName } from '../core/paths.mjs';
 
-export const DERIVED_KINDS = ['scc', 'scc_strict', 'declared_only', 'public_surface', 'test_code', 'ownership'];
+export const DERIVED_KINDS = ['scc', 'scc_strict', 'declared_only', 'public_surface', 'test_code', 'ownership', 'layers'];
 /** The only edges derived facts read: a graph of these and every node computes the same facts. */
 export const DERIVED_EDGE_TYPES = ['IMPORTS', 'CONTAINS', 'DEPENDS_ON', 'OWNED_BY'];
 // Bumped when a stored body changes shape, so facts an older version wrote for the same generation are recomputed.
 // 2: scc carries impossible_by_build (#72). 3: rows keep the generation they were written at and the `_done` row of a
 // generation names it (`rows`), so a map that changes a few rows does not rewrite the others (#145).
-const DERIVED_VERSION = 3;
+// 4: layers, and the `_done` row names the layer configuration they were worked out for (#245).
+const DERIVED_VERSION = 4;
 
 const doneOf = (ctx, generation) => JSON.parse(ctx.store.get("SELECT body FROM derived WHERE kind = '_done' AND generation = ?", generation)?.body ?? '{}');
-/** Whether the stored facts are complete for `generation` and written by this version. */
-export const derivedDone = (ctx, generation) => doneOf(ctx, generation).v === DERIVED_VERSION;
+const sameSpec = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+/** Whether the stored facts are complete for `generation`, written by this version and, given `spec`, for those layers. */
+export const derivedDone = (ctx, generation, spec) => {
+  const done = doneOf(ctx, generation);
+  return done.v === DERIVED_VERSION && (spec === undefined || sameSpec(done.layers, spec));
+};
 /** The generation the rows of `generation`'s facts are stored under, or null when there are none. */
 export const rowsGeneration = (ctx, generation) => {
   const done = doneOf(ctx, generation);
@@ -40,6 +49,45 @@ export const MIN_FINDING_SIZE = 2;
 
 const IMPORT = ['IMPORTS'];
 const isTest = (n) => !n || n.attrs?.is_test === true;
+
+/** Directory names of the layered style, top to bottom: the layers of a repository that configures none. */
+const DIRECTORY_LAYERS = [
+  ['presentation', /^(controllers?|handlers?|routes?|routers?|api|web|presentation|ui|pages|endpoints|resources)$/],
+  ['business', /^(services?|application|business|domain|logic|usecases?|use-cases?|core)$/],
+  ['data', /^(repositor(y|ies)|dao|daos|persistence|data|db|database|stores?)$/],
+];
+
+/**
+ * The layers configured for `module.layer-bypass` (`layers`, top to bottom; each entry a glob, a
+ * list of globs or {name, glob(s)}) as [{name, globs}]; fewer than two are no layering: [].
+ * A glob that is not a non-empty string matches nothing, so a bad entry cannot fail a map.
+ */
+export function layerSpec(layers) {
+  if (!Array.isArray(layers) || layers.length < 2) return [];
+  return layers.map((l, i) => {
+    const globs = typeof l === 'string' ? [l] : Array.isArray(l) ? l : [].concat(l?.globs ?? l?.glob ?? []);
+    const name = typeof l === 'object' && !Array.isArray(l) && l?.name ? l.name : (globs[0] ?? `layer-${i}`);
+    return { name, globs: globs.filter((g) => typeof g === 'string' && g && !g.includes('\0')) };
+  });
+}
+/** The layer spec of a loaded config. */
+export const configuredLayers = (config) => layerSpec(config?.detectors?.['module.layer-bypass']?.layers);
+
+/** A module's layers row under `spec`: configured globs when there are any, else directory names (deepest first). */
+function layerOf(m, spec) {
+  if (isTest(m)) return null;
+  if (spec.length) {
+    const path = m.path ?? m.id.replace(/^module:/, '');
+    const index = spec.findIndex((l) => l.globs.some((g) => globToRegExp(g).test(path)));
+    return index === -1 ? null : { layer: spec[index].name, index, source: 'configured' };
+  }
+  const segs = (m.path ?? '').toLowerCase().split('/').slice(0, -1);
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const index = DIRECTORY_LAYERS.findIndex(([, re]) => re.test(segs[i]));
+    if (index !== -1) return { layer: DIRECTORY_LAYERS[index][0], index, source: 'directory' };
+  }
+  return null;
+}
 
 /**
  * The graph without references between files of one package where the language makes the
@@ -136,8 +184,8 @@ function declaredRow(graph, e, comp) {
   return { key: `${e.from}>${e.to}`, body: { from: e.from, to: e.to, member: e.attrs.unused_member ?? null, visibility: e.attrs.member_visibility ?? null, line: e.attrs.line ?? null, component: comp, modules: from?.type === 'module' && to?.type === 'module', test: isTest(from) || isTest(to) } };
 }
 
-/** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key */
-export function computeDerived(graph) {
+/** @returns {Record<string, {key: string, body: object}[]>} the facts by kind, each sorted by key; `spec` is layerSpec's */
+export function computeDerived(graph, spec = []) {
   const view = cycleView(graph);
   const sccs = stronglyConnected(view, { edgeTypes: IMPORT, nodeTypes: ['module'] });
   const strict = stronglyConnected(strictView(graph), { edgeTypes: IMPORT, nodeTypes: ['module'] });
@@ -157,19 +205,19 @@ export function computeDerived(graph) {
     scc,
     scc_strict: strict.map((members) => ({ key: members[0], body: { members } })),
     declared_only: declared,
-    ...nodeFacts(graph),
+    ...nodeFacts(graph, spec),
   };
 }
 
 /** The facts read straight off module nodes: cheap, so they never wait for the components. */
-function nodeFacts(graph) {
-  const out = { public_surface: [], test_code: [], ownership: [] };
-  for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) for (const [kind, body] of moduleRows(graph, m)) out[kind].push({ key: m.id, body });
+function nodeFacts(graph, spec = []) {
+  const out = { public_surface: [], test_code: [], ownership: [], layers: [] };
+  for (const m of [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1))) for (const [kind, body] of moduleRows(graph, m, spec)) out[kind].push({ key: m.id, body });
   return out;
 }
 
 /** What one module puts in the node-level kinds, as [kind, body] pairs. */
-function moduleRows(graph, m) {
+function moduleRows(graph, m, spec) {
   const rows = [];
   const exports = (m.attrs?.exports ?? []).map((e) => e.name ?? e).filter((x) => typeof x === 'string');
   const members = m.attrs?.public_members ?? [];
@@ -177,12 +225,14 @@ function moduleRows(graph, m) {
   if (m.attrs?.is_test === true) rows.push(['test_code', {}]);
   const own = [...new Set(graph.out(m.id, 'OWNED_BY').map((e) => e.to))].sort();
   if (own.length) rows.push(['ownership', { owners: own }]);
+  const layer = layerOf(m, spec);
+  if (layer) rows.push(['layers', layer]);
   return rows;
 }
 
 const bodies = (rows) => rows.map((r) => r.body);
-const tag = (d, generation) => Object.defineProperty(d, 'generation', { value: generation, enumerable: false });
-const NODE_KINDS = new Set(['public_surface', 'test_code', 'ownership']);
+const tag = (d, generation, spec = []) => Object.defineProperties(d, { generation: { value: generation }, layerSpec: { value: spec } });
+const NODE_KINDS = new Set(['public_surface', 'test_code', 'ownership', 'layers']);
 const nodeCache = new WeakMap();
 const cache = new WeakMap(); // graph -> derived facts (stored ones when read through readDerived)
 
@@ -202,15 +252,30 @@ export function derivedFor(graph, kind) {
 export const sccsOf = (graph) => bodies(derivedFor(graph, 'scc'));
 export const testSet = (graph) => new Set(derivedFor(graph, 'test_code').map((r) => r.key));
 
-/** Replace the stored facts with those of `graph`, tagged with the generation. */
-export function writeDerived(ctx, graph, generation = Number(ctx.store.meta('generation') ?? 0)) {
-  const d = computeDerived(graph);
-  cache.set(graph, tag(d, generation));
+/**
+ * The layers rows of `graph` for `spec` (layerSpec): the stored ones when they were worked out for
+ * those layers, else (the config changed since the map) computed from the graph and not kept.
+ */
+export function layersFor(graph, spec = []) {
+  const d = cache.get(graph);
+  return d && sameSpec(d.layerSpec, spec) ? d.layers : computeLayers(graph, spec);
+}
+
+/** The layers rows `graph` and `spec` give, worked out now. */
+export const computeLayers = (graph, spec = []) => [...graph.nodes('module')].sort((a, b) => (a.id < b.id ? -1 : 1)).flatMap((m) => {
+  const body = layerOf(m, spec);
+  return body ? [{ key: m.id, body }] : [];
+});
+
+/** Replace the stored facts with those of `graph` and the layers of `spec`, tagged with the generation. */
+export function writeDerived(ctx, graph, generation = Number(ctx.store.meta('generation') ?? 0), spec = []) {
+  const d = computeDerived(graph, spec);
+  cache.set(graph, tag(d, generation, spec));
   const ins = ctx.store.db.prepare('INSERT INTO derived(generation, kind, key, body) VALUES (?, ?, ?, ?)');
   ctx.store.tx(() => {
     ctx.store.run('DELETE FROM derived');
     for (const kind of DERIVED_KINDS) for (const r of d[kind]) ins.run(generation, kind, r.key, JSON.stringify(r.body));
-    ctx.store.run("INSERT OR REPLACE INTO derived(generation, kind, key, body) VALUES (?, '_done', '', ?)", generation, JSON.stringify({ v: DERIVED_VERSION, rows: generation }));
+    ctx.store.run("INSERT OR REPLACE INTO derived(generation, kind, key, body) VALUES (?, '_done', '', ?)", generation, JSON.stringify({ v: DERIVED_VERSION, rows: generation, layers: spec }));
   });
   return d;
 }
@@ -247,10 +312,11 @@ function storeGraph(store) {
  * false, and the caller recomputes everything. Otherwise every component and declared-only edge
  * stays; only the rows of changed modules, and the components and declared-only edges holding
  * one, are worked out again. Rows keep their order (readers take them by rowid, in key order).
+ * Layers `spec` other than the stored facts were worked out for returns false too.
  */
-export function updateDerived(ctx, delta, from, generation) {
+export function updateDerived(ctx, delta, from, generation, spec = []) {
   const at = rowsGeneration(ctx, from);
-  if (at === null) return false;
+  if (at === null || !sameSpec(doneOf(ctx, from).layers, spec)) return false;
   const typeOf = (id) => id.slice(0, id.indexOf(':'));
   // What a component or declared-only row reads of a node: whether it is one, its type, path, test flag and language.
   const seen = (row) => {
@@ -274,7 +340,7 @@ export function updateDerived(ctx, delta, from, generation) {
   const next = new Map(DERIVED_KINDS.map((k) => [k, new Map()])); // kind → key → body, null when gone
   for (const id of new Set([...touched, ...owned])) {
     const n = graph.node(id);
-    const now = new Map(n?.type === 'module' ? moduleRows(graph, n) : []);
+    const now = new Map(n?.type === 'module' ? moduleRows(graph, n, spec) : []);
     for (const kind of NODE_KINDS) next.get(kind).set(id, now.get(kind) ?? null);
   }
   const stored = (kind) => ctx.store.all('SELECT key, body FROM derived WHERE generation = ? AND kind = ?', at, kind).map((r) => ({ key: r.key, body: JSON.parse(r.body) }));
@@ -296,7 +362,7 @@ export function updateDerived(ctx, delta, from, generation) {
   const ins = ctx.store.db.prepare('INSERT INTO derived(generation, kind, key, body) VALUES (?, ?, ?, ?)');
   ctx.store.tx(() => {
     ctx.store.run("DELETE FROM derived WHERE kind = '_done'");
-    ctx.store.run("INSERT INTO derived(generation, kind, key, body) VALUES (?, '_done', '', ?)", generation, JSON.stringify({ v: DERIVED_VERSION, rows: at }));
+    ctx.store.run("INSERT INTO derived(generation, kind, key, body) VALUES (?, '_done', '', ?)", generation, JSON.stringify({ v: DERIVED_VERSION, rows: at, layers: spec }));
     for (const [kind, changes] of next) {
       if (!changes.size) continue;
       if ([...changes].every(([key, body]) => (body !== null) === Boolean(has.get(at, kind, key)))) {
@@ -325,7 +391,7 @@ export function readDerived(ctx, kind, { graph }) {
     if (derivedDone(ctx, generation)) {
       d = Object.fromEntries(DERIVED_KINDS.map((k) => [k, []]));
       for (const r of ctx.store.iterate("SELECT kind, key, body FROM derived WHERE generation = ? AND kind != '_done' ORDER BY rowid", rowsGeneration(ctx, generation))) d[r.kind].push({ key: r.key, body: JSON.parse(r.body) });
-      cache.set(graph, tag(d, generation));
+      cache.set(graph, tag(d, generation, doneOf(ctx, generation).layers ?? []));
     } else {
       try {
         d = writeDerived(ctx, graph, generation);
