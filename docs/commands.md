@@ -206,7 +206,7 @@ Lists, shows or evaluates pattern cards against signals you supply. `fit` return
 
 ### `unknot status`
 
-Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval, open obligations and stale evidence (expired runtime facts, expired approvals). Flag: `--json`.
+Mode, config acceptance, the active run, whether the graph is stale relative to `HEAD`, finding counts, campaigns, slices, blockers (blocked, `NEEDS_REPLAN`, `VERIFICATION_FAILED`), slices awaiting approval, open obligations and stale evidence (expired runtime facts, expired approvals). Flags: `--json`; `--read-only` opens the store read-only and writes nothing to the project (no migration, keys or `.gitignore`), as the campaign panel does.
 
 ### `unknot workspace list | map [--no-history] | graph | add <name> <path> | remove <name>`
 
@@ -230,11 +230,11 @@ Selects the smallest unblocked, highest-value slice and says why; lists other re
 
 A slice with its obligations, approvals, worktree, baseline and diff hash. JSON.
 
-`unknot slice patching [path...] [--session <id>]` lists the slices in `PATCHING` with their scope and change budget (`max_changed_files`, `max_diff_lines`, `files_left`, `lines_left`), and under `held` each given path the scope holds back, with the slice, the PDP rule and the reason. `applies` is false with no slice in `PATCHING`, or when the active run belongs to a session other than `--session`. Read-only; the scope guard of the mod asks it before every edit ([security-model.md](security-model.md#runs-and-when-hooks-apply)). JSON.
+`unknot slice patching [--session <id>] [--] [path...]` lists the slices in `PATCHING` with their scope and change budget (`max_changed_files`, `max_diff_lines`, `files_left`, `lines_left`), and under `held` each given path the scope holds back, with the slice, the PDP rule and the reason. `applies` is false with no slice in `PATCHING`, or when the active run belongs to a session other than `--session`; then nothing else is read, the configuration included. When a slice is `PATCHING` and the configuration or policy does not load, the error's `details.patching` lists the slices. Paths after `--` are never read as flags. It opens the project read-only; the scope guard of the mod asks it before every edit ([security-model.md](security-model.md#runs-and-when-hooks-apply)). JSON.
 
 ### `/unknot-panel` (Claude Code 2.1.287 and later)
 
-A pane beside the chat with the mode, each campaign's slices by state, blockers, stale evidence, and the steps waiting for a person with the exact commands to type in their own terminal. It reads `unknot status --json` when opened, within seconds after an Unknot MCP tool call or `unknot` command, and every 30 seconds while open; when a read fails it shows the error beside the last good state, marked stale. It runs mid-turn and costs no turn. Display only: it never approves, attests, accepts configuration or signs a lane. In a repository without `.unknot` it says so and suggests `/unknot:init`.
+A pane beside the chat with the mode, each campaign's slices by state, blockers, stale evidence, and the steps waiting for a person with the exact commands to type in their own terminal. It reads `unknot status --read-only --json` when opened, within seconds after an Unknot MCP tool call or `unknot` command, and every 30 seconds while open; when a read fails it shows the error beside the last good state, marked stale. It runs mid-turn and costs no turn. Display only: it never approves, attests, accepts configuration or signs a lane. In a repository without `.unknot` it says so and suggests `/unknot:init`.
 
 ## Approving, applying, verifying
 

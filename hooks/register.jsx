@@ -6,7 +6,8 @@
 //    the commands a person types in their own terminal, and runs none of them.
 // 2. A guard that holds an Edit, Write or NotebookEdit outside the scope of a slice in PATCHING at
 //    the call (#166), judged by `unknot slice patching`, the PDP's own scope rule. It only denies,
-//    and fails closed. The PreToolUse hook in hooks.json stays the first line of defence.
+//    and fails closed while a slice is PATCHING. The PreToolUse hook in hooks.json stays and still
+//    judges every call the guard lets through.
 //
 // Plain JSX rather than TypeScript: `claude plugin validate` type-checks every .ts file under
 // tests/ once the module is TypeScript, and tests/fixtures holds sample projects that never compile.
@@ -19,11 +20,19 @@ const panel = atom({ plugin: 'unknot', key: 'panel' }, { status: null, at: null,
 
 // The only two commands the mod runs, both read-only. Nothing here may run approve, attest,
 // config accept, lane approve or any other command that records a person's decision.
-const STATUS = ['status']
-const PATCHING = ['slice', 'patching']
+// Both open the project read-only; the paths go after `--`, so none is read as a flag.
+const STATUS = ['status', '--read-only', '--json']
+const PATCHING = ['slice', 'patching', '--json']
 
 const unknot = async ($, args, timeoutMs) =>
-  $.process.run(['node', `${$.plugin.root}/bin/unknot`, ...args, '--json'], { cwd: await $.session.cwd(), timeoutMs })
+  $.process.run(['node', `${$.plugin.root}/bin/unknot`, ...args], { cwd: await $.session.cwd(), timeoutMs })
+
+// Whether the last answer of the scope query had a slice in PATCHING governing this session. A
+// query that gives no answer at all (the process did not start, timed out, printed no JSON)
+// holds the edit only then: a slice known to be PATCHING fails closed, nothing else does.
+// shortcut: kept in the module, so a reload forgets it until the next answer; good enough while
+// answers come before every edit.
+let lastPatching = false
 
 async function refresh($) {
   try {
@@ -42,16 +51,6 @@ const isOpen = async ($) => (await $.ui.panes()).some((p) => p.id === PANE)
 const refreshIfOpen = ($) => void isOpen($).then((open) => (open ? refresh($) : undefined))
 
 const touchesUnknot = (e) => /^mcp__.*unknot/.test(String(e.tool)) || (e.tool === 'Bash' && /\bunknot\b/.test(String(e.command)))
-
-/** Whether the session's directory holds Unknot state, so a failed check must hold the edit. */
-async function isInitialised($) {
-  try {
-    await $.fs.stat(`${await $.session.cwd()}/.unknot`)
-    return true
-  } catch {
-    return false
-  }
-}
 
 function heldMessage(h, slices) {
   const s = slices.find((x) => x.id === h.slice)
@@ -87,18 +86,23 @@ export const register = (on) => {
     const path = e.tool === 'NotebookEdit' ? e.notebook_path : e.file_path
     let out
     try {
-      const r = await unknot($, [...PATCHING, path, '--session', await $.session.id()], 10_000)
+      const r = await unknot($, [...PATCHING, '--session', await $.session.id(), '--', path], 10_000)
       out = JSON.parse(r.stdout)
-      if (out.error?.code === 'UK_NOT_INITIALIZED') return next(e)
-      if (out.error || r.exitCode !== 0) throw new Error(out.error?.message ?? `exit ${r.exitCode}`)
     } catch (err) {
-      if (await isInitialised($)) return { deny: failed(String(err?.message ?? err).slice(0, 300)) }
-      return next(e)
+      return lastPatching ? { deny: failed(String(err?.message ?? err).slice(0, 300)) } : next(e)
     }
+    if (out.error) {
+      // The query names the PATCHING slices when it found some and then failed to judge the path
+      // (a configuration or policy that does not load): hold the edit. Any earlier error (no
+      // project, a store that does not open) knows of no slice, and the edit goes on to the hooks.
+      lastPatching = Boolean(out.error.details?.patching?.length)
+      return lastPatching ? { deny: failed(`${out.error.code}: ${String(out.error.message).slice(0, 300)}`) } : next(e)
+    }
+    lastPatching = Boolean(out.applies)
     const held = out.held ?? []
     if (out.applies && held.length) return { deny: heldMessage(held[0], out.patching ?? []) }
     return next(e)
-  }).catch(($, e, next) => (next.called ? next(e) : { deny: failed('the guard itself failed') }))
+  }).catch(($, e, next) => (next.called || !lastPatching ? next(e) : { deny: failed('the guard itself failed') }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)

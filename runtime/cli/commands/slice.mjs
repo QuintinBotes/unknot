@@ -4,7 +4,9 @@
 // `unknot slice patching [path...]` — the slices in PATCHING, and which paths their scope holds back.
 
 import { relative, resolve } from 'node:path';
-import { UnknotError } from '../../core/errors.mjs';
+import { ERROR_CLASSES, UnknotError } from '../../core/errors.mjs';
+import { openProject } from '../../context.mjs';
+import { loadConfig } from '../../policy/config.mjs';
 import { git } from '../../apply/git.mjs';
 import { diffStat } from '../../apply/worktree.mjs';
 import { isInside, realpathLenient, toPosix } from '../../core/paths.mjs';
@@ -16,8 +18,8 @@ import { output } from '../util.mjs';
 import { open, sliceRow } from './_shared.mjs';
 
 export async function run({ positional, flags }) {
+  if (positional[0] === 'patching') return output(patching(positional.slice(1), flags), { json: true });
   const { ctx, config } = open(flags);
-  if (positional[0] === 'patching') return output(patching(ctx, config, positional.slice(1), flags), { json: true });
   const s = sliceRow(ctx, positional[0]);
   if (!s) throw new UnknotError('UK_NOT_FOUND', `no slice ${positional[0]}`);
   if (positional[1] === 'diff') {
@@ -39,19 +41,35 @@ export async function run({ positional, flags }) {
 }
 
 /**
- * `unknot slice patching [path...] [--session <id>]`: the slices in PATCHING with their scope and
+ * `unknot slice patching [--session <id>] -- [path...]`: the slices in PATCHING with their scope and
  * the change budget left, and which of `paths` their scope holds back, judged by the PDP's own
  * scope rules. Read-only; the guard mod asks it before an Edit or Write runs. `applies` is false
  * when the active run belongs to another session, whose edits the run does not govern.
  */
-function patching(ctx, config, paths, flags) {
+function patching(paths, flags) {
+  // Read-only, and the store before the configuration: with no slice in PATCHING the answer
+  // must not depend on a config or policy that fails to load, since the guard would then hold
+  // every edit in a repository where nothing is being patched.
+  const ctx = openProject(flags.cwd ?? process.cwd(), { readOnly: true });
   const run = activeRun(ctx.store);
   const slices = ctx.store.all("SELECT * FROM slices WHERE state = 'PATCHING' ORDER BY id").map((r) => ({ ...r, body: JSON.parse(r.body) }));
-  const out = slices.map((s) => ({ id: s.id, campaign_id: s.campaign_id, worktree: s.worktree, scope: { include: s.body.scope?.include ?? [], exclude: s.body.scope?.exclude ?? [] }, budget: budgetLeft(config, s) }));
   const applies = slices.length > 0 && !(run?.session_id && flags.session && run.session_id !== flags.session);
+  if (!applies) return { patching: slices.map((s) => ({ id: s.id })), applies: false, held: [] };
+  try {
+    return judge(ctx, loadConfig(ctx).config, run, slices, paths, flags);
+  } catch (err) {
+    // A slice is PATCHING and its scope could not be judged: `details.patching` tells the guard
+    // to hold the edit (fail closed).
+    const code = ERROR_CLASSES[err?.code] ? err.code : 'UK_TOOL_FAILED';
+    throw new UnknotError(code, String(err?.message ?? err), { details: { ...(err?.details ?? {}), patching: slices.map((s) => s.id) } });
+  }
+}
+
+function judge(ctx, config, run, slices, paths, flags) {
+  const out = slices.map((s) => ({ id: s.id, campaign_id: s.campaign_id, worktree: s.worktree, scope: { include: s.body.scope?.include ?? [], exclude: s.body.scope?.exclude ?? [] }, budget: budgetLeft(config, s) }));
   const held = [];
   const root = realpathLenient(ctx.root);
-  for (const p of applies ? paths : []) {
+  for (const p of paths) {
     const real = realpathLenient(resolve(flags.cwd ?? process.cwd(), p));
     if (!isInside(root, real)) continue;
     const owner = slices.filter((s) => s.worktree && isInside(realpathLenient(s.worktree), real));
@@ -64,7 +82,7 @@ function patching(ctx, config, paths, flags) {
     // Held only when no candidate slice's scope takes the path.
     if (verdicts.every((v) => v.rule)) held.push({ path: p, ...verdicts[0] });
   }
-  return { patching: out, applies, held };
+  return { patching: out, applies: true, held };
 }
 
 function budgetLeft(config, s) {

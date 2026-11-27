@@ -33,7 +33,7 @@ export function openProject(cwd = process.cwd(), { create = false, readOnly = fa
     }
     mkdirSync(paths.base, { recursive: true });
   }
-  if (!existsSync(join(paths.base, '.gitignore'))) {
+  if (!readOnly && !existsSync(join(paths.base, '.gitignore'))) {
     try {
       writeFileSync(join(paths.base, '.gitignore'), STATE_GITIGNORE, { flag: 'wx' });
     } catch (err) {

@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +14,7 @@ const BIN = fileURLToPath(new URL('../../../bin/unknot', import.meta.url));
 after(cleanup);
 
 const query = (p, ...args) => {
-  const r = spawnSync(process.execPath, [BIN, 'slice', 'patching', ...args, '--cwd', p.dir, '--json'], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });
+  const r = spawnSync(process.execPath, [BIN, 'slice', 'patching', '--cwd', p.dir, '--json', '--', ...args], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   return JSON.parse(r.stdout);
 };
@@ -60,9 +61,51 @@ test("another session's run is not this session's to hold; the owning session's 
   const { run } = startTestRun(p, { command: 'apply', mode: 'assist', slice_id: 'UK-1' });
   p.ctx.store.run('UPDATE runs SET session_id = ? WHERE id = ?', 'session-a', run.id);
   const target = join(wt, 'src/b/x.js');
-  assert.deepEqual(query(p, target, '--session', 'session-b').held, []);
-  assert.equal(query(p, target, '--session', 'session-b').applies, false);
-  assert.equal(query(p, target, '--session', 'session-a').held.length, 1);
+  assert.deepEqual(JSON.parse(raw(p, 'slice', 'patching', '--session', 'session-b', '--', target).stdout).held, []);
+  assert.equal(JSON.parse(raw(p, 'slice', 'patching', '--session', 'session-b', '--', target).stdout).applies, false);
+  assert.equal(JSON.parse(raw(p, 'slice', 'patching', '--session', 'session-a', '--', target).stdout).held.length, 1);
+});
+
+// `--cwd` and `--json` go before any `--`, after which every word is a path.
+const raw = (p, ...args) => {
+  const at = args.includes('--') ? args.indexOf('--') : args.length;
+  return spawnSync(process.execPath, [BIN, ...args.slice(0, at), '--cwd', p.dir, '--json', ...args.slice(at)], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } });
+};
+const breakConfig = (p) => writeFileSync(join(p.ctx.paths.base, 'config.yaml'), 'version: 1\nmode: [unclosed\n');
+
+test('a configuration that fails to load does not matter with no slice in PATCHING', () => {
+  const p = makeProject();
+  breakConfig(p);
+  const r = raw(p, 'slice', 'patching', '--', join(p.dir, 'src/b.js'));
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.deepEqual(JSON.parse(r.stdout), { patching: [], applies: false, held: [] });
+});
+
+test('a configuration that fails to load with a slice in PATCHING is an error naming the slice', () => {
+  const { p, wt } = patchingProject();
+  breakConfig(p);
+  const r = raw(p, 'slice', 'patching', '--', join(wt, 'src/a/y.js'));
+  assert.equal(r.status, 1);
+  const { error } = JSON.parse(r.stdout);
+  assert.equal(error.code, 'UK_CONFIG_INVALID');
+  assert.deepEqual(error.details.patching, ['UK-1']);
+});
+
+test('paths after -- are paths, never flags', () => {
+  const { p } = patchingProject();
+  const r = raw(p, 'slice', 'patching', '--', '--cwd=/', 'src/b/x.js');
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  // Both are judged as paths under --cwd; '--cwd=/' did not move the project to /.
+  assert.deepEqual(JSON.parse(r.stdout).held.map((h) => [h.path, h.rule]), [['--cwd=/', 'scope.slice'], ['src/b/x.js', 'scope.slice']]);
+});
+
+test('the query and status --read-only write nothing to the project', () => {
+  const p = makeProject();
+  const ignore = join(p.ctx.paths.base, '.gitignore');
+  rmSync(ignore);
+  assert.equal(raw(p, 'slice', 'patching', '--', 'src/a.js').status, 0);
+  assert.equal(raw(p, 'status', '--read-only').status, 0);
+  assert.equal(existsSync(ignore), false);
 });
 
 test('the shared rule is the one the PDP applies', () => {

@@ -35,7 +35,7 @@ const PATCHING = {
 type Run = (argv: readonly string[]) => { exitCode: number; stdout: string }
 
 /** The engine beneath the mod: the CLI answered by `cli`, every argv it was asked recorded. */
-function engine(on: any, cli: Run, { initialised = true, panes = ['unknot-panel'] } = {}) {
+function engine(on: any, cli: Run, { panes = ['unknot-panel'] } = {}) {
   const asked: string[][] = []
   on('process.run', (_: unknown, e: { argv: readonly string[] }) => {
     asked.push([...e.argv])
@@ -44,10 +44,6 @@ function engine(on: any, cli: Run, { initialised = true, panes = ['unknot-panel'
   })
   on('session.cwd', () => ({ value: ROOT }))
   on('session.id', () => ({ value: 'session-a' }))
-  on('fs.stat', (_: unknown, e: unknown) => {
-    if (initialised) return { value: { isFile: false, isDirectory: true, size: 0, mtimeMs: 0 } }
-    throw new Error(`ENOENT ${JSON.stringify(e)}`)
-  })
   on('ui.panes', () => ({ value: panes.map(id => ({ id, title: 'Unknot', isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('command.register', () => ({ value: { command: 'unknot-panel' } }))
@@ -56,7 +52,7 @@ function engine(on: any, cli: Run, { initialised = true, panes = ['unknot-panel'
 }
 
 const json = (v: unknown) => ({ exitCode: 0, stdout: JSON.stringify(v) })
-const fail = (code: string, message: string) => ({ exitCode: 1, stdout: JSON.stringify({ error: { code, message } }) })
+const fail = (code: string, message: string, details = {}) => ({ exitCode: 1, stdout: JSON.stringify({ error: { code, message, details } }) })
 const rejects = (why: string): never => {
   throw new Error(why)
 }
@@ -64,7 +60,8 @@ const isStatus = (argv: readonly string[]) => argv.includes('status')
 
 // Every command the mod may run: read-only status and the read-only scope query.
 const ONLY_READ = (argv: readonly string[]) =>
-  argv[0] === 'node' && argv[1].endsWith('/bin/unknot') && argv.at(-1) === '--json' && (argv[2] === 'status' || (argv[2] === 'slice' && argv[3] === 'patching'))
+  argv[0] === 'node' && argv[1].endsWith('/bin/unknot') && argv.includes('--json') &&
+  (JSON.stringify(argv.slice(2)) === JSON.stringify(['status', '--read-only', '--json']) || (argv[2] === 'slice' && argv[3] === 'patching'))
 
 test('an Edit outside the PATCHING slice scope is denied, naming the slice, its scope and the path', async ($, on) => {
   const asked = engine(on, argv => json({ ...PATCHING, held: [{ path: `${ROOT}/src/b/x.js`, slice: 'UK-2', rule: 'scope.slice', reason: 'src/b/x.js is outside slice UK-2 scope (include: src/a/**; exclude: —)' }] }))
@@ -74,7 +71,7 @@ test('an Edit outside the PATCHING slice scope is denied, naming the slice, its 
   expect(r.deny).toContain('include src/a/**')
   expect(r.deny).toContain(`${ROOT}/src/b/x.js`)
   expect(r.deny).toContain('Change budget left: 4 file(s), 120 diff line(s)')
-  expect(asked[0].slice(2)).toEqual(['slice', 'patching', `${ROOT}/src/b/x.js`, '--session', 'session-a', '--json'])
+  expect(asked[0].slice(2)).toEqual(['slice', 'patching', '--json', '--session', 'session-a', '--', `${ROOT}/src/b/x.js`])
 })
 
 test('an Edit inside the scope proceeds to what lies beneath, unchanged', async ($, on) => {
@@ -95,22 +92,36 @@ test('with no slice in PATCHING, or another session owning the run, the mod does
   expect((await $.tool.call({ tool: 'Write', file_path: `${ROOT}/src/b/x.js`, content: 'x' })).deny).toBe(undefined)
 })
 
-test('a check that fails or times out in an initialised repository denies (fail closed)', async ($, on) => {
-  let mode = 'timeout'
-  engine(on, () => (mode === 'timeout' ? rejects('timed out after 10000 ms') : mode === 'garbage' ? { exitCode: 0, stdout: 'not json' } : fail('UK_INTERNAL', 'store locked')))
-  for (mode of ['timeout', 'garbage', 'error']) {
-    const r = await $.tool.call({ tool: 'Edit', file_path: `${ROOT}/src/a/y.js`, old_string: 'a', new_string: 'b' })
-    expect(r.deny).toBeDefined()
-    expect(r.deny).toContain('its scope check failed')
+test('while a slice is PATCHING, a check that fails or gives no answer denies (fail closed)', async ($, on) => {
+  let mode = 'patching'
+  engine(on, () =>
+    mode === 'patching' ? json({ ...PATCHING, held: [] })
+    : mode === 'config' ? fail('UK_CONFIG_INVALID', 'mode: [unclosed', { patching: ['UK-2'] })
+    : mode === 'timeout' ? rejects('timed out after 10000 ms')
+    : { exitCode: 0, stdout: 'not json' })
+  const edit = () => $.tool.call({ tool: 'Edit', file_path: `${ROOT}/src/a/y.js`, old_string: 'a', new_string: 'b' })
+  // The query found a slice in PATCHING and then could not load the configuration.
+  mode = 'config'
+  expect((await edit()).deny).toContain('its scope check failed (UK_CONFIG_INVALID')
+  // The last answer knew of a slice in PATCHING; now the query gives no answer at all.
+  for (const m of ['timeout', 'garbage']) {
+    mode = 'patching'
+    expect((await edit()).deny).toBe(undefined)
+    mode = m
+    expect((await edit()).deny).toContain('its scope check failed')
   }
 })
 
-test('outside an Unknot project the guard stays out of the way, failing or not', async ($, on) => {
-  let notInit = true
-  engine(on, () => (notInit ? fail('UK_NOT_INITIALIZED', 'no .unknot directory') : rejects('node not found')), { initialised: false })
-  expect((await $.tool.call({ tool: 'Edit', file_path: '/elsewhere/a.js', old_string: 'a', new_string: 'b' })).deny).toBe(undefined)
-  notInit = false
-  expect((await $.tool.call({ tool: 'Edit', file_path: '/elsewhere/a.js', old_string: 'a', new_string: 'b' })).deny).toBe(undefined)
+test('with no slice known to be PATCHING, a failing check lets the edit go on to the hooks', async ($, on) => {
+  let mode = 'none'
+  engine(on, () =>
+    mode === 'none' ? json({ patching: [], applies: false, held: [] })
+    : mode === 'config' ? fail('UK_CONFIG_INVALID', 'mode: [unclosed')
+    : mode === 'integrity' ? fail('UK_INTEGRITY', 'organisation policy is not signed')
+    : mode === 'uninitialised' ? fail('UK_NOT_INITIALIZED', 'no .unknot directory')
+    : rejects('spawn node ENOENT'))
+  const edit = () => $.tool.call({ tool: 'Write', file_path: `${ROOT}/src/b/x.js`, content: 'x' })
+  for (mode of ['spawn', 'none', 'config', 'integrity', 'uninitialised', 'spawn']) expect((await edit()).deny).toBe(undefined)
 })
 
 test('/unknot-panel lists the campaign, both slices and the approval with the command a person types', async ($, on) => {
