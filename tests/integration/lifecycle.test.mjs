@@ -5,6 +5,7 @@
 import '../helpers/git-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -148,6 +149,12 @@ test('Scenario A: find, plan, approve, patch, verify, accept', { timeout: 120_00
   assert.ok(existsSync(join(dir, v.bundle, 'manifest.json')));
   const manifest = JSON.parse(readFileSync(join(dir, v.bundle, 'manifest.json'), 'utf8'));
   for (const f of ['diff.patch', 'slice.yaml', 'verification.json', 'recovery.md', 'command-log.jsonl']) assert.ok(manifest.files.some((x) => x.path === f), f);
+  // The bundle is still what its manifest says it is after verify ends (#183).
+  for (const f of manifest.files) assert.equal(`sha256:${createHash('sha256').update(readFileSync(join(dir, v.bundle, f.path))).digest('hex')}`, f.digest, f.path);
+  const bundled = JSON.parse(readFileSync(join(dir, v.bundle, 'verification.json'), 'utf8'));
+  const ids = ctx.store.all('SELECT id FROM proof_obligations WHERE slice_id = ?', sliceId).map((o) => o.id).sort();
+  assert.deepEqual(bundled.obligations.map((o) => o.id).sort(), ids, 'the bundle lists every obligation of the slice');
+  assert.equal(JSON.parse(readFileSync(join(dir, v.bundle, 'verify-summary.json'), 'utf8')).state, 'REVIEW_READY', 'the run summary is beside the bundle');
 
   slice = loadSlice(ctx, sliceId);
   for (const role of slice.body.approvals) {

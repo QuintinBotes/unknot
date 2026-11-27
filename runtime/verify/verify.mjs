@@ -167,7 +167,8 @@ export async function decide(ctx, { cfg, run, slice, actor, results = [], notes 
   };
   const dir = join(ctx.paths.runs, run.id);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'verification.json'), `${JSON.stringify(summary, null, 2)}\n`);
+  // Not verification.json: that is the proof bundle's own file, digested in its manifest (#183).
+  writeFileSync(join(dir, 'verify-summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
 }
 

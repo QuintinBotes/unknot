@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { canonicalJSON, sha256 } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
+import { UnknotError } from '../core/errors.mjs';
 import { redact } from '../core/redact.mjs';
 import { assertArtifact } from '../core/schema.mjs';
 import { parseYAML, stringifyYAML } from '../core/yaml.mjs';
@@ -158,12 +159,9 @@ export function renderPullRequestBody(dir, { stale = null } = {}) {
     ...(f.evidence ?? []).map((e) => `- ${e.ref} [${e.label}] ${e.summary}`),
   ].join('\n')).join('\n\n');
   const list = (rows, why = () => '') => rows.map((o) => `${o.id} ${o.kind}: ${o.description}${why(o)}`).join('\n');
-  // shortcut: `verifySlice` overwrites the bundle's verification.json with its run summary (#183),
-  // which lists only this run's results; read that shape until the bundle keeps its own.
-  const obligations = verification.obligations ?? [
-    ...(verification.results ?? []).map((r) => ({ id: r.id, kind: r.kind, status: r.verdict, description: r.detail })),
-    ...(verification.waiting_for_human ?? []).map((o) => ({ ...o, status: 'pending', human: true })),
-  ];
+  const { obligations } = verification;
+  // A bundle verified before #183 had its verification.json replaced by the run summary.
+  if (!Array.isArray(obligations)) throw new UnknotError('UK_STATE_CONFLICT', `the proof bundle in ${dir} has no obligation list (written before #183); run \`unknot verify ${manifest.slice_id}\` again`);
   const body = [
     ...(stale ? [`> [!WARNING]\n> This slice was patched again after its verification (diff \`${stale}\`, verified \`${verification.diff_hash}\`). The results below are stale until \`unknot verify ${manifest.slice_id}\` runs again.`] : []),
     `Unknot slice \`${manifest.slice_id}\`, proof bundle \`.unknot/runs/${manifest.run_id}\`, verified diff \`${verification.diff_hash}\`. Text from the bundle is quoted as data.`,
