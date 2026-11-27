@@ -6,6 +6,7 @@
 // every result and reported in `flagged`.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchAny } from './glob.mjs';
@@ -459,4 +460,66 @@ export function forbiddenAtRoot(root, argv) {
 /** The rule forbidding this command (argv array), or null. */
 export function forbiddenCommand(guidance, argv) {
   return guidance.forbidden_commands.find((f) => f.enforced !== false && commandMatches(argv, f)) ?? null;
+}
+
+/**
+ * The content digest of each guidance file a slice recorded, by file (null when it is gone), or null
+ * for a slice planned before convention reports. Bound into approvals: an edit to one voids them.
+ */
+export function guidanceDigests(root, body) {
+  if (!Array.isArray(body?.conventions)) return null;
+  const out = {};
+  for (const { file } of body.guidance ?? []) {
+    try {
+      out[file] = `sha256:${createHash('sha256').update(readFileSync(join(root, file))).digest('hex')}`;
+    } catch {
+      out[file] = null;
+    }
+  }
+  return out;
+}
+
+// Unknot's own conservative rules, applied whatever the repository says; `kind` is the obligation that checks it.
+const DEFAULT_RULES = [
+  { rule: 'One objective per slice: no unrelated changes ride along', kind: null },
+  { rule: 'No unrelated dependency changes', kind: 'scope-check' },
+  { rule: 'Add a characterization test where behaviour is uncertain', kind: 'characterization' },
+];
+
+/**
+ * The convention report of a slice: every rule in `guide` (guidanceForScope output), the hook checks
+ * and Unknot's defaults, each with its source and a status. Only a runtime check makes a rule
+ * `enforced`; prose is `documented`, a command both required and forbidden is `conflict`, text that
+ * tries to grant something is `flagged` and has no effect. `obligations` are the slice's, with ids.
+ * Nearest scope first.
+ */
+export function conventionReport(guide, obligations) {
+  const scopes = new Map(guide.files.map((f) => [f.file, f.scope]));
+  const kind = (k) => obligations.find((o) => o.kind === k);
+  const out = [];
+  const add = (file, line, rule, status, verification = null, scope = scopes.get(file) ?? '.') => out.push({ rule, scope, source: { file, line: line ?? null }, status, verification });
+  for (const f of guide.forbidden_commands) {
+    const status = f.conflict ? 'conflict' : f.enforced === false ? 'documented' : 'enforced';
+    add(f.file, f.line, f.sentence, status, status === 'enforced' ? `the command broker refuses \`${f.prefix}\`; an obligation that would run it is left for a person` : null);
+  }
+  const scopeCheck = kind('scope-check');
+  for (const f of guide.forbidden_paths) {
+    if (f.enforced === false) add(f.file, f.line, f.sentence, 'documented');
+    else add(f.file, f.line, f.sentence, 'enforced', `planning refuses a change to ${f.glob}; ${scopeCheck ? `${scopeCheck.id} (scope-check)` : 'the scope check'} fails one at verify`);
+  }
+  for (const c of guide.commands) {
+    const o = obligations.find((x) => x.command && x.command.join(' ') === c.command);
+    add(c.file, c.line, `Run \`${c.command}\``, o ? 'enforced' : 'documented', o ? `${o.id} (${o.kind})` : null);
+  }
+  // A prose line already reported as a rule above is not listed twice.
+  const seen = new Set(out.map((r) => `${r.source.file}:${r.source.line}`));
+  for (const c of guide.conventions) if (!seen.has(`${c.file}:${c.line}`)) add(c.file, c.line, c.text, 'documented');
+  for (const f of guide.flagged) if (f.kind !== 'conflict') add(f.file, f.line, f.excerpt, 'flagged');
+  for (const o of obligations.filter((x) => x.hook)) add(`hook:${o.hook}`, null, o.description, 'enforced', `${o.id} (${o.kind}${o.requires_human ? ', a person confirms' : ''})`, '.');
+  for (const d of DEFAULT_RULES) {
+    const o = d.kind && kind(d.kind);
+    add('unknot:default', null, d.rule, 'default', o ? `${o.id} (${o.kind})` : null, '.');
+  }
+  const depthOf = (s) => (s === '.' ? 0 : s.split('/').length);
+  return out.sort((a, b) => depthOf(b.scope) - depthOf(a.scope));
 }

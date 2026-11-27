@@ -115,6 +115,18 @@ The runtime classifies risk and takes control of what must be proven:
 
 Classification only raises risk. A planner can declare a higher risk, but nothing a slice says about itself lowers it.
 
+Every slice also records a **convention report**: what this team would expect if a person made the change. Each rule names its source (file and line) and scope, nearest scope first, and has a status:
+
+| Status | Meaning |
+|---|---|
+| `enforced` | Unknot checks it: a path the guidance says not to edit (planning refuses the change, the scope check fails it), a command it forbids (the broker refuses it), a command it requires that an obligation runs, a repository hook check. `verification` names the obligation or check. |
+| `documented` | Prose Unknot shows but cannot check, such as a naming rule. |
+| `default` | Unknot's own rule where the repository is silent: one objective, no unrelated dependency changes, a characterization test where behaviour is uncertain. |
+| `conflict` | A command one rule requires and another forbids; not enforced, a person decides. |
+| `flagged` | Text that tries to grant something (approve its own changes, skip verification). It has no effect. |
+
+Prose never makes a rule `enforced`. The report comes from the guidance files that apply to the slice's scope (the root's apply to every slice); approvals bind the content digest of each of them, so an edit to one after approval makes the approval stale with `conventions changed (<file>)`, and `status`, `next` and `slice show` list the slice as needing re-approval. An edit to guidance in a directory the slice does not reach changes nothing. A slice planned before reports existed shows `not recorded`, and the upgrade does not void its approvals.
+
 Slice states and the legal moves between them:
 
 ```

@@ -170,6 +170,7 @@ An approval is a signature, not a flag in a database.
 | `policy_digest` | The digest of the effective configuration and org policy |
 | `environment` | `local` unless the slice names one |
 | `stage` | `plan`, `change` or `rollback` |
+| `guidance_digests` | The content digest of each guidance file the slice's convention report came from; a change reads `conventions changed (<file>)`. Absent for slices planned before convention reports. |
 | `expires_at` | Now plus `approvals.expiry` (default 72 hours) |
 
 **Checking.** Whenever an approval is used (`apply start`, the change transition, `rollback`), Unknot recomputes the current binding and compares every field, re-verifies the signature against the approver's registered key, and checks expiry and that the approver still exists and still holds the role. A mismatch makes the approval stale, and the reasons are listed (`diff_hash changed`, `expired`, `approver no longer registered`). Going back to `PATCHING` revokes all of a slice's approvals.

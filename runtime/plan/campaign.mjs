@@ -21,7 +21,8 @@ import { matchAny } from '../core/glob.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { transitionSlice } from '../state/machine.mjs';
 import { gitHead } from '../state/runs.mjs';
-import { forbiddenCommand, guidanceForScope, loadGuidance, protectedByGuidance, scopeHits } from '../core/guidance.mjs';
+import { conventionReport, forbiddenCommand, guidanceDigests, guidanceForScope, loadGuidance, protectedByGuidance, scopeHits } from '../core/guidance.mjs';
+import { digest } from '../core/canonical.mjs';
 import { generateObligations } from './obligations.mjs';
 
 const RECOVERY_BY_TREATMENT = { T3: 'roll_forward', T6: 'roll_forward', T7: 'revert' };
@@ -110,9 +111,12 @@ export function createSlice(ctx, { config, campaignId, draft, actor }) {
     for (const o of obligations) {
       const poId = ctx.store.nextId('PO', 1);
       ids.push(poId);
+      o.id = poId;
       ctx.store.insert('proof_obligations', { id: poId, slice_id: id, kind: o.kind, body: { ...o, id: poId, slice_id: id, status: 'open', evidence_id: null }, requires_human: o.requires_human ? 1 : 0, status: 'open' });
     }
     body.proof_obligations = ids;
+    body.conventions = conventionReport(guide, obligations);
+    body.conventions_digest = digest(guidanceDigests(ctx.root, body));
     assertArtifact('slice', body);
     const at = nowISO();
     ctx.store.insert('slices', { id, campaign_id: campaignId, schema_version: '1.0', state: 'PLANNED', risk: body.risk, body, slice_digest: sliceDigest(body), created_at: at, updated_at: at });
