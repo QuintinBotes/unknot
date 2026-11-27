@@ -4,9 +4,9 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import * as K from '../helpers/kernel.mjs';
 import { hide, restore } from '../helpers/no-sandbox.mjs';
@@ -161,12 +161,15 @@ describe('spoofing the sandbox does not get a command run', () => {
     assert.equal(K.sandbox.detectSandbox({ platform: 'linux', bwrapPaths: [real] }), 'linux-bwrap');
     // Root-owned but group- or world-writable, the file or a directory above it: not trusted.
     const as = (target, over) => (d) => (d === target ? { ...statSync(d), uid: 0, ...over } : statSync(d));
-    for (const [target, mode] of [[real, 0o100775], [real, 0o100757], ['/usr/bin', 0o40775], ['/usr', 0o42775], ['/', 0o40777]]) {
+    // Stubs are keyed by the real path: /usr/bin/true is a symlink on some Linux images.
+    const file = realpathSync(real);
+    const dir = dirname(file);
+    for (const [target, mode] of [[file, 0o100775], [file, 0o100757], [dir, 0o40775], [dirname(dir), 0o42775], ['/', 0o40777]]) {
       assert.equal(K.sandbox.trustedBinary(real, as(target, { mode })), false, `${target} ${mode.toString(8)}`);
     }
     // Not owned by root, the file or a directory above it (a /usr/local the staff group owns).
-    assert.equal(K.sandbox.trustedBinary(real, as(real, { uid: 1000, mode: 0o100755 })), false);
-    assert.equal(K.sandbox.trustedBinary(real, as('/usr/bin', { uid: 1000, mode: 0o40755 })), false);
+    assert.equal(K.sandbox.trustedBinary(real, as(file, { uid: 1000, mode: 0o100755 })), false);
+    assert.equal(K.sandbox.trustedBinary(real, as(dir, { uid: 1000, mode: 0o40755 })), false);
     // A symlink is judged where it points.
     const link = join(fakes, 'link');
     symlinkSync(fake, link);
