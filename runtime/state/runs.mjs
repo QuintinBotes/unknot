@@ -2,7 +2,7 @@
 // digest fixed at start. Hooks enforce only while a run is active, so installing the
 // plugin never changes sessions that are not using it.
 
-import { spawnSync } from 'node:child_process';
+import { git } from '../apply/git.mjs';
 import { randomId } from '../core/canonical.mjs';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
@@ -37,7 +37,7 @@ export const COMMANDS = Object.freeze({
 });
 
 export function gitHead(root) {
-  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', shell: false, timeout: 10_000 });
+  const r = git(root, ['rev-parse', 'HEAD'], { check: false, timeout: 10_000 });
   return r.status === 0 ? r.stdout.trim() : null;
 }
 

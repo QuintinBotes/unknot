@@ -5,10 +5,10 @@
 // (approve its own changes, pipe a download to a shell, skip verification) is dropped from
 // every result and reported in `flagged`.
 
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { git } from '../apply/git.mjs';
 import { matchAny } from './glob.mjs';
 import { findInjectionMarkers } from './injection.mjs';
 
@@ -115,12 +115,9 @@ function knownIn(root, dir) {
 
 /** The files `git ls-files` names that look like guidance, or null when root is not in a git work tree. */
 function gitGuidance(root) {
-  let raw;
-  try {
-    raw = execFileSync('git', ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    return null;
-  }
+  const r = git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { check: false, maxBuffer: 1 << 30 });
+  if (r.status !== 0) return null;
+  const raw = r.stdout;
   const out = new Set();
   for (const p of raw.split('\0')) {
     if (!p || !classify(p)) continue;

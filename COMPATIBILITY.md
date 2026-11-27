@@ -47,7 +47,7 @@ migration notes. The compact edge table after 0.4.0 (schema 3, #88) is such a mi
 | Node.js | 22.13 and later; CI runs 22, 24 and 26, and the exact floor 22.13.0 | `engines.node` is `>=22.13`. No npm dependencies. |
 | Operating systems | Linux and macOS (CI: ubuntu-latest, macos-latest) | Windows is not tested; use WSL2. |
 | Claude Code | A version supporting plugins with hooks and `claude plugin validate --strict` | Validated in CI against a pinned version (see Tested profile); the latest is also validated, without blocking. The mod (`/unknot-panel` and the scope guard) needs 2.1.287 or later; older versions ignore it and keep the settings hooks. |
-| git | Required | Slice worktrees and census depend on it. |
+| git | Required | Slice worktrees and census depend on it. A repository that borrows objects through `.git/objects/info/alternates` (as `git clone --shared` or `--reference` leaves it) is refused; `git repack -a -d` and then removing that file lifts the refusal. |
 | python3 | Optional | Python adapter helpers, when present. |
 | helm, kustomize, terraform | Optional | Infrastructure adapters render or plan only when installed. |
 | gitleaks, semgrep | Optional | Used as extra evidence when installed; built-in secret redaction does not depend on them. |
