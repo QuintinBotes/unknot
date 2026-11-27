@@ -89,6 +89,7 @@ test('an incremental map links again only what a change reaches, and stores what
   const body = await step('body edit', (f) => { f['Svc/Leaf.cs'] = cls('Shop.Svc', 'Leaf', '        public int N() { return 3; }'); });
   assert.ok(body.link.generic.relinked < body.link.generic.modules, `a body edit links few files again (${JSON.stringify(body.link)})`);
   assert.ok(body.link.quality.relinked < body.link.quality.modules);
+  assert.equal(first.projection.hashed, first.facts, 'the first map hashes every fact');
 
   const twoTypes = await step('a body edit in a file of two types', (f) => { f['Svc/Pair.cs'] = pair('return 2;'); });
   assert.ok(twoTypes.link.generic.relinked < twoTypes.link.generic.modules, `the same types and bases link few files again (${JSON.stringify(twoTypes.link)})`);
@@ -158,4 +159,26 @@ test('derived facts are brought forward where the import graph did not change, a
   })).derived, 'recomputed');
   assert.equal((await step('a cycle is broken', (f) => { f['app/y.py'] = '\n\ndef y():\n    return 1\n'; })).derived, 'recomputed');
   assert.equal(sccs().length, 2);
+});
+
+test('a re-map works out the keys of the runs of facts a change reached, and keeps the others (#145)', async () => {
+  const files = {};
+  for (let i = 0; i < 200; i++) files[`web/m${i}.js`] = `import { f${(i + 1) % 200} } from './m${(i + 1) % 200}.js';\nexport function f${i}(x) { return x > ${i} ? f${(i + 1) % 200}(x - 1) : ${i}; }\n`;
+  const p = K.makeProject({ files });
+  const first = await map(p);
+  assert.equal(first.projection.hashed, first.facts, 'the first map hashes every fact');
+  const step = stepper(p, files);
+  const edit = await step('a function added', (f) => { f['web/m7.js'] += 'export function g7(y) { return f7(y) + 1; }\n'; });
+  assert.equal(edit.projection.matched, 'runs');
+  assert.ok(edit.projection.hashed < edit.facts / 4, `a one-file edit hashes few facts (${edit.projection.hashed} of ${edit.facts})`);
+  const added = await step('a file added and one deleted', (f) => {
+    f['web/new.js'] = "import { f3 } from './m3.js';\nexport const n = () => f3(1);\n";
+    delete f['web/m50.js'];
+    rmSync(join(p.dir, 'web/m50.js'));
+  });
+  assert.ok(added.projection.hashed < added.facts / 2, `a file added and one deleted hash the runs around them (${added.projection.hashed} of ${added.facts})`);
+  const kept = p.ctx.store.get("SELECT COUNT(*) AS n FROM file_index WHERE adapter = 'projection:keys'").n;
+  const cold = K.makeProject({ files });
+  await map(cold);
+  assert.equal(kept, cold.ctx.store.get("SELECT COUNT(*) AS n FROM file_index WHERE adapter = 'projection:keys'").n, 'runs no longer present are dropped');
 });
