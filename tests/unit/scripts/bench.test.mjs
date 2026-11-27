@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { GATES, gate, generateFixture, touch } from '../../../scripts/bench.mjs';
+import { GATES, RELEASE_GATES, gate, generateFixture, touch } from '../../../scripts/bench.mjs';
 import { mkTmp } from '../../helpers/tmp.mjs';
 
 const listing = (dir) => {
@@ -42,4 +42,12 @@ test('the bench gate checks the ratios of #88 against their bounds', () => {
   assert.deepEqual(run(100, 10, 20, 30, 10), { ratios: { unchanged_vs_cold: 0.1, changed_vs_unchanged: 2, store_vs_tree: 3 }, over: [] }, 'each bound is inclusive');
   assert.deepEqual(run(100, 11, 23, 31, 10).over, ['unchanged_vs_cold', 'changed_vs_unchanged', 'store_vs_tree']);
   assert.deepEqual(run(100, 5, 11, 1, 10).over, ['changed_vs_unchanged']);
+});
+
+test('the release gate checks only the bounds main meets: no change and changed against cold', () => {
+  assert.deepEqual(RELEASE_GATES, { unchanged_vs_cold: 0.1, changed_vs_cold: 0.5 });
+  const run = (cold, unchanged, changed) => gate({ cold: { wall_ms: cold }, unchanged: { wall_ms: unchanged }, incremental: { wall_ms: changed }, store_bytes: 50, tree_bytes: 1 }, RELEASE_GATES);
+  assert.deepEqual(run(100, 10, 50), { ratios: { unchanged_vs_cold: 0.1, changed_vs_cold: 0.5 }, over: [] }, 'each bound is inclusive; store size is not gated');
+  assert.deepEqual(run(100, 2, 51).over, ['changed_vs_cold']);
+  assert.deepEqual(run(100, 11, 20).over, ['unchanged_vs_cold']);
 });

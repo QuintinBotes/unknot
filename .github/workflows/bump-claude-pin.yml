@@ -37,7 +37,7 @@ jobs:
           git push --force origin "$branch"
           if [ -z "$(gh pr list --head "$branch" --json number --jq '.[0].number')" ]; then
             gh pr create --base main --head "$branch" --title "Bump the Claude Code pin to $version" \
-              --body "Updates the plugin validation pin in ci.yml and the pin in live.yml together."
+              --body "Updates the plugin validation pin in ci.yml, the pin in live.yml and the tested profile in COMPATIBILITY.md together."
           else
             gh pr edit "$branch" --title "Bump the Claude Code pin to $version"
           fi

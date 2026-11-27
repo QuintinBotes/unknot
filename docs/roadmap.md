@@ -240,9 +240,15 @@ five releases pass, and the corpus includes a large monolith in each of the lang
 
 ## 8. Proven scale with incremental re-mapping
 
-**Today.** A cold map of a 6,700-file repository takes about 10 seconds, and a re-map with
-nothing changed about 4. Extraction is cached per file and resumable. The specification
-targets 100,000 files, but the measured benchmark goes only to that same small fixture.
+**Today.** `docs/benchmarks.md` measures generated five-language tiers of 10k, 50k and
+250k files: at 50k a cold map takes about 50 to 80 seconds, a re-map with nothing changed about
+1 and a re-map after ten changed files about 9 to 12; at 250k a cold map took about 20 minutes
+on a loaded machine. On real repositories, a 30,800-file C# monolith maps cold in about 2 minutes,
+re-maps with no change in under a second and after a one-file edit in 23 to 27 seconds, with a
+3.1 GiB store; nopCommerce re-maps after a one-file edit in under 5 seconds. Extraction, linking
+and derived facts are incremental. Releases are gated on the 10k tier (a no-change re-map at most
+a tenth of the cold map, a ten-file re-map at most half); a ten-file re-map still costs more than
+twice a no-change one (#145).
 
 **Production grade.**
 

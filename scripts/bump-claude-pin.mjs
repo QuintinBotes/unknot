@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Rewrites the Claude Code pin in ci.yml and live.yml when <latest> is newer: node scripts/bump-claude-pin.mjs <latest>
+// Rewrites the Claude Code pin in ci.yml, live.yml and COMPATIBILITY.md's tested profile when <latest> is newer: node scripts/bump-claude-pin.mjs <latest>
 // Prints the new version when it changed anything, nothing otherwise. Older or unparsable input changes nothing.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const FILES = ['.github/workflows/ci.yml', '.github/workflows/live.yml'];
-const PIN = /(@anthropic-ai\/claude-code@)(\d+\.\d+\.\d+)(?=\s+plugin validate|\s*$)/gm;
+const FILES = ['.github/workflows/ci.yml', '.github/workflows/live.yml', 'COMPATIBILITY.md'];
+const PIN = /(@anthropic-ai\/claude-code@)(\d+\.\d+\.\d+)(?=\s+plugin validate|\s*$|`)/gm;
 const parse = (v) => (/^\d+\.\d+\.\d+$/.test(v) ? v.split('.').map(Number) : null);
 const newer = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
 
