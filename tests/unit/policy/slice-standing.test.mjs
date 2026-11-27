@@ -21,3 +21,11 @@ test('a slice says why it has its risk, who approves it, and whether a lane can 
   assert.match(guarded.risk_reasons.join(' '), /protected paths/);
   assert.match(laneLine(guarded), /protected paths src\/billing\/x\.cs/);
 });
+
+test('a brace glob does not hide a protected path from lane eligibility (#171)', () => {
+  const config = K.cfg({ protected_paths: ['.github/**'] });
+  const braced = sliceStanding(slice({ scope: { include: ['{src/a/**,.github/**}'], exclude: [] } }), config);
+  assert.equal(braced.lane.eligible, false);
+  assert.match(laneLine(braced), /protected paths \{src\/a\/\*\*,\.github\/\*\*\}/);
+  assert.equal(laneLine(sliceStanding(slice({ scope: { include: ['src/a/**'], exclude: [] } }), config)), 'lane: eligible');
+});

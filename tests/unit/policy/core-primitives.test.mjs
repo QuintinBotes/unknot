@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { globToRegExp, inScope, matchAny, matcher } from '../../../runtime/core/glob.mjs';
+import { expandBraces, globToRegExp, inScope, matchAny, matcher, scopeReachesAny, scopeReachesOnly } from '../../../runtime/core/glob.mjs';
 import { isInside, isSecretPath, realpathLenient, resolveInside } from '../../../runtime/core/paths.mjs';
 import { findSecrets, redact, redactDeep } from '../../../runtime/core/redact.mjs';
 import { DATA_NOT_INSTRUCTIONS, findInjectionMarkers } from '../../../runtime/core/injection.mjs';
@@ -74,6 +74,28 @@ describe('glob', () => {
     assert.ok(matchAny('./src/a.js', ['./src/*.js']));
     assert.ok(!m('SRC/*.js', 'src/a.js'));
     assert.ok(m('SRC/*.js', 'src/a.js', { nocase: true }));
+  });
+
+  test('what a scope reaches is judged by its alternatives and matched paths, not its text (#171)', () => {
+    assert.deepEqual(expandBraces('{src/a/**,.github/**}'), ['src/a/**', '.github/**']);
+    assert.deepEqual(expandBraces('{a,b/{c,d}}/x'), ['a/x', 'b/c/x', 'b/d/x']);
+    assert.deepEqual(expandBraces('{x/{y,z}'), ['{x/y', '{x/z'], 'an unclosed brace stays literal');
+    const isProtected = (p) => matchAny(p, ['.github/**'], { nocase: true });
+    assert.ok(scopeReachesAny(['{src/a/**,.github/**}'], isProtected), 'a brace alternative is not hidden');
+    assert.ok(!scopeReachesAny(['src/**'], isProtected));
+    assert.ok(scopeReachesAny(['**/*.yml'], isProtected, ['.github/workflows/ci.yml']), 'a wildcard reaches the known paths it matches');
+    assert.ok(scopeReachesAny(['{a,b}'.repeat(7)], () => false), 'too many alternatives to judge counts as reaching');
+    const isDoc = (p) => /\.md$/.test(p);
+    assert.ok(scopeReachesOnly(['docs/**/*.md', '{docs,guides}/*.md', 'README.md'], isDoc));
+    assert.ok(!scopeReachesOnly(['src/**/*.md*'], isDoc), '.md* also matches src/net.md.js');
+    assert.ok(!scopeReachesOnly(['README.md*'], isDoc));
+    assert.ok(!scopeReachesOnly(['{docs/*.md,src/**}'], isDoc));
+    assert.ok(!scopeReachesOnly(['{docs,src}/*.md*'], isDoc, ['docs/a.md', 'src/net.md.js']));
+    const isTest = (p) => p.startsWith('tests/');
+    assert.ok(scopeReachesOnly(['tests/**'], isTest, ['tests/a.js']), 'a wildcard is judged by the known paths it matches');
+    assert.ok(!scopeReachesOnly(['tests/**'], isTest), 'and fails without any');
+    assert.ok(!scopeReachesOnly(['{src/,tests/}**'], isTest, ['src/a.js', 'tests/a.js']));
+    assert.ok(scopeReachesOnly([], isTest));
   });
 
   test('invalid globs throw', () => {

@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { matchAny } from './glob.mjs';
+import { matchAny, scopeReachesAny } from './glob.mjs';
 import { findInjectionMarkers } from './injection.mjs';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', 'vendored', 'bin', 'obj', '.unknot', '.claude']);
@@ -445,7 +445,7 @@ export function scopeHits(guidance, include) {
     const fp = prefixOf(rule.glob);
     const reach = include.some((g) => {
       const p = prefixOf(g);
-      return matchAny(g.replace(/\*+/g, 'x'), [rule.glob], { nocase: true }) || (/[*?]/.test(g) && Boolean(fp) && (!p || fp === p || fp.startsWith(`${p}/`)));
+      return scopeReachesAny([g], (path) => matchAny(path, [rule.glob], { nocase: true })) || (/[*?]/.test(g) && Boolean(fp) && (!p || fp === p || fp.startsWith(`${p}/`)));
     });
     if (reach && !hits.some((h) => h.glob === rule.glob && h.file === rule.file)) hits.push(rule);
   }

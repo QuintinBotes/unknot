@@ -11,11 +11,12 @@
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
 import { addMs, now, nowISO, parseDuration } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
-import { matchAny } from '../core/glob.mjs';
+import { matchAny, scopeReachesAny } from '../core/glob.mjs';
 import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.mjs';
 import { isTestCode } from '../graph/census.mjs';
 import { appendEvent } from '../state/ledger.mjs';
 import { holdsRole, sliceDigest } from './approvals.mjs';
+import { modulePaths, weakEvidenceLine } from './evidence.mjs';
 import { planOnlyReason } from './kinds.mjs';
 import { provenDeletion } from './proven.mjs';
 import { classifyRisk, requiredApprovals } from './risk.mjs';
@@ -33,11 +34,20 @@ export function laneProblems(slice, config, ctx = null) {
   if (slice.risk !== 'low') problems.push(`${slice.risk} risk`);
   const needed = neededFor(slice, config, ctx);
   if (needed.roles.length !== 1 || needed.min_approvers > 1) problems.push(`needs ${needed.roles.join('+')} from ${needed.min_approvers} approver(s)`);
-  const touched = (slice.body.scope?.include ?? []).filter((g) => matchAny(g.replace(/\*+/g, 'x'), config.protected_paths, { nocase: true }));
+  const touched = protectedScope(ctx, slice.body.scope?.include ?? [], config);
   if (touched.length) problems.push(`protected paths ${touched.join(', ')}`);
   const planOnly = planOnlyReason(ctx, slice.body, config);
   if (planOnly) problems.push(planOnly);
+  // The same rule apply enforces, so a lane is never signed for a slice apply refuses.
+  const weak = weakEvidenceLine(ctx, slice, config);
+  if (weak) problems.push(weak);
   return problems;
+}
+
+/** The include globs that reach a protected path, judged by what each matches, not its text alone. */
+export function protectedScope(ctx, include, config) {
+  const known = modulePaths(ctx);
+  return include.filter((g) => scopeReachesAny([g], (p) => matchAny(p, config.protected_paths ?? [], { nocase: true }), known));
 }
 
 /**

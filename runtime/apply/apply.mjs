@@ -8,12 +8,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nowISO } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
-import { matchAny } from '../core/glob.mjs';
 import { guidanceDigests } from '../core/guidance.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/approvals.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
-import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
+import { checkLaneDiff, laneFor, laneOfSlice, protectedScope } from '../policy/lanes.mjs';
 import { modeRank, riskRank } from '../policy/defaults.mjs';
 import { assertEvidence } from '../policy/evidence.mjs';
 import { assertKindsAllowed, diffKinds, plannedKinds } from '../policy/kinds.mjs';
@@ -119,7 +118,7 @@ async function startApplyInner(ctx, { cfg, run, sliceId, actor }) {
   if (!guard().ok) {
     throw new UnknotError('UK_APPROVAL_REQUIRED', guard().detail, { slice_id: sliceId, details: { missing_roles: approvals.missing_roles, stale: approvals.stale, needed: approvals.needed, lanes: lane.reasons } });
   }
-  const protectedTouched = slice.body.scope.include.filter((g) => matchAny(g.replace(/\*+/g, 'x'), config.protected_paths, { nocase: true }));
+  const protectedTouched = protectedScope(ctx, slice.body.scope.include, config);
   if (protectedTouched.length && !['high', 'critical'].includes(slice.risk)) {
     throw new UnknotError('UK_POLICY_DENIED', `scope includes protected paths (${protectedTouched.join(', ')}) but the slice is ${slice.risk} risk`, { slice_id: sliceId });
   }

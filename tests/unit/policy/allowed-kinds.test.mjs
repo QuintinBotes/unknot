@@ -98,6 +98,11 @@ test('the kind comes from paths, the declared surface and the diff, not the slic
   // Documentation is the files, not the label.
   assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ kind: 'documentation', scope: { include: ['src/**'] }, changes: [] }))), ['refactor']);
   assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ kind: 'code', scope: { include: ['docs/**/*.md'] }, changes: [] }))), []);
+  // Judged by what a glob can match, not its text with wildcards filled in (#171).
+  assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ scope: { include: ['src/**/*.md*'] }, changes: [] }))), ['refactor'], 'also matches src/net.md.js');
+  assert.deepEqual(refusedKinds(only(['documentation']), plannedKinds(null, body({ scope: { include: ['{docs/**/*.md,src/**}'] }, changes: [] }))), ['refactor']);
+  assert.deepEqual(refusedKinds(only(['tests']), plannedKinds(null, body({ scope: { include: ['{src/,test/}**'] }, changes: [] }))), ['refactor'], 'a brace glob reaching src is not test-only');
+  assert.deepEqual(refusedKinds(only(['tests']), plannedKinds(null, body({ scope: { include: ['test/**/*.test.js'] }, changes: [] }))), []);
   // The staged diff: deleting lines from a Dockerfile is still an infrastructure change.
   assert.deepEqual(refusedKinds(only(['deletion']), diffKinds(body(), { paths: ['Dockerfile'], added: 0 })), ['infrastructure']);
   assert.deepEqual(refusedKinds(only(['tests', 'deletion']), diffKinds(body(), { paths: ['src/a.js'], added: 3 })), ['refactor']);

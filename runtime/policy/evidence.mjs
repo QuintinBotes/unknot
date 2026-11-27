@@ -72,15 +72,33 @@ const allowedWeak = (config, campaignId) => {
   return a === true || (Array.isArray(a) && campaignId != null && a.includes(campaignId));
 };
 
-/** Refuse to apply a non-test slice whose scope rests mostly on lexical reads. */
-export function assertEvidence(ctx, slice, config) {
-  if (allowedWeak(config, slice.campaign_id)) return;
+/** Module paths in the graph, for judging what a scope glob reaches (empty without a store). */
+export const modulePaths = (ctx) => (ctx?.store ? ctx.store.all("SELECT path FROM nodes WHERE type = 'module' AND path IS NOT NULL").map((r) => r.path) : []);
+
+/**
+ * The lexical share of a non-test slice's scope that makes apply refuse it, or null when its
+ * evidence is enough or the accepted config allows weak evidence for its campaign.
+ */
+export function weakEvidence(ctx, slice, config) {
+  if (allowedWeak(config, slice.campaign_id)) return null;
   const modules = scopeModules(ctx, slice.body.scope);
   // A slice that only reaches test code changes no behaviour. Judged by the modules the scope
   // matches, not by the glob text, which brace alternatives can dress up as a test path.
-  if (modules.every((m) => isTestFile(m.path))) return;
+  if (modules.every((m) => isTestFile(m.path))) return null;
   const lex = lexicalShare(modules);
-  if (!lex.lexical || lex.lexical * 2 <= lex.modules) return;
+  return lex.lexical && lex.lexical * 2 > lex.modules ? lex : null;
+}
+
+/** One line for lane eligibility: why apply would refuse the slice on evidence, or ''. */
+export function weakEvidenceLine(ctx, slice, config) {
+  const lex = ctx ? weakEvidence(ctx, slice, config) : null;
+  return lex ? `weak evidence: ${lex.lexical} of ${lex.modules} modules in scope were read lexically (${lex.languages.join(', ') || 'unknown language'}); evidence.allow_weak does not list ${slice.campaign_id ?? 'its campaign'}` : '';
+}
+
+/** Refuse to apply a non-test slice whose scope rests mostly on lexical reads. */
+export function assertEvidence(ctx, slice, config) {
+  const lex = weakEvidence(ctx, slice, config);
+  if (!lex) return;
   const langs = lex.languages.join(', ') || 'its language';
   const ways = [
     `add semantic evidence: a SCIP index for ${langs} (adapters.scip in .unknot/config.yaml), then run unknot map again`,

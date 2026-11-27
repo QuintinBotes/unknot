@@ -75,6 +75,7 @@ test('prohibitions on command shapes and paths are extracted with file and line'
   assert.equal(protectedByGuidance(g, ['generated/api.ts', 'src/db/migrations/001.sql', 'src/a.ts']).length, 2);
   assert.equal(scopeHits(g, ['generated/**']).length, 1);
   assert.equal(scopeHits(g, ['src/**']).length, 0);
+  assert.equal(scopeHits(g, ['{src/a.ts,generated/api.ts}']).length, 1, 'a brace alternative is not hidden (#171)');
 });
 
 test('guidance that grants something changes nothing and is flagged', () => {
