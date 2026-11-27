@@ -34,7 +34,7 @@ Because that is the least risky correct answer when nothing both fits the eviden
 
 ### Does it work on Windows? Without a sandbox?
 
-Linux and macOS are tested in CI. Windows is not tested; use WSL2. The OS sandbox is `sandbox-exec` on macOS and `bwrap` on Linux. Without one, brokered commands (your test suite) run unconfined; `unknot doctor` warns, and `security.require_os_sandbox: true` makes Unknot refuse to run them. The mapper, diagnosis and planning do not need the sandbox. See [SECURITY.md](../SECURITY.md).
+Linux and macOS are tested in CI. Windows is not tested; use WSL2. The OS sandbox is `sandbox-exec` on macOS and `bwrap` on Linux. Without one, the modes that change code (`assist`, `governed`, `campaign`) refuse to run brokered commands (your test suite) with `UK_SANDBOX_REQUIRED`, and `unknot doctor` fails; `observe` and `plan` run them unconfined with a private `HOME`, and `doctor` warns. A person can accept the risk with `security.require_os_sandbox: false`. The mapper, diagnosis and planning do not need the sandbox. See [SECURITY.md](../SECURITY.md).
 
 ### Can it work on a repository with no tests?
 

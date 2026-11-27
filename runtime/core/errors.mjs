@@ -7,6 +7,7 @@ export const ERROR_CLASSES = Object.freeze({
   UK_BASELINE_INVALID: { class: 'baseline-invalid', retryable: false },
   UK_SCOPE_VIOLATION: { class: 'scope-violation', retryable: false },
   UK_POLICY_DENIED: { class: 'policy-denied', retryable: false },
+  UK_SANDBOX_REQUIRED: { class: 'policy-denied', retryable: false },
   UK_APPROVAL_STALE: { class: 'approval-stale', retryable: false },
   UK_APPROVAL_REQUIRED: { class: 'policy-denied', retryable: false },
   UK_BUDGET_EXCEEDED: { class: 'budget-exceeded', retryable: false },

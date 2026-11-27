@@ -341,7 +341,8 @@ describe('sandbox profile and wrappers (pure)', () => {
 
   test('bubblewrap wrapper: read-only root, no network by default, argv after `--`', () => {
     const off = K.sandbox.wrap(['ls', '-l'], { kind: 'linux-bwrap', writable: [p.dir] });
-    assert.equal(off.file, 'bwrap');
+    // A fixed location, never a PATH lookup, so a fake bwrap on PATH cannot stand in (#148).
+    assert.ok(['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'].includes(off.file), off.file);
     assert.deepEqual(off.args.slice(0, 3), ['--ro-bind', '/', '/']);
     assert.ok(off.args.includes('--unshare-net'));
     assert.ok(off.args.includes('--die-with-parent') && off.args.includes('--new-session'));
