@@ -59,5 +59,5 @@ given to the daemon is the tenants base directory: tenant `acme` is `<root>/acme
 | `POST /v1/slices/{id}/apply` | operator | `{action: start|finish|replan|abandon, reason?}`; `If-Match` |
 | `POST /v1/slices/{id}/verify` | operator | `If-Match` |
 | `GET /v1/slices/{id}/proof-bundle` | viewer | manifest + file list; `?file=<name>` returns one manifest entry, digest-checked |
-| `POST /v1/decisions` | planner | `{finding, decision: accept|reject, rationale, days?}` |
+| `POST /v1/decisions` | planner | `{finding, decision: accept|reject, rationale, days?, reason?: wrong|not-worth|other}` |
 | `GET /v1/audit/events` | admin | NDJSON; first line is a header with the audit public key and `verifyLedger` result; `?after=<seq>&limit=` |

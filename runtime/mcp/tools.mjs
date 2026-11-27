@@ -6,7 +6,7 @@ import { searchTextConcurrent } from '../graph/search.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnknotError } from '../core/errors.mjs';
-import { getFinding } from '../diagnose/engine.mjs';
+import { getFinding, rejectReasons } from '../diagnose/engine.mjs';
 import { applyObjective } from '../diagnose/objectives.mjs';
 import { DEFAULT_MAX_PER_KIND, byRank, capPerKind, impactOf, impactRank } from '../diagnose/impact.mjs';
 import { guidanceFor } from '../core/guidance.mjs';
@@ -208,7 +208,10 @@ export const TOOLS = {
   finding_get: {
     description: 'The full finding record for an id or fingerprint. A finding is a proposal, not a decision.',
     inputSchema: schema({ id: str() }, ['id']),
-    run: (ctx, a) => getFinding(ctx, a.id),
+    run: (ctx, a) => {
+      const f = getFinding(ctx, a.id);
+      return f.status === 'rejected' ? { ...f, reason: rejectReasons(ctx).get(f.fingerprint) ?? 'other' } : f;
+    },
   },
 
   findings_list: {
@@ -227,13 +230,14 @@ export const TOOLS = {
       }
       const named = Boolean(a.objective);
       // The same order as diagnose (runtime/diagnose/impact.mjs), so an agent and the command agree.
-      const rows = ctx.store.all(`SELECT id, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`, ...params)
+      const rows = ctx.store.all(`SELECT id, fingerprint, kind, category, status, priority, body FROM findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`, ...params)
         .map((r) => ({ r, body: JSON.parse(r.body) }));
       const ordered = capPerKind(rows.map(({ r, body }) => ({ ...body, id: r.id, kind: r.kind })).sort(byRank(impactRank)), DEFAULT_MAX_PER_KIND);
       const byId = new Map(rows.map((x) => [x.r.id, x]));
+      const reasons = rows.some(({ r }) => r.status === 'rejected') ? rejectReasons(ctx) : new Map();
       const summaries = (named ? ordered : ordered.slice(0, a.limit ?? 50)).map(({ id }) => {
         const { r, body } = byId.get(id);
-        return { id: r.id, kind: r.kind, category: r.category, status: r.status, priority: r.priority, impact: +impactOf(body).toFixed(2), title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
+        return { id: r.id, kind: r.kind, category: r.category, status: r.status, ...(r.status === 'rejected' && { reason: reasons.get(r.fingerprint) ?? 'other' }), priority: r.priority, impact: +impactOf(body).toFixed(2), title: body.title ?? body.summary ?? null, ...(named && { measurements: body.measurements }) };
       });
       const ranked = named ? applyObjective(summaries, a.objective, { all: a.all }) : null;
       if (!ranked) return { findings: named ? summaries.slice(0, a.limit ?? 50).map(({ measurements, ...f }) => f) : summaries };

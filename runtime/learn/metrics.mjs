@@ -11,9 +11,12 @@ const median = (xs) => {
 
 export function productMetrics(ctx) {
   const st = ctx.store;
-  const decisions = st.all('SELECT decision FROM decisions');
+  const decisions = st.all('SELECT decision, reason FROM decisions');
   const accepted = decisions.filter((d) => d.decision === 'accept').length;
   const rejected = decisions.length - accepted;
+  // Only `wrong` is a false positive; rejections from before reasons existed are `other`.
+  const wrong = decisions.filter((d) => d.reason === 'wrong').length;
+  const notWorth = decisions.filter((d) => d.reason === 'not-worth').length;
   const transitions = st.all("SELECT slice_id, payload, at FROM events WHERE type = 'state.transition' AND slice_id IS NOT NULL ORDER BY seq").map((e) => ({ slice: e.slice_id, at: e.at, ...JSON.parse(e.payload) }));
   const reached = (state) => new Set(transitions.filter((t) => t.to === state).map((t) => t.slice));
   const slices = st.all('SELECT id, body, created_at FROM slices').map((s) => ({ id: s.id, created_at: s.created_at, body: JSON.parse(s.body) }));
@@ -36,7 +39,8 @@ export function productMetrics(ctx) {
       decided: decisions.length,
       acceptance_rate: rate(accepted, decisions.length),
       rejection_rate: rate(rejected, decisions.length),
-      false_positive_rate: rate(rejected, decisions.length),
+      false_positive_rate: rate(wrong, decisions.length),
+      not_worth_rate: rate(notWorth, decisions.length),
     },
     delivery: {
       median_hours_finding_to_review_ready: median(toReview),

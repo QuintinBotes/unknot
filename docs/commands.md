@@ -214,9 +214,9 @@ For explicitly linked repositories in `workspace.repositories`. `add` and `remov
 
 ## Deciding and planning
 
-### `unknot accept <F-id> --rationale "..."` and `unknot reject <F-id> --rationale "..." [--days N]`
+### `unknot accept <F-id> --rationale "..."` and `unknot reject <F-id> --rationale "..." [--reason wrong|not-worth|other] [--days N]`
 
-Record a human decision. `reject` suppresses the finding for `--days` (default `suppression.default_reject_days`, 90). Decisions are appended to `.unknot/decisions.jsonl` and feed the [learning loop](learning.md). From a terminal they are attributed to you. From Claude Code they are accepted only inside a run started by you typing `/unknot:accept F-0001 ...` (or reject) with that finding id; an agent cannot record one on its own. `--json` supported.
+Record a human decision. `reject --reason` says why: `wrong` (the finding is factually not a problem, a false positive), `not-worth` (true, but not worth doing) or `other`, the default. `reject` suppresses the finding for `--days` (default `suppression.default_reject_days`, 90). Decisions are appended to `.unknot/decisions.jsonl` and feed the [learning loop](learning.md). From a terminal they are attributed to you. From Claude Code they are accepted only inside a run started by you typing `/unknot:accept F-0001 ...` (or reject) with that finding id; an agent cannot record one on its own. `--json` supported.
 
 ### `unknot plan "<objective>" [--from DEC-xxxx | --findings F-1,F-2 | --proposal file.json] [--scope a,b]`
 
