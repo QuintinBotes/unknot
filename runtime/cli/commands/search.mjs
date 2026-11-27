@@ -32,7 +32,7 @@ export async function run({ positional, flags }) {
     : `"${text}": ${c.hits} occurrence(s) in ${r.files_searched} files searched (${Object.entries(c.by_kind).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})${graph ? '' : '; map first for modules and owners'}`,
   `Answered by: ${r.answered_by} (${r.answered_by_note})`];
   for (const k of r.constants ?? []) out.push(`  constant ${k.value}: ${k.subkind} (inferred: ${k.subkind_evidence}); ${k.definitions} definition(s), ${k.uses} use(s)`);
-  if (r.definitions.length) out.push('', 'Defined (a constant or key holding it):', ...r.definitions.map((h) => `${line(h)}\n      -> ${h.definition.kind === 'constant' ? `constant ${h.definition.name}` : 'key'}`));
+  if (r.definitions.length) out.push('', 'Defined (a type of that name, or a constant or key holding it):', ...r.definitions.map((h) => `${line(h)}\n      -> ${h.definition.kind === 'key' ? 'key' : `${h.definition.kind} ${h.definition.name}`}`));
   if (r.uses.length) out.push('', 'Used:', ...r.uses.map(line));
   if (r.via_constants.length) out.push('', 'Used through its constant:', ...r.via_constants.map((h) => `${line(h)}\n      -> via ${h.constant}`));
   if (!c.hits && !r.partial && r.searched !== false) out.push('', 'Not found in the files the map covers (generated and vendored files and credential files are excluded).');
