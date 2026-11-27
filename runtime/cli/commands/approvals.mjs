@@ -2,7 +2,7 @@
 // local signatures and, with `approvals.via: forge | both`, pull request reviews. When forge reviews
 // complete the change stage of a REVIEW_READY slice, the slice is accepted as `approve` would, and
 // the reviews that counted are recorded. Human only, like approve: an agent session that could
-// fake what gh returns must not turn it into an acceptance, and the person confirms (default no).
+// fake what gh returns must not turn it into an acceptance, and the person confirms by typing the slice id.
 
 import { approvalStatus, loadSlice } from '../../apply/apply.mjs';
 import { head } from '../../apply/git.mjs';
@@ -10,6 +10,7 @@ import { UnknotError } from '../../core/errors.mjs';
 import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 import { accept } from './approve.mjs';
+import { describeForge } from '../../policy/forge.mjs';
 
 export const USAGE = 'usage: unknot approvals <slice> [--stage plan|change|rollback]';
 
@@ -42,10 +43,9 @@ export async function run({ positional, flags }, { ask = prompt } = {}) {
     ] : []),
   ].join('\n'));
   if (!acceptable) return 0;
-  // The person confirms what they accept on: the pull request, its base and who counted as what.
-  const counted = f.reviews.filter((r) => r.counted).map((r) => `${r.login} (${r.roles.filter((x) => x !== 'any-approver').join(', ') || 'any-approver'})`);
-  const answer = ask(`Accept ${slice.id} on ${f.url} (base ${f.base}) as approved by ${counted.join(', ')}? [y/N] `).trim().toLowerCase();
-  if (answer !== 'y' && answer !== 'yes') {
+  // The person confirms what they accept on by typing the slice id, which a stray "y" cannot do.
+  const answer = ask(`Accept ${slice.id} on ${describeForge(f)}?\nType ${slice.id} to accept (anything else does not): `).trim();
+  if (answer !== slice.id) {
     output('Not accepted; nothing recorded.');
     return 0;
   }

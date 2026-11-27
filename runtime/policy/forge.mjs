@@ -189,28 +189,30 @@ function rolesOf(user, { roleMap, owners, member }) {
   return roles.length ? [...roles, ANY_APPROVER] : [];
 }
 
-const STATEMENT = (binding) => canonicalJSON({ binding, purpose: 'unknot-forge-binding-v1' });
+// The signed statement binds the change and the exact head commit `unknot pr` pushed for it.
+const STATEMENT = (binding, head) => canonicalJSON({ binding, head, purpose: 'unknot-forge-binding-v2' });
 
 /**
  * Post the binding comment on a slice's pull request (`unknot pr` with forge approvals): the
  * canonical binding signed with the project audit key. The ledger keeps the copy Unknot checks
  * against; the comment is for the reviewer and is never read back.
  */
-export function postBinding(ctx, { config, slice, url, binding, actor }) {
+export function postBinding(ctx, { config, slice, url, binding, head, actor }) {
+  if (!str(head, SHA)) fail(`bad head ${head}`);
   const pr = githubRepo(url);
   if (!inPinnedRepo(config, url)) fail(`${url} is not a pull request in ${requirePinnedRepo(config).slug} (approvals.forge.repository); no binding posted`);
-  const signature = signText(auditPrivateKey(ctx.projectId), STATEMENT(binding));
+  const signature = signText(auditPrivateKey(ctx.projectId), STATEMENT(binding, head));
   const body = [
     `**Unknot approval binding** for \`${slice.id}\`, stage \`${binding.stage}\`.`,
     '',
-    'An approving review by a reviewer with the required role, on the head commit whose diff hashes to `diff_hash`, approves exactly this change. A new push, a changed plan or policy, or expiry makes it stale. Unknot reads only each review\'s state, author and commit, never review or comment text.',
+    `An approving review by a reviewer with the required role, on head \`${head}\` (whose diff hashes to \`diff_hash\`), approves exactly this change. Any other head, including a force-push, a changed plan or policy, or expiry makes it stale. Unknot reads only each review's state, author and commit, never review or comment text.`,
     '',
     '```json',
-    JSON.stringify({ binding, signature }, null, 2),
+    JSON.stringify({ binding, head, signature }, null, 2),
     '```',
   ].join('\n');
   const comment = ghClient(config)(`repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`, { method: 'POST', fields: { body } });
-  appendEvent(ctx, { type: 'forge.binding_posted', slice_id: slice.id, campaign_id: slice.campaign_id, actor, payload: { url, comment_id: id(comment?.id) ? comment.id : null, binding, binding_hash: digest(binding), signature } });
+  appendEvent(ctx, { type: 'forge.binding_posted', slice_id: slice.id, campaign_id: slice.campaign_id, actor, payload: { url, comment_id: id(comment?.id) ? comment.id : null, binding, head, binding_hash: digest(binding), signature } });
 }
 
 function latestEvent(ctx, type, sliceId) {
@@ -244,7 +246,7 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
     const posted = latestEvent(ctx, 'forge.binding_posted', slice.id);
     if (!posted || posted.url !== opened.url) return { ...out, error: `no binding comment on ${opened.url}; run unknot pr ${slice.id}` };
     const binding = posted.binding;
-    if (binding?.slice_id !== slice.id || binding?.stage !== current.stage || !verifyText(auditPublicKeyPem(ctx.projectId), STATEMENT(binding), posted.signature)) {
+    if (binding?.slice_id !== slice.id || binding?.stage !== current.stage || !str(posted.head, SHA) || !verifyText(auditPublicKeyPem(ctx.projectId), STATEMENT(binding, posted.head), posted.signature)) {
       return { ...out, error: 'the posted binding does not verify against the project audit key' };
     }
     out.binding = binding;
@@ -265,6 +267,8 @@ export function forgeApprovals(ctx, { config, slice, current, local }) {
     out.base = baseRef;
     if (typeof baseRef !== 'string' || pull.baseRepo !== pin.slug || pull.baseRef !== baseRef) return { ...out, error: `the pull request base is ${pull.baseRepo}:${pull.baseRef}, not ${pin.slug}:${baseRef}; nothing counts` };
 
+    // The head must be the one `unknot pr` pushed and signed; any other push needs a new binding.
+    if (pull.head !== posted.head) return { ...out, error: `the pull request head ${pull.head.slice(0, 12)} is not the bound head ${posted.head.slice(0, 12)} that unknot pr pushed; run unknot pr ${slice.id} to bind the new head` };
     const diff = headDiff(ctx.root, slice.baseline_commit, pull.head, ['--binary', '--full-index']);
     if (diff.status !== 0) return { ...out, error: `head ${pull.head} is not in this repository; git fetch the ${slice.branch} branch and check again` };
     if (`sha256:${sha256(diff.stdout)}` !== binding.diff_hash) return { ...out, error: `the diff of head ${pull.head.slice(0, 12)} against the baseline does not hash to the bound ${binding.diff_hash}` };
@@ -332,6 +336,12 @@ export function recordForgeApprovals(ctx, slice, forge) {
       payload: { via: 'forge', approval_id: `RV-${review.id}`, review_id: review.id, reviewer: review.login, reviewer_id: review.uid, head: forge.head, pull_request: forge.url, stage: forge.binding.stage, roles: review.roles.filter((r) => r !== ANY_APPROVER), binding: forge.binding, binding_hash: forge.binding_hash },
     });
   }
+}
+
+/** What a person accepts on when forge reviews complete a stage: the pull request, its base and head, and who counted as what. */
+export function describeForge(forge) {
+  const counted = (forge?.reviews ?? []).filter((r) => r.counted).map((r) => `${r.login} (${r.roles.filter((x) => x !== ANY_APPROVER).join(', ') || ANY_APPROVER})`);
+  return counted.length ? `pull request ${forge.url} (base ${forge.base}, head ${forge.head}) approved by ${counted.join(', ')}` : null;
 }
 
 /**

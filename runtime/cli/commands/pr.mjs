@@ -95,7 +95,7 @@ export async function run({ positional, flags }) {
   appendEvent(ctx, { type: opened ? 'pr.updated' : 'pr.opened', slice_id: slice.id, actor: currentActor(), payload: { url, remote, branch: slice.branch, commit, bundle, stale: Boolean(stale) } });
   // Forge approvals: the change a review approves is the binding posted with it.
   const bound = forge && !stale && slice.state === 'REVIEW_READY';
-  if (bound) postBinding(ctx, { config: cfg.config, slice, url, binding: currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash }), actor: currentActor() });
+  if (bound) postBinding(ctx, { config: cfg.config, slice, url, head: commit, binding: currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash }), actor: currentActor() });
   output([
     `${opened ? 'Updated' : 'Opened draft'} pull request ${url} for ${slice.id} (${commit === pushed ? 'no new commit' : `pushed ${commit.slice(0, 12)} to ${remote}/${slice.branch}`}).`,
     ...(stale ? [`The body says the verification is stale: run unknot verify ${slice.id}, then unknot pr ${slice.id} again.`] : []),

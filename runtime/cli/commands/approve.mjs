@@ -13,6 +13,14 @@ import { transitionSlice } from '../../state/machine.mjs';
 import { output, prompt, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 
+/** With forge approvals, the reviews a change approval would accept on, shown before the passphrase. */
+async function forgeLines(ctx, cfg, slice) {
+  const { describeForge, forgeVia } = await import('../../policy/forge.mjs');
+  if (forgeVia(cfg.config) === 'local') return [];
+  const f = approvalStatus(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash }).forge;
+  return [`  Pull request reviews: ${describeForge(f) ?? `none count yet${f?.error ? ` (${f.error})` : ''}`}`];
+}
+
 /** Move a slice whose change approvals are complete to ACCEPTED (and commit in governed mode). */
 export async function accept(ctx, cfg, slice, status, approver) {
   // What is accepted must be what was reviewed: re-stage the worktree and compare the hash.
@@ -45,7 +53,7 @@ async function approveLane(flags) {
   if (!ready.length) throw new UnknotError('UK_NOT_FOUND', `no slice of lane ${lane.id} is REVIEW_READY`);
   output([
     `Approving the changes of ${ready.length} slice(s) in lane ${lane.id} (${lane.campaign_id}) as ${approver} / ${role}:`,
-    ...ready.map((s) => `  ${s.id}  ${s.body.objective}  diff ${s.diff_hash}`),
+    ...(await Promise.all(ready.map(async (s) => [`  ${s.id}  ${s.body.objective}  diff ${s.diff_hash}`, ...(await forgeLines(ctx, cfg, loadSlice(ctx, s.id)))].join('\n')))),
     `Review them first: unknot lane review ${lane.id}`,
     ...(invalid.length ? [`Note: the lane no longer covers new slices (${invalid.join('; ')}); approving these reviewed changes is still your call.`] : []),
   ].join('\n'));
@@ -86,6 +94,7 @@ export async function run({ positional, flags }) {
     stage === 'plan' ? `Baseline commit: ${commit}` : `Diff: ${slice.diff_hash} (review .unknot/runs/*/diff.patch and the proof bundle first)`,
     `Policy digest: ${cfg.digest}`,
     `Expires: ${binding.expires_at}`,
+    ...(stage === 'change' ? await forgeLines(ctx, cfg, slice) : []),
   ].join('\n'));
   if (prompt(`Type ${sliceId} to approve: `).trim() !== sliceId) throw new UnknotError('UK_POLICY_DENIED', 'confirmation did not match; nothing recorded');
   const key = loadApproverKey(approver, prompt(`Passphrase for ${approver}: `, { secret: true }));

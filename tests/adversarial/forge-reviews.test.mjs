@@ -33,7 +33,7 @@ const { approvalStatus, currentBinding, finishApply, loadSlice, startApply } = a
 const { verifySlice } = await import('../../runtime/verify/verify.mjs');
 const { startRun, endRun } = await import('../../runtime/state/runs.mjs');
 const { stringifyYAML } = await import('../../runtime/core/yaml.mjs');
-const { head: headOf } = await import('../../runtime/apply/git.mjs');
+const { git: gitRun, head: headOf } = await import('../../runtime/apply/git.mjs');
 const { resetClock, setClock } = await import('../../runtime/core/clock.mjs');
 const { alwaysOn } = await import('../../runtime/policy/pdp.mjs');
 const { forgeChecks, githubRepo, withForge } = await import('../../runtime/policy/forge.mjs');
@@ -207,6 +207,7 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   assert.equal(posted.binding.stage, 'change');
   assert.ok(posted.signature);
   const head = g(dir, ['rev-parse', `refs/unknot/pr/${sliceId}`]);
+  assert.equal(posted.head, head, 'the binding names the pushed head');
   const baseSha = '1111111111111111111111111111111111111111';
 
   const user = (login, uid = ID[login]) => ({ login, id: uid, type: 'User' });
@@ -306,16 +307,6 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   serve([review(96, 'bob-gh')], { pr: pull({ head: { ref: slice.branch, sha: [head] } }) });
   assert.match(check().forge.error, /malformed response/);
 
-  // The head moved after approval: the old head's review does not carry over, even to the same diff.
-  const moved = g(dir, ['commit-tree', `${head}^{tree}`, '-p', head, '-m', 'moved']);
-  serve([review(97, 'bob-gh')], { pr: pull({ head: { ...pull().head, sha: moved } }) });
-  assert.match(why(check(), 'bob-gh'), /not the head/);
-  // ...or between reading the pull request and its reviews.
-  serve([review(98, 'bob-gh')], { pr: { seq: [pull(), pull({ head: { ...pull().head, sha: moved } })] } });
-  st = check();
-  assert.match(st.forge.error, /head moved while its reviews were read/);
-  assert.deepEqual(st.forge.valid, []);
-  // A head whose diff is not the bound diff, approved on that head, does not count.
   const withIndex = (entries) => {
     const index = join(mkTmp(join(tmpdir(), 'uk-idx-')), 'index');
     const env = { ...process.env, GIT_INDEX_FILE: index };
@@ -324,25 +315,54 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
     return g(dir, ['commit-tree', execFileSync('git', ['write-tree'], { cwd: dir, env, encoding: 'utf8' }).trim(), '-p', head, '-m', 'extra']);
   };
   const evil = withIndex([`100644,${g(dir, ['hash-object', '-w', '--stdin'], 'export const evil = 1;\n')},src/evil.mjs`]);
+  // Exploit (round 3): the agent force-pushes a decoy, owners approve the decoy, and a local replace
+  // ref makes the decoy read as the bound commit. Unknot's git ignores replace refs, and the head pin
+  // refuses the decoy anyway.
+  g(dir, ['replace', evil, head]);
+  try {
+    assert.equal(gitRun(dir, ['rev-parse', `${evil}^{tree}`]).stdout.trim(), g(dir, ['--no-replace-objects', 'rev-parse', `${evil}^{tree}`]), 'Unknot\'s git reads the decoy\'s own tree, not the replacement');
+    assert.notEqual(g(dir, ['rev-parse', `${evil}^{tree}`]), g(dir, ['--no-replace-objects', 'rev-parse', `${evil}^{tree}`]), 'plain git does follow the replace ref');
+    serve([review(117, 'bob-gh', 'APPROVED', evil), review(118, 'erin-gh', 'APPROVED', evil)], { pr: pull({ head: { ...pull().head, sha: evil } }) });
+    st = check();
+    assert.deepEqual(st.forge.valid, []);
+    assert.equal(st.satisfied, false);
+  } finally {
+    g(dir, ['replace', '-d', evil]);
+  }
+  // Round 3: a force-push alone is refused by the head pin, even to a commit with the same diff and
+  // approved on that commit: the binding names the head unknot pr pushed.
+  const moved = g(dir, ['commit-tree', `${head}^{tree}`, '-p', head, '-m', 'moved']);
+  serve([review(97, 'bob-gh', 'APPROVED', moved)], { pr: pull({ head: { ...pull().head, sha: moved } }) });
+  st = check();
+  assert.match(st.forge.error, /is not the bound head .* that unknot pr pushed/);
+  assert.deepEqual(st.forge.valid, []);
+  // ...and the old head's review does not carry over either way.
+  serve([review(116, 'bob-gh')], { pr: pull({ head: { ...pull().head, sha: moved } }) });
+  assert.deepEqual(check().forge.valid, []);
+  // ...or between reading the pull request and its reviews.
+  serve([review(98, 'bob-gh')], { pr: { seq: [pull(), pull({ head: { ...pull().head, sha: moved } })] } });
+  st = check();
+  assert.match(st.forge.error, /head moved while its reviews were read/);
+  assert.deepEqual(st.forge.valid, []);
+  // A head whose diff is not the bound diff, approved on that head, does not count.
   serve([review(99, 'bob-gh', 'APPROVED', evil)], { pr: pull({ head: { ...pull().head, sha: evil } }) });
   st = check();
-  assert.match(st.forge.error, /does not hash to the bound/);
+  assert.match(st.forge.error, /not the bound head/);
   assert.deepEqual(st.forge.valid, []);
-  // Exploit (note 1): a submodule pointer added on the head, hidden by the repository's
-  // diff.ignoreSubmodules, still changes the hash.
+  // Note 1 (defence in depth behind the head pin): a submodule pointer added on a head stays visible
+  // to the hash even with the repository's diff.ignoreSubmodules.
   const sub = withIndex([`160000,${'c'.repeat(40)},vendor/lib`]);
   g(dir, ['config', 'diff.ignoreSubmodules', 'all']);
   try {
+    assert.match(gitRun(dir, ['-c', 'diff.ignoreSubmodules=none', 'diff', '--ignore-submodules=none', '--name-only', head, sub]).stdout, /vendor\/lib/);
     serve([review(111, 'bob-gh', 'APPROVED', sub)], { pr: pull({ head: { ...pull().head, sha: sub } }) });
-    st = check();
-    assert.match(st.forge.error ?? '', /does not hash to the bound/);
-    assert.deepEqual(st.forge.valid, []);
+    assert.deepEqual(check().forge.valid, []);
   } finally {
     g(dir, ['config', '--unset', 'diff.ignoreSubmodules']);
   }
   // A head that is not in the local repository cannot be checked, so nothing counts.
   serve([review(100, 'bob-gh', 'APPROVED', 'ab'.repeat(20))], { pr: pull({ head: { ...pull().head, sha: 'ab'.repeat(20) } }) });
-  assert.match(check().forge.error, /not in this repository/);
+  assert.match(check().forge.error, /not the bound head/);
   // A pull request from another branch or a fork is not the slice's.
   serve([review(101, 'bob-gh')], { pr: pull({ head: { ...pull().head, repo: { full_name: 'mallory/demo' } } }) });
   assert.match(check().forge.error, /not unknot\//);
@@ -444,13 +464,14 @@ test('forge approvals count only a role holder\'s review of the bound head', { t
   // The person's approvals command asks before accepting; the default is no.
   serve(good);
   let asked = '';
-  out = await cli(approvalsCmd, dir, [sliceId], { ask: (q) => { asked = q; return ''; } });
-  assert.match(asked, new RegExp(`Accept ${sliceId} on https://github.com/acme/demo/pull/7 \\(base main\\) as approved by bob-gh \\(code-owner\\), erin-gh \\(affected-owner\\)\\? \\[y/N\\]`));
+  out = await cli(approvalsCmd, dir, [sliceId], { ask: (q) => { asked = q; return 'y'; } });
+  // A bare "y" (what an agent-driven pty would send) is not the slice id: nothing happens.
+  assert.match(asked, new RegExp(`Accept ${sliceId} on pull request https://github.com/acme/demo/pull/7 \\(base main, head ${head}\\) approved by bob-gh \\(code-owner\\), erin-gh \\(affected-owner\\)\\?\nType ${sliceId} to accept`));
   assert.match(out, /Not accepted; nothing recorded/);
   assert.equal(loadSlice(ctx, sliceId).state, 'REVIEW_READY');
   assert.deepEqual(forgeEvents(), []);
-  // Confirmed: accepted, and only then are the reviews recorded.
-  out = await cli(approvalsCmd, dir, [sliceId]);
+  // Confirmed by typing the slice id: accepted, and only then are the reviews recorded.
+  out = await cli(approvalsCmd, dir, [sliceId], { ask: () => sliceId });
   assert.match(out, /change approval: satisfied/);
   assert.match(out, /ACCEPTED/);
   assert.equal(loadSlice(ctx, sliceId).state, 'ACCEPTED');
