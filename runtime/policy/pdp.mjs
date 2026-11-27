@@ -95,7 +95,7 @@ export function toOperation(toolName, input = {}, cwd) {
  * runtime's own state, configuration, decisions and keys are never model-writable.
  */
 // `pr` is a common word, so it counts only as the subcommand (after any leading flags).
-const HUMAN_ONLY_TEXT = /\bunknot\b[^\n;|&]*\b(approve|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b|\bunknot(?:\s+-\S+)*\s+pr\b/;
+const HUMAN_ONLY_TEXT = /\bunknot\b[^\n;|&]*\b(approve|approvals|keys|config\s+accept|run\s+end|policy\s+sign|shred|unlock|lane\s+(?:approve|revoke))\b|\bunknot(?:\s+-\S+)*\s+pr\b/;
 // Commands whose arguments and input are data: words in them name nothing that runs. Anything
 // else (a shell, eval, xargs, an interpreter, a package runner) may run text as code.
 const DATA_ONLY = new Set(['cat', 'echo', 'printf', 'tee', 'gh', 'git', 'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut', 'tr', 'ls', 'mkdir', 'touch', 'cp', 'mv', 'diff', 'jq', 'true', 'cd', 'pwd', 'test', '[']);

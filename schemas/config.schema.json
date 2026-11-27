@@ -443,15 +443,26 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "gh": {
+              "description": "Absolute path of the gh binary forge approvals run. Unset: the first of /opt/homebrew/bin/gh, /usr/local/bin/gh, /usr/bin/gh, /home/linuxbrew/.linuxbrew/bin/gh, /snap/bin/gh. PATH is never searched.",
+              "type": "string",
+              "pattern": "^/"
+            },
+            "agent_accounts": {
+              "description": "Numeric GitHub user ids that agents act as ([] for none). Required for any review to count. A review by one of them counts only with the local signature of the approver whose github_id it is.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "integer", "minimum": 1 }
+            },
             "roles": {
-              "description": "Which reviewers hold each role: listed GitHub users, members of org/team slugs, or (codeowners: true) code owners of every changed path under the baseline's CODEOWNERS.",
+              "description": "Which reviewers hold each role: listed GitHub user ids, members of org/team slugs, or (codeowners: true) code owners of every changed path under the baseline's CODEOWNERS.",
               "type": "object",
               "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
               "additionalProperties": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "users": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$" } },
+                  "users": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
                   "teams": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" } },
                   "codeowners": { "type": "boolean" }
                 }
@@ -493,10 +504,10 @@
               "type": "string"
             }
           },
-          "github": {
-            "description": "This approver's GitHub login. A review from the account the agent acts as counts only with a local signature by the approver linked to that login.",
-            "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
+          "github_id": {
+            "description": "This approver's numeric GitHub user id. A review by an agent account (approvals.forge.agent_accounts) counts only with a local signature by the approver linked to that id.",
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [

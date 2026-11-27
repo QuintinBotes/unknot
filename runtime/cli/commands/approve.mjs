@@ -21,6 +21,8 @@ export async function accept(ctx, cfg, slice, status, approver) {
   if (now !== slice.diff_hash) throw new UnknotError('UK_STATE_CONFLICT', `${slice.id}: the worktree changed since it was verified (${now} is not the approved ${slice.diff_hash}); nothing accepted. Run /unknot:apply ${slice.id} to re-verify`, { slice_id: slice.id });
   // A list narrowed after the patch was made still holds: this is the one way to ACCEPTED (#149).
   await assertPatchKinds(ctx, { config: cfg.config, slice });
+  // Reviews that counted are recorded when a person accepts on them, never by a status read.
+  if (status.forge) (await import('../../policy/forge.mjs')).recordForgeApprovals(ctx, slice, status.forge);
   transitionSlice(ctx, { slice, to: 'ACCEPTED', actor: `human:${approver}`, reason: 'change approved', guards: [() => ({ ok: status.satisfied, id: 'approval.change' })] });
   if (modeRank(cfg.config.mode) >= modeRank('governed')) {
     const { git } = await import('../../apply/git.mjs');

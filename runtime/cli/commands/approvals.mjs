@@ -1,18 +1,20 @@
 // `unknot approvals <slice> [--stage plan|change|rollback]` (#152): where a slice's approvals stand,
 // local signatures and, with `approvals.via: forge | both`, pull request reviews. When forge reviews
-// complete the change stage of a REVIEW_READY slice, the slice is accepted as `approve` would.
-// The authority is the reviews; this command only reads them and records what counted.
+// complete the change stage of a REVIEW_READY slice, the slice is accepted as `approve` would, and
+// the reviews that counted are recorded. Human only, like approve: an agent session that could
+// fake what gh returns must not turn it into an acceptance.
 
 import { approvalStatus, loadSlice } from '../../apply/apply.mjs';
 import { head } from '../../apply/git.mjs';
 import { UnknotError } from '../../core/errors.mjs';
-import { output } from '../util.mjs';
+import { output, requireHumanTTY } from '../util.mjs';
 import { open } from './_shared.mjs';
 import { accept } from './approve.mjs';
 
 export const USAGE = 'usage: unknot approvals <slice> [--stage plan|change|rollback]';
 
 export async function run({ positional, flags }) {
+  requireHumanTTY('accepting a slice on pull request reviews');
   const sliceId = positional[0];
   if (!sliceId) throw new UnknotError('UK_CONFIG_INVALID', USAGE);
   const { ctx, cfg } = open(flags);
@@ -32,7 +34,7 @@ export async function run({ positional, flags }) {
   output([
     `${slice.id} ${stage} approval: ${status.satisfied ? 'satisfied' : 'pending'}`,
     `  needed: roles ${status.needed.roles.join(', ') || '—'}; approvers ${status.approvers}/${status.needed.min_approvers}${status.missing_roles.length ? `; missing ${status.missing_roles.join(', ')}` : ''}`,
-    ...status.valid.map((v) => `  counts: ${v.id} ${v.approver} (${v.role})`),
+    ...status.valid.map((v) => `  counts: ${v.id} ${v.login ?? v.approver} (${v.role})`),
     ...status.stale.map((s) => `  stale: ${s.id} ${s.approver} (${s.reasons.join(', ')})`),
     ...(f ? [
       `  pull request: ${f.url ?? 'none'}${f.head ? `, head ${f.head.slice(0, 12)}` : ''}`,

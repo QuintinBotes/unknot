@@ -1,4 +1,5 @@
-// A fake `gh` for forge tests, never the real API. `installFakeGh(dir)` puts a `gh` on PATH that
+// A fake `gh` for forge tests, never the real API. `installFakeGh(dir)` writes a `gh` (tests point the
+// accepted `approvals.forge.gh` at `.bin`; it is also put on PATH for `gh pr create`) that
 // answers `gh api` from a routes file (`"<METHOD> <path>": response`; `{ seq: [a, b] }` answers a,
 // then b) and logs every argv. A call without `--hostname github.com` is refused, so a request that
 // could carry credentials anywhere else fails the test.
@@ -45,6 +46,7 @@ export function installFakeGh(dir, { prUrl = 'https://github.com/acme/demo/pull/
   process.env.FAKE_GH_PR_URL = prUrl;
   process.env.PATH = `${dir}:${process.env.PATH}`;
   return {
+    bin: join(dir, 'gh'),
     routes(map) {
       writeFileSync(join(dir, 'routes.json'), JSON.stringify(map));
       writeFileSync(join(dir, 'seq.json'), '{}');

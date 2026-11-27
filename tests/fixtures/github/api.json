@@ -55,5 +55,6 @@
   },
   "permission": { "permission": "write", "role_name": "write", "user": { "login": "alice-gh", "id": 5011, "type": "User" } },
   "membership": { "url": "https://api.github.com/teams/42/memberships/erin-gh", "role": "member", "state": "active" },
-  "comment": { "id": 9100, "user": { "login": "alice-gh", "id": 5011, "type": "User" }, "body": "(the binding comment)" }
+  "comment": { "id": 9100, "user": { "login": "alice-gh", "id": 5011, "type": "User" }, "body": "(the binding comment)" },
+  "contents": { "type": "file", "encoding": "base64", "size": 0, "name": "CODEOWNERS", "path": ".github/CODEOWNERS", "sha": "3d21ec53a331a6f037a91c368710b99387d012c1", "content": "" }
 }
