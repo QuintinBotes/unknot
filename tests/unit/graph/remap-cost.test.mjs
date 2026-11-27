@@ -1,6 +1,7 @@
 // A re-map costs in proportion to the change, and the store does not grow with each one (#88).
 // Assertions are on work done (calls, files scanned, rows and blobs kept), never on time.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { after, test } from 'node:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,6 +47,23 @@ test('a re-map of an unchanged tree does no linking, discovery or projection wor
   const changed = await map(p, { adapters: [spy] });
   assert.equal(changed.unchanged, undefined);
   assert.deepEqual(seen, { link: 2, discover: 2 });
+});
+
+test('a reused map reports this run\'s counts and says so in text (#182)', async () => {
+  const p = K.makeProject({ files });
+  const first = await map(p);
+  assert.ok(Object.values(first.adapters).some((a) => a.extracted > 0) && first.discover_files, 'the first map did the work');
+  const again = await map(p);
+  assert.equal(again.unchanged, true);
+  for (const [id, a] of Object.entries(again.adapters)) assert.deepEqual([a.extracted, a.cached], [0, a.files], id);
+  for (const [id, l] of Object.entries(again.link ?? {})) assert.equal(l.relinked, 0, id);
+  assert.equal(again.discover_files, undefined);
+  assert.match(again.generated_at, /^\d{4}-\d\d-\d\dT/);
+  // The CLI maps with the project's own config: its second map is the reused one.
+  const cli = () => spawnSync(process.execPath, [join(K.REPO_ROOT, 'bin', 'unknot'), 'map', '--cwd', p.dir], { encoding: 'utf8', env: { ...process.env, UNKNOT_HOME: p.home } }).stdout.split('\n')[0];
+  assert.ok(cli().startsWith('Mapped '));
+  const line = cli();
+  assert.ok(/^Unchanged since the last map: reused generation \d+ from \d{4}-\d\d-\d\dT[^ ]+ \(/.test(line), line);
 });
 
 test('a one-file edit rescans one file for constant uses, and the result equals a cold map', async () => {
