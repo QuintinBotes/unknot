@@ -8,7 +8,7 @@ import { nodeFact, prov } from '../../runtime/graph/facts.mjs';
 import { findSecrets, redact } from '../../runtime/core/redact.mjs';
 
 export const ID = 'security';
-export const VERSION = '0.1.3';
+export const VERSION = '0.1.4';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_BYTES = 1024 * 1024;
 const MAX_SECRETS_PER_FILE = 200;

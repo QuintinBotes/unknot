@@ -22,7 +22,9 @@ const RULES = [
 ];
 
 const CREDENTIAL = 'password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|token|private[_-]?key';
-const VALUE = '\\s*["\']?([^\\s"\'`,;)}\\]]{8,})';
+// The value sits on the key's own line: `[ \t]*`, not `\s*`, so a YAML key that opens a
+// nested mapping (`launchdarkly-token:` then `description: ...`) is no assignment (#159).
+const VALUE = '[ \\t]*["\']?([^\\s"\'`,;)}\\]]{8,})';
 const ASSIGNMENT = new RegExp(`\\b(${CREDENTIAL})\\b["']?\\s*[:=]${VALUE}`, 'gi');
 // For findings the separator is `=` or `:`, never the start of `==`, `=>` or `::`
 // (`$r == Password::RESET_LINK_SENT`); redaction keeps the broader form.
