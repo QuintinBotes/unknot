@@ -33,6 +33,8 @@ jobs:
           test "$TAG" = "v$version" || { echo "tag $TAG does not match package.json version $version"; exit 1; }
       - name: Test
         run: npm test
+      - name: Restore drill (back up, wipe, restore against an audit checkpoint, verify)
+        run: node scripts/restore-drill.mjs
       - name: Build release
         run: node scripts/build-release.mjs --out dist
       - name: Verify release

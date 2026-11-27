@@ -36,7 +36,7 @@ export const COMMANDS = {
   keys: 'Manage approver keys (human, interactive): generate <name>',
   config: 'Show or accept configuration (show|diff|accept [--detected-only])',
   run: 'Run lifecycle (start <command>|end [id]|show)',
-  audit: 'Ledger integrity and export (verify|export)',
+  audit: 'Ledger integrity, checkpoints and export (verify|checkpoint|export)',
   policy: 'Organization policy bundles (keygen|sign|trust|verify|effective) and recent refusals (denials)',
   backup: 'Encrypted backup of Unknot state (create|verify|restore --to)',
   daemon: 'Start the local API daemon',

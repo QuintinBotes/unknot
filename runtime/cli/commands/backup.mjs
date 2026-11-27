@@ -3,11 +3,12 @@
 // from the environment or argv, both of which other processes can read.
 
 import { UnknotError } from '../../core/errors.mjs';
+import { readCheckpoint } from '../../state/ledger.mjs';
 import { createBackup, readPassphraseFile, restoreBackup, verifyBackup } from '../../enterprise/backup.mjs';
 import { output, prompt } from '../util.mjs';
 import { open } from './_shared.mjs';
 
-const USAGE = 'usage: unknot backup create <file> [--passphrase-file f] | verify <file> [--passphrase-file f] | restore <file> --to <empty-dir> [--passphrase-file f]';
+const USAGE = 'usage: unknot backup create <file> [--passphrase-file f] | verify <file> [--anchor checkpoint.json] [--passphrase-file f] | restore <file> --to <empty-dir> [--anchor checkpoint.json] [--passphrase-file f]';
 
 function passphrase(flags, { confirm = false } = {}) {
   if (typeof flags.passphrase_file === 'string') return readPassphraseFile(flags.passphrase_file);
@@ -28,13 +29,16 @@ export async function run({ positional, flags }) {
     const r = createBackup(ctx, file, passphrase(flags, { confirm: true }));
     return output(flags.json ? r : `Backup written to ${r.file}: ${r.files} files, ${r.bytes} bytes, ledger ${r.ledger.count} events.\nThe project key directory is NOT in the backup; escrow it separately (see docs/operations.md).`, { json: flags.json });
   }
+  // Present means required: an empty or bare --anchor is refused, never read as "no anchor".
+  const anchor = flags.anchor === undefined ? null : readCheckpoint(flags.anchor);
+  const checked = (l) => (l.checked_against === 'anchor' ? 'checked against the anchor' : 'checked only against the backup\'s own manifest; pass --anchor to check it against an independent checkpoint');
   if (sub === 'verify') {
-    const r = verifyBackup(file, passphrase(flags));
-    output(flags.json ? r : r.ok ? `Backup verifies: ${r.files} files, ledger ${r.ledger.count} events (head ${r.ledger.head}).` : `BACKUP INVALID: ${r.reason}`, { json: flags.json });
+    const r = verifyBackup(file, passphrase(flags), { anchor });
+    output(flags.json ? r : r.ok ? `Backup verifies: ${r.files} files, ledger ${r.ledger.count} events (head ${r.ledger.head}), ${checked(r.ledger)}.` : `BACKUP INVALID: ${r.reason}`, { json: flags.json });
     return r.ok ? 0 : 4;
   }
   if (typeof flags.to !== 'string') throw new UnknotError('UK_CONFIG_INVALID', USAGE);
-  const r = restoreBackup(file, passphrase(flags), flags.to);
+  const r = restoreBackup(file, passphrase(flags), flags.to, { anchor });
   const warn = r.keys_present ? '' : `\nWARNING: no keys for ${r.project_id} on this machine (${r.key_dir}). The restored artifact cache is unreadable until the project key directory is restored there.`;
-  return output(flags.json ? r : `Restored ${r.files} files into ${r.root}/.unknot; ledger verifies (${r.ledger.count} events).${warn}`, { json: flags.json });
+  return output(flags.json ? r : `Restored ${r.files} files into ${r.root}/.unknot; ledger verifies (${r.ledger.count} events), ${checked(r.ledger)}.${warn}`, { json: flags.json });
 }

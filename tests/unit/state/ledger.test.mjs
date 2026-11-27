@@ -1,6 +1,8 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as K from '../../helpers/kernel.mjs';
 
 const { appendEvent, verifyLedger, readEvents, GENESIS } = K.ledger;
@@ -258,5 +260,131 @@ describe('ledger atomicity', () => {
     assert.equal(p.ctx.store.get('SELECT COUNT(*) AS n FROM events').n, 0);
     appendEvent(p.ctx, { type: 'a.b', actor: 'human:t' });
     assert.equal(verifyLedger(p.ctx.store).ok, true);
+  });
+});
+
+describe('independent anchor (audit checkpoint)', () => {
+  const { ledgerCheckpoint, readCheckpoint, verifyAgainstAnchor } = K.ledger;
+  const anchored = (n = 6) => {
+    const { p, pub } = seeded(n);
+    return { p, pub, anchor: ledgerCheckpoint(p.ctx.store, pub) };
+  };
+  // An attacker who controls the store and holds a signing key: rewrite the payload of
+  // `fromSeq` and rebuild every later hash and signature, so the forged chain verifies alone.
+  function forge(store, privateKey, fromSeq) {
+    dropTriggers(store);
+    let prev = GENESIS;
+    for (const row of store.all('SELECT * FROM events ORDER BY seq')) {
+      if (row.seq < fromSeq) {
+        prev = row.hash;
+        continue;
+      }
+      const body = {
+        schema_version: row.schema_version, id: row.id, type: row.type, run_id: row.run_id, campaign_id: row.campaign_id,
+        slice_id: row.slice_id, actor: row.actor, capability_id: row.capability_id,
+        scope: row.scope && JSON.parse(row.scope), budget: row.budget && JSON.parse(row.budget),
+        policy_decision: row.policy_decision && JSON.parse(row.policy_decision),
+        payload: row.seq === fromSeq ? { forged: true } : JSON.parse(row.payload), at: row.at, prev_hash: prev,
+      };
+      const hash = K.canonical.digest(body);
+      store.run('UPDATE events SET payload = ?, prev_hash = ?, hash = ?, signature = ? WHERE seq = ?', K.canonical.canonicalJSON(body.payload), prev, hash, K.keys.signText(privateKey, hash), row.seq);
+      prev = hash;
+    }
+  }
+  const truncate = (store) => {
+    dropTriggers(store);
+    store.run('DELETE FROM events WHERE seq = (SELECT MAX(seq) FROM events)');
+  };
+  const swapKey = (store) => {
+    const attacker = generateKeyPairSync('ed25519').privateKey;
+    forge(store, attacker, 1);
+    store.meta('audit_public_key', K.keys.publicKeyOf(attacker));
+  };
+
+  test('a checkpoint verifies, and still does after the ledger grows', () => {
+    const { p, anchor } = anchored();
+    assert.equal(anchor.count, 6);
+    assert.equal(verifyAgainstAnchor(p.ctx.store, anchor).ok, true);
+    appendEvent(p.ctx, { type: 'test.later', actor: 'human:t' });
+    const r = verifyAgainstAnchor(p.ctx.store, anchor);
+    assert.equal(r.ok, true);
+    assert.equal(r.count, 7);
+    assert.deepEqual(r.anchored, { count: 6, head: anchor.head });
+  });
+
+  test('truncating the last event fails as truncated', () => {
+    const { p, anchor } = anchored();
+    truncate(p.ctx.store);
+    assert.equal(verifyLedger(p.ctx.store, anchor.audit_public_key).ok, true, 'the shortened chain is valid on its own');
+    assert.equal(verifyAgainstAnchor(p.ctx.store, anchor).reason, 'truncated');
+  });
+
+  test('rewriting one event fails as rewritten, even when the attacker holds the audit key', () => {
+    const plain = anchored();
+    dropTriggers(plain.p.ctx.store);
+    plain.p.ctx.store.run('UPDATE events SET payload = ? WHERE seq = 3', '{"i":999}');
+    assert.equal(verifyAgainstAnchor(plain.p.ctx.store, plain.anchor).reason, 'rewritten');
+
+    const { p, pub, anchor } = anchored();
+    forge(p.ctx.store, K.keys.auditPrivateKey(p.ctx.projectId), 3);
+    assert.equal(verifyLedger(p.ctx.store, pub).ok, true, 'with the real key the forged chain verifies against itself');
+    const r = verifyAgainstAnchor(p.ctx.store, anchor);
+    assert.equal(r.reason, 'rewritten');
+    assert.match(r.detail, /event 6 is not the anchored head/);
+  });
+
+  test('swapping the audit key fails as key', () => {
+    const { p, anchor } = anchored();
+    swapKey(p.ctx.store);
+    assert.equal(verifyLedger(p.ctx.store, p.ctx.store.meta('audit_public_key')).ok, true, 'self-consistent under the swapped key');
+    assert.equal(verifyAgainstAnchor(p.ctx.store, anchor).reason, 'key');
+  });
+
+  test('truncation, a rewrite and a key swap give three distinct reasons', () => {
+    const t = anchored();
+    truncate(t.p.ctx.store);
+    const w = anchored();
+    forge(w.p.ctx.store, K.keys.auditPrivateKey(w.p.ctx.projectId), 2);
+    const k = anchored();
+    swapKey(k.p.ctx.store);
+    const reasons = [t, w, k].map((x) => verifyAgainstAnchor(x.p.ctx.store, x.anchor).reason);
+    assert.deepEqual(reasons, ['truncated', 'rewritten', 'key']);
+  });
+
+  test('an attacker who controls the store cannot make it pass the operator\'s anchor', () => {
+    // The attacker rewrites history with the real audit key, then mints a fresh checkpoint
+    // from the forged store. That checkpoint passes, but it is not the one the operator kept.
+    const { p, anchor } = anchored();
+    forge(p.ctx.store, K.keys.auditPrivateKey(p.ctx.projectId), 1);
+    const forgedAnchor = ledgerCheckpoint(p.ctx.store, anchor.audit_public_key);
+    assert.equal(verifyAgainstAnchor(p.ctx.store, forgedAnchor).ok, true);
+    assert.notEqual(forgedAnchor.head, anchor.head, 'no rewrite reproduces the anchored head');
+    assert.equal(verifyAgainstAnchor(p.ctx.store, anchor).ok, false);
+    // Appending more events on top of the forgery does not help either.
+    appendEvent(p.ctx, { type: 'test.cover', actor: 'human:t' });
+    assert.equal(verifyAgainstAnchor(p.ctx.store, anchor).reason, 'rewritten');
+  });
+
+  test('a tampered anchor fails too', () => {
+    const { p, anchor } = anchored();
+    assert.equal(verifyAgainstAnchor(p.ctx.store, { ...anchor, head: 'sha256:00' }).reason, 'rewritten');
+    assert.equal(verifyAgainstAnchor(p.ctx.store, { ...anchor, count: 7 }).reason, 'truncated');
+    assert.equal(verifyAgainstAnchor(p.ctx.store, { ...anchor, count: 5 }).reason, 'rewritten', 'the head is bound to its position');
+    const other = K.makeProject();
+    assert.equal(verifyAgainstAnchor(p.ctx.store, { ...anchor, audit_public_key: other.ctx.store.meta('audit_public_key') }).reason, 'key');
+  });
+
+  test('anchor files are validated before use', () => {
+    const { p, pub } = seeded(2);
+    const file = join(p.dir, 'anchor.json');
+    writeFileSync(file, JSON.stringify(ledgerCheckpoint(p.ctx.store, pub)));
+    assert.equal(readCheckpoint(file).count, 2);
+    for (const bad of ['not json', '{}', JSON.stringify({ format: 'unknot-audit-checkpoint', version: 1, count: -1, head: 'x', audit_public_key: 'k' })]) {
+      writeFileSync(file, bad);
+      assert.throws(() => readCheckpoint(file), (e) => e.code === 'UK_CONFIG_INVALID');
+    }
+    assert.throws(() => readCheckpoint(join(p.dir, 'missing.json')), (e) => e.code === 'UK_NOT_FOUND');
+    for (const empty of ['', true, undefined]) assert.throws(() => readCheckpoint(empty), (e) => e.code === 'UK_CONFIG_INVALID', String(empty));
+    assert.throws(() => ledgerCheckpoint(p.ctx.store, null), (e) => e.code === 'UK_INTEGRITY');
   });
 });

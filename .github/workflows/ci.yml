@@ -49,6 +49,8 @@ jobs:
         run: npm test
       - name: Benchmark smoke
         run: node scripts/bench.mjs --quick
+      - name: Restore drill (also a release gate)
+        run: node scripts/restore-drill.mjs
 
   validate-plugin:
     name: validate plugin manifest
