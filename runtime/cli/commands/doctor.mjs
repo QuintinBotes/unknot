@@ -92,6 +92,7 @@ export async function run({ flags }) {
       const { loaded, unavailable } = await loadAdapters(cfg.config);
       add('adapters', true, `${loaded.map((a) => `${a.id}@${a.version}`).join(', ')}`, 'info');
       for (const u of unavailable) add(`adapter ${u.id}`, false, u.reason, 'warn');
+      checks.push(...(await import('../../policy/forge.mjs')).forgeChecks(root, cfg.config));
       if (cfg.config.adapters?.scip?.enabled !== false) checks.push(...scipChecks(root, cfg.config.adapters?.scip ?? {}));
       const errLog = join(ctx.paths.state, 'hook-errors.log');
       if (existsSync(errLog)) add('hook errors', false, `see ${errLog}`, 'warn');

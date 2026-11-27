@@ -1,15 +1,17 @@
 // `unknot pr <slice>` (#151): push the slice's verified change and open a draft pull request
 // whose body is rendered from the proof bundle. Human only, like approve. Unknot never merges,
-// marks ready, approves or force-pushes: gh is only called with `pr create --draft` or `pr edit`.
+// marks ready, approves or force-pushes: gh is only called with `pr create --draft` or `pr edit`,
+// and with forge approvals (#152) to post the binding comment.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadSlice } from '../../apply/apply.mjs';
+import { currentBinding, loadSlice } from '../../apply/apply.mjs';
 import { git } from '../../apply/git.mjs';
 import { stagePatch } from '../../apply/worktree.mjs';
 import { which } from '../../broker/broker.mjs';
 import { UnknotError } from '../../core/errors.mjs';
+import { forgeVia, postBinding } from '../../policy/forge.mjs';
 import { appendEvent } from '../../state/ledger.mjs';
 import { renderPullRequestBody } from '../../verify/bundle.mjs';
 import { currentActor, output, requireHumanTTY } from '../util.mjs';
@@ -27,7 +29,7 @@ export async function run({ positional, flags }) {
   requireHumanTTY('opening a pull request');
   const sliceId = positional[0];
   if (!sliceId) throw new UnknotError('UK_CONFIG_INVALID', USAGE);
-  const { ctx } = open(flags);
+  const { ctx, cfg } = open(flags);
   const slice = loadSlice(ctx, sliceId);
   const ref = `refs/unknot/pr/${slice.id}`;
   const pushed = git(ctx.root, ['rev-parse', '--verify', '--quiet', ref], { check: false }).stdout.trim() || null;
@@ -80,9 +82,13 @@ export async function run({ positional, flags }) {
   if (r.status !== 0) throw new UnknotError('UK_TOOL_FAILED', `gh ${args.slice(0, 3).join(' ')} failed: ${(r.stderr || r.error?.message || '').trim().split('\n').slice(-3).join(' ')}. The body is in ${bundle}/pr.md`, { slice_id: slice.id });
   const url = opened ? JSON.parse(opened.payload).url : r.stdout.trim().split('\n').pop();
   appendEvent(ctx, { type: opened ? 'pr.updated' : 'pr.opened', slice_id: slice.id, actor: currentActor(), payload: { url, remote, branch: slice.branch, commit, bundle, stale: Boolean(stale) } });
+  // Forge approvals: the change a review approves is the binding posted with it.
+  const bound = forgeVia(cfg.config) !== 'local' && !stale && slice.state === 'REVIEW_READY';
+  if (bound) postBinding(ctx, { slice, url, binding: currentBinding(ctx, slice, 'change', { cfg, commit: slice.baseline_commit, diffHash: slice.diff_hash }), actor: currentActor() });
   output([
     `${opened ? 'Updated' : 'Opened draft'} pull request ${url} for ${slice.id} (${commit === pushed ? 'no new commit' : `pushed ${commit.slice(0, 12)} to ${remote}/${slice.branch}`}).`,
     ...(stale ? [`The body says the verification is stale: run unknot verify ${slice.id}, then unknot pr ${slice.id} again.`] : []),
+    ...(bound ? [`Posted the approval binding; an approving review on this head by a reviewer with the role counts (unknot approvals ${slice.id}).`] : []),
     'Unknot does not merge or mark it ready; that is the reviewers\' call.',
   ].join('\n'));
   return 0;

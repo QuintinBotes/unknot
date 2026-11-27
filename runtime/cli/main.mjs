@@ -32,6 +32,7 @@ export const COMMANDS = {
   graph: 'Query the graph (nodes|edges|node <id>|cycles|stats)',
   slice: 'Show a slice <id>',
   approve: 'Approve a slice (human, interactive) <slice> --role <role> --as <approver>',
+  approvals: 'Where a slice\'s approvals stand, local and pull request reviews <slice> [--stage]',
   pr: 'Push a verified slice and open a draft pull request (human, interactive) <slice>',
   attest: 'Attest a human-review obligation (human, interactive) <PO-id> --result pass|fail --note',
   keys: 'Manage approver keys (human, interactive): generate <name>',

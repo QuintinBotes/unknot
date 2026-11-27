@@ -1,6 +1,6 @@
 # Forge approvals and CI verification (design)
 
-Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phase 1 (control 1) is implemented, and so is the first half of phase 2: `unknot pr <slice>` opens a draft pull request per slice with the review summary from the proof bundle ([commands.md](commands.md#unknot-pr-slice-human)). GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
+Status: design for roadmap item 4 ([roadmap.md](roadmap.md#4-fit-with-the-governance-teams-already-use)); phases 1 and 2 (controls 1 to 4 and 6) are implemented: `unknot pr <slice>` opens a draft pull request per slice with the review summary from the proof bundle and posts the binding comment, and `unknot approvals <slice>` checks the reviews ([commands.md](commands.md#unknot-pr-slice-human)). GitHub and GitHub Actions come first; the design keeps a forge interface so GitLab, Bitbucket and Azure DevOps can follow.
 
 ## Goal
 
@@ -49,12 +49,23 @@ Campaign state and the ledger move to a git ref in the repository (`refs/unknot/
 ## Phases
 
 1. Human-only rule extended to forge reviews (control 1). Small; ships first on its own.
-2. Draft pull request per slice, binding comment, reading and checking reviews (controls 2 to 4), `approvals.via`, role mapping, doctor checks (control 6). GitHub only. The draft pull request with the review summary is done (`unknot pr`); the binding comment and reading reviews are next.
+2. Draft pull request per slice, binding comment, reading and checking reviews (controls 2 to 4), `approvals.via`, role mapping, doctor checks (control 6). GitHub only. Done; see "As built" below.
 3. Attested CI evidence (control 5).
 4. Shared state in the repository.
 5. A second forge behind the same interface, passing the same tests.
 
 Each phase gets an adversarial review before release.
+
+## As built (phase 2)
+
+- **Scope.** Forge reviews count toward the `change` stage only. Plan and rollback approvals stay local signatures in every mode; a lane still stands in for plan approvals.
+- **Config.** `approvals.via: local | forge | both` (default `local`; with `local` nothing reaches GitHub). Roles map under `approvals.forge.roles.<role>: { users: [...], teams: [org/team], codeowners: true }`, role-centred rather than under each approver, because a code-owner role is held by whoever CODEOWNERS names. `approvers.<name>.github: <login>` links a local approver to their account for control 2. Changing any of these is a config change: it needs acceptance and changes the policy digest, which makes posted bindings stale.
+- **Binding.** `unknot pr` posts the change binding and its audit-key signature as a comment and records `forge.binding_posted` in the ledger. Unknot checks reviews against its own signed ledger copy, verified against the audit key, and never reads the comment back, so no pull request text is ever input.
+- **What counts.** For each reviewer only the latest `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` review stands (by review id). It counts when it is `APPROVED`, its `commit_id` is the pull request head, the head is re-read after the reviews and has not moved, the pull request is open with head `<repo>:unknot/<slice>`, the head commit's diff against the baseline hashes to the bound `diff_hash`, the binding matches the current one field by field and has not expired, the reviewer is not the author, holds a mapped role, and, if they are the account `gh` acts as, the approver linked to that login has a valid local signature on the same binding. Code owners come from CODEOWNERS at the baseline commit (`.github/`, root, `docs/`, last match wins), so a pull request cannot make its author an owner. A review that fails any type check is reported as malformed and ignored; any API error counts nothing.
+- **People.** With `via: forge` only reviews count. With `both`, roles may be covered by either, and `critical_min_approvers` counts people within one channel (local approvers, or reviewers), never adding the two, since a local approver and a reviewer may be the same person.
+- **Transport.** Every call is `gh api --hostname github.com`, so gh's credentials go to api.github.com whatever `GH_HOST` or the remote say; a remote or pull request URL that is not `github.com` is refused. The head must be in the local repository (`unknot pr` keeps it under `refs/unknot/pr/<slice>`); a head pushed by someone else is checked after a `git fetch`.
+- **Acceptance.** `unknot approvals <slice>` records each counted review as `approval.recorded` with `via: forge`, the review id, reviewer, head and binding, and moves a `REVIEW_READY` slice whose change stage the reviews complete to `ACCEPTED`.
+- **Doctor.** Missing review or code-owner protection on the default branch is a failure, not a warning (the issue asks to fail); an agent account that can push without review is a warning.
 
 ## Decisions
 

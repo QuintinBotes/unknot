@@ -98,6 +98,15 @@ export function conventionChanges(bound, current) {
 
 const BOUND_FIELDS = ['commit', 'slice_id', 'slice_version', 'slice_digest', 'diff_hash', 'plan_hash', 'state_serial', 'policy_digest', 'environment', 'stage'];
 
+/** Why a bound approval no longer matches the current binding; empty when it still does. */
+export function bindingStaleReasons(binding, current) {
+  const reasons = [];
+  for (const f of BOUND_FIELDS) if ((binding[f] ?? null) !== (current[f] ?? null)) reasons.push(`${f} changed`);
+  for (const file of conventionChanges(binding.guidance_digests, current.guidance_digests)) reasons.push(`conventions changed (${file})`);
+  if (!(new Date(binding.expires_at) > now())) reasons.push('expired');
+  return reasons;
+}
+
 /**
  * Evaluate approvals for a stage against the current binding.
  * @returns {{satisfied: boolean, valid: object[], stale: {id: string, reasons: string[]}[], missing_roles: string[], approvers: number, needed: {roles: string[], min_approvers: number}}}
@@ -113,9 +122,7 @@ export function evaluateApprovals(ctx, { config, slice, current, needed }) {
     if (!reg) reasons.push('approver no longer registered');
     else if (!holdsRole(reg, r.role)) reasons.push('approver no longer holds the role');
     else if (!verifyText(reg.public_key, statement(binding, r.role, r.approver), r.signature)) reasons.push('signature does not verify');
-    for (const f of BOUND_FIELDS) if ((binding[f] ?? null) !== (current[f] ?? null)) reasons.push(`${f} changed`);
-    for (const file of conventionChanges(binding.guidance_digests, current.guidance_digests)) reasons.push(`conventions changed (${file})`);
-    if (new Date(binding.expires_at) <= now()) reasons.push('expired');
+    reasons.push(...bindingStaleReasons(binding, current));
     if (reasons.length) stale.push({ id: r.id, role: r.role, approver: r.approver, reasons });
     else valid.push({ id: r.id, role: r.role, approver: r.approver });
   }

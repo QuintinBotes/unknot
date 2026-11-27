@@ -246,6 +246,8 @@ Container and deployment files (Dockerfiles, compose files, Helm charts) are inf
 | `approvals.proven_deletion` | `[any-approver]` | Roles that must approve a proven deletion: a one-file removal whose source findings are observed, live and not public (see below). `any-approver` is satisfied by any registered approver; a repository can tighten it, for example to `[code-owner]`. |
 | `approvals.critical_min_approvers` | `2` (minimum 2) | |
 | `approvals.expiry` | `72h` | How long an approval stays valid. |
+| `approvals.via` | `local` | Where change approvals come from: `local` signatures, GitHub pull request reviews (`forge`), or either (`both`). See [forge-approvals.md](forge-approvals.md). |
+| `approvals.forge.roles` | none | With `via: forge` or `both`, who holds each role on GitHub: `users` (logins), `teams` (`org/team`), or `codeowners: true` for a code owner of every changed path in the baseline's CODEOWNERS. |
 
 Role names are lowercase words with hyphens. A role in `approvals` is satisfied only by an approver who holds it; the one exception is `any-approver`, which any registered approver satisfies.
 
@@ -263,7 +265,16 @@ approvers:
       -----END PUBLIC KEY-----
 ```
 
-`unknot keys generate <name>` prints this block. `roles` and `public_key` are required; names match `^[A-Za-z0-9._-]{1,64}$`. `teams` and `paths` are recorded but not used in approval checks in this version.
+`unknot keys generate <name>` prints this block. `roles` and `public_key` are required; names match `^[A-Za-z0-9._-]{1,64}$`. `teams` and `paths` are recorded but not used in approval checks in this version. `github: <login>` links an approver to a GitHub account: a pull request review from the account the agent acts as counts only together with the local signature of the approver linked to it.
+
+```yaml
+approvals:
+  via: forge                       # local (default) | forge | both
+  forge:
+    roles:
+      code-owner: { codeowners: true }
+      affected-owner: { users: [dave], teams: [acme/checkout] }
+```
 
 `unknot init` proposes only `approvals: { expiry: '72h' }` and leaves approval roles to the built-in defaults above, so a proposal never starts looser. Read the proposal before accepting.
 

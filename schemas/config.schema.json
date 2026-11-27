@@ -434,6 +434,30 @@
         "expiry": {
           "type": "string",
           "pattern": "^\\d+\\s*(ms|s|m|h|d|w)$"
+        },
+        "via": {
+          "description": "Where change approvals come from: local signatures (default), GitHub pull request reviews bound to the head (forge), or either (both). See docs/forge-approvals.md.",
+          "enum": ["local", "forge", "both"]
+        },
+        "forge": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "roles": {
+              "description": "Which reviewers hold each role: listed GitHub users, members of org/team slugs, or (codeowners: true) code owners of every changed path under the baseline's CODEOWNERS.",
+              "type": "object",
+              "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "users": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$" } },
+                  "teams": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" } },
+                  "codeowners": { "type": "boolean" }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -468,6 +492,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "github": {
+            "description": "This approver's GitHub login. A review from the account the agent acts as counts only with a local signature by the approver linked to that login.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
           }
         },
         "required": [

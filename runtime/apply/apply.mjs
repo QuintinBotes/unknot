@@ -13,6 +13,7 @@ import { guidanceDigests } from '../core/guidance.mjs';
 import { brokerExec } from '../broker/broker.mjs';
 import { bindingFor, evaluateApprovals, invalidateApprovals } from '../policy/approvals.mjs';
 import { checkDiffBudget } from '../policy/budget.mjs';
+import { withForge } from '../policy/forge.mjs';
 import { checkLaneDiff, laneFor, laneOfSlice } from '../policy/lanes.mjs';
 import { modeRank, riskRank } from '../policy/defaults.mjs';
 import { assertEvidence } from '../policy/evidence.mjs';
@@ -53,7 +54,8 @@ export function neededApprovals(slice, config, ctx = null) {
 
 export function approvalStatus(ctx, slice, stage, { cfg, commit, diffHash }) {
   const current = currentBinding(ctx, slice, stage, { cfg, commit, diffHash });
-  return evaluateApprovals(ctx, { config: cfg.config, slice, current, needed: neededApprovals(slice, cfg.config, ctx) });
+  const status = evaluateApprovals(ctx, { config: cfg.config, slice, current, needed: neededApprovals(slice, cfg.config, ctx) });
+  return withForge(ctx, status, { config: cfg.config, slice, current });
 }
 
 /**
