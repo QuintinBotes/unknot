@@ -335,10 +335,10 @@ export async function baseProposal(ctx) {
   };
   // With a configuration already accepted, a fresh default proposal would drop its mode and
   // approvers on acceptance. Propose the accepted one plus what is newly detected instead.
-  const acceptedText = ctx.store.meta('accepted_config_text');
+  const { acceptedConfigText, parseConfigText } = await import('../../policy/config.mjs');
+  const acceptedText = acceptedConfigText(ctx);
   let update = null;
   if (acceptedText) {
-    const { parseConfigText } = await import('../../policy/config.mjs');
     const accepted = parseConfigText(acceptedText, '<accepted>');
     const commands = Object.fromEntries(Object.entries(d.commands).filter(([k]) => !accepted.commands?.[k]));
     const paths = proposed.protected_paths.filter((p) => !(accepted.protected_paths ?? []).includes(p));

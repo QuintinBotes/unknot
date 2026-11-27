@@ -4,6 +4,7 @@
 //   projects/<project-id>/audit.pem      Ed25519 key that signs every ledger event
 //   projects/<project-id>/cache.key      AES-256-GCM key for the content-addressed cache
 //   projects/<project-id>/capability.key HMAC key for capability tokens
+//   roots/<sha256 of checkout path>/acceptance.json  the config acceptance in force there (#215)
 //   approvers/<name>.pem                 Ed25519 approver key, encrypted with a passphrase
 //
 // Deleting a project's directory crypto-shreds its encrypted cache (spec §16.5).
@@ -108,6 +109,32 @@ export function signText(privateKey, text) {
 export function verifyText(publicKeyPem, text, signature) {
   try {
     return verify(null, Buffer.from(text), createPublicKey(publicKeyPem), Buffer.from(signature, 'base64'));
+  } catch {
+    return false;
+  }
+}
+
+// The acceptance in force is kept per checkout, under a name the store cannot choose (#215): a
+// store recreated under a new project id, or an older store or backup put back, cannot bring
+// its own pointer with it.
+const acceptanceDir = (root) => join(unknotHome(), 'roots', createHash('sha256').update(root).digest('hex'));
+
+/**
+ * Sign a config acceptance with the project's audit key and make it the one in force for the
+ * checkout at `root`, superseding every earlier acceptance there, under any project id.
+ * Called only from the human-only `config accept` path.
+ */
+export function signAcceptance(projectId, root, statement) {
+  const signature = signText(auditPrivateKey(projectId), statement);
+  writeFileSync(join(secureDir(acceptanceDir(root)), 'acceptance.json'), JSON.stringify({ project_id: projectId, signature }), { mode: 0o600 });
+  return signature;
+}
+
+/** Whether `signature`, by `projectId`'s key, is the acceptance in force for `root` and verifies over `statement`. */
+export function verifyAcceptance(projectId, root, statement, signature) {
+  try {
+    const inForce = JSON.parse(readFileSync(join(acceptanceDir(root), 'acceptance.json'), 'utf8'));
+    return inForce.project_id === projectId && inForce.signature === signature && verifyText(auditPublicKeyPem(projectId), statement, signature);
   } catch {
     return false;
   }
