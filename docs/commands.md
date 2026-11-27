@@ -262,7 +262,7 @@ Exit 3 with `UK_APPROVAL_REQUIRED` lists missing roles and stale approvals.
 
 ### `unknot verify <slice>`
 
-Executes the slice's proof obligations: built-in checks (scope, diff budget, parse, secrets, cycles, API, complexity) and configured commands through the broker. Obligations that need a person are listed as waiting. If all pass the slice becomes `REVIEW_READY` and a proof bundle is written under `.unknot/runs/<run-id>/`. Exit 0 only for `REVIEW_READY`. `--json` supported.
+Executes the slice's proof obligations: built-in checks (scope, diff budget, parse, secrets, cycles, API, complexity) and configured commands through the broker. Obligations that need a person are listed as waiting. If all pass the slice becomes `REVIEW_READY` and a proof bundle is written under `.unknot/runs/<run-id>/`. Every run also writes its summary (the `--json` output) to `.unknot/runs/<run-id>/verify-summary.json`, outside the bundle's manifest. Exit 0 only for `REVIEW_READY`. `--json` supported.
 
 ### `unknot pr <slice>` (human)
 
