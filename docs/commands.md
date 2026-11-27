@@ -226,7 +226,7 @@ Creates a campaign and its slices. Needs mode `plan` or higher. The runtime, not
 
 ### `unknot next [campaign]`
 
-Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. A slice `unknot apply` would refuse is never selected: one whose kinds `apply.allowed_kinds` refuses is listed as `Plan-only` (`plan_only`), and one whose scope was mostly read lexically without `evidence.allow_weak` for its campaign as `Waits on evidence` (`waits_on_evidence`, with `ways_forward`). `--json` supported.
+Selects the smallest unblocked, highest-value slice and says why; lists other ready slices and blocked ones. A slice `unknot apply` would refuse is never selected: one whose kinds `apply.allowed_kinds` refuses is listed as `Plan-only` (`plan_only`), and one whose scope was mostly read lexically without `evidence.allow_weak` for its campaign as `Waits on evidence` (`waits_on_evidence`, with `ways_forward`). A blocked slice whose dependency is held that way gets a line `<slice> waits on <dependency> (<reason>)` (`blocked[].held_by`). `--json` supported.
 
 ### `unknot slice <id>`
 

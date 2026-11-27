@@ -234,6 +234,32 @@ test('a test slice planned after a refactor does not wait on it when the refacto
   assert.deepEqual(held.blocked, [{ id: t2, waiting_for: [r2], held_by: [{ id: r2, reason: 'plan-only: apply.allowed_kinds [tests, deletion] excludes refactor' }] }]);
 });
 
+test('plain next names the dependency holding a slice, also when another slice is ready (#220)', { timeout: 120_000 }, async () => {
+  const { run: nextCli } = await import('../../runtime/cli/commands/next.mjs');
+  const text = async (dir) => {
+    const lines = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (c) => (lines.push(String(c)), true);
+    try {
+      await nextCli({ positional: [], flags: { cwd: dir } });
+    } finally {
+      process.stdout.write = write;
+    }
+    return lines.join('');
+  };
+  // Refactor (plan-only), a test slice stated to depend on it, and a ready deletion.
+  const { p, ids } = await project(['tests', 'deletion'], {}, [SLICES[2], SLICES[0], SLICES[1]]);
+  const [refactor, tests, deletion] = ids;
+  p.ctx.store.run('UPDATE slices SET body = json_set(body, \'$.preconditions\', json_array(?)) WHERE id = ?', refactor, tests);
+  const out = await text(p.dir);
+  assert.ok(out.startsWith(`Next: ${deletion} `), out);
+  assert.ok(out.includes(`\n${tests} waits on ${refactor} (plan-only: apply.allowed_kinds [tests, deletion] excludes refactor)\n`), out);
+
+  // Nothing held: no such line.
+  const free = await project(['tests', 'deletion'], {}, [SLICES[0], SLICES[1]]);
+  assert.doesNotMatch(await text(free.p.dir), / waits on /);
+});
+
 test('a lane approval that stops at a refused slice reports the slices it accepted, and records nothing for the refused one (#173)', { timeout: 120_000 }, async () => {
   const { p, ids } = await project(null);
   let cfg = K.configMod.loadConfig(p.ctx);
