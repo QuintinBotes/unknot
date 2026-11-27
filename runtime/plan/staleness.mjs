@@ -44,16 +44,32 @@ export function conventionDrift(ctx, row) {
   const latest = new Map();
   for (const a of ctx.store.all('SELECT stage, role, approver, binding FROM approvals WHERE slice_id = ? AND revoked_at IS NULL ORDER BY created_at, rowid', row.id)) latest.set(`${a.stage}|${a.role}|${a.approver}`, a);
   const files = new Set();
-  for (const a of latest.values()) {
-    for (const f of conventionChanges(JSON.parse(a.binding).guidance_digests, current)) files.add(f);
-  }
+  const bound = [...latest.values()].map((a) => JSON.parse(a.binding).guidance_digests);
+  // A lane covers the slice like a plan approval; the latest unrevoked lane that names it is the one that counts.
+  const lane = ctx.store.all('SELECT body FROM lanes WHERE campaign_id = ? AND revoked_at IS NULL ORDER BY created_at, rowid', row.campaign_id ?? null).map((l) => JSON.parse(l.body)).filter((l) => l.slices?.[row.id]).at(-1);
+  if (lane) bound.push(lane.guidance?.[row.id] ?? null);
+  for (const b of bound) for (const f of conventionChanges(b, current)) files.add(f);
   return [...files].sort();
+}
+
+const STATUS_ORDER = ['enforced', 'conflict', 'documented', 'flagged', 'default'];
+
+/** A slice's convention report grouped by status (nearest scope first within each), and what changed since approval. */
+export function conventionsView(ctx, row) {
+  const body = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+  if (!Array.isArray(body.conventions)) return 'not recorded (planned before convention reports)';
+  const changed = conventionDrift(ctx, row);
+  return {
+    ...(!(body.guidance ?? []).length && { note: 'no repository guidance applies; only Unknot defaults' }),
+    ...(changed.length && { needs_reapproval: changed.map((f) => `conventions changed (${f})`) }),
+    by_status: Object.fromEntries(STATUS_ORDER.map((k) => [k, body.conventions.filter((c) => c.status === k)]).filter(([, v]) => v.length)),
+  };
 }
 
 /** Open slices that need re-approval because their conventions changed: `{slice_id, files, reason}`. */
 export function reapprovalSlices(ctx) {
   const out = [];
-  for (const row of ctx.store.all("SELECT id, body FROM slices WHERE state NOT IN ('ACCEPTED', 'ABANDONED', 'ROLLED_BACK') ORDER BY id")) {
+  for (const row of ctx.store.all("SELECT id, campaign_id, body FROM slices WHERE state NOT IN ('ACCEPTED', 'ABANDONED', 'ROLLED_BACK') ORDER BY id")) {
     const files = conventionDrift(ctx, row);
     if (files.length) out.push({ slice_id: row.id, files, reason: files.map((f) => `conventions changed (${f})`).join(', ') });
   }

@@ -6,16 +6,18 @@
 // together with `unknot approve --lane`, after `unknot lane review`.
 //
 // What a lane binds: the slice ids and their plan digests (a replanned slice falls out), the
-// policy digest (any config change voids it), the allowed patch kinds and caps, and an expiry.
+// policy digest (any config change voids it), the applicable guidance of each slice (as approvals
+// bind it), the allowed patch kinds and caps, and an expiry.
 
 import { canonicalJSON, digest, randomId } from '../core/canonical.mjs';
+import { guidanceDigests } from '../core/guidance.mjs';
 import { addMs, now, nowISO, parseDuration } from '../core/clock.mjs';
 import { UnknotError } from '../core/errors.mjs';
 import { matchAny } from '../core/glob.mjs';
 import { keyFingerprint, publicKeyOf, signText, verifyText } from '../core/keys.mjs';
 import { isTestCode } from '../graph/census.mjs';
 import { appendEvent } from '../state/ledger.mjs';
-import { holdsRole, sliceDigest } from './approvals.mjs';
+import { conventionChanges, holdsRole, sliceDigest } from './approvals.mjs';
 import { planOnlyReason } from './kinds.mjs';
 import { provenDeletion } from './proven.mjs';
 import { classifyRisk, requiredApprovals } from './risk.mjs';
@@ -78,6 +80,7 @@ export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, m
   const rows = ctx.store.all('SELECT * FROM slices WHERE campaign_id = ? ORDER BY id', campaignId);
   if (!rows.length) throw new UnknotError('UK_NOT_FOUND', `no slices in campaign ${campaignId}`);
   const covered = {};
+  const guidance = {};
   const excluded = [];
   let role = null;
   for (const row of rows) {
@@ -89,6 +92,8 @@ export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, m
     else {
       role ??= r;
       covered[slice.id] = sliceDigest(slice.body);
+      const g = guidanceDigests(ctx.root, slice.body);
+      if (g) guidance[slice.id] = g;
     }
   }
   const lane = {
@@ -98,6 +103,7 @@ export function draftLane(ctx, { cfg, campaignId, kinds = LANE_DEFAULTS.kinds, m
     max_changed_files: maxFiles,
     max_diff_lines: maxLines,
     slices: covered,
+    guidance,
     role,
     policy_digest: cfg.digest,
     expires_at: addMs(nowISO(), parseDuration(expiry)),
@@ -171,6 +177,7 @@ export function laneFor(ctx, { cfg, slice }) {
     const signed = lane.body.slices[slice.id];
     if (!signed) why.push(`${slice.id} is not in it`);
     else if (signed !== sliceDigest(slice.body)) why.push(`${slice.id} changed since it was approved`);
+    else for (const f of conventionChanges(lane.body.guidance?.[slice.id] ?? null, guidanceDigests(ctx.root, slice.body))) why.push(`conventions changed (${f})`);
     const problems = laneProblems({ ...slice, state: 'AWAITING_APPROVAL' }, cfg.config, ctx);
     if (problems.length) why.push(...problems);
     else if (neededFor(slice, cfg.config, ctx).roles[0] !== lane.body.role) why.push(`${slice.id} now needs a different role`);
