@@ -130,6 +130,9 @@ test('unknot-verify.yml: reusable; the slice runs read-only, attesting runs no r
   // `--in-ci` exits 1 on a failed command, so the run fails; the evidence is still uploaded and attested.
   assert.equal(wf.jobs.run.steps.find((s) => /upload-artifact@/.test(s.uses ?? '')).if, '${{ !cancelled() }}');
   assert.equal(wf.jobs.verify.if, '${{ !cancelled() }}');
+  const report = wf.jobs.verify.steps.find((s) => s.name === 'Report the obligations');
+  assert.equal(report.env.RUN_RESULT, '${{ needs.run.result }}', 'the required check fails when the run job failed, whatever the file says');
+  assert.match(report.run, /\[ "\$RUN_RESULT" = success \] \|\| \{[^}]*failed=1/);
   assert.ok(!wf.jobs.verify.steps.some((s) => /actions\/checkout@/.test(s.uses ?? '')), 'the attesting job checks out nothing');
   assert.match(text, /actions\/attest-build-provenance@[0-9a-f]{40}/);
   assert.match(text, /conclusion=neutral/, 'obligations CI cannot run get a neutral check');

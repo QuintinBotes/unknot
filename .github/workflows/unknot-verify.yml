@@ -69,9 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE: ${{ runner.temp }}/evidence/unknot-evidence.json
+          # The slice's code can rewrite the file, not the run job's result: this check is green only when both agree.
+          RUN_RESULT: ${{ needs.run.result }}
         run: |
+          [ "$RUN_RESULT" = success ] || { echo "::error::the run job's result is $RUN_RESULT"; failed=1; }
           node -e '
-            const e = JSON.parse(require("node:fs").readFileSync(process.env.EVIDENCE, "utf8"));
+            let e;
+            try { e = JSON.parse(require("node:fs").readFileSync(process.env.EVIDENCE, "utf8")); } catch { console.log("::error::the evidence file is not JSON"); process.exit(1); }
             const bad = e.results.filter((r) => !r.not_run && r.exit_code !== 0);
             const notRun = e.results.filter((r) => r.not_run);
             require("node:fs").writeFileSync(process.env.RUNNER_TEMP + "/not-run.md", notRun.map((r) => `- ${r.id} ${r.kind}: ${r.not_run}`).join("\n"));
