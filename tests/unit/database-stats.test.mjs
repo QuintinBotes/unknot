@@ -192,12 +192,13 @@ describe('decompose with imported transaction facts', () => {
     assert.ok(!rec.evidence_gaps.some((g) => /transaction/.test(g)));
   });
 
-  test('expired transaction evidence is ignored and named in the gaps', async () => {
+  test('expired transaction evidence is still reported, marked stale, and named in the gaps (#239)', async () => {
     const old = EXPORT.replaceAll('P7D', '2020-01-01T00:00:00Z/2020-01-08T00:00:00Z');
     await importCli('database-stats', put('old.csv', old), '--source', 'stats');
-    const rec = orders(await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true }));
-    assert.equal(rec.candidate.metrics['boundary.cross_transactions'], undefined);
-    assert.equal(rec.transaction_evidence, undefined);
-    assert.ok(rec.evidence_gaps.some((g) => /transaction fact\(s\) are past their expiry|past its expiry/.test(g)), rec.evidence_gaps.join('|'));
+    const rec = orders(await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true, now: '2020-02-07T00:00:00.000Z' }));
+    assert.equal(rec.candidate.metrics['boundary.cross_transactions'], 1);
+    assert.equal(rec.transaction_evidence.label, 'observed');
+    assert.deepEqual(rec.evidence_age['boundary.cross_transactions'], { age_days: 30, expires_at: '2020-01-22T00:00:00.000Z', stale: true });
+    assert.ok(rec.evidence_gaps.some((g) => /transaction evidence expired 16 day\(s\) ago \(2020-01-22T00:00:00.000Z\)/.test(g)), rec.evidence_gaps.join('|'));
   });
 });

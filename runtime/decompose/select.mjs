@@ -92,9 +92,10 @@ function rejection(failed, gaps, ...notes) {
 /**
  * Per-predicate readiness of the given treatments: each applicability signal, precondition
  * and contraindication with its measured value, threshold and whether it holds. An
- * unmeasured signal has `value: null`, `met: null` and the evidence that would measure it.
+ * unmeasured signal has `value: null`, `met: null` and the evidence that would measure it. A
+ * runtime or data signal also carries the age of its evidence (`freshness[signal]`).
  */
-export function readinessFor({ target, signals, thresholds = {}, treatments }) {
+export function readinessFor({ target, signals, thresholds = {}, treatments, freshness = {} }) {
   const rows = [];
   const cards = treatmentCards(target);
   for (const t of [...new Set(treatments)].sort()) {
@@ -107,7 +108,7 @@ export function readinessFor({ target, signals, thresholds = {}, treatments }) {
         const { metric, op, value: threshold } = item.predicate;
         const r = test(item.predicate, signals);
         const value = signals[metric] ?? null;
-        rows.push({ treatment: t, kind, id: item.id, signal: metric, value, op, threshold, met: r === 'unknown' ? null : r === 'true', missing_evidence: r === 'unknown' ? EVIDENCE_FOR[metric] ?? `a measurement of ${metric}` : null });
+        rows.push({ treatment: t, kind, id: item.id, signal: metric, value, op, threshold, met: r === 'unknown' ? null : r === 'true', missing_evidence: r === 'unknown' ? EVIDENCE_FOR[metric] ?? `a measurement of ${metric}` : null, ...(value !== null ? freshness[metric] : {}) });
       }
     }
   }
@@ -119,9 +120,10 @@ export function readinessFor({ target, signals, thresholds = {}, treatments }) {
  * @param {'backend'|'frontend'} p.target
  * @param {object} p.signals measured signals for the candidate (vocabulary names)
  * @param {string[]} p.drivers recorded driver ids
+ * @param {Set<string>} [p.stale] signals measured on expired evidence: never enough on their own to favour a treatment
  * @returns recommendation core (treatment, evaluations, rejected, gaps, confidence)
  */
-export function selectTreatment({ target, signals: given, drivers, thresholds = {} }) {
+export function selectTreatment({ target, signals: given, drivers, thresholds = {}, stale = new Set() }) {
   const signals = given;
   const cards = new Map([...treatmentCards(target)].map(([t, c]) => [t, withThresholds(c, thresholds)]));
   // Missing tests do not rule out a behaviour-preserving treatment; they put a
@@ -140,6 +142,15 @@ export function selectTreatment({ target, signals: given, drivers, thresholds = 
       }
     }
     evaluations.push({ treatment: t, card: c.id, ...actual });
+  }
+  // A treatment favoured only by stale signals is not shown to fit: expired evidence alone decides nothing (#239).
+  for (const e of evaluations) {
+    const favour = e.checked.filter((x) => x.kind === 'applicability' && x.result === 'true').map((x) => x.predicate.metric);
+    if (e.fit === 'fits' && favour.every((m) => stale.has(m))) {
+      e.fit = 'insufficient_evidence';
+      e.stale_only = `favoured only by expired evidence: ${favour.join(', ')}`;
+      e.reasons = [...e.reasons.filter((r) => !r.startsWith('favouring signals')), e.stale_only];
+    }
   }
   const rejected = [];
   const viable = [];
@@ -163,7 +174,7 @@ export function selectTreatment({ target, signals: given, drivers, thresholds = 
       continue;
     }
     if (e.fit === 'insufficient_evidence') {
-      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps) || 'insufficient evidence: unmeasured conditions', ...extra });
+      rejected.push({ treatment: e.treatment, reason: rejection(failed, e.gaps, e.stale_only) || 'insufficient evidence: unmeasured conditions', ...extra });
       continue;
     }
     viable.push({ ...e, serves });
@@ -209,7 +220,7 @@ export function selectTreatment({ target, signals: given, drivers, thresholds = 
     card: chosen?.card ?? retain?.card ?? 'decomposition.retain',
     serves: chosen?.serves ?? [],
     drivers_not_served,
-    favoring_signals: favouring.map((c) => ({ signal: c.predicate.metric, value: c.value, source: `measured (${c.id})` })),
+    favoring_signals: favouring.map((c) => ({ signal: c.predicate.metric, value: c.value, source: `measured (${c.id})`, ...(stale.has(c.predicate.metric) ? { stale: true } : {}) })),
     contraindications_checked: (chosen ?? retain)?.checked.filter((c) => c.kind === 'contraindication').map((c) => ({ id: c.id, result: c.result === 'true' ? 'fail' : c.result === 'false' ? 'pass' : 'unknown', value: c.value })) ?? [],
     rejected_treatments: rejected,
     evidence_gaps: gaps,

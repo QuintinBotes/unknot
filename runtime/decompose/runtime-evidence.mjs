@@ -53,15 +53,15 @@ const hit = (set, other) => {
 /**
  * @param {import('../graph/graph.mjs').Graph} graph
  * @param {Set<string>} members candidate module ids
- * @param {{now?: string}} [env] reference time: edges whose evidence expired are left out
- * @returns {{metrics: object, gaps: string[], runtime: object|null}}
+ * @param {{now?: string}} [env] reference time: the age of the evidence and whether it expired
+ * @returns {{metrics: object, gaps: string[], freshness?: object, runtime: object|null}}
  */
 export function runtimeBoundary(graph, members, { now = new Date().toISOString() } = {}) {
   const all = graph.edges('RUNTIME_CALLS').filter((e) => Number.isFinite(e.attrs?.calls));
   if (!all.length) return { metrics: {}, gaps: [], runtime: null };
-  const fresh = all.filter((e) => !(e.attrs.expires_at && e.attrs.expires_at < now));
+  // Expired edges are still used: their signals are reported stale and lower confidence one step (#239).
   const gaps = [];
-  const sides = fresh.map((e) => ({ e, a: ownersOf(graph, e.from), b: ownersOf(graph, e.to) })).filter((s) => s.a.size && s.b.size);
+  const sides = all.map((e) => ({ e, a: ownersOf(graph, e.from), b: ownersOf(graph, e.to) })).filter((s) => s.a.size && s.b.size);
   const crossing = sides.filter(({ a, b }) => (hit(a, members) && !hit(b, members)) || (hit(b, members) && !hit(a, members)));
   // Boundary edges, and which of them a runtime edge connects (either direction).
   const boundary = [];
@@ -83,7 +83,6 @@ export function runtimeBoundary(graph, members, { now = new Date().toISOString()
   const coverage = unique.length ? +(covered / unique.length).toFixed(3) : null;
 
   const metrics = {};
-  const stale = all.length - fresh.length;
   if (crossing.length) {
     const calls = crossing.reduce((n, { e }) => n + e.attrs.calls, 0);
     const p95s = crossing.map(({ e }) => e.attrs.p95_ms).filter(Number.isFinite);
@@ -92,11 +91,14 @@ export function runtimeBoundary(graph, members, { now = new Date().toISOString()
     metrics['runtime.cross_boundary_calls'] = calls;
     if (p95s.length) metrics['runtime.cross_boundary_p95_ms'] = Math.max(...p95s);
     if (ratedCalls > 0) metrics['runtime.cross_boundary_error_rate'] = +(rated.reduce((n, { e }) => n + e.attrs.error_rate * e.attrs.calls, 0) / ratedCalls).toFixed(4);
-  } else if (fresh.length) gaps.push('runtime rows reach no edge that crosses this boundary: cross-boundary call volume is not measured for it');
+  } else gaps.push('runtime rows reach no edge that crosses this boundary: cross-boundary call volume is not measured for it');
   if (coverage !== null) metrics['runtime.boundary_coverage'] = coverage;
-  if (stale) gaps.push(`${stale} runtime edge(s) are past their expiry and were not used; re-export and import again`);
   if (coverage !== null && coverage < COVERAGE_THRESHOLD) gaps.push(`runtime coverage ${coverage} of this boundary's edges is below ${COVERAGE_THRESHOLD}: the static-only confidence cap stays`);
-  if (!crossing.length && !fresh.length) return { metrics, gaps, runtime: null };
+  // The age of what this boundary's runtime signals were measured on: the crossing edges, else every placed edge.
+  const used = (crossing.length ? crossing : sides).map(({ e }) => e.attrs);
+  const age = freshnessOf(used.length ? used : all.map((e) => e.attrs), now);
+  const freshness = Object.fromEntries(['traces.available', ...Object.keys(metrics)].map((k) => [k, age]));
+  gaps.push(...ageGaps('runtime evidence', age, now));
 
   const starts = crossing.map(({ e }) => e.attrs.observed_window?.start).filter(Boolean).sort();
   const ends = crossing.map(({ e }) => e.attrs.observed_window?.end).filter(Boolean).sort();
@@ -105,6 +107,7 @@ export function runtimeBoundary(graph, members, { now = new Date().toISOString()
   return {
     metrics,
     gaps,
+    freshness,
     runtime: {
       label: 'observed',
       window: starts.length ? { start: starts[0], end: ends[ends.length - 1] } : null,
@@ -117,6 +120,29 @@ export function runtimeBoundary(graph, members, { now = new Date().toISOString()
       cap: lifted ? 'lifted' : 'applies',
     },
   };
+}
+
+const DAY_MS = 86_400_000;
+export const daysBetween = (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / DAY_MS);
+
+/**
+ * Age of the facts a signal was measured on: whole days from the earliest observed window end
+ * to `now` (null when none has a window), the earliest expiry, and whether it has passed.
+ * @returns {{age_days: number|null, expires_at: string|null, stale: boolean}}
+ */
+export function freshnessOf(attrs, now) {
+  const end = attrs.map((a) => a?.observed_window?.end).filter(Boolean).sort()[0];
+  const expires_at = attrs.map((a) => a?.expires_at).filter(Boolean).sort()[0] ?? null;
+  return { age_days: end ? daysBetween(end, now) : null, expires_at, stale: Boolean(expires_at && expires_at < now) };
+}
+
+/** Gap lines for one kind of evidence: its age is unknown, or it expired and how long ago. */
+export function ageGaps(what, f, now) {
+  if (!f) return [];
+  return [
+    ...(f.age_days === null ? [`${what} has no observed window: its age is unknown`] : []),
+    ...(f.stale ? [`${what} expired ${daysBetween(f.expires_at, now)} day(s) ago (${f.expires_at}): its signals are still reported, marked stale, and lower the confidence one step; re-export and import again`] : []),
+  ];
 }
 
 /**

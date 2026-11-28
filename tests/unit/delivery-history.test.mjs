@@ -323,12 +323,14 @@ describe('decompose with imported delivery history', () => {
     assert.ok(!rec.evidence_gaps.some((g) => /delivery/.test(g)), rec.evidence_gaps.join('|'));
   });
 
-  test('expired delivery evidence is ignored and named in the gaps', async () => {
+  test('expired delivery evidence is still reported, marked stale, and named in the gaps (#239)', async () => {
     await importCli('deliveries', put('old.csv', OLD), '--source', 'ci');
     const rec = orders(await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true }));
-    assert.equal(rec.candidate.metrics['service.deploy_coupling'], undefined);
-    assert.equal(rec.delivery_evidence, undefined);
-    assert.ok(rec.evidence_gaps.some((g) => /delivery fact\(s\) are past their expiry/.test(g)), rec.evidence_gaps.join('|'));
+    assert.equal(rec.candidate.metrics['service.deploy_coupling'], 0.667);
+    assert.equal(rec.delivery_evidence.label, 'observed');
+    assert.equal(rec.evidence_age['service.deploy_coupling'].stale, true);
+    assert.ok(rec.evidence_age['service.deploy_coupling'].age_days > 365);
+    assert.ok(rec.evidence_gaps.some((g) => /delivery evidence expired \d+ day\(s\) ago/.test(g)), rec.evidence_gaps.join('|'));
     assert.ok(!rec.evidence_gaps.some((g) => g.startsWith('no delivery history')), rec.evidence_gaps.join('|'));
   });
 });
