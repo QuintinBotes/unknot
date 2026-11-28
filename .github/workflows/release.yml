@@ -96,9 +96,43 @@ jobs:
       - name: Cold and incremental ratios (RELEASE_GATES in scripts/bench.mjs)
         run: node scripts/bench.mjs --sizes 10k --release-gate --out "$RUNNER_TEMP/bench"
 
+  accuracy:
+    name: gate - accuracy against the previous release
+    needs: consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: accuracy
+          path: ${{ runner.temp }}/accuracy
+      # The baseline is the accuracy.json attached to the previous final release (#246); none
+      # attached means nothing to compare with, which passes. GATE in scripts/lib/accuracy-compare.mjs.
+      - name: Fail on an unexplained per-detector precision or seeded-recall drop
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          prev="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 50 --json tagName --jq '.[].tagName' | { grep -vxF "$TAG" || true; } | head -n 1)"
+          if [ -n "$prev" ]; then
+            echo "Previous final release: $prev"
+            gh release download "$prev" --repo "$GITHUB_REPOSITORY" --pattern accuracy.json --dir "$RUNNER_TEMP/previous" || echo "$prev has no accuracy.json"
+          fi
+          node scripts/accuracy-compare.mjs "$RUNNER_TEMP/previous/accuracy.json" "$RUNNER_TEMP/accuracy/accuracy.json" --gate | tee -a "$GITHUB_STEP_SUMMARY"
+
   release:
     name: build, attest and publish
-    needs: [test, upgrade, consistency, bench]
+    needs: [test, upgrade, consistency, bench, accuracy]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
