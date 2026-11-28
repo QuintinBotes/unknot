@@ -41,7 +41,7 @@ test('quality.yml: weekly and manual, read-only, accuracy then consistency, uplo
   assert.equal(job.permissions.contents, 'read');
   assert.ok(!Object.entries(job.permissions).some(([k, v]) => v === 'write' || k === 'id-token'));
   assert.match(text, /scripts\/accuracy\.mjs --quick --work "\$RUNNER_TEMP\/corpus" --out "\$RUNNER_TEMP\/accuracy"/);
-  assert.match(text, /scripts\/consistency\.mjs --work/);
+  assert.match(text, /scripts\/consistency\.mjs --quick --work/, 'consistency checks the corpus accuracy mapped');
   assert.match(text, /scripts\/accuracy-compare\.mjs/);
   assert.match(text, /hashFiles\('scripts\/corpus\.json'\)/);
   assert.match(text, /GITHUB_STEP_SUMMARY/);
@@ -128,7 +128,15 @@ test('release.yml: publishing waits for the upgrade, consistency and benchmark g
     assert.match(run(wf.jobs[id]), re, id);
     assert.deepEqual(wf.jobs[id].permissions, { contents: 'read' }, `${id} only reads`);
   }
-  assert.match(run(wf.jobs.consistency), /scripts\/accuracy\.mjs --quick/, 'the quick corpus is mapped before consistency');
+  // #244: every repository of scripts/corpus.json not marked large, the list read from that file, not copied here.
+  const consistency = run(wf.jobs.consistency);
+  const mapOnly = consistency.split('\n').find((l) => /accuracy\.mjs --map-only/.test(l)) ?? '';
+  const check = consistency.split('\n').find((l) => /consistency\.mjs/.test(l)) ?? '';
+  assert.match(mapOnly, /node scripts\/accuracy\.mjs --map-only --work "\$RUNNER_TEMP\/corpus"/, 'the non-large corpus is mapped before consistency');
+  assert.match(check, /node scripts\/consistency\.mjs --work "\$RUNNER_TEMP\/corpus"/);
+  for (const line of [mapOnly, check]) assert.doesNotMatch(line, /--quick|--only|--include-large/, 'the default selection: not marked large');
+  assert.ok(consistency.indexOf(mapOnly) < consistency.indexOf(check));
+  assert.ok(wf.jobs.consistency['timeout-minutes'] >= 60, 'the job timeout fits mapping eleven repositories');
   assert.equal(wf.jobs.upgrade.steps[0].with['fetch-depth'], 0, 'the upgrade test needs the release tags');
   const release = wf.jobs.release;
   assert.deepEqual([...release.needs].sort(), Object.keys(gates).sort());

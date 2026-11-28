@@ -5,6 +5,9 @@
 //
 // Usage: node scripts/accuracy.mjs [--corpus FILE] [--work DIR] [--out DIR] [--labels DIR]
 //          [--only name,name] [--quick] [--include-large] [--sample N] [--seed S] [--no-recall]
+//          [--map-only]
+// --map-only fetches and maps the selected repositories and scores nothing (the release
+// consistency gate maps with it, then runs scripts/consistency.mjs --work over the same DIR).
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -33,6 +36,7 @@ const bool = (name) => {
 const quick = bool('quick');
 const includeLarge = bool('include-large');
 const noRecall = bool('no-recall');
+const mapOnly = bool('map-only');
 const corpusFile = resolve(flag('corpus', join(HERE, 'corpus.json')));
 const work = resolve(flag('work', join(tmpdir(), 'unknot-corpus')));
 const out = resolve(flag('out', join(tmpdir(), `unknot-accuracy-${new Date().toISOString().replace(/[:.]/g, '-')}`)));
@@ -214,8 +218,14 @@ for (const r of repos) {
     const t0 = Date.now();
     const src = fetchRepo(r);
     entry.fetch_ms = Date.now() - t0;
-    const a = await analyse(src);
+    const a = await analyse(src, { diagnoseToo: !mapOnly });
     entry.map_ms = a.mapMs;
+    if (mapOnly) {
+      entry.files = a.map.files;
+      entry.map_status = a.map.status;
+      process.stdout.write(`${r.name}: ${entry.files} files, map ${(a.mapMs / 1000).toFixed(1)}s (${entry.map_status})\n`);
+      continue;
+    }
     entry.diagnose_ms = a.diagMs;
     entry.files = a.map.files;
     entry.map_status = a.map.status;
@@ -258,11 +268,13 @@ for (const r of repos) {
   }
 }
 
-report.precision = { overall: rate(overall), by_detector: Object.fromEntries(Object.entries(byKind).sort().map(([k, v]) => [k, rate(v)])), by_language: Object.fromEntries(Object.entries(byLanguage).sort().map(([k, v]) => [k, rate(v)])) };
-report.recall = { by_detector: recallBy, by_language: recallByLang };
-writeFileSync(join(out, 'accuracy.json'), `${JSON.stringify(report, null, 2)}\n`);
-writeFileSync(join(out, 'accuracy.md'), markdown(report));
-process.stdout.write(`\nReports in ${out}\n`);
+if (!mapOnly) { // nothing was scored
+  report.precision = { overall: rate(overall), by_detector: Object.fromEntries(Object.entries(byKind).sort().map(([k, v]) => [k, rate(v)])), by_language: Object.fromEntries(Object.entries(byLanguage).sort().map(([k, v]) => [k, rate(v)])) };
+  report.recall = { by_detector: recallBy, by_language: recallByLang };
+  writeFileSync(join(out, 'accuracy.json'), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(join(out, 'accuracy.md'), markdown(report));
+  process.stdout.write(`\nReports in ${out}\n`);
+}
 if (report.repositories.some((e) => e.error)) process.exitCode = 1; // a repository that failed to fetch or analyse is an error, not a gap in the numbers
 
 function pct(x) {

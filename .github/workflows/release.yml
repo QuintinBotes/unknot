@@ -54,9 +54,10 @@ jobs:
         run: node scripts/upgrade-test.mjs --count 5
 
   consistency:
-    name: gate - cross-command consistency (quick corpus)
+    name: gate - cross-command consistency (non-large corpus)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The 11 repositories of scripts/corpus.json not marked large map in about 5 minutes on 10 cores (#244).
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -66,9 +67,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - name: Map the quick corpus
+      - name: Score the quick corpus (the accuracy report)
         run: node scripts/accuracy.mjs --quick --work "$RUNNER_TEMP/corpus" --out "$RUNNER_TEMP/accuracy"
-      - name: Consistency over every mapped repository
+      # The accuracy report above stays on the quick corpus (#246); consistency covers the rest too (#244).
+      - name: Map every repository of scripts/corpus.json not marked large (fails naming one that does not fetch or map)
+        run: node scripts/accuracy.mjs --map-only --work "$RUNNER_TEMP/corpus" --out "$RUNNER_TEMP/map-only"
+      - name: Consistency over the same repositories (fails naming one that is not mapped)
         run: node scripts/consistency.mjs --work "$RUNNER_TEMP/corpus"
       # The release notes carry this report's tables and the release attaches accuracy.json (#246).
       - name: Upload the accuracy report
