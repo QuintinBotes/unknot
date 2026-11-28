@@ -9,15 +9,10 @@
 // evidence for the style is outweighed by conflicting evidence; `unknown` = nothing usable.
 
 import { stronglyConnected } from '../graph/algorithms.mjs';
+import { layersFor } from '../graph/derived.mjs';
 import { Graph } from '../graph/graph.mjs';
 import { LANGUAGE_IDS } from '../graph/languages.mjs';
 import { appModules, dedupe, moduleOf, unitEdges, unitModel, unitOf, WRITE_EDGES } from './model.mjs';
-
-const LAYERS = [
-  ['presentation', /^(controllers?|handlers?|routes?|routers?|api|web|presentation|ui|pages|endpoints|resources)$/],
-  ['business', /^(services?|application|business|domain|logic|usecases?|use-cases?|core)$/],
-  ['data', /^(repositor(y|ies)|dao|daos|persistence|data|db|database|stores?)$/],
-];
 
 const HEX = {
   domain: /^(domain|core|entities)$/,
@@ -62,11 +57,19 @@ function importPairs(graph, of) {
   return pairs;
 }
 
-function layered(graph, mods) {
-  const { out, of } = bucketModules(mods, LAYERS);
-  const present = LAYERS.map(([n]) => n).filter((n) => out.get(n).length);
+/** `rows`: the layers fact (#245), configured layers or directory names, top to bottom by `index`. */
+function layered(graph, mods, rows) {
+  const byId = new Map(rows.map((r) => [r.key, r.body]));
+  const order = [...new Map(rows.map((r) => [r.body.index, r.body.layer]))].sort((x, y) => x[0] - y[0]).map(([, n]) => n);
+  const out = new Map(order.map((n) => [n, []]));
+  const of = new Map();
+  for (const m of mods) {
+    const b = byId.get(m.id);
+    if (b) { out.get(b.layer).push(m); of.set(m.id, b.layer); }
+  }
+  const present = order.filter((n) => out.get(n).length);
   if (present.length < 3) return null;
-  const order = LAYERS.map(([n]) => n);
+  const named = rows[0].body.source === 'configured' ? ['configured layers', 'Configured layers'] : ['layer directories', 'Layer-named directories'];
   let down = 0;
   let up = 0;
   const upEdges = [];
@@ -76,13 +79,13 @@ function layered(graph, mods) {
     if (d > 0) down++;
     else if (d < 0) { up++; upEdges.push(e); }
   }
-  const evidence = [ev(`layer directories present: ${present.map((n) => `${n} (${out.get(n).length} modules)`).join(', ')}`, present.flatMap((n) => out.get(n)))];
-  if (down + up === 0) return entry('layered', 'inferred', 'Layer-named directories exist, but no imports between layers were observed.', evidence);
+  const evidence = [ev(`${named[0]} present: ${present.map((n) => `${n} (${out.get(n).length} modules)`).join(', ')}`, present.flatMap((n) => out.get(n)))];
+  if (down + up === 0) return entry('layered', 'inferred', `${named[1]} exist, but no imports between layers were observed.`, evidence);
   evidence.push(ev(`${down} imports point down the layers, ${up} point up`, upEdges));
   const used = pairs.filter((p) => p.a !== p.b).map((p) => p.e); // the imports between layers, which the label rests on
-  if (up === 0) return entry('layered', 'corroborated', 'Layer-named directories and strictly one-directional imports agree.', evidence, used);
-  if (up / (up + down) <= 0.1) return entry('layered', 'observed', 'Layer-named directories with mostly one-directional imports; a few upward imports violate the layering.', evidence, used);
-  return entry('layered', 'contradicted', 'Layer-named directories exist but imports run both ways between layers.', evidence);
+  if (up === 0) return entry('layered', 'corroborated', `${named[1]} and strictly one-directional imports agree.`, evidence, used);
+  if (up / (up + down) <= 0.1) return entry('layered', 'observed', `${named[1]} with mostly one-directional imports; a few upward imports violate the layering.`, evidence, used);
+  return entry('layered', 'contradicted', `${named[1]} exist but imports run both ways between layers.`, evidence);
 }
 
 function hexagonal(graph, mods) {
@@ -321,13 +324,14 @@ function modularMonolith(graph, mods, model) {
 
 /**
  * @param {import('../graph/graph.mjs').Graph} graph
+ * @param {{key: string, body: object}[]} [layers] the layers fact; by default worked out from directory names
  * @returns {{style: string, label: string, summary: string, evidence: {summary: string, refs: string[]}[]}[]}
  */
-export function classifyStyles(graph) {
+export function classifyStyles(graph, layers = layersFor(graph)) {
   const mods = appModules(graph);
   const model = unitModel(graph);
   const found = [
-    layered(graph, mods),
+    layered(graph, mods, layers),
     hexagonal(graph, mods),
     mvc(graph, mods),
     microkernel(graph, mods),

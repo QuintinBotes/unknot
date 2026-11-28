@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { UnknotError } from '../../core/errors.mjs';
 import { isSecretPath, resolveInside } from '../../core/paths.mjs';
 import { redact } from '../../core/redact.mjs';
+import { configuredLayers, layersFor, readDerived } from '../../graph/derived.mjs';
 import { Graph } from '../../graph/graph.mjs';
 import { modeRank } from '../../policy/defaults.mjs';
 import { architectureViews, renderStylesPage, renderViewPage } from '../../artifacts/architecture.mjs';
@@ -20,7 +21,8 @@ export async function run({ positional, flags }) {
   const res = await withRun(ctx, cfg, 'architecture', { actor, scope: positional }, async () => {
     const graph = Graph.fromStore(ctx.store);
     if (graph.size.nodes === 0) throw new UnknotError('UK_BASELINE_INVALID', 'the graph is empty; run unknot map first');
-    const result = architectureViews(graph, { scope: positional, maxNodes: flags.max_nodes ? Number(flags.max_nodes) : 60, container: flags.container ?? null });
+    readDerived(ctx, 'layers', { graph }); // seeds the stored layers the layered style reads
+    const result = architectureViews(graph, { scope: positional, maxNodes: flags.max_nodes ? Number(flags.max_nodes) : 60, container: flags.container ?? null, layers: layersFor(graph, configuredLayers(config)) });
     const pages = new Map();
     for (const [name, v] of Object.entries(result.views)) pages.set(`unknot-${name.replace(/_/g, '-')}.md`, renderViewPage(name, v));
     pages.set('styles.md', renderStylesPage(result.styles, result.labels));

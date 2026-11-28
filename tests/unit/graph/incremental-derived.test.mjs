@@ -2,12 +2,13 @@
 // rows are brought forward from the stored ones and equal, in content and order, what a full
 // recompute of the stored graph gives. Here the stored graph is changed by hand in the ways a
 // map rarely produces on its own: a member of a component (one the build forbids) becomes test
-// code, an end of a declared-only edge does, and a module gains or loses its node-level rows.
+// code, an end of a declared-only edge does, and a module gains or loses its node-level rows
+// (its layer among them).
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import * as K from '../../helpers/kernel.mjs';
 import { mapRepository } from '../../../runtime/graph/builder.mjs';
-import { computeDerived, DERIVED_EDGE_TYPES, DERIVED_KINDS, rowsGeneration, updateDerived } from '../../../runtime/graph/derived.mjs';
+import { computeDerived, DERIVED_EDGE_TYPES, DERIVED_KINDS, layerSpec, rowsGeneration, updateDerived } from '../../../runtime/graph/derived.mjs';
 import { Graph } from '../../../runtime/graph/graph.mjs';
 
 after(() => K.cleanup());
@@ -24,6 +25,7 @@ const files = {
   'B/Notify.cs': cls('Shop.B', 'Notify', '[Dependency]\n        public Mailer Mailer { get; set; }', 'using Shop.A;\n'),
   'web/a.js': "import { b } from './b.js';\nexport const a = () => b();\n",
   'web/b.js': "import { a } from './a.js';\nexport const b = () => a();\n",
+  'web/api/c.js': 'export const c = 1;\n',
 };
 
 /** Every stored row of the current generation, kind by kind, in the order readers get them. */
@@ -67,6 +69,11 @@ test('updated derived facts equal a full recompute of the changed graph, rows in
   assert.equal(stored(ctx).declared_only.find((r) => r.key === 'module:B/Notify.cs>module:A/Mailer.cs').body.test, true);
   change({ 'module:web/a.js': (a) => { delete a.exports; a.is_test = true; }, 'module:A/Ledger.cs': (a) => { delete a.is_test; } });
   change({ 'module:web/a.js': (a) => { a.exports = [{ name: 'a' }, { name: 'z' }]; delete a.is_test; } });
+  // A module leaves its layer and comes back (#245).
+  change({ 'module:web/api/c.js': (a) => { a.is_test = true; } });
+  assert.equal(stored(ctx).layers.find((r) => r.key === 'module:web/api/c.js'), undefined);
+  change({ 'module:web/api/c.js': (a) => { delete a.is_test; } });
+  assert.deepEqual(stored(ctx).layers.find((r) => r.key === 'module:web/api/c.js')?.body, { layer: 'presentation', index: 0, source: 'directory' });
   // Owners change with no change to the module's own row.
   change({}, [['OWNED_BY', 'module:web/b.js', 'team:@example/web']]);
   assert.deepEqual(stored(ctx).ownership.find((r) => r.key === 'module:web/b.js')?.body, { owners: ['team:@example/web'] });
@@ -83,4 +90,18 @@ test('a change to the import graph, a package or package containment is not brou
     { nodes: new Map(), edges: [['CONTAINS', pkg.id, 'module:A/Ledger.cs']] },
     { nodes: new Map([[pkg.id, [pkg, pkg]]]), edges: [] },
   ]) assert.equal(updateDerived(p.ctx, delta, g, g + 1), false, JSON.stringify(delta.edges));
+  assert.equal(updateDerived(p.ctx, { nodes: new Map(), edges: [] }, g, g + 1, layerSpec(['web/**', 'A/**'])), false, 'other layers than the stored ones');
+});
+
+test('a change to the configured layers rewrites the layers rows on the next map (#245)', async () => {
+  const p = K.makeProject({ files });
+  const layersOf = () => Object.fromEntries(stored(p.ctx).layers.map((r) => [r.key, `${r.body.layer}:${r.body.index}:${r.body.source}`]));
+  const map = (layers) => mapRepository(p.ctx, { config: K.cfg({ mode: 'plan', ...(layers && { detectors: { 'module.layer-bypass': { layers } } }) }), configDigest: JSON.stringify(layers ?? null), history: false });
+  const byDirectory = { 'module:web/a.js': 'presentation:0:directory', 'module:web/api/c.js': 'presentation:0:directory', 'module:web/b.js': 'presentation:0:directory' };
+  await map();
+  assert.deepEqual(layersOf(), byDirectory);
+  await map([{ name: 'web', globs: ['web/**'] }, { name: 'core', glob: 'A/**' }]);
+  assert.deepEqual(layersOf(), { 'module:A/Ledger.cs': 'core:1:configured', 'module:A/Mailer.cs': 'core:1:configured', 'module:web/a.js': 'web:0:configured', 'module:web/api/c.js': 'web:0:configured', 'module:web/b.js': 'web:0:configured' });
+  await map();
+  assert.deepEqual(layersOf(), byDirectory);
 });
