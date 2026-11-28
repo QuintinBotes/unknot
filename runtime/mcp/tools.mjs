@@ -83,6 +83,34 @@ function capResult(result, keys, hint, onTrim = () => {}) {
   return out;
 }
 
+/**
+ * Shorten the lists inside rows that are over their share of the byte cap, longest list first and
+ * `keep` lists last, so one big row cannot push every row out of the result (#261). A shortened
+ * row names each cut list with its length before in `fields_cut`. Rows that fit are unchanged.
+ */
+function fitRows(rows, keep) {
+  const room = RESULT_BYTES - 1_000; // what the envelope around the rows may take
+  const size = rows.map(bytes);
+  if (size.reduce((a, b) => a + b, 0) <= room) return rows;
+  // Rows under an equal share keep their size; the big ones split what those leave.
+  const small = size.filter((s) => s <= room / rows.length);
+  const share = (room - small.reduce((a, b) => a + b, 0)) / (rows.length - small.length);
+  return rows.map((row, i) => {
+    if (size[i] <= share) return row;
+    const fields_cut = {};
+    const out = { ...row, fields_cut };
+    while (bytes(out) > share) {
+      const lists = Object.keys(row).filter((k) => Array.isArray(out[k]) && out[k].length);
+      const pool = lists.some((k) => !keep.includes(k)) ? lists.filter((k) => !keep.includes(k)) : lists;
+      if (!pool.length) break;
+      const k = pool.reduce((a, b) => (bytes(out[b]) > bytes(out[a]) ? b : a));
+      fields_cut[k] ??= out[k].length;
+      out[k] = out[k].slice(0, Math.floor(out[k].length * 0.8));
+    }
+    return out;
+  });
+}
+
 function edgeTypesArg(a) {
   const types = [...(a.edge_types ?? []), ...(a.edge_type ? [a.edge_type] : [])];
   const bad = types.filter((t) => !EDGE_TYPES.has(t));
@@ -132,7 +160,10 @@ export const TOOLS = {
       const full = a.full === true;
       if (a.derived) {
         const facts = readDerived(ctx, a.derived, { graph: g });
-        return capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), total: facts.length }, ['facts'], 'lower limit');
+        const rows = fitRows(facts.slice(0, max).map((r) => ({ key: r.key, ...r.body })), ['members']);
+        const result = capResult({ derived: a.derived, generation: Number(ctx.store.meta('generation') ?? 0), facts: rows, total: facts.length }, ['facts'], 'lower limit');
+        const cutHint = "a row with fields_cut had those lists shortened to fit (each value is the list's length before); `unknot graph cycles --json` prints every component in full";
+        return rows.some((r) => r.fields_cut) ? { ...result, truncated: true, hint: result.hint ? `${result.hint}; ${cutHint}` : cutHint } : result;
       }
       if (a.id) {
         const { ids, note, suggestions } = explainRef(g, a.id);
