@@ -2,7 +2,9 @@
 // runner) gets proportionally more. The machine is measured once per test file with a fixed
 // workload that uses none of Unknot's own code, so a regression in the code under test cannot
 // raise its own limit. A real blow-up (quadratic work, a hang) still fails: it grows with the
-// input, not by a constant factor.
+// input, not by a constant factor. Both the calibration and the tests count this process's CPU
+// time (`cpuMs`), not wall time, so other processes on a machine that gets busy mid-run do not
+// count against the code under test (#266).
 
 const REFERENCE_MS = 12;
 
@@ -15,6 +17,12 @@ function work() {
   return n + map.size;
 }
 
+/** CPU time this process has used, in milliseconds (all its threads; no child processes). */
+export const cpuMs = () => {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+};
+
 let factor = null;
 
 /** How much slower this machine is than the reference (at least 1). */
@@ -23,9 +31,9 @@ export function slower() {
     work();
     let best = Infinity;
     for (let i = 0; i < 5; i++) {
-      const t0 = performance.now();
+      const t0 = cpuMs();
       work();
-      best = Math.min(best, performance.now() - t0);
+      best = Math.min(best, cpuMs() - t0);
     }
     factor = Math.max(1, best / REFERENCE_MS);
   }

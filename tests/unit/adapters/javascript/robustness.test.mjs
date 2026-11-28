@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { assertFact } from '../../../../runtime/graph/facts.mjs';
 import { extractOne, loadFixture, moduleAttrs, runAdapter } from './helpers.mjs';
 
-import { limit } from '../../../helpers/speed.mjs';
+import { cpuMs, limit } from '../../../helpers/speed.mjs';
 
 // A small deterministic PRNG so failures are reproducible.
 function rng(seed) {
@@ -68,9 +68,9 @@ test('pathologically deep or long input does not overflow the stack or hang', ()
     calls: Array.from({ length: 3000 }, (_, i) => `function f${i}() { g${i}(); }`).join('\n'),
   };
   for (const [name, text] of Object.entries(cases)) {
-    const t0 = performance.now();
+    const t0 = cpuMs();
     assert.doesNotThrow(() => extractOne('deep.ts', text), name);
-    assert.ok(performance.now() - t0 < limit(4000), `${name} took ${Math.round(performance.now() - t0)}ms (limit ${limit(4000)}ms)`);
+    assert.ok(cpuMs() - t0 < limit(4000), `${name} took ${Math.round(cpuMs() - t0)}ms (limit ${limit(4000)}ms)`);
   }
 });
 
@@ -139,9 +139,9 @@ export const View${i} = () => <div className="v" title='it "is"'>Don't {fn${i}(1
 test('a 1 MB source file extracts in under 1.5 seconds on the reference machine', () => {
   const text = synthesize(1_000_000);
   assert.ok(text.length >= 1_000_000);
-  const t0 = performance.now();
+  const t0 = cpuMs();
   const facts = extractOne('big/Synth.tsx', text);
-  const ms = performance.now() - t0;
+  const ms = cpuMs() - t0;
   assert.ok(ms < limit(1500), `extract took ${Math.round(ms)}ms (limit ${limit(1500)}ms)`);
   assert.equal(moduleAttrs(facts, 'big/Synth.tsx').parse_quality, 'ok');
   assert.ok(facts.length > 1000);
