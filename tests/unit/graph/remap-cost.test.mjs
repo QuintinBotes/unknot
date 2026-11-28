@@ -57,6 +57,7 @@ test('a reused map reports this run\'s counts and says so in text (#182)', async
   assert.equal(again.unchanged, true);
   for (const [id, a] of Object.entries(again.adapters)) assert.deepEqual([a.extracted, a.cached], [0, a.files], id);
   for (const [id, l] of Object.entries(again.link ?? {})) assert.equal(l.relinked, 0, id);
+  assert.deepEqual([first.projection.hashed > 0, again.projection.hashed], [true, 0], 'nothing was hashed');
   assert.equal(again.discover_files, undefined);
   assert.match(again.generated_at, /^\d{4}-\d\d-\d\dT/);
   // The CLI maps with the project's own config: its second map is the reused one.
