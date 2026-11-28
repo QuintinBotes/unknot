@@ -23,7 +23,8 @@ telemetry is emitted (spec §27, §16.5).
      migrates the store, and `status`, `slice`, `audit verify` and the approval binding must still
      work;
    - **consistency**: maps the quick corpus (`scripts/accuracy.mjs --quick`) and runs the
-     cross-command consistency check (`scripts/consistency.mjs`) on every repository;
+     cross-command consistency check (`scripts/consistency.mjs`) on every repository, and uploads
+     the accuracy report (`accuracy.json`, `accuracy.md`) as the `accuracy` artifact;
    - **benchmark**: `scripts/bench.mjs --sizes 10k --release-gate`: a no-change re-map at most 0.1
      of the cold map and a re-map after a 10-file change at most 0.5 of it (`RELEASE_GATES`). The
      other two #88 bounds (a changed re-map at most twice the no-change one, the store at most three
@@ -34,8 +35,14 @@ telemetry is emitted (spec §27, §16.5).
    - runs `node scripts/build-release.mjs --out dist`;
    - runs `node scripts/verify-release.mjs dist`;
    - attests the tarball and the SBOM with `actions/attest-build-provenance` (Sigstore);
+   - downloads the consistency gate's `accuracy` artifact and builds the notes with
+     `node scripts/release-notes.mjs <tag> --accuracy <dir>`: the version's `CHANGELOG.md` section,
+     then an "Accuracy" section with the corpus (each repository's commit), the seed, and the
+     overall precision, precision by detector and seeded recall tables exactly as
+     `scripts/accuracy.mjs` wrote them for this commit. Without a report in the directory the
+     script exits 1, so the notes never claim a table they do not have;
    - creates the GitHub release with `gh release create` using `GITHUB_TOKEN`, uploading the tarball,
-     `SHA256SUMS` and `sbom.cdx.json`.
+     `SHA256SUMS`, `sbom.cdx.json` and `accuracy.json`.
 
 Only the publishing job holds `contents: write`, `id-token: write` and `attestations: write`; every other
 workflow runs with `permissions: {}` or read-only scope, and every action is pinned to a full
@@ -49,7 +56,7 @@ quick corpus every week and runs the cross-command consistency check on each map
 step summary's change since the previous run should have no drop you cannot explain. If the
 change you are releasing touches detectors or the graph, dispatch the workflow on the release
 branch first. Consistency gates the release (above); precision and recall do not yet, so reviewing
-them is a human step, and the results go into the release notes.
+them is a human step. The release notes carry the accuracy table of the tagged commit on their own.
 
 ### How long fixes may wait
 
@@ -76,6 +83,7 @@ then, release `main` as a patch release, so fixes are never held behind features
 | `unknot-<version>.tar.gz` | `git archive` of the tagged commit, prefix `unknot-<version>/`. Tests and fixtures are included: they are part of the reproducible source. |
 | `SHA256SUMS` | SHA-256 of the tarball and of the SBOM, in `sha256sum` format. |
 | `sbom.cdx.json` | CycloneDX 1.5 SBOM: the package, its zero npm dependencies, the Node.js requirement, the optional external tools (python3, git, helm, kustomize, terraform, gitleaks, semgrep) and the SHA-256 of every shipped file. |
+| `accuracy.json` | The accuracy report of the consistency gate for the tagged commit (`scripts/accuracy.mjs --quick`): precision and seeded recall, overall and per detector, with the corpus and seed. |
 | Provenance attestation | Sigstore-signed SLSA provenance for the tarball and the SBOM, stored by GitHub. |
 
 ### Reproducibility
