@@ -23,9 +23,13 @@ telemetry is emitted (spec §27, §16.5).
      fixture, plans a campaign, approves its slice with a test key and applies it; this commit then
      migrates the store, and `status`, `slice`, `audit verify` and the approval binding must still
      work;
-   - **consistency**: maps the quick corpus (`scripts/accuracy.mjs --quick`) and runs the
-     cross-command consistency check (`scripts/consistency.mjs`) on every repository, and uploads
-     the accuracy report (`accuracy.json`, `accuracy.md`) as the `accuracy` artifact;
+   - **consistency**: maps the non-large corpus, every repository of `scripts/corpus.json` not
+     marked `large` (`scripts/accuracy.mjs --map-only`), and runs the cross-command consistency
+     check (`scripts/consistency.mjs --work`) on each of them. A repository that fails to fetch or
+     map, or that has no mapped store when the check runs, fails the job by name; it is never
+     skipped. It also scores the quick corpus (`scripts/accuracy.mjs --quick`) and uploads that
+     accuracy report (`accuracy.json`, `accuracy.md`) as the `accuracy` artifact. The job allows
+     120 minutes;
    - **benchmark**: `scripts/bench.mjs --sizes 10k --release-gate`: a no-change re-map at most 0.1
      of the cold map and a re-map after a 10-file change at most 0.5 of it (`RELEASE_GATES`). The
      other two #88 bounds (a changed re-map at most twice the no-change one, the store at most three

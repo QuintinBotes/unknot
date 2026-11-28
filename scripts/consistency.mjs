@@ -5,33 +5,43 @@
 // (`unknot map`); diagnose records its findings in that repository's .unknot store, so run
 // this on a copy, like scripts/dogfood.mjs.
 //
-// With --work DIR it instead checks every repository that scripts/accuracy.mjs mapped into DIR
-// (DIR/<name>@<sha>/src, the --work directory of that script), which is the scheduled quality run.
+// With --work DIR it instead checks the repositories scripts/accuracy.mjs maps into DIR
+// (DIR/<name>@<sha>/src, the --work directory of that script): every repository of
+// scripts/corpus.json (or --corpus FILE) not marked large, or with --quick the quick corpus, the
+// same selection accuracy.mjs makes. That is the release gate and the scheduled quality run.
 // Those checkouts are disposable, so they are checked in place. Exit status 1 when any
-// repository disagrees; 2 when none was mapped.
+// repository disagrees or a selected one was not mapped (named, never skipped).
 //
 // Usage: node scripts/consistency.mjs <repo-path>
-//        node scripts/consistency.mjs --work <accuracy work directory>
+//        node scripts/consistency.mjs --work <accuracy work directory> [--quick] [--corpus FILE]
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const usage = () => {
-  process.stderr.write('usage: node scripts/consistency.mjs <repo-path>   (the repository must have been mapped: unknot map)\n       node scripts/consistency.mjs --work <accuracy work directory>\n');
+  process.stderr.write('usage: node scripts/consistency.mjs <repo-path>   (the repository must have been mapped: unknot map)\n       node scripts/consistency.mjs --work <accuracy work directory> [--quick] [--corpus FILE]\n');
   process.exit(2);
 };
 
 const w = process.argv.indexOf('--work');
 if (w !== -1 && !process.argv[w + 1]) usage();
+const c = process.argv.indexOf('--corpus');
+if (c !== -1 && !process.argv[c + 1]) usage();
 let roots;
+let failed = false;
 if (w !== -1) {
   const work = resolve(process.argv[w + 1]);
-  roots = existsSync(work)
-    ? readdirSync(work).sort().map((d) => join(work, d, 'src')).filter((d) => existsSync(join(d, '.unknot')))
-    : [];
-  if (!roots.length) {
-    process.stderr.write(`no mapped repository under ${work}\n`);
-    process.exit(2);
+  const corpus = JSON.parse(readFileSync(c !== -1 ? resolve(process.argv[c + 1]) : join(dirname(fileURLToPath(import.meta.url)), 'corpus.json'), 'utf8'));
+  const quick = process.argv.includes('--quick');
+  roots = [];
+  for (const r of corpus.repositories.filter((x) => (quick ? x.quick : !x.large))) {
+    const root = join(work, `${r.name}@${r.sha.slice(0, 12)}`, 'src');
+    if (existsSync(join(root, '.unknot'))) roots.push(root);
+    else {
+      process.stdout.write(`MISSING ${r.name}: not mapped (no .unknot store in ${root}); map it with scripts/accuracy.mjs --work ${work}\n`);
+      failed = true;
+    }
   }
 } else {
   if (!process.argv[2] || !existsSync(resolve(process.argv[2], '.unknot'))) usage();
@@ -40,7 +50,6 @@ if (w !== -1) {
 
 const { openProject } = await import('../runtime/context.mjs');
 const { checkConsistency } = await import('../runtime/graph/consistency.mjs');
-let failed = false;
 for (const root of roots) {
   if (w !== -1) process.stdout.write(`== ${root}\n`);
   const ctx = openProject(root);

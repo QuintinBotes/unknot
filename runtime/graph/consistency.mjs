@@ -33,12 +33,14 @@ export async function checkConsistency(ctx, { config = loadConfig(ctx).config } 
   // The three surfaces that print cycles: the CLI, the MCP tool and the derived store itself.
   const limit = String(Math.max(200, scc.length));
   const cli = JSON.parse(execFileSync(process.execPath, [BIN, 'graph', 'cycles', '--json', '--limit', limit], { cwd: ctx.root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
-  const mcp = TOOLS.graph_query.run(ctx, { derived: 'scc', limit: 200 }).facts ?? [];
+  const mcpResult = TOOLS.graph_query.run(ctx, { derived: 'scc', limit: 200 });
+  const mcp = mcpResult.facts ?? [];
   const keyOf = (members) => members.join('|');
   const stored = scc.map((c) => keyOf(c.members));
   const cliKeys = cli.map((c) => keyOf(c.members));
   if (!same(cliKeys, stored)) bad('cycles', `graph cycles lists ${cli.length} components, the derived store ${scc.length}`);
-  if (mcp.length !== Math.min(200, scc.length) || mcp.some((c, i) => keyOf(c.members) !== stored[i])) bad('cycles', 'the MCP graph_query derived scc differs from the derived store');
+  // A result over the MCP byte cap is cut (`truncated`, #244): its total and the rows it kept must still agree.
+  if (mcpResult.total !== scc.length || (!mcpResult.truncated && mcp.length !== Math.min(200, scc.length)) || mcp.some((c, i) => keyOf(c.members) !== stored[i])) bad('cycles', 'the MCP graph_query derived scc differs from the derived store');
 
   // Every component has a cycle finding, or the store records why diagnose does not report it.
   const diag = await diagnose(ctx, { config });
@@ -80,8 +82,10 @@ export async function checkConsistency(ctx, { config = loadConfig(ctx).config } 
   for (const id of new Set([...layerOf.keys(), ...fresh.keys()])) {
     if (JSON.stringify(layerOf.get(id)) !== JSON.stringify(fresh.get(id))) bad('layers', `${pathOf(id)} is stored in ${show(layerOf.get(id))}, the graph and config give ${show(fresh.get(id))}`);
   }
-  const mcpLayers = TOOLS.graph_query.run(ctx, { derived: 'layers', limit: 200 }).facts ?? [];
-  if (mcpLayers.length !== Math.min(200, layerRows.length) || mcpLayers.some(({ key, ...b }, i) => key !== layerRows[i].key || JSON.stringify(b) !== JSON.stringify(layerRows[i].body))) bad('layers', 'the MCP graph_query derived layers differs from the derived store');
+  // Cut by the MCP byte cap like the cycles above: its total and the rows it kept must still agree.
+  const mcpLayerResult = TOOLS.graph_query.run(ctx, { derived: 'layers', limit: 200 });
+  const mcpLayers = mcpLayerResult.facts ?? [];
+  if (mcpLayerResult.total !== layerRows.length || (!mcpLayerResult.truncated && mcpLayers.length !== Math.min(200, layerRows.length)) || mcpLayers.some(({ key, ...b }, i) => key !== layerRows[i].key || JSON.stringify(b) !== JSON.stringify(layerRows[i].body))) bad('layers', 'the MCP graph_query derived layers differs from the derived store');
   const names = spec.map((l) => l.name);
   for (const f of diag.findings.filter((x) => x.kind === 'module.layer-bypass')) {
     const from = f.key.slice(f.key.indexOf(':') + 1).split('->')[0];

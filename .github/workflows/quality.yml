@@ -44,7 +44,7 @@ jobs:
         run: node scripts/accuracy.mjs --quick --work "$RUNNER_TEMP/corpus" --out "$RUNNER_TEMP/accuracy"
       - name: Consistency over every mapped repository
         shell: bash
-        run: node scripts/consistency.mjs --work "$RUNNER_TEMP/corpus" | tee "$RUNNER_TEMP/accuracy/consistency.txt"
+        run: node scripts/consistency.mjs --quick --work "$RUNNER_TEMP/corpus" | tee "$RUNNER_TEMP/accuracy/consistency.txt"
       - name: Compare with the previous run
         if: ${{ !cancelled() }}
         env:
