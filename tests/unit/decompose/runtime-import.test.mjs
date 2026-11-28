@@ -14,7 +14,7 @@ const { decompose } = await import('../../../runtime/decompose/index.mjs');
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
 const { nodeFact, prov } = await import('../../../runtime/graph/facts.mjs');
 const { matchRows, parseImport, parseWindow } = await import('../../../adapters/runtime/imports.mjs');
-const { COVERAGE_THRESHOLD, capConfidence } = await import('../../../runtime/decompose/runtime-evidence.mjs');
+const { COVERAGE_THRESHOLD, ageGaps, capConfidence, freshnessOf } = await import('../../../runtime/decompose/runtime-evidence.mjs');
 
 const SAMPLE = readFileSync(new URL('../../fixtures/runtime/import-table.csv', import.meta.url), 'utf8');
 const NOW = '2026-10-06T00:00:00.000Z';
@@ -199,6 +199,39 @@ describe('decompose with imported runtime data', () => {
     assert.equal(low.candidate.metrics['runtime.boundary_coverage'], 0);
     assert.equal(low.runtime_evidence, undefined, 'no crossing rows, so no observed signal to report');
     assert.ok(low.evidence_gaps.some((g) => /static-only confidence cap stays/.test(g)));
+  });
+
+  test('each runtime signal carries the age of its evidence; past its expiry it is still reported, stale, and confidence is one step lower (#239)', async () => {
+    // The window ends 10 days before NOW and expires 14 days (the default ttl) after its end.
+    const aged = SAMPLE.replaceAll(',P7D', ',2026-09-19T00:00:00Z/2026-09-26T00:00:00Z');
+    await importCli('runtime', put('aged.csv', aged), '--source', 'aged');
+    const at = async (now) => orders(await decompose(r.ctx, { config: r.config, scope: ['shop/**'], dryRun: true, now }));
+    const fresh = await at(NOW);
+    const later = await at('2026-10-30T00:00:00.000Z');
+    const expires = '2026-10-10T00:00:00.000Z';
+    assert.deepEqual(fresh.evidence_age['runtime.cross_boundary_calls'], { age_days: 10, expires_at: expires, stale: false });
+    const row = (rec) => rec.readiness.find((x) => x.signal === 'traces.available');
+    assert.deepEqual([row(fresh).age_days, row(fresh).expires_at, row(fresh).stale], [10, expires, false]);
+    assert.ok(!fresh.evidence_gaps.some((g) => /expired/.test(g)));
+    assert.equal(fresh.confidence_lowered, undefined);
+
+    // Same evidence, 20 days past its expiry: the value stays, marked stale, one step lower.
+    assert.equal(later.candidate.metrics['runtime.cross_boundary_calls'], fresh.candidate.metrics['runtime.cross_boundary_calls']);
+    assert.deepEqual(later.evidence_age['runtime.cross_boundary_calls'], { age_days: 34, expires_at: expires, stale: true });
+    assert.deepEqual([row(later).age_days, row(later).stale], [34, true]);
+    // This boundary's uncapped confidence is medium (one favouring signal).
+    assert.equal(fresh.confidence, 'medium');
+    assert.equal(later.confidence, 'low');
+    assert.match(later.confidence_lowered, /confidence lowered from medium to low: traces\.available, runtime\.cross_boundary_calls.* rest on evidence that expired 20 day\(s\) ago/);
+    assert.ok(later.evidence_gaps.some((g) => /runtime evidence expired 20 day\(s\) ago/.test(g)));
+  });
+
+  test('evidence without an observed window has no age, and a gap says so (#239)', () => {
+    assert.deepEqual(freshnessOf([{ calls: 1 }], NOW), { age_days: null, expires_at: null, stale: false });
+    assert.deepEqual(ageGaps('runtime evidence', freshnessOf([{ calls: 1 }], NOW), NOW), ['runtime evidence has no observed window: its age is unknown']);
+    // The earliest window end and the earliest expiry among the facts used.
+    const f = freshnessOf([{ observed_window: { end: '2026-09-30T12:00:00Z' }, expires_at: '2026-10-14T12:00:00Z' }, { observed_window: { end: '2026-09-26T00:00:00Z' }, expires_at: '2026-10-05T00:00:00Z' }], NOW);
+    assert.deepEqual(f, { age_days: 10, expires_at: '2026-10-05T00:00:00Z', stale: true });
   });
 
   test('static evidence alone caps an extraction at medium; coverage lifts it; nothing raises a lower confidence', () => {

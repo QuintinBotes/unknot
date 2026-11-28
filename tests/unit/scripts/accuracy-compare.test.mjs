@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compareReports, renderComparison } from '../../../scripts/lib/accuracy-compare.mjs';
+import { checkExplanations, compareReports, GATE, gateReports, renderComparison, renderGate } from '../../../scripts/lib/accuracy-compare.mjs';
 import { mkTmp } from '../../helpers/tmp.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../../../scripts/accuracy-compare.mjs', import.meta.url));
@@ -71,4 +71,83 @@ test('command line: missing previous file exits 0, missing current file exits 2'
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// Release gate (#247): reports shaped as scripts/accuracy.mjs writes them.
+const REPOS = [{ name: 'petclinic', sha: 'a'.repeat(40) }, { name: 'pocketbase', sha: 'b'.repeat(40) }];
+const gated = (unknot, byDetector, recall = {}, extra = {}) => ({
+  unknot, generated: '2026-01-01T00:00:00.000Z', seed: 'unknot-1', sample: 20, quick: true, repositories: REPOS,
+  precision: { overall: { precision: 0.5, factual: 0.8 }, by_detector: byDetector },
+  recall: { by_detector: recall, by_language: {} },
+  ...extra,
+});
+const prec = (precision, labelled) => ({ precision, factual: precision, labelled });
+const before = gated('0.4.0', { hub: prec(0.6, 12), seam: prec(0.5, 4) }, { cycle: { found: 2, total: 2 } });
+const dropped = gated('0.5.0', { hub: prec(0.4, 11), seam: prec(0.5, 4) }, { cycle: { found: 2, total: 2 } });
+
+test('gate: a precision drop over the threshold on enough labelled findings fails, naming both sides', () => {
+  assert.deepEqual(GATE, { maxDropPoints: 10, minLabelled: 10, minSeeded: 1 });
+  const g = gateReports(before, dropped, []);
+  assert.equal(g.ok, false);
+  assert.deepEqual(g.checks.map((c) => [c.detector, c.metric, c.drop, c.beforeN, c.afterN, c.fails]), [['hub', 'precision', 20, 12, 11, true]]);
+  assert.match(renderGate(g), /FAIL: hub precision fell from 60% \(12 labelled\) to 40% \(11 labelled\), 20 points, and no explanation for this release/);
+  assert.match(renderGate(g), /Gate: FAIL\./);
+  assert.equal(gateReports(before, gated('0.5.0', { hub: prec(0.5, 12) }), []).ok, true, 'a drop of exactly the threshold passes');
+});
+
+test('gate: an explanation for that detector and release passes and is printed; one for another release does not', () => {
+  const g = gateReports(before, dropped, [{ detector: 'hub', release: 'v0.5.0', reason: 'labels corrected after review' }]);
+  assert.equal(g.ok, true);
+  assert.match(renderGate(g), /explained: hub precision fell from 60% .*: labels corrected after review/);
+  assert.equal(gateReports(before, dropped, [{ detector: 'hub', release: '0.4.0', reason: 'old' }]).ok, false);
+  assert.equal(gateReports(before, dropped, [{ detector: 'seam', release: '0.5.0', reason: 'other' }]).ok, false);
+  assert.throws(() => checkExplanations([{ detector: 'hub', release: '0.5.0' }]), /no reason/);
+  assert.throws(() => checkExplanations({}), /array/);
+});
+
+test('gate: a detector with fewer labelled findings than the minimum does not fail and says so', () => {
+  const g = gateReports(before, gated('0.5.0', { hub: prec(0.6, 12), seam: prec(0.1, 4) }), []);
+  assert.equal(g.ok, true);
+  assert.match(renderGate(g), /too small to judge: seam precision fell from 50% \(4 labelled\) to 10% \(4 labelled\)/);
+});
+
+test('gate: no previous report, or a different corpus, seed or sample size, passes and says why', () => {
+  assert.equal(gateReports(null, dropped).ok, true);
+  assert.match(renderGate(gateReports(null, dropped)), /No previous release report to compare with/);
+  for (const extra of [{ seed: 'other' }, { repositories: [REPOS[0]] }, { sample: 10 }]) {
+    const g = gateReports(before, gated('0.5.0', { hub: prec(0.1, 12) }, {}, extra), []);
+    assert.equal(g.ok, true);
+    assert.match(renderGate(g), /different corpus, seed or sample size/);
+  }
+});
+
+test('gate: a seeded-recall drop fails unless explained, like precision', () => {
+  const lost = gated('0.5.0', { hub: prec(0.6, 12) }, { cycle: { found: 1, total: 2 } });
+  const g = gateReports(before, lost, []);
+  assert.equal(g.ok, false);
+  assert.match(renderGate(g), /FAIL: cycle seeded recall fell from 100% \(2 seeded\) to 50% \(2 seeded\), 50 points/);
+  assert.equal(gateReports(before, lost, [{ detector: 'cycle', release: '0.5.0', reason: 'seed moved' }]).ok, true);
+});
+
+test('command line: --gate exits 1 on an unexplained drop, 0 when explained or with no previous; without --gate always 0', () => {
+  const dir = mkTmp(join(tmpdir(), 'uk-gate-'));
+  const prev = join(dir, 'prev.json');
+  const cur = join(dir, 'cur.json');
+  const none = join(dir, 'none.json');
+  writeFileSync(prev, JSON.stringify(before));
+  writeFileSync(cur, JSON.stringify(dropped));
+  writeFileSync(none, '[]');
+  const run = (...a) => execFileSync(process.execPath, [SCRIPT, ...a], { encoding: 'utf8', stdio: 'pipe' });
+  assert.doesNotMatch(run(prev, cur), /Release gate/, 'without --gate nothing changes (FR-001)');
+  assert.throws(() => run(prev, cur, '--gate', '--explained', none), (e) => e.status === 1 && /FAIL: hub precision/.test(e.stdout));
+  const why = join(dir, 'why.json');
+  writeFileSync(why, JSON.stringify([{ detector: 'hub', release: '0.5.0', reason: 'labels corrected' }]));
+  assert.match(run(prev, cur, '--gate', '--explained', why), /explained: hub precision[^\n]*labels corrected/);
+  assert.match(run(join(dir, 'missing.json'), cur, '--gate', '--explained', none), /No previous release report to compare with/);
+  writeFileSync(why, '[{"detector":"hub"}]');
+  assert.throws(() => run(prev, cur, '--gate', '--explained', why), (e) => e.status === 2 && /no release/.test(e.stderr));
+});
+
+test('the committed explanations file is valid', () => {
+  checkExplanations(JSON.parse(readFileSync(new URL('../../../corpus/accuracy-explained.json', import.meta.url), 'utf8')));
 });

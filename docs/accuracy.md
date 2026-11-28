@@ -1,9 +1,10 @@
 # Published accuracy
 
 How often Unknot's findings are right, and how many planted defects it finds, measured on a
-pinned corpus of public repositories. This is the accuracy part of roadmap item 7. Earlier
-audits ([dogfood rounds 7 and 8](dogfood/README.md)) were done by hand on ad hoc repositories;
-this page is the repeatable version.
+pinned corpus of public repositories. This is the accuracy part of
+[roadmap item 6](roadmap.md#6-published-accuracy-release-channels-and-migrations). Earlier audits
+([dogfood rounds 7 and 8](dogfood/README.md)) were done by hand on ad hoc repositories; this page
+is the repeatable version.
 
 ## Method
 
@@ -90,7 +91,10 @@ Run workflow). It runs the `--quick` line above on the corpus clones (cached on
 runs the cross-command consistency check over every repository the accuracy run mapped. The job
 has `contents: read` and `actions: read` only and a 60 minute limit. It fails when a repository
 cannot be analysed or when the commands disagree; it does **not** fail on precision or recall
-numbers, because there is no gate yet.
+numbers. The release workflow does: its accuracy gate fails a release on an unexplained
+per-detector precision or seeded-recall drop against the previous release's report, with the
+thresholds and the explanations file (`corpus/accuracy-explained.json`) described in
+`docs/release.md` under "Accuracy regressions".
 
 Results appear in two places. The run's step summary shows overall precision and factual
 accuracy, seeded recall, the change since the previous run and the consistency output. The

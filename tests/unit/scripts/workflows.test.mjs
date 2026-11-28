@@ -84,6 +84,34 @@ test('release.yml: notes come from the CHANGELOG section, not generated', () => 
   assert.doesNotMatch(text, /--generate-notes/);
 });
 
+test('release.yml: the consistency gate hands its accuracy report to the notes and the release assets (#246)', () => {
+  const wf = parseYAML(read('release.yml'), { filename: 'release.yml' });
+  const up = wf.jobs.consistency.steps.find((s) => /actions\/upload-artifact@/.test(s.uses ?? ''));
+  assert.equal(up.with.name, 'accuracy');
+  assert.match(up.with.path, /accuracy\/accuracy\.json/);
+  assert.match(up.with.path, /accuracy\/accuracy\.md/);
+  assert.equal(up.with['if-no-files-found'], 'error');
+  const steps = wf.jobs.release.steps;
+  const down = steps.findIndex((s) => /actions\/download-artifact@/.test(s.uses ?? ''));
+  const create = steps.findIndex((s) => /gh release create/.test(s.run ?? ''));
+  assert.ok(down >= 0 && down < create, 'the report is downloaded before the release is created');
+  assert.equal(steps[down].with.name, 'accuracy');
+  assert.match(steps[create].run, /release-notes\.mjs "\$TAG" --accuracy "\$RUNNER_TEMP\/accuracy"/);
+  assert.match(steps[create].run, /gh release create "\$TAG" [^\n]*"\$RUNNER_TEMP\/accuracy\/accuracy\.json"/);
+});
+
+test('release.yml: the accuracy gate compares with the previous final release, read-only, and fails through the pipe (#247)', () => {
+  const wf = parseYAML(read('release.yml'), { filename: 'release.yml' });
+  const job = wf.jobs.accuracy;
+  assert.equal(job.needs, 'consistency', 'it judges the report the consistency gate wrote');
+  assert.equal(job.steps.find((s) => /actions\/download-artifact@/.test(s.uses ?? '')).with.name, 'accuracy');
+  const step = job.steps.find((s) => /--gate/.test(s.run ?? ''));
+  assert.equal(step.shell, 'bash', 'bash runs with pipefail, so tee does not hide a failed gate');
+  assert.match(step.run, /gh release list [^\n]*--exclude-drafts --exclude-pre-releases/);
+  assert.match(step.run, /grep -vxF "\$TAG"/, 'a re-run never compares a release with itself');
+  assert.match(step.run, /gh release download "\$prev" [^\n]*--pattern accuracy\.json/);
+});
+
 test('release.yml: a restore drill runs before anything is published', () => {
   const text = read('release.yml');
   assert.match(text, /run: node scripts\/restore-drill\.mjs\n/);
@@ -94,7 +122,7 @@ test('release.yml: publishing waits for the upgrade, consistency and benchmark g
   const text = read('release.yml');
   const wf = parseYAML(text, { filename: 'release.yml' });
   assert.ok('workflow_dispatch' in wf.on && wf.on.push.tags);
-  const gates = { test: /npm test/, upgrade: /node scripts\/upgrade-test\.mjs --count 5/, consistency: /node scripts\/consistency\.mjs --work/, bench: /node scripts\/bench\.mjs --sizes \w+ --release-gate/ };
+  const gates = { test: /npm test/, upgrade: /node scripts\/upgrade-test\.mjs --count 5/, consistency: /node scripts\/consistency\.mjs --work/, bench: /node scripts\/bench\.mjs --sizes \w+ --release-gate/, accuracy: /node scripts\/accuracy-compare\.mjs [^\n]* --gate/ };
   const run = (job) => job.steps.map((s) => s.run ?? '').join('\n');
   for (const [id, re] of Object.entries(gates)) {
     assert.match(run(wf.jobs[id]), re, id);

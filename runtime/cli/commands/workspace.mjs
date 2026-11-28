@@ -78,6 +78,17 @@ function addRepository(ctx, name, path) {
   };
 }
 
+/** Unmatched and skewed client operations and contract version skew, one line each. */
+function operationLines(ops, contractSkew = []) {
+  return [
+    ...ops.unmatched.map((u) => `  unmatched: ${u.route} in ${u.repo}${u.interfaces.length ? ` (${u.interfaces.join(', ')})` : ''}${u.candidates ? `; near matches: ${u.candidates.map((c) => `${c.provider_route} in ${c.provider_repo}`).join(', ')}` : ''}`),
+    ...(ops.skew ?? []).map((s) => `  ${s.kind} skew: ${s.route} in ${s.repo}, served as ${s.provider_route} in ${s.provider_repo}`),
+    ...contractSkew.map((c) => `Contract version skew: ${c.title} is ${c.versions.map((v) => `${v.api_version} in ${v.repo}`).join(', ')}`),
+  ];
+}
+
+const skewed = (ops) => (ops.skew?.length ? `, ${ops.skew.length} skewed` : '');
+
 export async function run({ positional, flags }) {
   const sub = positional[0] ?? 'list';
   if (sub === 'add' || sub === 'remove') {
@@ -118,7 +129,8 @@ export async function run({ positional, flags }) {
     return output([
       `Mapped ${r.repositories.length} repositories into ${r.nodes} workspace nodes and ${r.edges} edges.`,
       `Cross-repository edges: ${a.cross_repo_edges.total}${a.cross_repo_edges.total ? ` (${Object.entries(a.cross_repo_edges.by_via).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}.`,
-      ...(a.client_operations?.total ? [`Client operations: ${a.client_operations.total} (${a.client_operations.linked} linked to an endpoint in another repository, ${a.client_operations.internal} served in their own repository, ${a.client_operations.unmatched.length} unmatched).`, ...a.client_operations.unmatched.map((u) => `  unmatched: ${u.route} in ${u.repo}${u.interfaces.length ? ` (${u.interfaces.join(', ')})` : ''}`)] : []),
+      ...(a.client_operations?.total ? [`Client operations: ${a.client_operations.total} (${a.client_operations.linked} linked to an endpoint in another repository, ${a.client_operations.internal} served in their own repository, ${a.client_operations.unmatched.length} unmatched${skewed(a.client_operations)}).`] : []),
+      ...operationLines(a.client_operations ?? { unmatched: [] }, a.contract_skew),
       a.shared_database ? `SHARED DATABASE: ${a.shared_tables.map((t) => t.table).join(', ')}` : 'No tables are shared between repositories.',
     ].join('\n'));
   }
@@ -134,7 +146,8 @@ export async function run({ positional, flags }) {
       '',
       `Cross-repository edges: ${s.cross_repo_edges.total} (${Object.entries(s.cross_repo_edges.by_type).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'})`,
       ...s.repo_dependencies.map((d) => `  ${d.from} -> ${d.to} via ${d.via.join(', ')} (${d.edges})`),
-      ...(s.client_operations.total ? [`Client operations: ${s.client_operations.total} (${s.client_operations.linked} linked, ${s.client_operations.internal} internal, ${s.client_operations.unmatched.length} unmatched)`, ...s.client_operations.unmatched.map((u) => `  unmatched: ${u.route} in ${u.repo}${u.interfaces.length ? ` (${u.interfaces.join(', ')})` : ''}`)] : []),
+      ...(s.client_operations.total ? [`Client operations: ${s.client_operations.total} (${s.client_operations.linked} linked, ${s.client_operations.internal} internal, ${s.client_operations.unmatched.length} unmatched${skewed(s.client_operations)})`] : []),
+      ...operationLines(s.client_operations, s.contract_skew),
       s.shared_database ? `Shared tables: ${s.shared_tables.map((t) => `${t.table} (owner ${t.owner_repo})`).join(', ')}` : 'Shared tables: none',
       ...(s.release_coupling.length ? ['Release coupling:', ...s.release_coupling.map((h) => `  ${h.hint}`)] : []),
       `Catalog: ${s.catalog.services.length} services, ${s.catalog.unmapped_code_roots.length} unmapped code roots, ${s.catalog.services_without_owner.length} without owner, ${s.catalog.owners_without_services.length} owners without services`,

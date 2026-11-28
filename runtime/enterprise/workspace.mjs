@@ -186,8 +186,32 @@ export function buildWorkspaceGraph(graphs) {
       for (const [provider, endpoint] of providers(matchKey(e.to))) if (provider !== repo) link('CONSUMES', repo, e.from, provider, endpoint, 'contract', { detail: endpoint.slice('endpoint:'.length) });
     }
   }
+  // An unserved HTTP operation that differs from another repository's endpoint only in one
+  // `v<n>` path segment, or only in the method, is version skew rather than a missing provider.
+  const httpKey = (k) => /^([A-Z]+) (\/.*)$/.exec(k);
+  const VERSION = /^v\d+$/i;
+  const nearMatches = (key, repo) => {
+    const [, method, path] = httpKey(key) ?? [];
+    if (!method) return [];
+    const segs = path.split('/');
+    const out = [];
+    for (const [k, byRepo] of exposed) {
+      const [, m, p] = httpKey(k) ?? [];
+      if (!m) continue;
+      let kind = null;
+      if (p === path) kind = m !== method && m !== 'ANY' ? 'method' : null;
+      else if (m === method || m === 'ANY') {
+        const ks = p.split('/');
+        const diff = ks.length === segs.length ? ks.flatMap((s, i) => (s === segs[i] ? [] : [i])) : [];
+        const [i] = diff;
+        if (diff.length === 1 && VERSION.test(ks[i]) && VERSION.test(segs[i]) && ks[i].toLowerCase() !== segs[i].toLowerCase()) kind = 'version';
+      }
+      if (kind) for (const [r] of byRepo) if (r !== repo) out.push({ kind, provider_repo: r, provider_route: k });
+    }
+    return out.sort((a, b) => `${a.provider_repo} ${a.provider_route}`.localeCompare(`${b.provider_repo} ${b.provider_route}`));
+  };
   // A typed client operation (`contract` node) links to the endpoint that serves it, in this or another repository.
-  const clientOps = { total: 0, linked: 0, internal: 0, unmatched: [] };
+  const clientOps = { total: 0, linked: 0, internal: 0, unmatched: [], skew: [] };
   for (const repo of names) {
     const g = graphs.get(repo);
     for (const op of g.nodes('contract')) {
@@ -210,7 +234,10 @@ export function buildWorkspaceGraph(graphs) {
       else if (found.has(repo)) clientOps.internal++;
       else {
         const interfaces = g.in(op.id, 'DEFINES').map((d) => g.node(d.from)).filter(Boolean);
-        clientOps.unmatched.push({ repo, route: key, operation: op.id, interfaces: interfaces.map((n) => n.name).sort(), paths: interfaces.map((n) => n.path).filter(Boolean).sort() });
+        const entry = { repo, route: key, operation: op.id, interfaces: interfaces.map((n) => n.name).sort(), paths: interfaces.map((n) => n.path).filter(Boolean).sort() };
+        const near = nearMatches(key, repo);
+        if (near.length === 1) clientOps.skew.push({ kind: near[0].kind, ...entry, provider_repo: near[0].provider_repo, provider_route: near[0].provider_route });
+        else clientOps.unmatched.push(near.length ? { ...entry, candidates: near } : entry);
       }
     }
   }
@@ -242,7 +269,19 @@ export function buildWorkspaceGraph(graphs) {
       }
     }
   }
-  clientOps.unmatched.sort((a, b) => `${a.repo} ${a.route}`.localeCompare(`${b.repo} ${b.route}`));
+  for (const list of [clientOps.unmatched, clientOps.skew]) list.sort((a, b) => `${a.repo} ${a.route}`.localeCompare(`${b.repo} ${b.route}`));
+
+  // Contract documents: the same `info.title` at different `info.version` in different repositories.
+  const contractsByTitle = new Map();
+  for (const repo of names) {
+    for (const n of graphs.get(repo).nodes('artifact')) {
+      if (n.attrs?.title && n.attrs.api_version) bump(contractsByTitle, n.attrs.title, () => []).push({ repo, api_version: n.attrs.api_version, path: n.path });
+    }
+  }
+  const contractSkew = [...contractsByTitle]
+    .filter(([, docs]) => new Set(docs.map((d) => d.api_version)).size > 1 && new Set(docs.map((d) => d.repo)).size > 1)
+    .map(([title, docs]) => ({ title, versions: docs.sort((a, b) => `${a.repo} ${a.path}`.localeCompare(`${b.repo} ${b.path}`)) }))
+    .sort((a, b) => a.title.localeCompare(b.title));
 
   // Messaging: PUBLISHES in one repository, SUBSCRIBES in another, same topic or queue id.
   const published = new Map();
@@ -331,7 +370,8 @@ export function buildWorkspaceGraph(graphs) {
   const analysis = {
     cross_repo_edges: { total: cross.length, by_type: sortObj(byType), by_via: sortObj(byVia) },
     repo_dependencies: [...rollup.values()].map((r) => ({ from: r.from, to: r.to, via: [...r.via].sort(), edges: r.edges })).sort((a, b) => `${a.from}${a.to}`.localeCompare(`${b.from}${b.to}`)),
-    client_operations: { total: clientOps.total, linked: clientOps.linked, internal: clientOps.internal, unmatched: clientOps.unmatched },
+    client_operations: { total: clientOps.total, linked: clientOps.linked, internal: clientOps.internal, unmatched: clientOps.unmatched, skew: clientOps.skew },
+    contract_skew: contractSkew,
     shared_tables: sharedTables,
     shared_database: sharedTables.length > 0,
     release_coupling: [...hints.values()]
@@ -450,6 +490,7 @@ export function summarizeWorkspace(doc) {
     repositories: doc.repositories.map(({ name, commit, generation, status, nodes, edges }) => ({ name, commit, generation, status, nodes, edges })),
     cross_repo_edges: a.cross_repo_edges,
     client_operations: a.client_operations ?? { total: 0, linked: 0, internal: 0, unmatched: [] },
+    contract_skew: a.contract_skew ?? [],
     repo_dependencies: a.repo_dependencies,
     shared_tables: a.shared_tables,
     shared_database: a.shared_database,

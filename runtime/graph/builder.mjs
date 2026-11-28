@@ -31,7 +31,7 @@ import { analysisCoverage } from '../diagnose/analysis-coverage.mjs';
 import { analysable, census, readEntry } from './census.mjs';
 import { templateLanguageIds } from './languages.mjs';
 import { assertFact, edgeFact, edgeId, factId, NODE_TYPES, nodeFact, prov } from './facts.mjs';
-import { DERIVED_EDGE_TYPES, derivedDone, updateDerived, writeDerived } from './derived.mjs';
+import { configuredLayers, DERIVED_EDGE_TYPES, derivedDone, updateDerived, writeDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
 import { churn, coChange, GIT_LIST_ARGS, GIT_LOG_ARGS, parseGitLog } from './history.mjs';
 import { defaultWorkers, extractParallel } from './pool.mjs';
@@ -283,7 +283,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   const last = fastKey && ctx.store.meta('map:last');
   if (last) {
     const { key, summary: saved } = JSON.parse(last);
-    if (key === fastKey && saved.generation === Number(ctx.store.meta('generation')) && derivedDone(ctx, saved.generation)) {
+    if (key === fastKey && saved.generation === Number(ctx.store.meta('generation')) && derivedDone(ctx, saved.generation, configuredLayers(config))) {
       const checkout = checkoutState(ctx.root);
       const stale = checkoutNotice(checkout, { expected: branchOk });
       if (checkout) ctx.store.meta('mapped_checkout', JSON.stringify(checkout));
@@ -302,6 +302,7 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
         // Counts of this run: nothing was extracted, linked or scanned (#182).
         adapters: Object.fromEntries(Object.entries(saved.adapters ?? {}).map(([id, a]) => [id, { ...a, extracted: 0, cached: a.files }])),
         link: saved.link && Object.fromEntries(Object.entries(saved.link).map(([id, l]) => [id, { ...l, relinked: 0 }])),
+        projection: saved.projection && { ...saved.projection, hashed: 0 },
         discover_files: undefined,
         unchanged: true,
         duration_ms: Date.now() - t0,
@@ -399,8 +400,10 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
           facts = facts.map((f) => redactDeep(assertFact(f)));
           const entry = filesByPath.get(r.path);
           if (entry && !entry.blob) entry.blob = r.blob;
-          if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, keyOf(entry), r.blob ?? entry?.blob ?? 'unknown', canonicalJSON(facts));
-          addFacts(r.path, facts, adapter.id);
+          const text = canonicalJSON(facts);
+          if (!degraded) putIndex.run(r.path, adapter.id, adapter.version, keyOf(entry), r.blob ?? entry?.blob ?? 'unknown', text);
+          // As the next map reads them from the cache, so the runs `project` keeps keys for match then (#145).
+          addFacts(r.path, JSON.parse(text), adapter.id);
           extractedPaths.add(r.path);
           stats.extracted++;
           extracted++;
@@ -636,10 +639,12 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
   ctx.store.meta('constants', JSON.stringify(stats.constants ?? null));
   // Derived facts are a function of the graph: an unchanged graph keeps the stored ones, and a changed
   // one works out again only what the rows projection changed reach, when it can (#145).
+  // A change to the configured layers recomputes them (#245).
   let derived = 'kept';
-  if (projection.changed || !derivedDone(ctx, projection.generation)) {
-    derived = projection.delta && projection.from !== null && updateDerived(ctx, projection.delta, projection.from, projection.generation) ? 'updated' : 'recomputed';
-    if (derived === 'recomputed') writeDerived(ctx, Graph.fromStore(ctx.store, { edgeTypes: DERIVED_EDGE_TYPES }), projection.generation);
+  const layers = configuredLayers(config);
+  if (projection.changed || !derivedDone(ctx, projection.generation, layers)) {
+    derived = projection.delta && projection.from !== null && updateDerived(ctx, projection.delta, projection.from, projection.generation, layers) ? 'updated' : 'recomputed';
+    if (derived === 'recomputed') writeDerived(ctx, Graph.fromStore(ctx.store, { edgeTypes: DERIVED_EDGE_TYPES }), projection.generation, layers);
   }
   lap('derived_ms');
   const summary = {
@@ -666,6 +671,9 @@ async function mapRepositoryInner(ctx, { config, configDigest, run = null, scope
     failures: failures.slice(0, 200),
     failure_count: failures.length,
     facts: all.length,
+    // How many facts' keys were worked out again rather than kept from the last map, and whether the facts
+    // were matched with the store from the runs a change reached (`runs`) or one by one (`store`) (#145).
+    projection: { hashed: projection.hashed, matched: projection.matched },
     nodes: projection.nodes,
     edges: projection.edges,
     ...(stats.constants && { constants: stats.constants }),
@@ -795,6 +803,161 @@ const labelOf = (sources) => {
 const sigOf = (f, p) => createHash('sha1').update(JSON.stringify([PROJECTION_VERSION, p.source_type, p.confidence, p.scope ?? [], p.contradicts ?? [], f.type, f.name ?? null, f.path ?? null])).digest('base64').slice(0, 16);
 const ID_LEN = 26; // `f-` and 24 hex digits (facts.mjs factId)
 
+// Kept fact keys (#145): file_index rows under this adapter, one per content of a run of facts, keyed by a
+// hash of the run's JSON and holding 24 bytes per fact (the 12 bytes of its id, then the 12 of its
+// signature), with the number of runs of that content in `blob`. Meta KEYS_STAMP names the generation whose
+// facts table the rows describe exactly.
+const KEYS_MEMO = 'projection:keys';
+const KEYS_STAMP = 'projection:keys';
+// The node and edge counts of a generation (#145): counting a large graph's rows took seconds on every map.
+const COUNTS = 'projection:counts';
+const RUN_CAP = 256;
+const fnv = (s) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); // mixed: FNV's low bits barely differ between similar paths
+  return (h ^ (h >>> 13)) >>> 0;
+};
+const keyIn = (buf, o) => `f-${buf.toString('hex', o, o + 12)}${buf.toString('base64', o + 12, o + 24)}`;
+
+/**
+ * Fact keys (id and signature, as `project` stores them) by runs. Both are a function of a fact's content
+ * alone, so the facts are cut into runs at content-defined points (where the subject changes to one whose
+ * hash ends in four zero bits) and a run whose JSON hashes as one did in the last map takes the keys worked
+ * out then (`hit`): only the runs a change reached are hashed fact by fact. `key(i)` is fact i's key; `copies`
+ * and `before` count the runs of each content now and in the last map; `dropped` lists the last map's rows
+ * no run matched; `rows()` writes what brings the kept rows to these runs.
+ */
+function factRuns(store, facts) {
+  const version = String(PROJECTION_VERSION);
+  const memo = new Map();
+  const before = new Map(); // hash → runs of it in the last map
+  for (const r of store.iterate('SELECT path, blob, facts FROM file_index WHERE adapter = ? AND config_digest = ?', KEYS_MEMO, version)) {
+    if (!(r.facts instanceof Uint8Array)) continue;
+    memo.set(r.path, Buffer.from(r.facts.buffer, r.facts.byteOffset, r.facts.length));
+    before.set(r.path, Number(r.blob) || 1);
+  }
+  const runOf = new Int32Array(facts.length);
+  const runs = []; // { start, end, h, buf, hit }
+  const keys = new Array(facts.length);
+  const copies = new Map(); // hash → runs of it now
+  let hashed = 0;
+  const close = (start, end) => {
+    const h = createHash('sha256').update(JSON.stringify(facts.slice(start, end))).digest('base64');
+    runOf.fill(runs.length, start, end);
+    copies.set(h, (copies.get(h) ?? 0) + 1);
+    const kept = before.has(h) ? memo.get(h) : null;
+    if (kept?.length === (end - start) * 24) {
+      runs.push({ start, end, h, buf: kept, hit: true });
+      return;
+    }
+    const buf = Buffer.alloc((end - start) * 24);
+    for (let i = start, o = 0; i < end; i++, o += 24) {
+      const f = facts[i];
+      const id = factId(f);
+      const sig = sigOf(f, f.provenance);
+      keys[i] = id + sig;
+      buf.write(id.slice(2), o, 'hex');
+      buf.write(sig, o + 12, 'base64');
+    }
+    hashed += end - start;
+    runs.push({ start, end, h, buf, hit: false });
+    memo.set(h, buf);
+  };
+  let start = 0;
+  let prev = null;
+  for (let i = 0; i < facts.length; i++) {
+    const f = facts[i];
+    const anchor = f.kind === 'node' ? f.id : f.from;
+    if (i > start && (i - start >= RUN_CAP || (anchor !== prev && (fnv(anchor) & 15) === 0))) {
+      close(start, i);
+      start = i;
+    }
+    prev = anchor;
+  }
+  if (facts.length) close(start, facts.length);
+  const key = (i) => keys[i] ?? (keys[i] = keyIn(runs[runOf[i]].buf, (i - runs[runOf[i]].start) * 24));
+  const dropped = [...before].filter(([h]) => !copies.has(h)).map(([h, n]) => ({ buf: memo.get(h), n }));
+  const put = store.db.prepare("INSERT OR REPLACE INTO file_index(path, adapter, adapter_version, config_digest, blob, facts) VALUES (?, ?, '1', ?, ?, ?)");
+  const drop = store.db.prepare('DELETE FROM file_index WHERE path = ? AND adapter = ?');
+  const rows = () => {
+    for (const [h, n] of copies) if (n !== before.get(h)) put.run(h, KEYS_MEMO, version, String(n), memo.get(h));
+    for (const h of before.keys()) if (!copies.has(h)) drop.run(h, KEYS_MEMO);
+    store.run('DELETE FROM file_index WHERE adapter = ? AND config_digest != ?', KEYS_MEMO, version);
+  };
+  return { key, runs, copies, before, dropped, hashed, rows };
+}
+
+/**
+ * Which facts are new and which stored ids are stale, from the runs alone, when the kept rows describe the
+ * facts table exactly (the stamp names its generation): every stored fact is in a row of the last map, so
+ * only the ids of runs hashed now, of rows dropped and of contents held by another number of runs than before
+ * are looked at, and the other runs are scanned only for those. A fact held as often as before with the same
+ * signature is unchanged; one held more or fewer times is written again, so the node or edge that merges its
+ * copies is too. Null when the rows cannot tell (no stamp, or one of those ids with two signatures): `project`
+ * then matches every fact with the store.
+ */
+function runDelta(store, runs, generation0) {
+  if (store.meta(KEYS_STAMP) !== `${PROJECTION_VERSION}:${generation0}`) return null;
+  const ids = new Map(); // id → copies by signature now and before (outside the steady runs), in steady runs; indexes of its facts
+  const entry = (id) => ids.get(id) ?? ids.set(id, { now: new Map(), was: new Map(), kept: new Map(), at: [] }).get(id);
+  const bump = (m, sig, n = 1) => m.set(sig, (m.get(sig) ?? 0) + n);
+  const steady = (r) => r.hit && runs.copies.get(r.h) === runs.before.get(r.h);
+  const counted = new Set();
+  for (const r of runs.runs) {
+    if (steady(r)) continue;
+    for (let i = r.start; i < r.end; i++) {
+      const k = runs.key(i);
+      const e = entry(k.slice(0, ID_LEN));
+      bump(e.now, k.slice(ID_LEN));
+      e.at.push(i);
+    }
+    // A content held before by another number of runs: its copies then count as before.
+    if (r.hit && !counted.has(r.h)) {
+      counted.add(r.h);
+      for (let o = 0; o < r.buf.length; o += 24) {
+        const k = keyIn(r.buf, o);
+        bump(entry(k.slice(0, ID_LEN)).was, k.slice(ID_LEN), runs.before.get(r.h));
+      }
+    }
+  }
+  for (const { buf, n } of runs.dropped) {
+    for (let o = 0; o + 24 <= buf.length; o += 24) {
+      const k = keyIn(buf, o);
+      bump(entry(k.slice(0, ID_LEN)).was, k.slice(ID_LEN), n);
+    }
+  }
+  if (!ids.size) return { fresh: [], staleIds: [], recount: [] };
+  // A steady run rarely holds one of these ids: compare the first four bytes, then the whole key.
+  const prefixes = new Set([...ids.keys()].map((id) => parseInt(id.slice(2, 10), 16)));
+  for (const r of runs.runs) {
+    if (!steady(r)) continue;
+    for (let o = 0; o < r.buf.length; o += 24) {
+      if (!prefixes.has(r.buf.readUInt32BE(o))) continue;
+      const k = keyIn(r.buf, o);
+      const e = ids.get(k.slice(0, ID_LEN));
+      if (e) bump(e.kept, k.slice(ID_LEN));
+    }
+  }
+  const fresh = [];
+  const staleIds = [];
+  const recount = []; // stored ids whose number of copies changed only outside the runs looked at: their node or edge merges again
+  const sigs = (...ms) => new Set(ms.flatMap((m) => [...m.keys()]));
+  const total = (m) => [...m.values()].reduce((x, y) => x + y, 0);
+  for (const [id, e] of ids) {
+    const now = sigs(e.now, e.kept);
+    const was = sigs(e.was, e.kept);
+    if (now.size > 1 || was.size > 1) return null;
+    const [sigNow] = now;
+    const [sigWas] = was;
+    if (sigNow === sigWas && total(e.now) === total(e.was)) continue;
+    if (sigWas !== undefined && sigNow !== sigWas) staleIds.push(id);
+    else if (!e.at.length) recount.push(id);
+    for (const i of e.at) fresh.push(i);
+  }
+  return { fresh: fresh.sort((x, y) => x - y), staleIds, recount };
+}
+
 /**
  * Bring the facts, nodes and edges tables to this fact set, writing only what differs.
  * Facts are matched by id and a signature of their content; nodes and edges merge several
@@ -808,23 +971,26 @@ export function project(ctx, facts, { commit, observedAt }) {
   const { store } = ctx;
   const gen0 = store.meta('generation');
   const generation0 = Number(gen0 ?? 0);
-  const stored = new Map(); // id + signature → whether this fact set holds it
-  for (const r of store.iterate("SELECT id || COALESCE(digest, '') AS k FROM facts")) stored.set(r.k, 0);
-  // Pass 1: which facts are new or changed. A matching id and signature is unchanged; stored
-  // entries nothing matched are stale.
-  const fresh = []; // indexes of facts to write
-  const ids = new Map(); // index → id and signature, for those
-  for (let i = 0; i < facts.length; i++) {
-    const f = facts[i];
-    const id = factId(f);
-    const sig = sigOf(f, f.provenance);
-    const key = id + sig;
-    if (stored.has(key)) {
-      stored.set(key, 1);
-      continue;
+  const runs = factRuns(store, facts);
+  const hashed = runs.hashed;
+  // Pass 1: which facts are new or changed, and which stored ones are stale. From the runs when they
+  // describe the facts table; otherwise by matching every fact's id and signature with the stored ones.
+  let { fresh, staleIds, recount = [] } = (gen0 != null && runDelta(store, runs, generation0)) || {};
+  const matched = fresh ? 'runs' : 'store';
+  if (!fresh) {
+    const stored = new Map(); // id + signature → whether this fact set holds it
+    for (const r of store.iterate("SELECT id || COALESCE(digest, '') AS k FROM facts")) stored.set(r.k, 0);
+    fresh = [];
+    for (let i = 0; i < facts.length; i++) {
+      const key = runs.key(i);
+      if (stored.has(key)) {
+        stored.set(key, 1);
+        continue;
+      }
+      fresh.push(i);
     }
-    fresh.push(i);
-    ids.set(i, { id, sig });
+    staleIds = [];
+    for (const [key, hit] of stored) if (!hit) staleIds.push(key.slice(0, ID_LEN));
   }
   const touchedNodes = new Set();
   const touchedEdges = new Map(); // edge id → [type, from, to]
@@ -840,20 +1006,26 @@ export function project(ctx, facts, { commit, observedAt }) {
     const f = facts[i];
     touch(f.kind, f.kind === 'node' ? f.id : f.from, f.type, f.to);
   }
-  const staleIds = [];
-  for (const [key, hit] of stored) if (!hit) staleIds.push(key.slice(0, ID_LEN));
   const getStale = store.db.prepare('SELECT kind, subject, predicate, object FROM facts WHERE id = ?');
-  for (const id of staleIds) {
+  for (const id of [...staleIds, ...recount]) {
     const r = getStale.get(id);
     if (r) touch(r.kind, r.subject, r.predicate, r.object);
   }
-  const changed = !!(fresh.length || staleIds.length) || gen0 == null;
+  const changed = !!(fresh.length || staleIds.length || recount.length) || gen0 == null;
+  // Counted again when the kept counts are not this generation's (another release wrote it).
+  let counts = null;
+  try { counts = JSON.parse(store.meta(COUNTS) ?? 'null'); } catch { /* counted below */ }
+  if (counts?.generation !== generation0) counts = null;
+  const count = (generation) => ({ generation, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n });
   if (!changed) {
     store.tx(() => {
+      runs.rows();
+      store.meta(KEYS_STAMP, `${PROJECTION_VERSION}:${generation0}`);
+      if (!counts) store.meta(COUNTS, JSON.stringify((counts = count(generation0))));
       store.meta('mapped_commit', commit ?? '');
       store.meta('mapped_at', observedAt);
     });
-    return { generation: generation0, changed: false, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+    return { generation: generation0, changed: false, hashed, matched, nodes: counts.nodes, edges: counts.edges };
   }
   const generation = generation0 + 1;
 
@@ -864,7 +1036,7 @@ export function project(ctx, facts, { commit, observedAt }) {
   const referenced = new Set(); // ids in `recheck` some edge fact (touched or not) still names
   const recheck = new Set([...touchedNodes, ...ends]); // nodes to rebuild and compare
   const touchedFrom = new Set([...touchedEdges.values()].map(([, from]) => from));
-  const idAt = (i, f) => ids.get(i)?.id ?? factId(f);
+  const idAt = (i) => runs.key(i).slice(0, ID_LEN);
   for (let i = 0; i < facts.length; i++) {
     const f = facts[i];
     if (f.kind === 'node') {
@@ -874,7 +1046,7 @@ export function project(ctx, facts, { commit, observedAt }) {
       Object.assign(n.attrs, f.attrs);
       if (!n.path && f.path) n.path = f.path;
       n.sources.push(f.provenance);
-      n.fact_ids.push(idAt(i, f));
+      n.fact_ids.push(idAt(i));
     } else {
       if (recheck.has(f.from)) referenced.add(f.from);
       if (recheck.has(f.to)) referenced.add(f.to);
@@ -886,7 +1058,7 @@ export function project(ctx, facts, { commit, observedAt }) {
       const count = (e.attrs.count ?? 0) + (f.attrs?.count ?? 1);
       Object.assign(e.attrs, f.attrs, { count });
       e.sources.push(f.provenance);
-      e.fact_ids.push(idAt(i, f));
+      e.fact_ids.push(idAt(i));
     }
   }
   const db = store.db;
@@ -899,16 +1071,20 @@ export function project(ctx, facts, { commit, observedAt }) {
   const putEdge = db.prepare('INSERT OR REPLACE INTO edges(type, src, dst, attrs, label, fact_ids) VALUES (?, ?, ?, ?, ?, ?)');
   const delEdge = db.prepare('DELETE FROM edges WHERE src = ? AND type = ? AND dst = ?');
   const exists = db.prepare('SELECT 1 AS ok FROM nodes WHERE id = ?');
+  let dn = 0; // nodes and edges added less those deleted
+  let de = 0;
   const delta = { nodes: new Map(), edges: [] }; // rows written or deleted (node id → [before, after]), for derived facts
   store.tx(() => {
     const delFact = db.prepare('DELETE FROM facts WHERE id = ?');
     for (const id of staleIds) delFact.run(id);
     for (const i of fresh) {
       const f = facts[i];
-      const { id, sig } = ids.get(i);
+      const key = runs.key(i);
+      const id = key.slice(0, ID_LEN);
+      const sig = key.slice(ID_LEN);
       const p = f.provenance;
-      const path = p.source_ref ? String(p.source_ref).split(/[:#]/)[0] : null;
-      insertFact.run(id, generation, f.kind, f.kind === 'node' ? f.id : f.from, f.kind === 'edge' ? f.type : null, f.kind === 'edge' ? f.to : null, canonicalJSON(f.attrs ?? {}), p.source_type, p.source_ref ?? null, p.extractor, observedAt, commit, p.confidence, canonicalJSON(p.scope ?? []), canonicalJSON(p.contradicts ?? []), path, f.attrs?.expires_at ?? null, sig);
+      // `path` is left empty: no query reads it, and it repeats the head of `source_ref` (#145).
+      insertFact.run(id, generation, f.kind, f.kind === 'node' ? f.id : f.from, f.kind === 'edge' ? f.type : null, f.kind === 'edge' ? f.to : null, canonicalJSON(f.attrs ?? {}), p.source_type, p.source_ref ?? null, p.extractor, observedAt, commit, p.confidence, canonicalJSON(p.scope ?? []), canonicalJSON(p.contradicts ?? []), null, f.attrs?.expires_at ?? null, sig);
     }
     // Nodes: a touched id, or an endpoint of a touched edge, may now be real, a placeholder, or gone.
     const ofNode = (id) => {
@@ -921,10 +1097,11 @@ export function project(ctx, facts, { commit, observedAt }) {
       const want = ofNode(id);
       const have = getNode.get(id);
       if (!want) {
-        if (have) { store.run('DELETE FROM nodes WHERE id = ?', id); delta.nodes.set(id, [have, null]); }
+        if (have) { store.run('DELETE FROM nodes WHERE id = ?', id); delta.nodes.set(id, [have, null]); dn--; }
       } else if (!have || have.type !== want.type || have.name !== want.name || have.path !== want.path || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putNode.run(id, want.type, want.name, want.path, want.attrs, want.label, want.fact_ids);
         delta.nodes.set(id, [have ?? null, want]);
+        if (!have) dn++;
       }
     }
     // Edges: those a changed fact touched, and those to a real node with an unprefixed id that came or went.
@@ -933,20 +1110,25 @@ export function project(ctx, facts, { commit, observedAt }) {
       const [type, from, to] = e ? [e.type, e.from, e.to] : touchedEdges.get(eid);
       const have = getEdge.get(from, type, to);
       if (!e || !exists.get(e.from) || !exists.get(e.to)) {
-        if (have) { delEdge.run(from, type, to); delta.edges.push([type, from, to]); }
+        if (have) { delEdge.run(from, type, to); delta.edges.push([type, from, to]); de--; }
         continue;
       }
       const want = { type: e.type, src: e.from, dst: e.to, attrs: canonicalJSON(e.attrs), label: labelOf(e.sources), fact_ids: JSON.stringify(e.fact_ids.slice(0, 50)) };
       if (!have || have.type !== want.type || have.src !== want.src || have.dst !== want.dst || have.attrs !== want.attrs || have.label !== want.label || have.fact_ids !== want.fact_ids) {
         putEdge.run(want.type, want.src, want.dst, want.attrs, want.label, want.fact_ids);
         delta.edges.push([type, from, to]);
+        if (!have) de++;
       }
     }
     store.meta('generation', generation);
+    runs.rows();
+    store.meta(KEYS_STAMP, `${PROJECTION_VERSION}:${generation}`);
+    counts = counts ? { generation, nodes: counts.nodes + dn, edges: counts.edges + de } : count(generation);
+    store.meta(COUNTS, JSON.stringify(counts));
     store.meta('mapped_commit', commit ?? '');
     store.meta('mapped_at', observedAt);
   });
-  return { generation, from: gen0 == null ? null : generation0, delta, changed: true, nodes: store.get('SELECT COUNT(*) AS n FROM nodes').n, edges: store.get('SELECT COUNT(*) AS n FROM edges').n };
+  return { generation, from: gen0 == null ? null : generation0, delta, changed: true, hashed, matched, nodes: counts.nodes, edges: counts.edges };
 }
 
 /** Instrumented entry point (spec §27); a no-op span when telemetry is disabled. */

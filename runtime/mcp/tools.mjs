@@ -116,7 +116,7 @@ export const TOOLS = {
 
   graph_query: {
     description:
-      'List graph nodes by type (type), list edges by type (edge_type, without id), read the derived facts every command shares (derived: scc, scc_strict, declared_only, public_surface, test_code or ownership), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
+      'List graph nodes by type (type), list edges by type (edge_type, without id), read the derived facts every command shares (derived: scc, scc_strict, declared_only, public_surface, test_code, ownership or layers), or fetch one node by id, module path or type name together with its edges (edge_type and direction filter them). Compact by default; full: true returns every attribute. Default limit 50, at most 200; a result over about 40 KB is cut and says how to narrow.',
     inputSchema: schema({
       type: str(),
       id: str(),

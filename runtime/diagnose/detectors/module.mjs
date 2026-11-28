@@ -3,11 +3,10 @@
 // violations. They read IMPORTS / CO_CHANGES / CONTAINS edges only. Thresholds come from
 // config.detectors['module.<name>'] and every one in effect is echoed in the draft.
 
-import { globToRegExp } from '../../core/glob.mjs';
 import { packageName } from '../../core/paths.mjs';
 import { pathInScope, scopePredicate } from '../../core/scope.mjs';
 import { condense, cycleBreakdown, instability, shortestCycle, stronglyConnected } from '../../graph/algorithms.mjs';
-import { MAX_CYCLES, derivedFor, impossibleByBuild, strictView } from '../../graph/derived.mjs';
+import { MAX_CYCLES, derivedFor, impossibleByBuild, layerSpec, layersFor, strictView } from '../../graph/derived.mjs';
 import { clamp, isTestModule, opt } from './local.mjs';
 import { inLibraryDir } from '../conventions.mjs';
 
@@ -725,30 +724,22 @@ const lowCohesionPackage = define({
 // layer-bypass (needs configured layers)
 // ---------------------------------------------------------------------------------------
 
-/** options.layers: ordered top -> bottom; each entry a glob, a list of globs or {name, glob(s)}. */
-function parseLayers(layers) {
-  if (!Array.isArray(layers)) return [];
-  return layers.map((l, i) => {
-    const globs = typeof l === 'string' ? [l] : Array.isArray(l) ? l : [].concat(l?.globs ?? l?.glob ?? []);
-    const name = typeof l === 'object' && !Array.isArray(l) && l?.name ? l.name : (globs[0] ?? `layer-${i}`);
-    return { name, index: i, res: globs.map((g) => globToRegExp(g)) };
-  });
-}
-
 const layerBypass = define({
   name: 'layer-bypass',
   kinds: ['module.layer-bypass'],
   defaults: { min_skipped: 2 },
   run(graph, o, raw) {
-    const layers = parseLayers(raw.layers);
-    if (layers.length < 2) return [];
+    // options.layers, top to bottom; membership is the stored layers fact (#245).
+    const spec = layerSpec(raw.layers);
+    if (!spec.length) return [];
     const strict = raw.strict === true;
-    const layerOf = (path) => layers.find((l) => l.res.some((re) => re.test(path))) ?? null;
+    const layers = spec.map((l, index) => ({ name: l.name, index }));
+    const rows = new Map(layersFor(graph, spec).map((r) => [r.key, layers[r.body.index]]));
     const mods = sourceModules(graph);
     const groups = new Map();
     for (const e of moduleImports(graph, mods)) {
-      const a = layerOf(pathOf(graph, e.from));
-      const b = layerOf(pathOf(graph, e.to));
+      const a = rows.get(e.from);
+      const b = rows.get(e.to);
       if (!a || !b || a.index === b.index) continue;
       let kind = null;
       if (a.index > b.index) kind = 'upward';

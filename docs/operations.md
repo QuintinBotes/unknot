@@ -77,7 +77,14 @@ leading slash, a trailing slash, a query string and the case of the method do no
 and an endpoint served for `ANY` method answers every client method. A typed HTTP client
 route (a `contract:` node from a client interface, see [adapters.md](adapters.md#http-operations-clients-and-endpoints)) gets a CONSUMES edge to the
 `endpoint:` that serves it in another repository, and `workspace map` and `workspace graph`
-list the client routes nothing serves as unmatched. `unknot graph edges <node> --workspace`
+list the client routes nothing serves as unmatched. A route that misses another repository's
+endpoint by exactly one version segment (`v1` against `v2`, a segment matching `v<n>`) or only by
+its method is listed under `client_operations.skew` instead, with `kind` (`version` or `method`),
+the provider repository and the provider route; with two or more such near matches it stays
+unmatched and lists them as `candidates`. OpenAPI and AsyncAPI documents with the same
+`info.title` but a different `info.version` in different repositories are listed under
+`contract_skew`, one line each in the text output. Skew is read from the mapped graphs only;
+nothing is fetched. `unknot graph edges <node> --workspace`
 lists the edges of a node of the combined graph, by qualified id
 (`contract:app:GET /v1/orders/:id`) or by the id inside its repository
 (`contract:GET /v1/orders/:id`, every repository). The graph is stored encrypted in the workspace root's CAS and

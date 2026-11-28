@@ -20,12 +20,19 @@ const L = LANGUAGE_IDS;
  *               or { named: 'key' }; a descriptor may carry several, tried in order
  *   chain       for 'fluent': { serviceCall / implementationCall: { name, typeArg|arg },
  *               lifetimes: { CallName: lifetime }, lifetimeArgCalls: names whose first
- *               argument spells the lifetime, selfCall: a self-binding chain call }
+ *               argument spells the lifetime, selfCall: a self-binding chain call,
+ *               propertiesCall: a chain call that injects every public settable property }
  *   annotations for the annotation kinds: the marker names
  *   receiver    a required receiver name, `receiverPattern` a pattern the text before
  *               the call name must end with (PHP `->` / `::`)
  *   lifetimeNamed  { arg, values } for a named argument that spells the lifetime
  *   defaultLifetime  the lifetime when the code names none
+ *   lifetimeArgs  for 'call': { TypeName: lifetime } for an argument `new TypeName(...)`
+ *   fileMarker  code (comments and strings hidden) the file must contain for the row to
+ *               apply, where the call names are common words of other libraries
+ *   propertyArg   for 'call': the type of an argument `new TypeName("Prop")` that injects
+ *               the named property (a name that is not a string literal is left out)
+ * A registration with property injection carries `properties`: 'autowired' or the names.
  */
 export const DI_SYNTAX = [
   {
@@ -44,8 +51,18 @@ export const DI_SYNTAX = [
     chain: {
       serviceCall: { name: 'As', typeArg: 0 }, selfCall: 'AsSelf',
       lifetimes: { SingleInstance: 'singleton', InstancePerLifetimeScope: 'scoped', InstancePerRequest: 'scoped', InstancePerDependency: 'transient' },
+      propertiesCall: 'PropertiesAutowired',
     },
     defaultLifetime: 'transient',
+  },
+  {
+    container: 'unity', languages: [L.CSHARP], kind: 'call',
+    names: { RegisterType: 'transient', RegisterSingleton: 'singleton' },
+    service: { typeArg: 0 }, implementation: { typeArg: 1 },
+    lifetimeArgs: { ContainerControlledLifetimeManager: 'singleton' },
+    propertyArg: 'InjectionProperty',
+    // RegisterType/RegisterSingleton are also home-grown container wrappers: only a file that uses Unity counts.
+    fileMarker: /\busing\s+(?:Microsoft\.Practices\.)?Unity\b|\bI?UnityContainer\b/,
   },
   {
     container: 'guice', languages: [L.JAVA, L.KOTLIN], kind: 'fluent',
@@ -391,12 +408,12 @@ const TRIGGER = new RegExp(`\\b(?:${[...triggerNames()].join('|')})\\b`);
 
 export function diCandidates(path, text, lang) {
   if (!TRIGGER.test(text)) return [];
-  const rows = DI_SYNTAX.filter((r) => r.languages.includes(lang));
-  if (!rows.length) return [];
+  if (!DI_SYNTAX.some((r) => r.languages.includes(lang))) return [];
   const lx = view(text, lang);
+  const rows = DI_SYNTAX.filter((r) => r.languages.includes(lang) && (!r.fileMarker || r.fileMarker.test(lx.code)));
   const out = [];
   const seen = new Set();
-  const push = (row, serviceRaw, implRaw, lifetime, index) => {
+  const push = (row, serviceRaw, implRaw, lifetime, index, properties) => {
     if (out.length >= MAX_OPERATIONS) return;
     const service = simpleTypeName(serviceRaw);
     const implementation = simpleTypeName(implRaw);
@@ -408,6 +425,7 @@ export function diCandidates(path, text, lang) {
       container: row.container, service, implementation, lifetime,
       line: lx.lineOf(index), index,
       ...(row.scanned ? { scanned: true } : {}),
+      ...(properties ? { properties } : {}),
     });
   };
 
@@ -439,7 +457,18 @@ export function diCandidates(path, text, lang) {
             const named = raw !== undefined ? row.lifetimeNamed.values[simpleTypeName(raw)?.toLowerCase()] : undefined;
             lifetime = named ?? (row.defaultLifetime ?? lifetime);
           }
-          push(row, service, implementation, lifetime, call.index);
+          const args = [...call.args.positional, ...Object.values(call.args.named)];
+          let properties;
+          for (const raw of args) {
+            const type = simpleTypeName(raw);
+            if (row.lifetimeArgs?.[type]) lifetime = row.lifetimeArgs[type];
+            if (row.propertyArg && type === row.propertyArg) {
+              const inner = /\(([\s\S]*)\)\s*$/.exec(raw);
+              const name = inner ? stringValue(argumentsOf(inner[1]).positional[0]) : null;
+              if (name && isSimple(name)) (properties ??= []).push(name);
+            }
+          }
+          push(row, service, implementation, lifetime, call.index, properties && [...new Set(properties)].sort());
         } else {
           const chain = chainAfter(lx, call.end);
           let service = pick(row.service, call);
@@ -454,7 +483,8 @@ export function diCandidates(path, text, lang) {
             else continue;
           }
           if (service === undefined || implementation === undefined) continue;
-          push(row, service, implementation, chainLifetime(row, chain), call.index);
+          const autowired = row.chain?.propertiesCall && chain.some((c) => c.name === row.chain.propertiesCall);
+          push(row, service, implementation, chainLifetime(row, chain), call.index, autowired ? 'autowired' : undefined);
         }
       }
     }
@@ -488,5 +518,25 @@ export function diCandidates(path, text, lang) {
   out.sort((a, b) => a.index - b.index || (a.container < b.container ? -1 : a.container > b.container ? 1 : 0)
     || (a.service < b.service ? -1 : a.service > b.service ? 1 : 0)
     || (a.implementation < b.implementation ? -1 : a.implementation > b.implementation ? 1 : 0));
+  return out;
+}
+
+/**
+ * Implementation name → the registrations that inject its properties ({ properties, path, at }),
+ * read from the di adapter's link-only module attribute, so a language linker running before
+ * the di adapter's link can tell an injected property from a public contract member.
+ */
+export function propertyWiring(factsByFile) {
+  const out = new Map();
+  for (const [path, facts] of factsByFile) {
+    for (const f of facts) {
+      if (f.kind !== 'node' || f.type !== 'module') continue;
+      for (const c of f.attrs?.di_candidates ?? []) {
+        if (!c.properties) continue;
+        if (!out.has(c.implementation)) out.set(c.implementation, []);
+        out.get(c.implementation).push({ properties: c.properties, path, at: `${path}:${c.line}` });
+      }
+    }
+  }
   return out;
 }

@@ -10,7 +10,7 @@ import { maxOf, minOf } from '../core/arrays.mjs';
 import { distinctNames, underRoot } from '../core/paths.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
 import { contractEvidence } from './contracts.mjs';
-import { runtimeBoundary } from './runtime-evidence.mjs';
+import { ageGaps, freshnessOf, runtimeBoundary } from './runtime-evidence.mjs';
 
 /** The size band a repository of `n` modules gets when the configuration sets none: [5, 20] at 100 modules, growing with its square root. */
 export const sizeBandFor = (n) => [Math.max(2, Math.round(Math.sqrt(n) / 2)), Math.max(3, Math.round(Math.sqrt(n) * 2))];
@@ -21,7 +21,7 @@ export const sizeBandFor = (n) => [Math.max(2, Math.round(Math.sqrt(n) / 2)), Ma
  * every candidate without moving the partition of the rest.
  * @returns {{candidates: object[], modularity: number, stats: object}}
  */
-export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null, units = null, keep = () => true } = {}) {
+export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness: threshold = 0.9, seed = 42, eligible = [], workspace = null, units = null, keep = () => true, now = new Date().toISOString() } = {}) {
   const input = { nodes: affinity.nodes, edges: affinity.edges.map(({ a, b, w }) => ({ a, b, w })) };
   const rob = robustness(input, { seed });
   const partition = rob.baseline;
@@ -49,7 +49,7 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
       const touching = cl.internal + cl.external;
       const named = units ? unitName(parts, label) : describeName(cl.members, graph);
       const partOf = units ? (m) => units.unitOf.get(m) : (m) => m;
-      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(partOf(m)) ? partition.get(partOf(m)) : null), self: partition.get(cl.members[0]), workspace });
+      const metrics = boundaryMetrics(graph, members, { cache, tableOwners, sccs, candidateOf: (m) => (partition.has(partOf(m)) ? partition.get(partOf(m)) : null), self: partition.get(cl.members[0]), workspace, now });
       // Share of the affinity weight touching the candidate that stays inside, and that leaves it.
       metrics.metrics['boundary.cohesion'] = +cl.cohesion.toFixed(3);
       if (touching > 0) metrics.metrics['boundary.coupling'] = +(cl.external / touching).toFixed(3);
@@ -80,6 +80,17 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
     stats: rob.stats,
     partition,
   };
+}
+
+/** EXPOSES edges of a node and everything it contains: a Spring or ASP.NET handler is a method inside a class inside the module. */
+function exposesWithin(graph, id) {
+  const out = [];
+  for (const stack = [id]; stack.length;) {
+    const n = stack.pop();
+    out.push(...graph.out(n, 'EXPOSES'));
+    for (const c of graph.children(n)) stack.push(c.id);
+  }
+  return out;
 }
 
 /** Fan-in of a module: modules importing it. */
@@ -217,11 +228,12 @@ function ownersOfTables(graph, cache) {
  * Spec §15A.4 metrics for one candidate. Unmeasurable metrics are omitted and listed in
  * `gaps`, so the pattern engine reports them as insufficient evidence.
  */
-export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners, sccs, candidateOf, self, workspace = null }) {
+export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners, sccs, candidateOf, self, workspace = null, now = new Date().toISOString() }) {
   const m = {};
   const gaps = [];
-  // `details` carries the ids each metric was measured on, for the record's evidence.
-  const details = {};
+  // `details` carries the ids each metric was measured on, for the record's evidence, and the
+  // age of the imported facts behind each runtime or data signal (`freshness`).
+  const details = { freshness: {} };
   // IFN: members used from outside; reverse deps: imports from members into the rest.
   // An import resolved only by namespace (or marked low confidence) is a guess, so it is
   // not counted; imports into test modules are counted apart.
@@ -293,15 +305,18 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
     m['boundary.cross_joins'] = cbj;
   } else gaps.push('no table access facts: shared_table_writers and cross_joins unknown');
   // CBT: transactions spanning tables owned by different candidates (needs transaction facts).
-  // Imported transaction facts carry a window and an expiry: expired ones are ignored and named.
-  const now = new Date().toISOString();
-  const txAll = graph.edges('SHARES_TRANSACTION_WITH');
-  const tx = txAll.filter((e) => !(e.attrs?.expires_at && e.attrs.expires_at < now));
-  if (txAll.length - tx.length) gaps.push(`${txAll.length - tx.length} transaction fact(s) are past their expiry and were not used; re-export database statistics and import again`);
+  // Imported transaction facts carry a window and an expiry: expired ones still count, marked stale (#239).
+  const tx = graph.edges('SHARES_TRANSACTION_WITH');
   if (tx.length) {
     const crossing = tx.filter((e) => ownedHere.has(e.from) !== ownedHere.has(e.to));
     m['boundary.cross_transactions'] = crossing.length;
     details.evidence['boundary.cross_transactions'] = crossing.map((e) => e.id).sort();
+    // Only imported facts were measured over a window; facts read from SQL or ORM code have no age.
+    const imported = (crossing.length ? crossing : tx).filter((e) => e.attrs?.imported).map((e) => e.attrs);
+    if (imported.length) {
+      details.freshness['boundary.cross_transactions'] = freshnessOf(imported, now);
+      gaps.push(...ageGaps('transaction evidence', details.freshness['boundary.cross_transactions'], now));
+    }
     const measured = crossing.filter((e) => e.attrs?.observed_window);
     if (measured.length) {
       const starts = measured.map((e) => e.attrs.observed_window.start).sort();
@@ -314,30 +329,24 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
         edges: measured.map((e) => e.id).sort().slice(0, 50),
       };
     }
-  } else if (!txAll.length) gaps.push('no transaction-boundary facts: cross_transactions unknown');
-  else gaps.push('every transaction fact is past its expiry: cross_transactions unknown');
+  } else gaps.push('no transaction-boundary facts: cross_transactions unknown');
   // Delivery: measured deployments of the units this candidate's modules belong to.
-  // Imported delivery facts carry a window and an expiry: expired ones are ignored and named.
+  // Imported delivery facts carry a window and an expiry: expired ones still count, marked stale (#239).
   const deliveryAll = graph.nodes('deployable').filter((n) => n.attrs?.delivery);
   const releasedAll = graph.edges('RELEASED_WITH');
-  const expiredDelivery = deliveryAll.filter((n) => n.attrs.delivery.expires_at && n.attrs.delivery.expires_at < now).length
-    + releasedAll.filter((e) => e.attrs?.expires_at && e.attrs.expires_at < now).length;
-  if (expiredDelivery) gaps.push(`${expiredDelivery} delivery fact(s) are past their expiry and were not used; re-export delivery history and import again with unknot import deliveries`);
-  const freshDelivery = deliveryAll.filter((n) => !(n.attrs.delivery.expires_at && n.attrs.delivery.expires_at < now));
-  const releasedFresh = releasedAll.filter((e) => !(e.attrs?.expires_at && e.attrs.expires_at < now));
   if (!deliveryAll.length && !releasedAll.length) {
     gaps.push('no delivery history: deploy frequency, change failure rate and lead time unknown; import with unknot import deliveries');
-  } else if (freshDelivery.length) {
+  } else if (deliveryAll.length) {
     const memberList = [...members].map((id) => graph.node(id)?.path ?? id.slice('module:'.length));
-    const placed = freshDelivery
+    const placed = deliveryAll
       .map((n) => ({ node: n, unit: n.id.slice('deployable:'.length), delivery: n.attrs.delivery, members_under: memberList.filter((p) => underRoot(p, n.attrs.delivery.code_root)).length }))
       .filter((u) => u.members_under > 0)
       .sort((a, b) => a.unit.localeCompare(b.unit));
     if (!placed.length) {
-      gaps.push(`delivery history exists for ${freshDelivery.length} unit(s) but the units could not be placed under this candidate: no unit's code_root contains a member module; a code_root column in the delivery import places them`);
+      gaps.push(`delivery history exists for ${deliveryAll.length} unit(s) but the units could not be placed under this candidate: no unit's code_root contains a member module; a code_root column in the delivery import places them`);
     } else {
       const own = new Set(placed.map((u) => u.node.id));
-      const partnersOf = (id) => releasedFresh
+      const partnersOf = (id) => releasedAll
         .filter((e) => e.from === id || e.to === id)
         .map((e) => ({ unit: (e.from === id ? e.to : e.from).slice('deployable:'.length), share: e.attrs.share, edge: e }))
         .sort((a, b) => a.unit.localeCompare(b.unit));
@@ -357,10 +366,12 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
           released_with: partnersOf(u.node.id).map(({ unit, share }) => ({ unit, share })),
         })),
       };
-      const coupling = releasedFresh.filter((e) => own.has(e.from) !== own.has(e.to));
+      const coupling = releasedAll.filter((e) => own.has(e.from) !== own.has(e.to));
       if (coupling.length) {
         m['service.deploy_coupling'] = Math.max(...coupling.map((e) => e.attrs.share ?? 0));
         details.evidence['service.deploy_coupling'] = coupling.map((e) => e.id).sort();
+        details.freshness['service.deploy_coupling'] = freshnessOf([...placed.map((u) => u.delivery), ...coupling.map((e) => e.attrs)], now);
+        gaps.push(...ageGaps('delivery evidence', details.freshness['service.deploy_coupling'], now));
       }
     }
   }
@@ -405,10 +416,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   // The seam may also be inbound runtime evidence: a traced service or endpoint whose code
   // root maps into the candidate shows that requests reach it.
   const seams = [];
-  for (const id of members) {
-    for (const e of graph.out(id, 'EXPOSES')) seams.push(e.id);
-    for (const c of graph.children(id)) for (const e of graph.out(c.id, 'EXPOSES')) seams.push(e.id);
-  }
+  for (const id of members) for (const e of exposesWithin(graph, id)) seams.push(e.id);
   const memberPaths = [...members].map((id) => graph.node(id)?.path ?? id.slice(7));
   const traced = (n) => n.attrs?.span_count > 0 || n.attrs?.calls > 0 || n.attrs?.request_count > 0 || graph.in(n.id, 'RUNTIME_CALLS').length > 0;
   for (const n of [...graph.nodes('service'), ...graph.nodes('endpoint')]) {
@@ -472,8 +480,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   let endpointsTotal = 0;
   for (const id of members) {
     for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') consumers.add(e.from);
-    const eps = [...graph.out(id, 'EXPOSES'), ...graph.children(id).flatMap((c) => graph.out(c.id, 'EXPOSES'))];
-    endpointsTotal += eps.length;
+    endpointsTotal += exposesWithin(graph, id).length;
   }
   m['module.consumers'] = consumers.size;
   details.evidence['module.consumers'] = [...consumers].sort();
@@ -513,8 +520,9 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   if (perRequest.length) m['boundary.calls_per_request_p95'] = Math.max(...perRequest);
   else if (!graph.edges('RUNTIME_CALLS').length) gaps.push('no runtime traces: chattiness (calls per request) unknown');
   // Measured traffic across the boundary (imported tables or traces), with the window it covers.
-  const rt = runtimeBoundary(graph, members);
+  const rt = runtimeBoundary(graph, members, { now });
   Object.assign(m, rt.metrics);
+  Object.assign(details.freshness, rt.freshness);
   gaps.push(...rt.gaps);
   if (rt.runtime) details.runtime = rt.runtime;
   return { metrics: m, gaps, details };

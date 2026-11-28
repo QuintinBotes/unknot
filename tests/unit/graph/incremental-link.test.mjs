@@ -1,8 +1,9 @@
 // Incremental linking (#88, FR-001) stores exactly the graph a cold map of the same tree stores
 // (FR-002): after a body edit, a symbol rename, a change to a widely used type, a member read from
-// another file, a manifest change, and a file deleted and added. Each step is compared, row by row,
-// with a cold map of the tree as it then is, and the generic and quality linkers are shown to have
-// linked again only part of the files when nothing global changed.
+// another file, a registration that starts injecting properties, a manifest change, and a file
+// deleted and added. Each step is compared, row by row, with a cold map of the tree as it then is,
+// and the generic and quality linkers are shown to have linked again only part of the files when
+// nothing global changed.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,6 +44,8 @@ const tree = {
   'Svc/Notify.cs': cls('Shop.Svc', 'Notify', '        [Dependency]\n        public Mailer Mailer { get; set; }', 'using Shop.Core;\n'),
   'Svc/Billing.cs': cls('Shop.Svc', 'Billing', '        public int Bill(Order o) { var t = new Tool(); t.Run(); return o.Total(); }', 'using Shop.Core;\n'),
   'Svc/Leaf.cs': cls('Shop.Svc', 'Leaf', '        public int N() { return 2; }'),
+  'Svc/Report.cs': cls('Shop.Svc', 'Report', '        public Mailer Mail { get; set; }', 'using Shop.Core;\n'),
+  'Svc/Wiring.cs': cls('Shop.Svc', 'Wiring', '        void Load(ContainerBuilder b) { b.RegisterType<Report>().AsSelf(); }'),
   'Svc/Pair.cs': pair('return 1;'),
   'web/orders.js': clone('orders.js'),
   'web/invoices.js': clone('invoices.js'),
@@ -89,6 +92,7 @@ test('an incremental map links again only what a change reaches, and stores what
   const body = await step('body edit', (f) => { f['Svc/Leaf.cs'] = cls('Shop.Svc', 'Leaf', '        public int N() { return 3; }'); });
   assert.ok(body.link.generic.relinked < body.link.generic.modules, `a body edit links few files again (${JSON.stringify(body.link)})`);
   assert.ok(body.link.quality.relinked < body.link.quality.modules);
+  assert.equal(first.projection.hashed, first.facts, 'the first map hashes every fact');
 
   const twoTypes = await step('a body edit in a file of two types', (f) => { f['Svc/Pair.cs'] = pair('return 2;'); });
   assert.ok(twoTypes.link.generic.relinked < twoTypes.link.generic.modules, `the same types and bases link few files again (${JSON.stringify(twoTypes.link)})`);
@@ -99,6 +103,12 @@ test('an incremental map links again only what a change reaches, and stores what
   assert.ok(reach.link.generic.relinked < reach.link.generic.modules);
   const notify = p.ctx.store.get("SELECT attrs FROM edges WHERE src = 'module:Svc/Notify.cs' AND dst = 'module:Core/Mailer.cs' AND type = 'IMPORTS'");
   assert.ok(notify && !JSON.parse(notify.attrs).declared_only, 'the unchanged Notify.cs was linked again: its member is now read');
+
+  await step('a registration starts injecting properties', (f) => {
+    f['Svc/Wiring.cs'] = cls('Shop.Svc', 'Wiring', '        void Load(ContainerBuilder b) { b.RegisterType<Report>().AsSelf().PropertiesAutowired(); }');
+  });
+  const report = p.ctx.store.get("SELECT attrs FROM edges WHERE src = 'module:Svc/Report.cs' AND dst = 'module:Core/Mailer.cs' AND type = 'IMPORTS'");
+  assert.equal(JSON.parse(report.attrs).declared_only, true, 'the unchanged Report.cs was linked again: its property is now injected');
 
   await step('a widely used type changes', (f) => { f['Core/Order.cs'] = cls('Shop.Core', 'Order', '        public int Total() { return 2; }\n        public int Tax() { return 1; }'); });
   await step('a symbol rename', (f) => {
@@ -158,4 +168,26 @@ test('derived facts are brought forward where the import graph did not change, a
   })).derived, 'recomputed');
   assert.equal((await step('a cycle is broken', (f) => { f['app/y.py'] = '\n\ndef y():\n    return 1\n'; })).derived, 'recomputed');
   assert.equal(sccs().length, 2);
+});
+
+test('a re-map works out the keys of the runs of facts a change reached, and keeps the others (#145)', async () => {
+  const files = {};
+  for (let i = 0; i < 200; i++) files[`web/m${i}.js`] = `import { f${(i + 1) % 200} } from './m${(i + 1) % 200}.js';\nexport function f${i}(x) { return x > ${i} ? f${(i + 1) % 200}(x - 1) : ${i}; }\n`;
+  const p = K.makeProject({ files });
+  const first = await map(p);
+  assert.equal(first.projection.hashed, first.facts, 'the first map hashes every fact');
+  const step = stepper(p, files);
+  const edit = await step('a function added', (f) => { f['web/m7.js'] += 'export function g7(y) { return f7(y) + 1; }\n'; });
+  assert.equal(edit.projection.matched, 'runs');
+  assert.ok(edit.projection.hashed < edit.facts / 4, `a one-file edit hashes few facts (${edit.projection.hashed} of ${edit.facts})`);
+  const added = await step('a file added and one deleted', (f) => {
+    f['web/new.js'] = "import { f3 } from './m3.js';\nexport const n = () => f3(1);\n";
+    delete f['web/m50.js'];
+    rmSync(join(p.dir, 'web/m50.js'));
+  });
+  assert.ok(added.projection.hashed < added.facts / 2, `a file added and one deleted hash the runs around them (${added.projection.hashed} of ${added.facts})`);
+  const kept = p.ctx.store.get("SELECT COUNT(*) AS n FROM file_index WHERE adapter = 'projection:keys'").n;
+  const cold = K.makeProject({ files });
+  await map(cold);
+  assert.equal(kept, cold.ctx.store.get("SELECT COUNT(*) AS n FROM file_index WHERE adapter = 'projection:keys'").n, 'runs no longer present are dropped');
 });

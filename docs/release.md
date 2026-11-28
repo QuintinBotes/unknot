@@ -14,8 +14,9 @@ telemetry is emitted (spec §27, §16.5).
 4. Merge to `main` through a pull request with CI green (`npm test`, benchmark smoke, `plugin validate --strict`). `main` is protected: it accepts no direct or force pushes, and the required checks must pass on a branch that is up to date with it. The required checks are every `test (node <version>, <os>)` job of `ci.yml` (node 22, 24 and 26 on ubuntu-latest and macos-latest, and node 22.13.0 on ubuntu-latest), `validate plugin manifest` and `upgrade from previous releases`.
 5. Optionally dry-run the gates: dispatch `release.yml` on the branch (`gh workflow run release.yml --ref <branch>`). A dispatch runs the gate jobs only; the publishing job runs for a tag.
 6. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Release tags (`v*`) are immutable: a ruleset refuses moving or deleting them, so check the commit before you push the tag.
-7. `.github/workflows/release.yml` then runs four gate jobs on the tagged commit, in parallel and
-   read-only, and publishes only when all of them pass:
+7. `.github/workflows/release.yml` then runs five gate jobs on the tagged commit, read-only and in
+   parallel except that the accuracy gate waits for consistency, and publishes only when all of
+   them pass:
    - **tests**: checks the tag equals `v<package.json version>`, runs `npm test` and the restore
      drill (`scripts/restore-drill.mjs`);
    - **upgrade**: `scripts/upgrade-test.mjs --count 5`: each of the last five releases maps a
@@ -23,19 +24,29 @@ telemetry is emitted (spec §27, §16.5).
      migrates the store, and `status`, `slice`, `audit verify` and the approval binding must still
      work;
    - **consistency**: maps the quick corpus (`scripts/accuracy.mjs --quick`) and runs the
-     cross-command consistency check (`scripts/consistency.mjs`) on every repository;
+     cross-command consistency check (`scripts/consistency.mjs`) on every repository, and uploads
+     the accuracy report (`accuracy.json`, `accuracy.md`) as the `accuracy` artifact;
    - **benchmark**: `scripts/bench.mjs --sizes 10k --release-gate`: a no-change re-map at most 0.1
      of the cold map and a re-map after a 10-file change at most 0.5 of it (`RELEASE_GATES`). The
      other two #88 bounds (a changed re-map at most twice the no-change one, the store at most three
      times the tree) are reported in the job log but not gated, because `main` does not meet them
-     yet (#145); they move into `RELEASE_GATES` once it does.
+     yet (#145); they move into `RELEASE_GATES` once it does;
+   - **accuracy**: `scripts/accuracy-compare.mjs <previous> <current> --gate` compares the
+     consistency gate's `accuracy.json` with the one attached to the previous final release (see
+     [Accuracy regressions](#accuracy-regressions)).
 
    The publishing job then:
    - runs `node scripts/build-release.mjs --out dist`;
    - runs `node scripts/verify-release.mjs dist`;
    - attests the tarball and the SBOM with `actions/attest-build-provenance` (Sigstore);
+   - downloads the consistency gate's `accuracy` artifact and builds the notes with
+     `node scripts/release-notes.mjs <tag> --accuracy <dir>`: the version's `CHANGELOG.md` section,
+     then an "Accuracy" section with the corpus (each repository's commit), the seed, and the
+     overall precision, precision by detector and seeded recall tables exactly as
+     `scripts/accuracy.mjs` wrote them for this commit. Without a report in the directory the
+     script exits 1, so the notes never claim a table they do not have;
    - creates the GitHub release with `gh release create` using `GITHUB_TOKEN`, uploading the tarball,
-     `SHA256SUMS` and `sbom.cdx.json`.
+     `SHA256SUMS`, `sbom.cdx.json` and `accuracy.json`.
 
 Only the publishing job holds `contents: write`, `id-token: write` and `attestations: write`; every other
 workflow runs with `permissions: {}` or read-only scope, and every action is pinned to a full
@@ -48,8 +59,25 @@ quick corpus every week and runs the cross-command consistency check on each map
 (see `docs/accuracy.md`). Before tagging, open the latest run: consistency must be green, and the
 step summary's change since the previous run should have no drop you cannot explain. If the
 change you are releasing touches detectors or the graph, dispatch the workflow on the release
-branch first. Consistency gates the release (above); precision and recall do not yet, so reviewing
-them is a human step, and the results go into the release notes.
+branch first. Consistency and per-detector accuracy regressions gate the release (above and
+below); the release notes carry the accuracy table of the tagged commit on their own.
+
+### Accuracy regressions
+
+The accuracy gate fails the release when, between the previous final release's `accuracy.json`
+and this commit's, a detector's precision falls by more than **10 percentage points** on at least
+**10 labelled findings** in both reports, or its seeded recall falls by more than 10 points on at
+least **1 seeded defect**. These are `GATE` (`maxDropPoints`, `minLabelled`, `minSeeded`) in
+`scripts/lib/accuracy-compare.mjs`; the owner tunes them there. A smaller sample is reported as
+too small to judge and does not fail. The gate passes, and says why, when there is no previous
+report (the previous release has no `accuracy.json` asset) or when the two reports were measured
+on a different corpus, seed or sample size.
+
+A drop that is understood is explained in `corpus/accuracy-explained.json`, a committed JSON array
+of `{ "detector": "<kind>", "release": "<version>", "reason": "<why>" }`. An entry covers that
+detector, for precision and recall, in that release only; the gate prints its reason next to the
+drop. An entry missing any of the three fields fails the gate with exit 2. Without `--gate`,
+`accuracy-compare.mjs` only prints the comparison and exits 0, as `quality.yml` uses it.
 
 ### How long fixes may wait
 
@@ -76,6 +104,7 @@ then, release `main` as a patch release, so fixes are never held behind features
 | `unknot-<version>.tar.gz` | `git archive` of the tagged commit, prefix `unknot-<version>/`. Tests and fixtures are included: they are part of the reproducible source. |
 | `SHA256SUMS` | SHA-256 of the tarball and of the SBOM, in `sha256sum` format. |
 | `sbom.cdx.json` | CycloneDX 1.5 SBOM: the package, its zero npm dependencies, the Node.js requirement, the optional external tools (python3, git, helm, kustomize, terraform, gitleaks, semgrep) and the SHA-256 of every shipped file. |
+| `accuracy.json` | The accuracy report of the consistency gate for the tagged commit (`scripts/accuracy.mjs --quick`): precision and seeded recall, overall and per detector, with the corpus and seed. |
 | Provenance attestation | Sigstore-signed SLSA provenance for the tarball and the SBOM, stored by GitHub. |
 
 ### Reproducibility

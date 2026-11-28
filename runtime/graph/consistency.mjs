@@ -4,12 +4,13 @@
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { classifyStyles } from '../artifacts/styles.mjs';
 import { decompose } from '../decompose/index.mjs';
 import { diagnose } from '../diagnose/engine.mjs';
 import { TOOLS } from '../mcp/tools.mjs';
 import { loadConfig } from '../policy/config.mjs';
 import { CHECKS } from '../verify/checks.mjs';
-import { readDerived } from './derived.mjs';
+import { computeLayers, configuredLayers, readDerived } from './derived.mjs';
 import { Graph } from './graph.mjs';
 
 const BIN = fileURLToPath(new URL('../../bin/unknot', import.meta.url));
@@ -67,6 +68,29 @@ export async function checkConsistency(ctx, { config = loadConfig(ctx).config } 
     if (verdict.verdict !== 'pass') bad('api-check', `removing ${names.join(', ')} from ${pathOf(r.from)} fails the API check: ${verdict.detail}`);
   }
   counts.public_declared_only = publicEdges;
+
+  // Layers (#245): the stored rows are what the graph and the configured layers give now, and
+  // the MCP tool, layer-bypass findings and the layered style report those rows.
+  const layerRows = readDerived(ctx, 'layers', { graph });
+  const spec = configuredLayers(config);
+  const layerOf = new Map(layerRows.map((r) => [r.key, r.body]));
+  const fresh = new Map(computeLayers(graph, spec).map((r) => [r.key, r.body]));
+  counts.layer_modules = layerRows.length;
+  const show = (b) => (b ? `${b.layer} (${b.source})` : 'no layer');
+  for (const id of new Set([...layerOf.keys(), ...fresh.keys()])) {
+    if (JSON.stringify(layerOf.get(id)) !== JSON.stringify(fresh.get(id))) bad('layers', `${pathOf(id)} is stored in ${show(layerOf.get(id))}, the graph and config give ${show(fresh.get(id))}`);
+  }
+  const mcpLayers = TOOLS.graph_query.run(ctx, { derived: 'layers', limit: 200 }).facts ?? [];
+  if (mcpLayers.length !== Math.min(200, layerRows.length) || mcpLayers.some(({ key, ...b }, i) => key !== layerRows[i].key || JSON.stringify(b) !== JSON.stringify(layerRows[i].body))) bad('layers', 'the MCP graph_query derived layers differs from the derived store');
+  const names = spec.map((l) => l.name);
+  for (const f of diag.findings.filter((x) => x.kind === 'module.layer-bypass')) {
+    const from = f.key.slice(f.key.indexOf(':') + 1).split('->')[0];
+    if (!same(f.thresholds.layers, names)) bad('layers', `${f.key} names layers ${f.thresholds.layers.join(', ')}, the derived store ${names.join(', ')}`);
+    for (const p of f.scope) if (layerOf.get(`module:${p}`)?.layer !== from) bad('layers', `${f.key} places ${p} in ${from}, the derived store in ${show(layerOf.get(`module:${p}`))}`);
+  }
+  const styleOf = (styles) => JSON.stringify(styles.find((x) => x.style === 'layered') ?? null);
+  const arch = JSON.parse(execFileSync(process.execPath, [BIN, 'architecture', '--json'], { cwd: ctx.root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
+  if (styleOf(arch.styles) !== styleOf(classifyStyles(graph, [...fresh].map(([key, body]) => ({ key, body }))))) bad('layers', 'architecture reports a layered style the layers the graph and config give do not');
 
   // Test code is excluded from decomposition candidates and from module-size findings.
   const dec = await decompose(ctx, { config, dryRun: true });
