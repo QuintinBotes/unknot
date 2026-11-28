@@ -97,6 +97,42 @@ test('no inference between unrelated repositories', () => {
   assert.equal(analysis.shared_database, false);
 });
 
+test('version skew: a near miss on one v<n> segment or on the method is skew; ambiguous or distant stays unmatched', () => {
+  const op = (method, path) => node('contract', `${method} ${path}`, { kind: 'client_operation', method, path });
+  const served = (repo, route) => [node('module', `${repo}.java`), node('endpoint', route), edge('EXPOSES', `module:${repo}.java`, `endpoint:${route}`)];
+  const doc = (path, title, version) => nodeFact('artifact', path, { name: title, path, attrs: { kind: 'openapi', title, api_version: version } }, P);
+  const app = Graph.fromFacts([
+    op('GET', '/api/v1/orders/:id'), op('POST', '/api/orders'), op('GET', '/api/v1/items'), op('DELETE', '/api/nothing'), op('GET', '/api/v1/users'),
+    doc('openapi/orders.yaml', 'Orders API', '1.2.0'),
+  ]);
+  const svc = Graph.fromFacts([
+    ...served('svc', 'GET /api/v2/orders/:orderId'), ...served('svc', 'PUT /api/orders'), ...served('svc', 'GET /api/v1/users'),
+    // Two candidates for GET /api/v1/items: one per version, so neither counts as skew.
+    ...served('svc', 'GET /api/v2/items'), ...served('svc', 'GET /api/v3/items'),
+    doc('openapi.yaml', 'Orders API', '2.0.0'), doc('other.yaml', 'Users API', '1.0.0'),
+  ]);
+  const { analysis } = buildWorkspaceGraph(new Map([['app', app], ['svc', svc]]));
+  const ops = analysis.client_operations;
+  assert.deepEqual(ops.skew.map((s) => [s.kind, s.repo, s.route, s.provider_repo, s.provider_route]), [
+    ['version', 'app', 'GET /api/v1/orders/:', 'svc', 'GET /api/v2/orders/:'],
+    ['method', 'app', 'POST /api/orders', 'svc', 'PUT /api/orders'],
+  ]);
+  assert.equal(ops.linked, 1, 'the exact match links and is not skew');
+  assert.deepEqual(ops.unmatched.map((u) => [u.route, (u.candidates ?? []).map((c) => c.provider_route)]), [
+    ['DELETE /api/nothing', []],
+    ['GET /api/v1/items', ['GET /api/v2/items', 'GET /api/v3/items']],
+  ]);
+  assert.ok(!('candidates' in ops.unmatched[0]), 'no candidates field when there is no near match');
+  assert.deepEqual(analysis.contract_skew, [{ title: 'Orders API', versions: [{ repo: 'app', api_version: '1.2.0', path: 'openapi/orders.yaml' }, { repo: 'svc', api_version: '2.0.0', path: 'openapi.yaml' }] }]);
+
+  // SC-001: the issue's fixture alone is two skews, one contract skew and nothing unmatched.
+  const only = buildWorkspaceGraph(new Map([
+    ['app', Graph.fromFacts([op('GET', '/api/v1/orders/{id}'), op('POST', '/api/orders'), doc('a.yaml', 'Orders API', '1.2.0')])],
+    ['svc', Graph.fromFacts([...served('svc', 'GET /api/v2/orders/{id}'), ...served('svc', 'PUT /api/orders'), doc('b.yaml', 'Orders API', '2.0.0')])],
+  ])).analysis;
+  assert.deepEqual([only.client_operations.skew.map((s) => s.kind), only.contract_skew.length, only.client_operations.unmatched.length], [['version', 'method'], 1, 0]);
+});
+
 test('workspace of two real git repositories: map, store, summarise, campaign', { timeout: 120_000 }, async () => {
   const parent = mkTmp(join(tmpdir(), 'uk-ws-'));
   repo(parent, 'lib', {

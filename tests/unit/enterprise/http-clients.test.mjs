@@ -177,12 +177,13 @@ test('workspace: a client operation links to the endpoint in another repository 
   assert.ok(link('contract:app:POST /v1/orders', 'endpoint:svc:POST /v1/orders'));
   assert.equal(g.out('endpoint:svc:GET /v1/orders/:orderId', 'CONSUMES').length, 0);
 
-  // Operations the other repository does not serve are listed, not dropped.
+  // Operations the other repository does not serve are listed, not dropped; one it serves under another method is method skew.
   const ops = r.analysis.client_operations;
   assert.equal(ops.total, 4);
   assert.equal(ops.linked, 2);
-  assert.deepEqual(ops.unmatched.map((u) => [u.repo, u.route]), [['app', 'DELETE /v1/orders/:'], ['app', 'GET /v1/orders/:/history']]);
+  assert.deepEqual(ops.unmatched.map((u) => [u.repo, u.route]), [['app', 'GET /v1/orders/:/history']]);
   assert.deepEqual(ops.unmatched[0].interfaces, ['IOrdersApi']);
+  assert.deepEqual(ops.skew.map((u) => [u.kind, u.repo, u.route, u.provider_repo, u.provider_route]), [['method', 'app', 'DELETE /v1/orders/:', 'svc', 'GET /v1/orders/:']]);
   assert.ok(r.analysis.repo_dependencies.some((d) => d.from === 'app' && d.to === 'svc' && d.via.includes('contract')));
 
   // `graph edges <client operation> --workspace` shows the link, by qualified id or by the id inside its repository.
@@ -211,5 +212,5 @@ test('workspace route matching: ANY serves every method, same repository is inte
   const b = Graph.fromFacts([mod('b.cs'), ep('ANY /x/:key'), edge('EXPOSES', 'module:b.cs', 'endpoint:ANY /x/:key')]);
   const { analysis, graph } = buildWorkspaceGraph(new Map([['a', a], ['b', b]]));
   assert.ok(graph.edges('CONSUMES').some((e) => e.from === 'contract:a:GET /x/:id' && e.to === 'endpoint:b:ANY /x/:key'));
-  assert.deepEqual(analysis.client_operations, { total: 3, linked: 1, internal: 1, unmatched: [{ repo: 'a', route: 'PUT /y', operation: 'contract:PUT /y', interfaces: [], paths: [] }] });
+  assert.deepEqual(analysis.client_operations, { total: 3, linked: 1, internal: 1, unmatched: [{ repo: 'a', route: 'PUT /y', operation: 'contract:PUT /y', interfaces: [], paths: [] }], skew: [] });
 });
