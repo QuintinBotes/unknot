@@ -676,7 +676,7 @@ const unusedInjectedMember = define({
     const sccs = derivedFor(graph, 'scc').map((r) => r.body);
     const byKey = new Map(derivedFor(graph, 'scc').map((r) => [r.key, r.body]));
     const out = [];
-    const report = (fromId, toId, { member = 'a member', pub, line = 1, bd = null, receivers = null }) => {
+    const report = (fromId, toId, { member = 'a member', pub, line = 1, bd = null, receivers = null, injectedBy = null }) => {
       const from = graph.node(fromId);
       const to = graph.node(toId);
       if (!from || !to || isTestModule(from) || isTestModule(to)) return;
@@ -707,7 +707,12 @@ const unusedInjectedMember = define({
       out.push({
         ...d,
         key: `unused-member:${fromId}>${toId}`,
-        evidence: [...d.evidence, { ref: toId, label: maybe ? 'inferred' : 'observed', summary: maybe ? `${type} is reached from ${from.path} only through ${member}; receivers of unknown type in ${receivers} may read it` : `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` }],
+        evidence: [
+          ...d.evidence,
+          { ref: toId, label: maybe ? 'inferred' : 'observed', summary: maybe ? `${type} is reached from ${from.path} only through ${member}; receivers of unknown type in ${receivers} may read it` : `${type} is reached from ${from.path} only through ${member}`, source_ref: `${from.path}:${line}` },
+          // A public property counts as injected only because a container registration injects it.
+          ...(injectedBy ? injectedBy.split(', ').map((at) => ({ ref: fromId, label: 'inferred', summary: `the container registration at ${at} injects ${member}`, source_ref: at })) : []),
+        ],
         confidence: maybe ? 'low' : 'medium',
         why_accidental: 'An injected member nobody uses still pulls in its dependency, keeps the file coupled to the type and adds a registration to maintain.',
         essential_considerations: [pub ? 'The member is public: consumers outside this repository, reflection or serialization could still use it.' : 'It may be set or read by reflection or a container convention.'],
@@ -729,7 +734,7 @@ const unusedInjectedMember = define({
     };
     for (const { body: r } of rows) {
       if (!r.modules) continue;
-      report(r.from, r.to, { member: r.member ?? 'a member', pub: r.visibility === 'public', line: r.line ?? 1, bd: r.component !== null ? byKey.get(r.component) : null });
+      report(r.from, r.to, { member: r.member ?? 'a member', pub: r.visibility === 'public', line: r.line ?? 1, bd: r.component !== null ? byKey.get(r.component) : null, injectedBy: r.injected_by ?? null });
     }
     // A public member that other files may reach only by name, on receivers of unknown type:
     // reported, at low confidence, naming those files (it is neither proven used nor unused).

@@ -12,7 +12,9 @@
 //                a member is considered only when it is private or injected, so a public
 //                contract member never counts as unused. `pubTail` and `pubName` say when the
 //                member can be reached from other files (null: always); `weak` names the members
-//                whose reach is by convention only (labelled `weakLabel` rather than public)
+//                whose reach is by convention only (labelled `weakLabel` rather than public).
+//                `wired`: the member is injected only where a container registration injects
+//                the declaring class's properties (di-ops.mjs `properties`), decided at link
 //   inject       a statement that stores a parameter into a member where there is no member
 //                declaration (`self.x = x`): groups `l` (member) and `r` (parameter)
 //   ctorAssign   the statement that stores a parameter into a member (groups 1 and 2); it is
@@ -68,6 +70,15 @@ export const MEMBER_SYNTAX = {
         tail: new RegExp(`(${MODS_CS}*)$`),
         pubTail: /\b(?:public|protected|internal)\b/,
         after: /^(?:\s*<[^;{}()=]*>)?\??\s+(?<name>[A-Za-z_]\w*)\s*(\{\s*(?:\[[^\]]*\]\s*)*(?:get|set|init)\b|;|=(?![=>]))/,
+      },
+      {
+        // A public, non-static auto-property with a public setter: what Autofac's PropertiesAutowired and Unity's InjectionProperty set.
+        kind: 'member',
+        wired: true,
+        gate: [new RegExp(`(?:^|[;{}\\]])\\s*(?=${MODS_CS}*\\bpublic\\b)(?!${MODS_CS}*\\bstatic\\b)${MODS_CS}+$`)],
+        tail: new RegExp(`(${MODS_CS}*)$`),
+        pubTail: /\bpublic\b/,
+        after: /^(?:\s*<[^;{}()=]*>)?\??\s+(?<name>[A-Za-z_]\w*)\s*\{\s*get\s*;\s*set\s*;\s*\}/,
       },
       {
         kind: 'param',

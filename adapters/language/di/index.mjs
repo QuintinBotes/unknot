@@ -14,7 +14,7 @@ import { MAX_TEXT } from '../contract-scan.mjs';
 import { diCandidates, simpleTypeName } from '../di-ops.mjs';
 
 const ID = 'di';
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const EXTRACTOR = `${ID}@${VERSION}`;
 const MAX_FACTS = 5000;
 
@@ -110,11 +110,13 @@ export default {
         if (svc && impl && svc.id !== impl.id) {
           emit(edgeFact('RESOLVES_TO', svc.id, impl.id, {
             via: 'container', container: c.container, lifetime: c.lifetime, registered_in: path, line: c.line,
+            ...(c.properties && { properties: c.properties }),
           }, pv));
         }
         if (impl && impl.path && impl.path !== path) {
           emit(edgeFact('DEPENDS_ON', `module:${path}`, `module:${impl.path}`, {
             via: 'container', container: c.container, service: c.service, implementation: c.implementation, lifetime: c.lifetime,
+            ...(c.properties && { properties: c.properties }),
           }, pv));
         }
       }

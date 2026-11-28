@@ -27,8 +27,9 @@ export function csharpRefs(lx, an) {
  * decided, see adapters/semantic/scip) replaces the name matching for the files it covers: whether an
  * injected member is used comes from the index, and the name-matched module calls are dropped.
  * `allowed(from, to, name)` says whether the build lets `from` see `name` declared in `to` (build-graph.mjs).
+ * `wiring` (di-ops.mjs propertyWiring) says which classes a container registration injects properties into.
  */
-export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => true, rec = () => {}) {
+export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => true, rec = () => {}, wiring = new Map()) {
   const byName = new Map();
   const full = new Map();
   const known = new Set();
@@ -62,6 +63,23 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
     m.has = (k) => (rec(`${tag}:${k}`), has(k));
   }
 
+  /**
+   * The registrations (`path:line`) that inject every wired member of `wired` (member → declaring
+   * type), or null when one of them is not injected. A registration names the class by simple
+   * name: it counts when that name is declared in one file only, or in the registering file.
+   */
+  const injectedBy = (path, wired) => {
+    const at = new Set();
+    for (const [member, owner] of Object.entries(wired)) {
+      rec(`di.wired:${owner}`);
+      const declared = new Set((byName.get(owner) ?? []).map((e) => e.path));
+      const regs = (wiring.get(owner) ?? []).filter((r) => (r.properties === 'autowired' || r.properties.includes(member)) && (declared.size === 1 || r.path === path));
+      if (!regs.length) return null;
+      for (const r of regs) at.add(r.at);
+    }
+    return at;
+  };
+
   return (path) => {
     rec('cs.globals');
     const a = mods.get(path).attrs;
@@ -88,15 +106,17 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
     const declOnly = a.decl_only ?? {};
     const hits = new Map();
     const declPublic = a.decl_public ?? {};
+    const declWired = a.decl_wired ?? {};
     const sem = semantic?.get(path) ?? null;
-    const hit = (to, spec, line, decl, member, pub = []) => {
+    const hit = (to, spec, line, decl, member, pub = [], by = null) => {
       if (to === path) return;
       let h = hits.get(to);
-      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set(), names: new Set() }));
+      if (!h) hits.set(to, (h = { spec, line, decl: true, members: new Set(), pub: new Set(), names: new Set(), by: new Set() }));
       h.names.add(spec.slice(spec.lastIndexOf('.') + 1));
       if (decl) {
         h.members.add(member);
         for (const m of pub) h.pub.add(m);
+        for (const r of by ?? []) h.by.add(r);
       } else h.decl = false;
     };
     const ok = (to, spec) => allowed(path, to, spec.slice(spec.lastIndexOf('.') + 1));
@@ -130,13 +150,19 @@ export function csharpLinker(mods, sortedMods, semantic = null, allowed = () => 
       let name = ref;
       let es = lookup(name);
       if (!es.length) es = lookup((name = `${ref}Attribute`));
-      for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, ref in declOnly, declOnly[ref], declPublic[ref]);
+      // A public settable property is an injected member only where a registration injects it.
+      const by = es.length && ref in declWired ? injectedBy(path, declWired[ref]) : null;
+      const decl = ref in declOnly && (!(ref in declWired) || by !== null);
+      for (const e of es) hit(e.path, `${e.ns}.${name}`, usings.get(e.ns) ?? 1, decl, declOnly[ref], declPublic[ref], by);
     }
     for (const s of statics) for (const p of full.get(s.spec) ?? []) if (ok(p, s.spec)) hit(p, s.spec, s.line, false);
     // A member another file reaches is an ordinary use, however the declaring file treats it. A file a
     // SCIP index covers has the index's verdict instead (see withSemantic), never name matching.
     const owners = a.public_owners ?? {};
-    const edges = [...hits].map(([to, h]) => ({ to, line: h.line, attrs: { spec: h.spec, via: 'type', ...(a.is_test && { names: [...h.names].sort() }), ...declaredEdge(path, h, owners, reach, SYNTAX).attrs } }));
+    const edges = [...hits].map(([to, h]) => {
+      const d = declaredEdge(path, h, owners, reach, SYNTAX);
+      return { to, line: h.line, attrs: { spec: h.spec, via: 'type', ...(a.is_test && { names: [...h.names].sort() }), ...d.attrs, ...(d.declared && h.by.size && { injected_by: [...h.by].sort().join(', ') }) } };
+    });
     // Calls: members reached through a receiver whose type is declared in another repository file.
     const callTo = new Map();
     for (const [t, [n, weak, line]] of Object.entries(a.member_calls ?? {})) {

@@ -13,6 +13,7 @@ import { lex } from './lexer.mjs';
 import { analyze } from './structure.mjs';
 import { frameworkInfo, normPath } from './frameworks.mjs';
 import { ormAccess, tableFacts } from '../orm-maps.mjs';
+import { propertyWiring } from '../di-ops.mjs';
 import { clientFacts, routeGroupAttrs, routeGroups, serverInterfaces } from '../http-ops.mjs';
 import { csharpLinker, csharpRefs, friendAssemblies } from './csharp.mjs';
 import { buildGraph } from './build-graph.mjs';
@@ -21,7 +22,7 @@ import { declaredEdge, dropMemberAttrs, memberAttrs, memberReach, memberRefs, me
 import { basename, dirname, manifestFacts, manifestKind, resolvePath } from './manifests.mjs';
 import { resolveFlatSiblingImport } from './imports.mjs';
 
-const VERSION = '0.1.23';
+const VERSION = '0.1.24';
 const EXTRACTOR = `generic@${VERSION}`;
 const MAX_FACTS = 5000;
 const genericSyntax = (lang) => language(lang)?.genericSyntax ?? {};
@@ -352,6 +353,8 @@ function declares(facts, path) {
   const put = (k, v = 1) => keys.set(k, [...(keys.get(k) ?? []), v]);
   const shape = [];
   for (const f of facts) {
+    // A registration that injects a class's properties (the di adapter's facts): read by the C# member link.
+    for (const c of f.kind === 'node' ? f.attrs?.di_candidates ?? [] : []) if (c.properties) put(`di.wired:${c.implementation}`, [c.properties, c.line]);
     if (f.kind !== 'node' || f.provenance?.extractor !== EXTRACTOR) continue;
     if (f.type === 'package' || f.type === 'workspace' || f.type === 'build_target') return null;
     if (f.type === 'class' || f.type === 'interface') put(`types:${f.name}`, [f.id, f.type, f.path, f.attrs]);
@@ -700,7 +703,7 @@ function link(ctx) {
   const importsOf = new Map();
   // path → qualifier → files of the package it names there: the alias, else the package clause; '' for a dot import.
   const qualified = new Map();
-  const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed, rec);
+  const csLink = csharpLinker(mods, sortedMods, ctx.semantic, build.allowed, rec, propertyWiring(ctx.factsByFile));
   // Incremental (#88, FR-001): what each file's imports resolve to is kept with the keys it read
   // (module paths, type names, packages, directories, namespaces, members). A file is linked again
   // when it changed or when a changed file declares, now or before, a key it read; any other file
