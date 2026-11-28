@@ -82,6 +82,17 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
   };
 }
 
+/** EXPOSES edges of a node and everything it contains: a Spring or ASP.NET handler is a method inside a class inside the module. */
+function exposesWithin(graph, id) {
+  const out = [];
+  for (const stack = [id]; stack.length;) {
+    const n = stack.pop();
+    out.push(...graph.out(n, 'EXPOSES'));
+    for (const c of graph.children(n)) stack.push(c.id);
+  }
+  return out;
+}
+
 /** Fan-in of a module: modules importing it. */
 const fanIn = (graph, id) => new Set(graph.in(id, 'IMPORTS').map((e) => e.from)).size;
 
@@ -405,10 +416,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   // The seam may also be inbound runtime evidence: a traced service or endpoint whose code
   // root maps into the candidate shows that requests reach it.
   const seams = [];
-  for (const id of members) {
-    for (const e of graph.out(id, 'EXPOSES')) seams.push(e.id);
-    for (const c of graph.children(id)) for (const e of graph.out(c.id, 'EXPOSES')) seams.push(e.id);
-  }
+  for (const id of members) for (const e of exposesWithin(graph, id)) seams.push(e.id);
   const memberPaths = [...members].map((id) => graph.node(id)?.path ?? id.slice(7));
   const traced = (n) => n.attrs?.span_count > 0 || n.attrs?.calls > 0 || n.attrs?.request_count > 0 || graph.in(n.id, 'RUNTIME_CALLS').length > 0;
   for (const n of [...graph.nodes('service'), ...graph.nodes('endpoint')]) {
@@ -472,8 +480,7 @@ export function boundaryMetrics(graph, members, { cache = new Map(), tableOwners
   let endpointsTotal = 0;
   for (const id of members) {
     for (const e of graph.in(id, 'IMPORTS')) if (!members.has(e.from) && graph.node(e.from)?.type === 'module') consumers.add(e.from);
-    const eps = [...graph.out(id, 'EXPOSES'), ...graph.children(id).flatMap((c) => graph.out(c.id, 'EXPOSES'))];
-    endpointsTotal += eps.length;
+    endpointsTotal += exposesWithin(graph, id).length;
   }
   m['module.consumers'] = consumers.size;
   details.evidence['module.consumers'] = [...consumers].sort();
