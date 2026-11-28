@@ -80,7 +80,7 @@ What it adds, per file the index covers (matched by repository path; documents f
 
 How it reads: the file is streamed one document at a time through a fixed window, in two passes, so memory is bounded by the symbol table (the symbols the repository defines), not the file size; a generated 97 MB index took about 1 s and 190 MB of RSS (a 195 MB one, 2 s and 280 MB). An index is read on every `map`. A truncated or malformed file, or a configured path that does not exist, makes the map `partial` with the reason. `doctor` reports whether an index is configured or found, how many files it covers, and whether it is stale: older than the last commit that touched a covered file.
 
-A direct Roslyn adapter (loading the solution itself) is a separate item; this one imports an index you made.
+For C#, this is the semantic route: scip-dotnet builds the projects through Roslyn, and its index carries what Roslyn resolved. A direct Roslyn adapter (loading the solution itself) is not planned ([#29](https://github.com/QuintinBotes/unknot/issues/29), superseded by the SCIP importer and the brokered indexers of [#54](https://github.com/QuintinBotes/unknot/issues/54)).
 
 ### Frameworks and web conventions
 
