@@ -353,6 +353,40 @@ test('graph_query: default limit 50, byte cap marks truncation and says how to n
   assert.equal(small.structuredContent.truncated, undefined);
 });
 
+test('graph_query derived: a component over the byte cap is shortened, not dropped, and says what was cut (#261)', async () => {
+  const { TOOLS } = await import('../../../runtime/mcp/tools.mjs');
+  const { readDerived } = await import('../../../runtime/graph/derived.mjs');
+  const { Graph } = await import('../../../runtime/graph/graph.mjs');
+  const dir = mkTmp(join(tmpdir(), 'uk-mcp-scc-'));
+  const ctx = openProject(dir, { create: true });
+  const mod = (n) => nodeFact('module', `src/${n}.ts`, { name: n, path: `src/${n}.ts` }, p);
+  const imp = (a, b) => edgeFact('IMPORTS', `module:src/${a}.ts`, `module:src/${b}.ts`, {}, p);
+  project(ctx, [...'abcde'].map(mod).concat([imp('a', 'b'), imp('b', 'a'), imp('c', 'd'), imp('d', 'e'), imp('e', 'c')]), { commit: 'abc123', observedAt: '2026-01-01T00:00:00Z' });
+  const g = (a) => TOOLS.graph_query.run(ctx, { derived: 'scc', ...a });
+  const fit = g({});
+  assert.equal(fit.facts.length, 2);
+  assert.equal(fit.truncated, undefined);
+  assert.deepEqual(fit.facts, readDerived(ctx, 'scc', { graph: Graph.fromStore(ctx.store) }).map((r) => ({ key: r.key, ...r.body })));
+
+  const big = fit.facts[0].key;
+  const cycle = { nodes: ['x'], edges: [{ from: `module:${'p'.repeat(300)}`, to: `module:${'q'.repeat(300)}` }] };
+  ctx.store.run("UPDATE derived SET body = json_set(body, '$.cycles', json(?)) WHERE kind = 'scc' AND key = ?", JSON.stringify(Array(200).fill(cycle)), big);
+  for (const limit of [1, 50]) {
+    const r = g({ limit });
+    assert.equal(r.facts.length, limit === 1 ? 1 : 2);
+    assert.ok(Buffer.byteLength(JSON.stringify(r)) <= 40_000);
+    const row = r.facts.find((f) => f.key === big);
+    assert.deepEqual(row.members, fit.facts[0].members);
+    assert.equal(row.size, fit.facts[0].size);
+    assert.equal(row.fields_cut.cycles, 200);
+    assert.ok(row.cycles.length > 0 && row.cycles.length < 200);
+    assert.equal(r.truncated, true);
+    assert.match(r.hint, /fields_cut/);
+    if (limit === 50) assert.deepEqual(r.facts[1], fit.facts[1], 'a row that fits is unchanged');
+  }
+  ctx.store.close();
+});
+
 test('graph_hubs: edge_types union, scope, within and a consistent limit; graph_neighbourhood compact nodes', async () => {
   const one = await c.call('graph_hubs', { edge_type: 'IMPORTS' });
   assert.equal(one.structuredContent.edge_type, 'IMPORTS');
