@@ -1,4 +1,4 @@
-import { limit } from '../../helpers/speed.mjs';
+import { cpuMs, limit } from '../../helpers/speed.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Graph } from '../../../runtime/graph/graph.mjs';
@@ -40,9 +40,9 @@ test('stronglyConnected: 200k-node chain, iteratively and fast', () => {
   const n = 200000;
   for (let i = 0; i < n; i++) g.addNode(`n${String(i).padStart(6, '0')}`, 'module');
   for (let i = 0; i < n - 1; i++) g.addEdge('IMPORTS', `n${String(i).padStart(6, '0')}`, `n${String(i + 1).padStart(6, '0')}`);
-  const t0 = performance.now();
+  const t0 = cpuMs();
   assert.deepEqual(stronglyConnected(g), []);
-  assert.ok(performance.now() - t0 < limit(2000), `took ${performance.now() - t0}ms (limit ${limit(2000)}ms)`);
+  assert.ok(cpuMs() - t0 < limit(2000), `took ${cpuMs() - t0}ms (limit ${limit(2000)}ms)`);
   // Closing the chain into one giant ring must yield a single component.
   g.addEdge('IMPORTS', `n${String(n - 1).padStart(6, '0')}`, 'n000000');
   const sccs = stronglyConnected(g);
@@ -231,9 +231,9 @@ test('cycleBreakdown on a large component: linear-time cut that breaks every cyc
   for (let i = 0; i < n; i++) add(i, (i + 1) % n, i % 500 === 0 || i === n - 1 ? { declared_only: true } : {});
   for (let k = 0; k < 4 * n; k++) { const a = Math.floor(rand() * n); const b = Math.floor(rand() * n); if (a < b) add(a, b); }
   const graph = { out: (id) => out.get(id) ?? [] };
-  const t = Date.now();
+  const t = cpuMs();
   const b = cycleBreakdown(graph, ids, { edgeTypes: ['IMPORTS'], maxCycles: 50 });
-  assert.ok(Date.now() - t < limit(5000), `took ${Date.now() - t} ms (limit ${limit(5000)}ms)`);
+  assert.ok(cpuMs() - t < limit(5000), `took ${cpuMs() - t} ms (limit ${limit(5000)}ms)`);
   assert.equal(b.cut_heuristic, true);
   // Only the ring's back edge closes cycles (the random edges all point forward); it is the cut.
   assert.deepEqual(b.cut.map((e) => [e.from, e.to, e.declared_only]), [[ids[n - 1], ids[0], true]]);

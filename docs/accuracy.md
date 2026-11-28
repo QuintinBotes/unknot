@@ -87,8 +87,10 @@ analyse.
 
 `.github/workflows/quality.yml` runs weekly (Monday 04:23 UTC) and on demand (Actions, Quality,
 Run workflow). It runs the `--quick` line above on the corpus clones (cached on
-`scripts/corpus.json`), then `node scripts/consistency.mjs --work <the same directory>`, which
-runs the cross-command consistency check over every repository the accuracy run mapped. The job
+`scripts/corpus.json`), then `node scripts/consistency.mjs --quick --work <the same directory>`, which
+runs the cross-command consistency check over every repository of the quick corpus, and fails
+naming any it finds unmapped. Without `--quick` it checks every repository not marked `large`,
+as the release gate does after `scripts/accuracy.mjs --map-only` (map, score nothing). The job
 has `contents: read` and `actions: read` only and a 60 minute limit. It fails when a repository
 cannot be analysed or when the commands disagree; it does **not** fail on precision or recall
 numbers. The release workflow does: its accuracy gate fails a release on an unexplained
