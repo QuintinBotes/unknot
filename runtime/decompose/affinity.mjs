@@ -28,6 +28,17 @@ export function moduleOf(graph, id, cache = new Map()) {
   return out;
 }
 
+/** EXPOSES edges of a node and everything it contains: a Spring or ASP.NET handler is a method inside a class inside the module. */
+export function exposesWithin(graph, id) {
+  const out = [];
+  for (const stack = [id]; stack.length;) {
+    const n = stack.pop();
+    out.push(...graph.out(n, 'EXPOSES'));
+    for (const c of graph.children(n)) stack.push(c.id);
+  }
+  return out;
+}
+
 /**
  * Build units (#74): a file of a language whose table row declares `buildUnit` belongs to the
  * project, Maven or Gradle module or crate that contains it (the package the language adapter
@@ -135,7 +146,7 @@ export function buildAffinity(graph, { modules, weights }) {
       const root = svc.attrs?.code_root;
       if (!root) continue;
       const mods = modules.filter((m) => m.slice(7).startsWith(`${root.replace(/\/$/, '')}/`));
-      const exposing = mods.filter((m) => graph.out(m, 'EXPOSES').length || graph.children(m).some((c) => graph.out(c.id, 'EXPOSES').length));
+      const exposing = mods.filter((m) => exposesWithin(graph, m).length);
       entry.set(svc.id, (exposing.length ? exposing : mods).slice(0, 20));
     }
     for (const e of graph.edges('RUNTIME_CALLS')) {

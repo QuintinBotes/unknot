@@ -12,7 +12,8 @@ const { run } = await import('../../../runtime/cli/commands/import.mjs');
 const { parseArgs } = await import('../../../runtime/cli/util.mjs');
 const { decompose } = await import('../../../runtime/decompose/index.mjs');
 const { Graph } = await import('../../../runtime/graph/graph.mjs');
-const { nodeFact, prov } = await import('../../../runtime/graph/facts.mjs');
+const { edgeFact, nodeFact, prov } = await import('../../../runtime/graph/facts.mjs');
+const { buildAffinity } = await import('../../../runtime/decompose/affinity.mjs');
 const { matchRows, parseImport, parseWindow } = await import('../../../adapters/runtime/imports.mjs');
 const { COVERAGE_THRESHOLD, ageGaps, capConfidence, freshnessOf } = await import('../../../runtime/decompose/runtime-evidence.mjs');
 
@@ -107,6 +108,47 @@ describe('matching onto graph nodes', () => {
     assert.match(unmatched[0].why, /caller: symbol dup is ambiguous/);
     assert.match(unmatched[1].why, /no endpoint or route constant/);
     assert.match(unmatched[2].why, /service_map/);
+  });
+});
+
+describe('runtime affinity entry modules (#256)', () => {
+  const p = prov({ source_type: 'ast', extractor: 'test@1.0.0' });
+  const mod = (path) => nodeFact('module', path, { path }, p);
+  const contains = (from, to) => edgeFact('CONTAINS', from, to, {}, p);
+  const exposes = (from, route) => edgeFact('EXPOSES', from, `endpoint:${route}`, {}, p);
+  const affinity = (facts) => buildAffinity(Graph.fromFacts(facts), {
+    modules: facts.filter((f) => f.type === 'module').map((f) => f.id),
+    weights: { structural: 0, data: 0, evolutionary: 0, semantic: 0, runtime: 1 },
+  });
+  const coupled = (a) => a.edges.filter((e) => e.parts.R > 0).map((e) => [e.a, e.b]);
+  const services = [
+    nodeFact('service', 'orders', { attrs: { code_root: 'orders' } }, p),
+    nodeFact('service', 'stock', { attrs: { code_root: 'stock' } }, p),
+    edgeFact('RUNTIME_CALLS', 'service:orders', 'service:stock', { calls: 40 }, p),
+  ];
+
+  test('a handler method inside a class makes its module the entry module', () => {
+    const spring = (svc, name) => {
+      const file = `${svc}/${name}Controller.java`;
+      return [
+        mod(file),
+        mod(`${svc}/${name}Util.java`),
+        nodeFact('class', `${file}#${name}Controller`, { path: file }, p),
+        nodeFact('method', `${file}#${name}Controller.get`, { path: file }, p),
+        nodeFact('endpoint', `GET /${svc}`, {}, p),
+        contains(`module:${file}`, `class:${file}#${name}Controller`),
+        contains(`class:${file}#${name}Controller`, `method:${file}#${name}Controller.get`),
+        exposes(`method:${file}#${name}Controller.get`, `GET /${svc}`),
+      ];
+    };
+    assert.deepEqual(coupled(affinity([...services, ...spring('orders', 'Order'), ...spring('stock', 'Stock')])), [
+      ['module:orders/OrderController.java', 'module:stock/StockController.java'],
+    ]);
+  });
+
+  test('a module that exposes a route directly keeps being the entry module', () => {
+    const ts = (svc) => [mod(`${svc}/routes.ts`), mod(`${svc}/util.ts`), nodeFact('endpoint', `GET /${svc}`, {}, p), exposes(`module:${svc}/routes.ts`, `GET /${svc}`)];
+    assert.deepEqual(coupled(affinity([...services, ...ts('orders'), ...ts('stock')])), [['module:orders/routes.ts', 'module:stock/routes.ts']]);
   });
 });
 

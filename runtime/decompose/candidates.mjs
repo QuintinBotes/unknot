@@ -5,7 +5,7 @@
 import { clusterMetrics, modularity, robustness } from '../graph/community.mjs';
 import { cycleBreakdown } from '../graph/algorithms.mjs';
 import { MAX_CYCLES, cycleView, sccsOf } from '../graph/derived.mjs';
-import { moduleOf } from './affinity.mjs';
+import { exposesWithin, moduleOf } from './affinity.mjs';
 import { maxOf, minOf } from '../core/arrays.mjs';
 import { distinctNames, underRoot } from '../core/paths.mjs';
 import { foldReason, foldSiblings } from './fold.mjs';
@@ -80,17 +80,6 @@ export function findCandidates(graph, affinity, { sizeBand = [5, 20], robustness
     stats: rob.stats,
     partition,
   };
-}
-
-/** EXPOSES edges of a node and everything it contains: a Spring or ASP.NET handler is a method inside a class inside the module. */
-function exposesWithin(graph, id) {
-  const out = [];
-  for (const stack = [id]; stack.length;) {
-    const n = stack.pop();
-    out.push(...graph.out(n, 'EXPOSES'));
-    for (const c of graph.children(n)) stack.push(c.id);
-  }
-  return out;
 }
 
 /** Fan-in of a module: modules importing it. */
